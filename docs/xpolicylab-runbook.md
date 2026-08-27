@@ -4,6 +4,7 @@
 runbook：
 
 - [Pi05 + YAM](pi05-yam-runbook.md)
+- [Pi05 + UMI](pi05-umi-runbook.md)
 - [GR00T N1.7 + YAM](gr00t-yam-runbook.md)
 - [Xiaomi XR-1 + YAM](xiaomi-xr1-yam-runbook.md)
 - [LingBot-VLA2 + YAM](lingbot-vla2-yam-runbook.md)
