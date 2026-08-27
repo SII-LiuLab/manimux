@@ -1,0 +1,29 @@
+# Locally trained Pi05-UMI checkpoint for the bimanual exchange-ball task.
+# Update model_path/norm_stats_path to the step that training actually keeps.
+policy_name: Pi_05
+protocol: ws
+host: 127.0.0.1
+port: 8500
+
+task_name: exchange ball
+env_cfg_type: umi_dual
+# UMI records TCP poses, not joint targets: state and action are
+# [left 9-dim pose + gripper, right 9-dim pose + gripper].
+action_type: ee
+eval_batch: false
+checkpoint_variant: pi05_umi_exchange_ball
+
+# LoRA, not the full finetune: the full train state needs ~50GB of VRAM.
+# Switch to pi05_umi if the run happens on a card that can hold it.
+train_config_name: pi05_umi_lora
+observation_profile: umi_native
+repo_id: exchange_ball_v0
+model_path: XPolicyLab/policy/Pi_05/checkpoints/umi-exchange_ball-umi_dual-ee-0/5000
+checkpoint_source: local_pi05_base_finetune
+norm_stats_path: XPolicyLab/policy/Pi_05/checkpoints/umi-exchange_ball-umi_dual-ee-0/5000/assets/exchange_ball_v0
+norm_stats_source: checkpoint_matched_exchange_ball_v0
+use_delta_translation_actions: false
+
+action_horizon: 50
+# Match OpenPI's native flow-sampling default.
+num_steps: 10

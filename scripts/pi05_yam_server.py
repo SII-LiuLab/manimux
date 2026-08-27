@@ -23,6 +23,9 @@ HARDWARE_VERIFIED_VARIANTS = {
 }
 YAM_FINETUNED_VARIANTS = HARDWARE_VERIFIED_VARIANTS
 GPU_FORWARD_VERIFIED_VARIANTS = YAM_FINETUNED_VARIANTS
+UMI_FINETUNED_VARIANTS = {
+    "pi05_umi_exchange_ball",
+}
 TASK_QUALITY_LIMITED_VARIANTS = {
     "pi05_yam_finetuned",
     "pi05_yam_pick_red_ball_box_step_1000",
@@ -95,6 +98,8 @@ def _resolved_contract(config_path: Path, config: dict[str, Any]) -> dict[str, A
             if checkpoint_variant in TASK_QUALITY_LIMITED_VARIANTS
             else "yam_finetune_not_evaluated"
             if checkpoint_variant in YAM_FINETUNED_VARIANTS
+            else "umi_finetune_not_evaluated"
+            if checkpoint_variant in UMI_FINETUNED_VARIANTS
             else "base_checkpoint_not_yam_finetune"
         ),
         "model_python": str(MODEL_PYTHON),
