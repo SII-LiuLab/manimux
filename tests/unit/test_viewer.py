@@ -9,6 +9,7 @@ import pytest
 
 from manimux.types import ActionChunk, ActionHorizon, RobotState, SensorFrame
 from manimux.viewer.bridge import ViewerBridge
+from manimux.viewer.chunk_timeline import ChunkTimelineView
 from manimux.viewer.client import ViewerClient
 from manimux.viewer.dashboard import (
     PolicyViewer,
@@ -102,6 +103,301 @@ def test_camera_panel_is_screen_fixed_and_targets_stable_image_handles() -> None
     assert "--manimux-camera-width: clamp(300px, 26vw, 460px)" in html
     assert "aspect-ratio: 16 / 9" in html
     assert "object-fit: cover" in html
+
+
+def test_chunk_timeline_tracks_pending_rtc_overlap_and_execution() -> None:
+    timeline = ChunkTimelineView()
+    timeline.update(
+        {
+            "kind": "event",
+            "event": "episode_started",
+            "metadata": {"runtime": "rtc"},
+        }
+    )
+    timeline.update(
+        {
+            "kind": "event",
+            "event": "inference_submitted",
+            "chunk_id": 1,
+            "metadata": {
+                "runtime": "rtc",
+                "horizon_steps": 16,
+                "conditioned": True,
+                "conditioned_overlap_steps": 11,
+                "frozen_steps": 4,
+            },
+        }
+    )
+
+    pending = timeline.lanes[0]
+    assert pending.state == "pending"
+    assert pending.overlap_steps == 11
+    assert pending.frozen_steps == 4
+    assert "sampling" in timeline.render_html()
+
+    timeline.update(
+        {
+            "kind": "plan",
+            "chunk_id": 1,
+            "actions": [[0.0]] * 13,
+            "inference_ms": 100.0,
+            "metadata": {
+                "runtime": "rtc",
+                "raw_horizon_steps": 16,
+                "trimmed_steps": 3,
+                "conditioned": True,
+                "conditioned_overlap_steps": 11,
+                "frozen_steps": 4,
+            },
+        }
+    )
+    timeline.update(
+        {
+            "kind": "state",
+            "active_chunk_id": 1,
+            "chunk_index": 5,
+        }
+    )
+
+    active = timeline.lanes[0]
+    assert active.state == "active"
+    assert active.cursor == 5
+    assert active.trimmed_steps == 3
+    rendered = timeline.render_html()
+    assert "100 ms" in rendered
+
+
+def test_chunk_timeline_marks_committed_closed_gripper_steps() -> None:
+    timeline = ChunkTimelineView()
+    timeline.update(
+        {
+            "kind": "plan",
+            "chunk_id": 7,
+            "actions": [[0.0]] * 4,
+            "inference_ms": 90.0,
+            "metadata": {
+                "runtime": "rtc",
+                "raw_horizon_steps": 6,
+                "trimmed_steps": 2,
+                "gripper_closed_steps": [False, True, True, False],
+            },
+        }
+    )
+
+    lane = timeline.lanes[0]
+    assert lane.gripper_closed_steps == (False, False, False, True, True, False)
+    rendered = timeline.render_html()
+    assert "future gripper-closed" in rendered
+    assert "gripper closing / closed" in rendered
+    assert ".latency.gripper-closed" in rendered
+    assert "background:#f59e0b; box-shadow:none" in rendered
+
+
+def test_yam_gripper_marker_starts_when_closing_begins() -> None:
+    adapter = YamAdapter.__new__(YamAdapter)
+    actions = np.zeros((12, 7), dtype=np.float64)
+    actions[:, 6] = [
+        0.995,
+        0.991,
+        0.98,
+        0.955,
+        0.94,
+        0.94,
+        0.7,
+        0.4,
+        0.4,
+        0.8,
+        0.92,
+        1.0,
+    ]
+    previous = np.zeros(7, dtype=np.float64)
+    previous[6] = 1.0
+
+    flags = adapter.gripper_closed_steps(
+        {"left": actions},
+        previous_positions={"left": previous},
+    )
+
+    assert flags.tolist() == [
+        False,
+        False,
+        False,
+        True,
+        True,
+        True,
+        True,
+        True,
+        True,
+        True,
+        False,
+        False,
+    ]
+
+
+def test_chunk_timeline_alternates_lanes_and_marks_superseded_tail() -> None:
+    timeline = ChunkTimelineView()
+    timeline.update(
+        {
+            "kind": "plan",
+            "chunk_id": 1,
+            "actions": [[0.0]] * 10,
+            "inference_ms": 50.0,
+            "metadata": {"runtime": "manimux", "raw_horizon_steps": 10},
+        }
+    )
+    timeline.update(
+        {
+            "kind": "state",
+            "active_chunk_id": 1,
+            "chunk_index": 6,
+        }
+    )
+    timeline.update(
+        {
+            "kind": "event",
+            "event": "inference_submitted",
+            "chunk_id": 2,
+            "metadata": {"runtime": "manimux", "horizon_steps": 10},
+        }
+    )
+    timeline.update(
+        {
+            "kind": "plan",
+            "chunk_id": 2,
+            "actions": [[0.0]] * 9,
+            "inference_ms": 60.0,
+            "metadata": {
+                "runtime": "manimux",
+                "raw_horizon_steps": 10,
+                "trimmed_steps": 1,
+                "previous_chunk_id": 1,
+                "previous_chunk_index": 6,
+                "superseded_steps": 4,
+            },
+        }
+    )
+
+    assert timeline.lanes[0].state == "retired"
+    assert timeline.lanes[0].superseded_steps == 4
+    assert timeline.lanes[1].state == "active"
+    assert timeline.lanes[1].trimmed_steps == 1
+    rendered = timeline.render_html()
+    assert "60 ms" in rendered
+    assert "RTC condition" not in rendered
+
+
+def test_chunk_timeline_connects_rtc_condition_source_to_new_chunk() -> None:
+    timeline = ChunkTimelineView()
+    timeline.update(
+        {
+            "kind": "plan",
+            "chunk_id": 18,
+            "actions": [[0.0]] * 46,
+            "inference_ms": 144.0,
+            "metadata": {"runtime": "rtc", "raw_horizon_steps": 46},
+        }
+    )
+    timeline.update(
+        {
+            "kind": "state",
+            "active_chunk_id": 18,
+            "chunk_index": 16,
+        }
+    )
+    timeline.update(
+        {
+            "kind": "event",
+            "event": "inference_submitted",
+            "chunk_id": 19,
+            "metadata": {
+                "runtime": "rtc",
+                "horizon_steps": 46,
+                "active_chunk_id": 18,
+                "active_chunk_index": 16,
+                "conditioned": True,
+                "conditioned_overlap_steps": 30,
+                "frozen_steps": 4,
+            },
+        }
+    )
+
+    pending_html = timeline.render_html()
+    assert "condition · 30 steps" in pending_html
+    assert "manimux-chunk-cell condition-source" in pending_html
+    assert 'manimux-chunk-condition-range source' in pending_html
+    assert 'manimux-chunk-condition-range target' in pending_html
+    assert "Conditioned prefix: 30 actions" in pending_html
+
+    timeline.update(
+        {
+            "kind": "plan",
+            "chunk_id": 19,
+            "actions": [[0.0]] * 42,
+            "inference_ms": 145.0,
+            "metadata": {
+                "runtime": "rtc",
+                "raw_horizon_steps": 46,
+                "trimmed_steps": 4,
+                "previous_chunk_id": 18,
+                "previous_chunk_index": 20,
+                "superseded_steps": 26,
+                "conditioned": True,
+                "executed_steps": 22,
+                "conditioned_overlap_steps": 30,
+                "frozen_steps": 4,
+            },
+        }
+    )
+
+    rendered = timeline.render_html()
+    assert timeline.lanes[0].state == "source"
+    assert timeline.lanes[0].condition_from_index == 16
+    assert "145 ms" in rendered
+    assert "condition · 30 steps" in rendered
+    assert "manimux-chunk-cell latency" in rendered
+    assert "manimux-chunk-cell latency-trimmed" in rendered
+    assert 'manimux-chunk-condition-range target' in rendered
+    assert ">RTC link<" not in rendered
+    assert ">removed<" not in rendered
+
+
+def test_chunk_timeline_replaces_old_target_frame_when_lane_becomes_source() -> None:
+    timeline = ChunkTimelineView()
+    timeline.update(
+        {
+            "kind": "plan",
+            "chunk_id": 18,
+            "actions": [[0.0]] * 46,
+            "metadata": {
+                "runtime": "rtc",
+                "raw_horizon_steps": 50,
+                "trimmed_steps": 4,
+                "previous_chunk_id": 17,
+                "conditioned": True,
+                "conditioned_overlap_steps": 30,
+            },
+        }
+    )
+    timeline.update(
+        {
+            "kind": "event",
+            "event": "inference_submitted",
+            "chunk_id": 19,
+            "metadata": {
+                "runtime": "rtc",
+                "horizon_steps": 50,
+                "active_chunk_id": 18,
+                "executed_steps": 20,
+                "conditioned": True,
+                "conditioned_overlap_steps": 30,
+                "frozen_steps": 5,
+            },
+        }
+    )
+
+    rendered = timeline.render_html()
+    assert rendered.count('class="manimux-chunk-condition-range source"') == 1
+    assert rendered.count('class="manimux-chunk-condition-range target"') == 1
 
 
 def _service_ready_viewer() -> tuple[PolicyViewer, list[str]]:
@@ -365,7 +661,12 @@ def test_runtime_bridge_publishes_the_exact_committed_plan() -> None:
         groups={"left": np.array([[1.0], [2.0]]), "right": np.array([[-1.0], [-2.0]])},
     )
 
-    bridge.publish_plan(raw, 250.0, committed=committed)
+    bridge.publish_plan(
+        raw,
+        250.0,
+        committed=committed,
+        metadata={"runtime": "rtc", "trimmed_steps": 2},
+    )
 
     assert len(publisher.messages) == 1
     message = publisher.messages[0]
@@ -373,6 +674,8 @@ def test_runtime_bridge_publishes_the_exact_committed_plan() -> None:
     assert message["instruction"] == "task"
     assert message["actions"] == [[1.0, -1.0], [2.0, -2.0]]
     assert message["metadata"]["committed_start_time_ns"] == 20
+    assert message["metadata"]["runtime"] == "rtc"
+    assert message["metadata"]["trimmed_steps"] == 2
 
 
 def test_runtime_bridge_publishes_managed_lifecycle_event() -> None:
@@ -389,10 +692,12 @@ def test_runtime_bridge_publishes_managed_lifecycle_event() -> None:
 
     bridge.publish_event(
         "episode_started",
+        chunk_id=7,
         metadata={"control_mode": "managed", "instruction": "task"},
     )
 
     assert publisher.messages[0]["metadata"]["control_mode"] == "managed"
+    assert publisher.messages[0]["chunk_id"] == 7
 
 
 def test_runtime_bridge_throttles_camera_encoding_off_the_control_rate() -> None:

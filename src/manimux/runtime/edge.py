@@ -213,6 +213,7 @@ class EdgeRuntime:
         request_in_flight = False
         last_inference_ms: float | None = None
         discard_responses_through = -1
+        pending_visuals: dict[int, dict[str, object]] = {}
         worker_failure_reported = False
         robot_connected = False
         steps = 0
@@ -306,6 +307,7 @@ class EdgeRuntime:
                 response = self._worker.poll()
                 if response is not None:
                     request_in_flight = False
+                    submission_visuals = pending_visuals.get(response.request_seq, {})
                     rejection_reason = None
                     if response.error is not None:
                         rejection_reason = response.error
@@ -325,6 +327,13 @@ class EdgeRuntime:
                             request_seq=response.request_seq,
                             reason=rejection_reason,
                         )
+                        self._viewer.publish_event(
+                            "inference_rejected",
+                            step=steps,
+                            chunk_id=response.request_seq,
+                            metadata={"reason": rejection_reason},
+                        )
+                        pending_visuals.pop(response.request_seq, None)
                     else:
                         try:
                             chunk = decode_policy_action(
@@ -349,11 +358,19 @@ class EdgeRuntime:
                         except (TypeError, ValueError) as exc:
                             self._strategy.on_response_rejected(response)
                             rejected_plans += 1
+                            reason = f"invalid_action:{type(exc).__name__}:{exc}"
                             recorder.event(
                                 "plan_rejected",
                                 request_seq=response.request_seq,
-                                reason=f"invalid_action:{type(exc).__name__}:{exc}",
+                                reason=reason,
                             )
+                            self._viewer.publish_event(
+                                "plan_rejected",
+                                step=steps,
+                                chunk_id=response.request_seq,
+                                metadata={"reason": reason},
+                            )
+                            pending_visuals.pop(response.request_seq, None)
                             chunk = None
                         if chunk is not None and chunk.action_space != "joint_position":
                             self._strategy.on_response_rejected(response)
@@ -366,6 +383,13 @@ class EdgeRuntime:
                                     f"'joint_position', got {chunk.action_space!r}"
                                 ),
                             )
+                            self._viewer.publish_event(
+                                "plan_rejected",
+                                step=steps,
+                                chunk_id=response.request_seq,
+                                metadata={"reason": "invalid_action_space"},
+                            )
+                            pending_visuals.pop(response.request_seq, None)
                             chunk = None
                         canonical_raw = None if chunk is None else copy_action_chunk(chunk)
                         if chunk is not None:
@@ -379,17 +403,32 @@ class EdgeRuntime:
                             except (TypeError, ValueError) as exc:
                                 self._strategy.on_response_rejected(response)
                                 rejected_plans += 1
+                                reason = (
+                                    "invalid_strategy_chunk:"
+                                    f"{type(exc).__name__}:{exc}"
+                                )
                                 recorder.event(
                                     "plan_rejected",
                                     request_seq=response.request_seq,
-                                    reason=(
-                                        "invalid_strategy_chunk:"
-                                        f"{type(exc).__name__}:{exc}"
-                                    ),
+                                    reason=reason,
                                 )
+                                self._viewer.publish_event(
+                                    "plan_rejected",
+                                    step=steps,
+                                    chunk_id=response.request_seq,
+                                    metadata={"reason": reason},
+                                )
+                                pending_visuals.pop(response.request_seq, None)
                                 chunk = None
                         if chunk is not None:
                             previous_reference = self._timeline.sample(now_ns)
+                            previous_horizon = self._timeline.active_horizon()
+                            previous_chunk_id = (
+                                None
+                                if self._timeline.accepted_request_seq < 0
+                                else self._timeline.accepted_request_seq
+                            )
+                            previous_chunk_index = self._timeline.cursor(now_ns)
                             commit = self._strategy.commit_settings(
                                 response=response,
                                 measured=state.groups,
@@ -453,7 +492,32 @@ class EdgeRuntime:
                                     chunk,
                                     response.inference_ms,
                                     committed=committed,
+                                    metadata={
+                                        "runtime": self._strategy.name,
+                                        "raw_horizon_steps": chunk.horizon_steps,
+                                        "committed_horizon_steps": committed.horizon_steps,
+                                        "trimmed_steps": result.trimmed_steps,
+                                        "previous_chunk_id": previous_chunk_id,
+                                        "previous_chunk_index": previous_chunk_index,
+                                        "previous_chunk_horizon_steps": (
+                                            0
+                                            if previous_horizon is None
+                                            else previous_horizon.horizon_steps
+                                        ),
+                                        "superseded_steps": (
+                                            0
+                                            if previous_horizon is None
+                                            else max(
+                                                0,
+                                                previous_horizon.horizon_steps
+                                                - previous_chunk_index,
+                                            )
+                                        ),
+                                        **submission_visuals,
+                                        **event_fields,
+                                    },
                                 )
+                                pending_visuals.pop(response.request_seq, None)
                             else:
                                 self._strategy.on_response_rejected(response)
                                 rejected_plans += 1
@@ -463,6 +527,13 @@ class EdgeRuntime:
                                     request_seq=chunk.request_seq,
                                     reason=result.reason,
                                 )
+                                self._viewer.publish_event(
+                                    "plan_rejected",
+                                    step=steps,
+                                    chunk_id=response.request_seq,
+                                    metadata={"reason": result.reason},
+                                )
+                                pending_visuals.pop(response.request_seq, None)
 
                 if self._worker.is_alive:
                     snapshot = ObservationSnapshot(state=state, frames=frames)
@@ -495,8 +566,43 @@ class EdgeRuntime:
                             request_seq=request_seq,
                             **submission.event_fields,
                         )
+                        active_horizon = self._timeline.active_horizon()
+                        active_chunk_id = (
+                            None
+                            if self._timeline.accepted_request_seq < 0
+                            else self._timeline.accepted_request_seq
+                        )
+                        active_chunk_index = self._timeline.cursor(now_ns)
+                        visual_fields: dict[str, object] = {
+                            "runtime": self._strategy.name,
+                            "horizon_steps": self._config.policy.horizon_steps,
+                            "active_chunk_id": active_chunk_id,
+                            "active_chunk_index": active_chunk_index,
+                            "active_horizon_steps": (
+                                0 if active_horizon is None else active_horizon.horizon_steps
+                            ),
+                            **submission.event_fields,
+                        }
+                        if bool(submission.event_fields.get("conditioned", False)):
+                            executed_steps = int(
+                                submission.event_fields.get("executed_steps", 0)
+                            )
+                            visual_fields["conditioned_overlap_steps"] = max(
+                                0, self._config.policy.horizon_steps - executed_steps
+                            )
+                            visual_fields["frozen_steps"] = int(
+                                submission.event_fields.get("forecast_delay", 0)
+                            )
+                        pending_visuals[request_seq] = visual_fields
+                        self._viewer.publish_event(
+                            "inference_submitted",
+                            step=steps,
+                            chunk_id=request_seq,
+                            metadata=visual_fields,
+                        )
                 for kind, fields in self._strategy.take_runtime_events(step=steps):
                     recorder.event(kind, **fields)
+                    self._viewer.publish_event(kind, step=steps, metadata=fields)
 
                 reference = self._timeline.reference_horizon(
                     now_ns=now_ns,

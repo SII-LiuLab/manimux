@@ -83,6 +83,20 @@ class RobotAdapter(ABC):
 
         return source_name.removesuffix("_rgb").removesuffix("_camera")
 
+    def gripper_closed_steps(
+        self,
+        grouped_actions: Mapping[str, np.ndarray],
+        *,
+        previous_positions: Mapping[str, np.ndarray] | None = None,
+    ) -> np.ndarray:
+        """Return closing-or-closed flags when the embodiment exposes a gripper."""
+
+        del previous_positions
+        if not grouped_actions:
+            return np.empty(0, dtype=np.bool_)
+        horizon = len(next(iter(grouped_actions.values())))
+        return np.zeros(horizon, dtype=np.bool_)
+
     def group(self, name: str) -> RobotGroup:
         for group in self.groups:
             if group.name == name:

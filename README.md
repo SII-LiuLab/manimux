@@ -353,7 +353,9 @@ Open `http://localhost:8086`, then operate Viewer in this order:
 6. After an experiment rollout, select the result and smoothness score, then save the evaluation.
 
 Viewer shows only the controls for the current stage. The main viewport keeps a top/left/right
-camera wall beside the robot digital twin, so live images do not require sidebar scrolling.
+camera wall beside the robot digital twin, so live images do not require sidebar scrolling. A
+two-lane action timeline below the cameras shows inference in progress, the active chunk cursor,
+RTC-conditioned overlap, commit-time trimming, and the old tail replaced at each chunk switch.
 
 These snippets show entry points only. They do not replace checkpoint validation, preflight,
 CAN checks or shutdown procedures. Model setup stays in its runbook; ACT, AAC, PAINT and later

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 
 import numpy as np
@@ -78,6 +79,55 @@ class YamAdapter(RobotAdapter):
 
     def split_joint_positions(self, joint_positions: np.ndarray) -> dict[str, np.ndarray]:
         return self._split(joint_positions, sequence=False)
+
+    def gripper_closed_steps(
+        self,
+        grouped_actions: Mapping[str, np.ndarray],
+        *,
+        previous_positions: Mapping[str, np.ndarray] | None = None,
+    ) -> np.ndarray:
+        closing_or_closed: list[np.ndarray] = []
+        previous_positions = previous_positions or {}
+        for group_name, actions in grouped_actions.items():
+            values = np.asarray(actions, dtype=np.float64)[:, 6]
+            previous = previous_positions.get(group_name)
+            previous_value = (
+                float(np.asarray(previous, dtype=np.float64).reshape(-1)[6])
+                if previous is not None
+                else None
+            )
+            closing_or_closed.append(
+                self._closing_or_closed(values, previous_value=previous_value)
+            )
+        if not closing_or_closed:
+            return np.empty(0, dtype=np.bool_)
+        return np.logical_or.reduce(closing_or_closed)
+
+    @staticmethod
+    def _closing_or_closed(
+        values: np.ndarray,
+        *,
+        previous_value: float | None,
+        closing_delta: float = 0.02,
+        closed_threshold: float = 0.5,
+        reopened_threshold: float = 0.9,
+    ) -> np.ndarray:
+        apertures = np.clip(np.asarray(values, dtype=np.float64).reshape(-1), 0.0, 1.0)
+        flags = np.zeros(len(apertures), dtype=np.bool_)
+        if not len(apertures):
+            return flags
+
+        previous = float(apertures[0] if previous_value is None else previous_value)
+        active = previous <= closed_threshold
+        for index, aperture in enumerate(apertures):
+            delta = float(aperture - previous)
+            if delta <= -closing_delta or aperture <= closed_threshold:
+                active = True
+            elif active and delta >= closing_delta and aperture >= reopened_threshold:
+                active = False
+            flags[index] = active
+            previous = float(aperture)
+        return flags
 
     def pose(self, group: str, configuration: np.ndarray) -> np.ndarray:
         self.group(group)

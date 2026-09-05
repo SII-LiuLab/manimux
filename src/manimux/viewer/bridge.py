@@ -60,6 +60,7 @@ class ViewerBridge:
         event: str,
         *,
         step: int = 0,
+        chunk_id: int | None = None,
         metadata: dict[str, object] | None = None,
     ) -> None:
         if not self._enabled:
@@ -72,6 +73,7 @@ class ViewerBridge:
                 robot=self._robot_adapter,
                 policy=self._policy,
                 step=step,
+                chunk_id=chunk_id,
                 metadata=dict(metadata or {}),
             )
         )
@@ -98,6 +100,7 @@ class ViewerBridge:
         inference_ms: float,
         *,
         committed: ActionHorizon | None = None,
+        metadata: dict[str, object] | None = None,
     ) -> None:
         if not self._enabled:
             return
@@ -106,9 +109,10 @@ class ViewerBridge:
         groups = chunk.groups if committed is None else committed.groups
         actions = np.concatenate([groups[name] for name in self._group_order], axis=1)
         action_dt_ns = chunk.dt_ns if committed is None else committed.dt_ns
-        metadata: dict[str, object] = {"plan_id": chunk.plan_id}
+        plan_metadata: dict[str, object] = {"plan_id": chunk.plan_id}
         if committed is not None:
-            metadata["committed_start_time_ns"] = committed.start_time_ns
+            plan_metadata["committed_start_time_ns"] = committed.start_time_ns
+        plan_metadata.update(metadata or {})
         message = self._policy_plan_type(
             robot=self._robot_adapter,
             policy=self._policy,
@@ -118,7 +122,7 @@ class ViewerBridge:
             action_dt=action_dt_ns / 1_000_000_000,
             inference_ms=inference_ms,
             chunk_id=chunk.request_seq,
-            metadata=metadata,
+            metadata=plan_metadata,
         )
         self._publisher.publish(message)
 

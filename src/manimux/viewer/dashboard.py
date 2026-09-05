@@ -19,6 +19,7 @@ from PIL import Image
 from manimux.evaluation import write_manual_evaluation
 from manimux.types import FloatArray, UInt8Array
 
+from .chunk_timeline import ChunkTimelineView
 from .protocol import PolicyPlan, RobotSnapshot
 from .robots import available_robot_adapters, load_robot_adapter
 from .robots.base import RobotAdapter, RobotGroup
@@ -81,11 +82,12 @@ def _camera_panel_html() -> str:
     --manimux-camera-inner: calc(var(--manimux-camera-width) - 20px);
     --manimux-camera-top-height: clamp(157.5px, calc(14.625vw - 11.25px), 247.5px);
     --manimux-camera-small-width: clamp(136px, calc(13vw - 14px), 216px);
+    --manimux-camera-height: clamp(262px, calc(21.9375vw + 8.875px), 397px);
   }
   .manimux-camera-panel {
     position: fixed; left: 16px; top: 64px;
     width: var(--manimux-camera-width);
-    height: clamp(262px, calc(21.9375vw + 8.875px), 397px);
+    height: var(--manimux-camera-height);
     z-index: 4;
     padding: 10px; box-sizing: border-box; pointer-events: none;
     border: 1px solid rgba(128, 138, 156, 0.35); border-radius: 12px;
@@ -190,6 +192,7 @@ class PolicyViewer:
         }
         self.robot_handles: dict[str, Any] = {}
         self.plan_actions: dict[str, FloatArray] = {}
+        self.last_joint_positions: dict[str, FloatArray] = {}
         self.plan_chunk_id: int | None = None
         self.plan_start_index = 0
         self.plan_history_serial = 0
@@ -200,6 +203,8 @@ class PolicyViewer:
         self.plan_history_handles: dict[str, deque[Any]] = {
             group.name: deque() for group in self.robot.groups
         }
+        self.chunk_timeline = ChunkTimelineView()
+        self._last_chunk_timeline_render = 0.0
         self.observe_only = False
         self.current_episode_dir: Path | None = None
         self.episode_finalized = False
@@ -267,6 +272,9 @@ class PolicyViewer:
                 )
                 for slot in ("top", "left", "right")
             }
+        self.chunk_timeline_panel = self.server.gui.add_html(
+            self.chunk_timeline.render_html()
+        )
         self.status = self.server.gui.add_markdown("🟠 **Waiting for policy executor**")
         self.instruction = self.server.gui.add_markdown(_instruction_markdown(""))
         self.new_rollout_folder = self.server.gui.add_folder(
@@ -639,10 +647,26 @@ class PolicyViewer:
                     self._update_state(message)
                 elif kind == "event":
                     self._update_event(message)
+                timeline = getattr(self, "chunk_timeline", None)
+                if timeline is not None:
+                    timeline.update(message)
+                    self._refresh_chunk_timeline(force=kind != "state")
             except (KeyError, TypeError, ValueError) as exc:
                 self.status.content = (
                     f"🔴 **Rejected malformed {message.get('kind')} message: {exc}**"
                 )
+
+    def _refresh_chunk_timeline(self, *, force: bool = False) -> None:
+        timeline = getattr(self, "chunk_timeline", None)
+        panel = getattr(self, "chunk_timeline_panel", None)
+        if timeline is None or panel is None:
+            return
+        now = time.monotonic()
+        last_render = float(getattr(self, "_last_chunk_timeline_render", 0.0))
+        if not force and now - last_render < 0.08:
+            return
+        panel.content = timeline.render_html()
+        self._last_chunk_timeline_render = now
 
     def _update_plan(self, message: dict[str, Any]) -> None:
         # ``joint_actions`` keeps old local publishers readable during migration.
@@ -652,6 +676,12 @@ class PolicyViewer:
         actions = np.asarray(raw_actions, dtype=np.float64)
         action_space = str(message.get("action_space", "joint_position"))
         grouped_actions = self.robot.split_actions(actions, action_space)
+        metadata = dict(message.get("metadata") or {})
+        metadata["gripper_closed_steps"] = self.robot.gripper_closed_steps(
+            grouped_actions,
+            previous_positions=getattr(self, "last_joint_positions", {}),
+        ).tolist()
+        message["metadata"] = metadata
         start_index = int(message.get("start_index", 0))
         if start_index < 0 or start_index > len(actions):
             raise ValueError("plan start_index is outside the action horizon")
@@ -780,6 +810,10 @@ class PolicyViewer:
             self._update_event({"event": "episode_started", "metadata": metadata})
         joint_positions = np.asarray(message.get("joint_positions", []), dtype=np.float64)
         grouped_positions = self.robot.split_joint_positions(joint_positions)
+        self.last_joint_positions = {
+            group_name: np.asarray(configuration, dtype=np.float64).copy()
+            for group_name, configuration in grouped_positions.items()
+        }
         self.last_state_time = time.time()
         self.progress.value = int(message.get("step", 0))
         if not message.get("connected", True):
