@@ -75,29 +75,41 @@ class SmoothExecutor:
         for name, index in self._gripper.group_indices.items():
             desired = float(reference.groups[name][0, index])
             closed = self._gripper_closed[name]
-            if not closed and desired <= self._gripper.close_threshold:
-                closed = True
-                self._gripper_closed[name] = True
-                self._gripper_closed_since_ns[name] = now_ns
-                self._gripper_open_candidate_ns[name] = None
-            elif closed:
-                closed_since = self._gripper_closed_since_ns[name]
-                hold_elapsed = closed_since is not None and now_ns - closed_since >= min_closed_ns
-                if hold_elapsed and desired >= self._gripper.open_threshold:
-                    candidate = self._gripper_open_candidate_ns[name]
-                    if candidate is None:
-                        self._gripper_open_candidate_ns[name] = now_ns
-                    elif now_ns - candidate >= open_confirm_ns:
-                        closed = False
-                        self._gripper_closed[name] = False
-                        self._gripper_closed_since_ns[name] = None
-                        self._gripper_open_candidate_ns[name] = None
-                else:
+            if self._gripper.mode == "continuous":
+                goal = float(
+                    np.clip(
+                        desired,
+                        self._gripper.closed_value,
+                        self._gripper.open_value,
+                    )
+                )
+            else:
+                if not closed and desired <= self._gripper.close_threshold:
+                    closed = True
+                    self._gripper_closed[name] = True
+                    self._gripper_closed_since_ns[name] = now_ns
                     self._gripper_open_candidate_ns[name] = None
+                elif closed:
+                    closed_since = self._gripper_closed_since_ns[name]
+                    hold_elapsed = (
+                        closed_since is not None
+                        and now_ns - closed_since >= min_closed_ns
+                    )
+                    if hold_elapsed and desired >= self._gripper.open_threshold:
+                        candidate = self._gripper_open_candidate_ns[name]
+                        if candidate is None:
+                            self._gripper_open_candidate_ns[name] = now_ns
+                        elif now_ns - candidate >= open_confirm_ns:
+                            closed = False
+                            self._gripper_closed[name] = False
+                            self._gripper_closed_since_ns[name] = None
+                            self._gripper_open_candidate_ns[name] = None
+                    else:
+                        self._gripper_open_candidate_ns[name] = None
 
-            goal = (
-                self._gripper.closed_value if closed else self._gripper.open_value
-            )
+                goal = (
+                    self._gripper.closed_value if closed else self._gripper.open_value
+                )
             previous = float(self._previous[name][index])
             previous_velocity = float(self._previous_velocity[name][index])
             velocity = float(

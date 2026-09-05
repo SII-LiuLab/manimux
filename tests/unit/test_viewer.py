@@ -257,7 +257,12 @@ def test_chunk_timeline_alternates_lanes_and_marks_superseded_tail() -> None:
             "kind": "event",
             "event": "inference_submitted",
             "chunk_id": 2,
-            "metadata": {"runtime": "manimux", "horizon_steps": 10},
+            "metadata": {
+                "runtime": "manimux",
+                "horizon_steps": 10,
+                "active_chunk_id": 1,
+                "active_chunk_index": 6,
+            },
         }
     )
     timeline.update(
@@ -271,14 +276,20 @@ def test_chunk_timeline_alternates_lanes_and_marks_superseded_tail() -> None:
                 "raw_horizon_steps": 10,
                 "trimmed_steps": 1,
                 "previous_chunk_id": 1,
-                "previous_chunk_index": 6,
-                "superseded_steps": 4,
+                "previous_chunk_index": 8,
+                "superseded_steps": 2,
+                "active_chunk_index": 6,
             },
         }
     )
 
     assert timeline.lanes[0].state == "retired"
-    assert timeline.lanes[0].superseded_steps == 4
+    assert timeline.lanes[0].superseded_steps == 2
+    assert timeline.lanes[0].latency_from_index == 6
+    assert timeline._cell_state(timeline.lanes[0], 5) == "executed"
+    assert timeline._cell_state(timeline.lanes[0], 6) == "latency"
+    assert timeline._cell_state(timeline.lanes[0], 7) == "latency"
+    assert timeline._cell_state(timeline.lanes[0], 8) == "superseded"
     assert timeline.lanes[1].state == "active"
     assert timeline.lanes[1].trimmed_steps == 1
     rendered = timeline.render_html()
@@ -359,6 +370,65 @@ def test_chunk_timeline_connects_rtc_condition_source_to_new_chunk() -> None:
     assert 'manimux-chunk-condition-range target' in rendered
     assert ">RTC link<" not in rendered
     assert ">removed<" not in rendered
+
+
+def test_chunk_timeline_does_not_double_count_rtc_trim_in_latency_range() -> None:
+    timeline = ChunkTimelineView()
+    timeline.update(
+        {
+            "kind": "plan",
+            "chunk_id": 3,
+            "actions": [[0.0]] * 46,
+            "metadata": {
+                "runtime": "rtc",
+                "raw_horizon_steps": 50,
+                "trimmed_steps": 4,
+            },
+        }
+    )
+    timeline.update(
+        {
+            "kind": "event",
+            "event": "inference_submitted",
+            "chunk_id": 4,
+            "metadata": {
+                "runtime": "rtc",
+                "horizon_steps": 50,
+                "active_chunk_id": 3,
+                "active_chunk_index": 16,
+                "executed_steps": 20,
+                "conditioned": True,
+                "conditioned_overlap_steps": 30,
+                "frozen_steps": 5,
+            },
+        }
+    )
+    timeline.update(
+        {
+            "kind": "plan",
+            "chunk_id": 4,
+            "actions": [[0.0]] * 46,
+            "metadata": {
+                "runtime": "rtc",
+                "raw_horizon_steps": 50,
+                "trimmed_steps": 4,
+                "previous_chunk_id": 3,
+                "previous_chunk_index": 21,
+                "conditioned": True,
+                "executed_steps": 20,
+                "conditioned_overlap_steps": 30,
+                "frozen_steps": 5,
+            },
+        }
+    )
+
+    source = timeline.lanes[timeline._lane_by_chunk[3]]
+    assert source.condition_from_index == 20
+    assert source.latency_from_index == 20
+    assert timeline._cell_state(source, 19) == "executed"
+    assert [timeline._cell_state(source, index) for index in range(20, 25)] == [
+        "latency"
+    ] * 5
 
 
 def test_chunk_timeline_replaces_old_target_frame_when_lane_becomes_source() -> None:

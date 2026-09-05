@@ -94,6 +94,43 @@ def test_smooth_executor_latches_gripper_closed_across_noisy_open_requests() -> 
     assert opened.groups["left_arm"][1] > candidate.groups["left_arm"][1]
 
 
+def test_smooth_executor_continuous_gripper_has_independent_limits() -> None:
+    executor = SmoothExecutor(
+        SmoothConfig(
+            cutoff_hz=100.0,
+            max_velocity=0.25,
+            max_acceleration=0.5,
+            position_limit_abs=3.0,
+            gripper=GripperHysteresisConfig(
+                mode="continuous",
+                group_indices={"left_arm": 1, "right_arm": 1},
+                max_velocity=1.0,
+                max_acceleration=12.0,
+            ),
+        ),
+        control_dt_s=0.01,
+    )
+    state = RobotState(
+        groups={
+            "left_arm": np.array([0.0, 1.0]),
+            "right_arm": np.array([0.0, 1.0]),
+        },
+        monotonic_ns=0,
+        sequence=0,
+    )
+    executor.reset(state)
+    reference = _reference(1.0)
+    reference.groups["left_arm"][:, 1] = 0.4
+    reference.groups["right_arm"][:, 1] = 0.4
+
+    command = executor.step(0, state, reference)
+
+    assert command.groups["left_arm"][0] == pytest.approx(0.00005)
+    assert command.groups["left_arm"][1] == pytest.approx(0.9988)
+    assert command.groups["left_arm"][1] < 1.0
+    assert command.groups["left_arm"][1] > 0.4
+
+
 def test_direct_executor_forwards_reference_without_shaping() -> None:
     executor = DirectExecutor()
     state = _state()

@@ -22,6 +22,7 @@ class ChunkLane:
     conditioned: bool = False
     source_chunk_id: int | None = None
     condition_from_index: int | None = None
+    latency_from_index: int | None = None
     gripper_closed_steps: tuple[bool, ...] = ()
 
 
@@ -106,20 +107,29 @@ class ChunkTimelineView:
             overlap = max(0, int(metadata.get("conditioned_overlap_steps", 0)))
             frozen = max(0, int(metadata.get("frozen_steps", 0)))
             conditioned = bool(metadata.get("conditioned", False))
-            source_chunk_id = metadata.get("active_chunk_id") if conditioned else None
+            active_chunk_id = metadata.get("active_chunk_id")
+            source_chunk_id = active_chunk_id if conditioned else None
+            source_index_is_raw = "executed_steps" in metadata
             source_index = max(
                 0,
                 int(
-                    metadata.get(
-                        "executed_steps",
-                        metadata.get("active_chunk_index", 0),
-                    )
+                    metadata["executed_steps"]
+                    if source_index_is_raw
+                    else metadata.get("active_chunk_index", 0)
                 ),
             )
-            if source_chunk_id is not None:
-                source_lane_index = self._lane_by_chunk.get(int(source_chunk_id))
+            if active_chunk_id is not None:
+                source_lane_index = self._lane_by_chunk.get(int(active_chunk_id))
                 if source_lane_index is not None:
-                    self.lanes[source_lane_index].condition_from_index = source_index
+                    source_lane = self.lanes[source_lane_index]
+                    source_lane.latency_from_index = min(
+                        source_lane.horizon_steps,
+                        source_index
+                        if source_index_is_raw
+                        else source_lane.trimmed_steps + source_index,
+                    )
+                    if conditioned:
+                        source_lane.condition_from_index = source_index
             lane = ChunkLane(
                 chunk_id=chunk_id,
                 horizon_steps=horizon,
@@ -168,6 +178,15 @@ class ChunkTimelineView:
                 previous_lane.superseded_steps = max(
                     0, int(metadata.get("superseded_steps", 0))
                 )
+                if (
+                    previous_lane.latency_from_index is None
+                    and "active_chunk_index" in metadata
+                ):
+                    previous_lane.latency_from_index = min(
+                        previous_lane.horizon_steps,
+                        previous_lane.trimmed_steps
+                        + max(0, int(metadata["active_chunk_index"])),
+                    )
                 if conditioned and previous_lane.condition_from_index is None:
                     previous_lane.condition_from_index = max(
                         0,
@@ -253,8 +272,8 @@ class ChunkTimelineView:
         committed_index = index - lane.trimmed_steps
         raw_cursor = lane.trimmed_steps + lane.cursor
         if (
-            lane.condition_from_index is not None
-            and lane.condition_from_index <= index < raw_cursor
+            lane.latency_from_index is not None
+            and lane.latency_from_index <= index < raw_cursor
         ):
             return "latency"
         if committed_index < lane.cursor:

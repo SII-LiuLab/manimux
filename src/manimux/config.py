@@ -85,6 +85,7 @@ class ExecutorLimitsConfig(StrictModel):
 class GripperHysteresisConfig(StrictModel):
     """Optional last-mile shaping for grippers embedded in joint groups."""
 
+    mode: Literal["hysteresis", "continuous"] = "hysteresis"
     group_indices: dict[str, int]
     close_threshold: float = Field(default=0.35, ge=0.0, le=1.0)
     open_threshold: float = Field(default=0.85, ge=0.0, le=1.0)

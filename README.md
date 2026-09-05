@@ -44,6 +44,21 @@ Remember three rules:
 2. **The adapter translates semantics.** Joint, EE-pose and delta outputs become one canonical chunk.
 3. **ManiMux executes.** Control timing, Timeline, Safety and Recorder are not copied per model.
 
+### Real-Robot Experiment Platform
+
+ManiMux is also a repeatable experiment surface, not only a deployment runtime:
+
+| Capability | What it gives the operator |
+|---|---|
+| Config-composed experiments | Swap the policy, inference strategy and embodiment without rewriting the control loop |
+| Viewer-controlled rollouts | Prepare, start, finish and home each trial from one guided interface |
+| Live action-chunk timeline | See inference latency, stale-prefix trimming, RTC conditioning, chunk handoff and gripper events while the robot runs |
+| Synchronized evidence | Save resolved config, observations, raw/committed actions, robot states, events and camera video under one rollout |
+| Human evaluation mode | Attach task result, smoothness and failure tags to a finished rollout for later comparison |
+
+Normal mode keeps the same Viewer workflow without requiring labels. Experiment mode requires an
+evaluation before advancing, so large real-robot studies do not silently lose human annotations.
+
 ## Ten-Minute Hardware-Free Start
 
 ```bash
