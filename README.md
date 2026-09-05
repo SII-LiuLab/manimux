@@ -16,7 +16,7 @@ Models are replaceable; ManiMux owns the control loop, robot, safety, recording 
 
 </div>
 
-![ManiMux viewer during a MolmoAct rollout on dual YAM arms](assets/viewer-hero.png)
+![ManiMux real-robot rollout with live action-chunk visualization](assets/manimux-viewer-demo.webp)
 
 ## ManiMux in 30 Seconds
 

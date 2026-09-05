@@ -17,7 +17,7 @@
 
 </div>
 
-![MolmoAct 驱动双 YAM 臂时的 ManiMux viewer](assets/viewer-hero.png)
+![ManiMux 真机 rollout 与实时 action-chunk 可视化](assets/manimux-viewer-demo.webp)
 
 ## 30 秒理解 ManiMux
 
