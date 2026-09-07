@@ -66,3 +66,12 @@ def test_sapolicy_adapter_prepares_xpolicylab_additional_info() -> None:
     assert np.asarray(sap["right_endpose"]).shape == (7,)
     assert np.asarray(sap["intrinsics"]["top"]).shape == (3, 3)
     assert set(sap["intrinsics"]) == {"top", "left", "right"}
+    # Wire RGB is stretch-resized; K stays at the native calibration.
+    assert sap["image_native_hw"] == {
+        "top": [48, 64],
+        "left": [48, 64],
+        "right": [48, 64],
+    }
+    for name in ("front_camera", "left_camera", "right_camera"):
+        assert prepared.observation.frames[name].data.shape == (168, 224, 3)
+        assert prepared.observation.frames[name].data.dtype == np.uint8

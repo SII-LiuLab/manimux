@@ -26,6 +26,7 @@ from manimux.types import (
     ActionContext,
     InferenceRequest,
     ObservationSnapshot,
+    SensorFrame,
 )
 
 log = logging.getLogger("manimux.policies.sapolicy")
@@ -34,6 +35,8 @@ DEFAULT_GROUP_ORDER = ("left_arm", "right_arm")
 ARM_JOINTS = 6
 GROUP_DIM = 7
 WIRE_ACTION_DIM = 16
+# Training Resize is stretch-to-224×168 (4:3), not Pi letterbox-to-224².
+DEFAULT_WIRE_IMAGE_HW = (168, 224)
 
 
 def _string_option(options: Mapping[str, object], name: str, default: str) -> str:
@@ -119,6 +122,28 @@ def _parse_model_frame_transforms(
     }
 
 
+def _parse_wire_image_hw(options: Mapping[str, object]) -> tuple[int, int]:
+    raw = options.get("wire_image_hw", list(DEFAULT_WIRE_IMAGE_HW))
+    if not isinstance(raw, (list, tuple)) or len(raw) != 2:
+        raise ValueError("policy.options.wire_image_hw must be [height, width]")
+    height, width = int(raw[0]), int(raw[1])
+    if height <= 0 or width <= 0:
+        raise ValueError("policy.options.wire_image_hw must be positive")
+    return height, width
+
+
+def resize_rgb_uint8_area(image: np.ndarray, height: int, width: int) -> np.ndarray:
+    """Stretch RGB uint8 with cv2.INTER_AREA. Same geometry as training Resize."""
+    import cv2
+
+    image = np.ascontiguousarray(image, dtype=np.uint8)
+    if image.ndim != 3 or image.shape[-1] != 3:
+        raise ValueError(f"RGB must have shape [H,W,3], got {image.shape}")
+    if image.shape[0] == height and image.shape[1] == width:
+        return image
+    return cv2.resize(image, (width, height), interpolation=cv2.INTER_AREA)
+
+
 def _pose_to_wire_endpose(pose: np.ndarray) -> np.ndarray:
     """FK grasp-site pose → ``pos3 + quat_xyzw`` (scipy convention)."""
     pose = np.asarray(pose, dtype=np.float64)
@@ -150,6 +175,7 @@ class SAPolicyYamAdapter:
         self._intrinsics = _parse_intrinsics(
             policy.options, tuple(self._camera_map)
         )
+        self._wire_image_hw = _parse_wire_image_hw(policy.options)
         self._model_from_kinematics = _parse_model_frame_transforms(
             policy.options, self._group_order
         )
@@ -197,6 +223,18 @@ class SAPolicyYamAdapter:
             payload[f"{side}_gripper"] = float(state[-1])
 
         model_cameras = tuple(self._camera_map)
+        wire_height, wire_width = self._wire_image_hw
+        native_hw: dict[str, list[int]] = {}
+        resized_frames: dict[str, SensorFrame] = {}
+        for model_name, sensor_name in self._camera_map.items():
+            frame = snapshot.frames[sensor_name]
+            native_hw[model_name] = [int(frame.data.shape[0]), int(frame.data.shape[1])]
+            resized_frames[sensor_name] = SensorFrame(
+                name=frame.name,
+                data=resize_rgb_uint8_area(frame.data, wire_height, wire_width),
+                capture_monotonic_ns=frame.capture_monotonic_ns,
+                sequence=frame.sequence,
+            )
         sap_info = {
             "left_endpose": payload["left_endpose"],
             "right_endpose": payload["right_endpose"],
@@ -204,13 +242,16 @@ class SAPolicyYamAdapter:
             "right_gripper": payload["right_gripper"],
             "intrinsics": dict(self._intrinsics),
             "camera_names": list(model_cameras),
+            "image_native_hw": native_hw,
         }
         return SAPolicyXPolicyRequest(
             session_id=request.session_id,
             request_seq=request.request_seq,
             observation_time_ns=request.observation_time_ns,
             deadline_ns=request.deadline_ns,
-            observation=request.observation,
+            observation=ObservationSnapshot(
+                state=snapshot.state, frames=resized_frames
+            ),
             instruction=request.instruction,
             xpolicylab_additional_info={"sapolicy": sap_info},
         )

@@ -4,6 +4,8 @@
 # These are intentionally kept out of the public ManiMux repository.
 /.local/
 /.vscode/
+/qz/
+/weekly_report/9.3/
 
 .mypy_cache/
 .pytest_cache/

@@ -1,14 +1,14 @@
 # YAM 三个模型训练流程
 
 本文记录从 YAM 遥操作数据到 Pi05、LingBot-VLA2、Xiaomi Robotics 1（XR-1）训练的完整命令。
-训练命令在训练服务器执行；`/inspire/.../yam_fintune_data` 是共享训练盘，
-`/home/ubuntu/manimux` 是代码 checkout。
+训练命令在训练服务器执行；`/inspire/.../yam_fintune_data` 是共享训练盘，训练 checkout
+统一使用其下的 `operate/manimux`。本地 `/home/ubuntu/manimux` 用于开发和真机推理。
 
 ## 0. 环境和数据
 
 ```bash
-export CODE=/home/ubuntu/manimux
 export DATA=/inspire/hdd2/project/liu-ming-huan/public/ziyang/yam_fintune_data
+export CODE="$DATA/operate/manimux"
 cd "$CODE"
 ```
 
@@ -61,6 +61,24 @@ cp "$DATA/xr1/yam_assemble_screwdriver_20260825_v1/yam_assemble_screwdriver_2026
 XR-1 使用 EE pose delta 数据接口，不能直接把 Pi05 的 14 维 joint LeRobot 目录当作 XR-1
 数据集。
 
+### 1.3 Pi05：joint 控制 + 12D EE 辅助监督（独立数据集）
+
+纯 joint 数据集和配置保持不变。联合监督使用新的 LeRobot repo ID，并额外保留双臂
+绝对 EE position/rotation matrix；50 步 action chunk 取出后，训练 transform 才按照当前帧
+EE 坐标系计算每个 future target 的 `XYZ + axis-angle` delta。
+
+```bash
+cd "$CODE"
+envs/yam/.venv/bin/python scripts/datasets/convert_yam_to_lerobot.py \
+  "$DATA/datasets/raw/assemble_the_screwdriver_20260825" \
+  --repo-id yam_assemble_screwdriver_20260825_v1_joint_ee \
+  --output-root "$DATA/datasets/lerobot/yam_assemble_screwdriver_20260825_v1_joint_ee" \
+  --include-ee-pose
+```
+
+该配置的训练目标为 26 个有效维度：前 14 维保持原 joint/gripper 契约，后 12 维是左右臂
+EE `XYZ + axis-angle` delta；Pi05 的 32 维模型接口不变，推理输出仍只取前 14 维。
+
 ## 2. normalization
 
 Pi05 的统计由训练 wrapper 在不存在时自动生成；已有匹配文件会复用：
@@ -84,6 +102,9 @@ config；不要混用其他机器人统计。
 
 ## 3. Pi05 训练
 
+纯 joint 训练配置名是 `pi05_yam`，使用原数据集
+`yam_assemble_screwdriver_20260825_v1`；下面原命令没有改变。
+
 下面是 8 卡、global batch 64、15000 steps、每 1000 steps 保存的示例：
 
 ```bash
@@ -96,6 +117,17 @@ PI05_WORKSPACE="$CODE" bash scripts/training/train_pi05_yam_cluster.sh \
 ```
 
 底层入口是 `XPolicyLab/policy/Pi_05/train.sh`，输出在 `$DATA/weights/finetuned/pi05/`。
+
+joint + EE 辅助监督使用独立配置 `pi05_yam_joint_ee` 和独立 wrapper：
+
+```bash
+cd "$CODE"
+OPENPI_GPU_IDS=0,1,2,3,4,5,6,7 \
+OPENPI_FSDP_DEVICES=8 OPENPI_BATCH_SIZE=64 \
+OPENPI_NUM_TRAIN_STEPS=15000 OPENPI_SAVE_INTERVAL=1000 OPENPI_MAX_TO_KEEP=15 \
+PI05_WORKSPACE="$CODE" bash scripts/training/train_pi05_yam_joint_ee_cluster.sh \
+  train assemble-screwdriver-joint-ee-v1-s0-8xh100-15k
+```
 
 ## 4. LingBot-VLA2 训练
 

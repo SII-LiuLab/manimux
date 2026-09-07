@@ -12,9 +12,11 @@ OPENPI=${POLICY}/openpi
 VENV=${OPENPI_ENV_DIR:-${ROOT}/envs/pi05/.venv}
 DATASET_NAME=${OPENPI_LEROBOT_REPO_ID:-yam_assemble_screwdriver_20260825_v1}
 DATASET=${ROOT}/datasets/lerobot/${DATASET_NAME}
+TRAIN_CONFIG_NAME=${OPENPI_TRAIN_CONFIG_NAME:-pi05_yam}
+EE_AUX=${PI05_EE_AUX:-false}
 BASE_PARAMS=${OPENPI_BASE_PARAMS:-${ROOT}/weights/base/pi05_base/params}
 ASSETS_BASE=${OPENPI_ASSETS_BASE_DIR:-${ROOT}/cache/pi05/assets}
-NORM_STATS=${ASSETS_BASE}/pi05_yam/${DATASET_NAME}/norm_stats.json
+NORM_STATS=${ASSETS_BASE}/${TRAIN_CONFIG_NAME}/${DATASET_NAME}/norm_stats.json
 OUTPUT=${ROOT}/weights/finetuned/pi05/${run_name}
 LOG_DIR=${ROOT}/runs/pi05
 GPU_IDS=${OPENPI_GPU_IDS:-0,1,2,3}
@@ -28,7 +30,7 @@ export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 export OPENPI_DATA_HOME=${ROOT}/cache/openpi
 export OPENPI_LOCAL_CACHE_ROOT=${ROOT}/cache/pi05/${HOSTNAME}
-export OPENPI_TRAIN_CONFIG_NAME=pi05_yam
+export OPENPI_TRAIN_CONFIG_NAME=${TRAIN_CONFIG_NAME}
 export OPENPI_LEROBOT_REPO_ID=${DATASET_NAME}
 export OPENPI_BASE_PARAMS=${BASE_PARAMS}
 export OPENPI_ASSETS_BASE_DIR=${ASSETS_BASE}
@@ -50,29 +52,35 @@ preflight() {
   require_file "${DATASET}/meta/info.json"
   require_file "${BASE_PARAMS}/manifest.ocdbt"
   require_file "${NORM_STATS}"
-  python3 - "${DATASET}" <<'PY'
+  python3 - "${DATASET}" "${EE_AUX}" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 dataset = Path(sys.argv[1])
+ee_aux = sys.argv[2].lower() == "true"
 info = json.loads((dataset / "meta/info.json").read_text())
 assert info["codebase_version"] == "v3.0"
 assert info["total_episodes"] == 19
 assert info["total_frames"] == 17789
 assert info["features"]["observation.state"]["shape"] == [14]
 assert info["features"]["action"]["shape"] == [14]
+if ee_aux:
+    assert info["features"]["observation.ee_pose"]["shape"] == [24]
+    assert info["features"]["action.ee_pose"]["shape"] == [24]
 print(json.dumps({"dataset": dataset.name, "episodes": 19, "frames": 17789}, indent=2))
 PY
-  python3 - "${NORM_STATS}" <<'PY'
+  python3 - "${NORM_STATS}" "${EE_AUX}" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 stats = json.loads(Path(sys.argv[1]).read_text())["norm_stats"]
+ee_aux = sys.argv[2].lower() == "true"
+expected_action_dim = 26 if ee_aux else 14
 assert len(stats["state"]["mean"]) == 14
-assert len(stats["actions"]["mean"]) == 14
-print("Pi05 norm stats verified: state=14D actions=14D")
+assert len(stats["actions"]["mean"]) == expected_action_dim
+print(f"Pi05 norm stats verified: state=14D actions={expected_action_dim}D")
 PY
 }
 
@@ -87,7 +95,7 @@ compute_stats() {
     OPENPI_LEROBOT_REPO_ID=${DATASET_NAME} \
     OPENPI_ASSETS_BASE_DIR=${ASSETS_BASE} \
     OPENPI_BASE_PARAMS=${BASE_PARAMS} \
-      uv run scripts/compute_norm_stats.py --config-name pi05_yam
+      uv run scripts/compute_norm_stats.py --config-name "${TRAIN_CONFIG_NAME}"
   )
   require_file "${NORM_STATS}"
 }
@@ -154,4 +162,3 @@ case "${mode}" in
     exit 2
     ;;
 esac
-

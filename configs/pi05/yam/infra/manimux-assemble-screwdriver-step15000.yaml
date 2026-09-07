@@ -1,6 +1,6 @@
 run:
   task: Assemble the screwdriver.
-  output_dir: ./data/experiments/pi05-assemble-screwdriver-step15000/serial
+  output_dir: ./data/experiments/pi05-assemble-screwdriver-step15000/manimux
   max_steps: 12000
 
 robot:
@@ -14,8 +14,8 @@ robot:
     right_config: configs/robots/yam_right.yaml
     move_to_start_on_connect: true
     start_joints: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
-    start_duration_s: 3.0
-    home_duration_s: 3.0
+    start_duration_s: 2.0
+    home_duration_s: 2.0
     home_on_close: true
 
 sensors:
@@ -67,7 +67,7 @@ execution:
   inference_schedule: single_inflight
   # Submit only after the previous chunk is effectively exhausted. The model
   # worker remains off the 100 Hz safety loop, but chunks do not overlap.
-  refill_threshold_s: 0.001
+  refill_threshold_s: 0.4
   commit_lead_s: 0.0
   max_plan_age_s: 2.0
   blend_steps: 4

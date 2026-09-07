@@ -1,0 +1,24 @@
+policy_name: Isaac_05
+protocol: ws
+host: 127.0.0.1
+port: 8504
+
+task_name: libero_spatial
+bench_name: LIBERO
+ckpt_name: Isaac-0.5
+env_cfg_type: libero
+seed: 0
+action_type: ee
+gpu_id: 0
+eval_batch: false
+checkpoint_variant: isaac_05_base_libero_spatial
+checkpoint_source: PerceptronAI/Isaac-0.5
+lerobot_root: XPolicyLab/policy/Isaac_05/lerobot
+model_path: ../../../checkpoints/pretrained/perceptron-ai/isaac-0.5/lerobot_policy
+device: cuda
+
+default_prompt: Pick up the object.
+camera_map:
+  image: primary
+  wrist_image: wrist
+state_keys: [arm_joint_state, ee_joint_state]

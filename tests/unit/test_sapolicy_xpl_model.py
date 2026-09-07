@@ -47,6 +47,37 @@ def test_sapolicy_dry_run_model_returns_wire_shape() -> None:
     assert model.runtime_metadata()["policy_family"] == "sapolicy"
 
 
+def test_to_spatial_obs_forwards_image_native_hw() -> None:
+    model = Model(
+        {
+            "dry_run": True,
+            "camera_names": ["top", "left", "right"],
+        }
+    )
+    native = {"top": [480, 640], "left": [480, 640], "right": [480, 640]}
+    spatial = model._to_spatial_obs(
+        {
+            "vision": {
+                name: {"color": np.zeros((168, 224, 3), dtype=np.uint8), "shape": [168, 224]}
+                for name in ("top", "left", "right")
+            },
+            "additional_info": {
+                "sapolicy": {
+                    "left_endpose": np.array([0, 0, 0, 0, 0, 0, 1], dtype=np.float64),
+                    "right_endpose": np.array([0, 0, 0, 0, 0, 0, 1], dtype=np.float64),
+                    "left_gripper": 0.5,
+                    "right_gripper": 0.5,
+                    "camera_names": ["top", "left", "right"],
+                    "intrinsics": {name: np.eye(3) for name in ("top", "left", "right")},
+                    "image_native_hw": native,
+                }
+            },
+        }
+    )
+    assert spatial["image_native_hw"] == native
+    assert spatial["images"]["top"].shape == (168, 224, 3)
+
+
 def test_relative_actions_to_wire_identity_prefix() -> None:
     # DiT layout is [pose18 | grip2]. Identity rot6d + zero translation
     # should keep the measured xyzw endpose.

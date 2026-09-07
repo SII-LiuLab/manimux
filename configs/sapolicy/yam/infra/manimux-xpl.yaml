@@ -63,6 +63,9 @@ policy:
       left_arm: left
       right_arm: right
     gripper_dofs: 1
+    # Stretch to the training Resize (4:3 → 224×168). Not Pi 224² letterbox.
+    # K stays at native 640×480; image_native_hw tells the server how to scale it.
+    wire_image_hw: [168, 224]
     # Training insertion order: top, left wrist, right wrist.
     camera_map:
       top: front_camera

@@ -9,7 +9,9 @@ contract:
 * commanded joints/grippers become ``action``;
 * camera videos become ``observation.images.<role>_<image_key>``;
 * all values written here remain absolute.  Pi05 converts arm joints to
-  anchor-relative actions and normalizes them later in its training pipeline.
+  anchor-relative actions and normalizes them later in its training pipeline;
+* with ``--include-ee-pose``, recorded observation/command end-effector poses
+  are retained in separate 24D columns for the ``pi05_yam_joint_ee`` config.
 
 Source implementation:
 ``yam-abc-reproduce/yam_abc_reproduce/data/formats/lerobot_format.py`` at
@@ -78,7 +80,35 @@ def _load_episode(episode_dir: Path, metadata: dict[str, Any]) -> dict[str, Any]
     return buffers
 
 
-def _build_features(metadata: dict[str, Any]) -> dict[str, Any]:
+def _ee_pose_names(arms: list[str]) -> list[str]:
+    return [
+        name
+        for arm in arms
+        for name in (
+            f"{arm}_ee_x",
+            f"{arm}_ee_y",
+            f"{arm}_ee_z",
+            *[f"{arm}_ee_rotm_{row}{column}" for row in range(3) for column in range(3)],
+        )
+    ]
+
+
+def _pack_ee_pose(buffers: dict[str, Any], arms: list[str], *, action: bool) -> np.ndarray:
+    prefix = "action-" if action else ""
+    return np.concatenate(
+        [
+            part
+            for arm in arms
+            for part in (
+                buffers[f"{prefix}{arm}-ee_pos"],
+                buffers[f"{prefix}{arm}-ee_rotm"].reshape(-1, 9),
+            )
+        ],
+        axis=1,
+    ).astype(np.float32)
+
+
+def _build_features(metadata: dict[str, Any], *, include_ee_pose: bool = False) -> dict[str, Any]:
     features: dict[str, Any] = {}
     for camera in metadata.get("cameras", []):
         for image_key in camera.get("image_keys", []):
@@ -108,6 +138,18 @@ def _build_features(metadata: dict[str, Any]) -> dict[str, Any]:
         "shape": (len(names),),
         "names": names,
     }
+    if include_ee_pose:
+        ee_pose_names = _ee_pose_names(arms)
+        features["observation.ee_pose"] = {
+            "dtype": "float32",
+            "shape": (len(ee_pose_names),),
+            "names": ee_pose_names,
+        }
+        features["action.ee_pose"] = {
+            "dtype": "float32",
+            "shape": (len(ee_pose_names),),
+            "names": ee_pose_names,
+        }
     return features
 
 
@@ -117,7 +159,7 @@ def _episode_dirs(source: Path) -> list[Path]:
     return sorted(path for path in source.iterdir() if (path / WRITE_COMPLETE_FLAG).exists())
 
 
-def _add_episode(dataset: Any, episode_dir: Path) -> None:
+def _add_episode(dataset: Any, episode_dir: Path, *, include_ee_pose: bool = False) -> None:
     metadata = _load_metadata(episode_dir)
     buffers = _load_episode(episode_dir, metadata)
     arms = metadata.get("arm_names") or ["left"]
@@ -134,6 +176,9 @@ def _add_episode(dataset: Any, episode_dir: Path) -> None:
         ],
         axis=1,
     ).astype(np.float32)
+    if include_ee_pose:
+        state_ee_pose = _pack_ee_pose(buffers, arms, action=False)
+        action_ee_pose = _pack_ee_pose(buffers, arms, action=True)
 
     cameras = metadata.get("cameras", [])
     reference_role = cameras[0]["role"] if cameras else None
@@ -155,6 +200,9 @@ def _add_episode(dataset: Any, episode_dir: Path) -> None:
             "action": action[frame_index],
             "task": metadata.get("task_name") or "task",
         }
+        if include_ee_pose:
+            frame["observation.ee_pose"] = state_ee_pose[frame_index]
+            frame["action.ee_pose"] = action_ee_pose[frame_index]
         for camera in cameras:
             role = camera["role"]
             camera_frame_index = int(camera_indices[role][frame_index])
@@ -166,7 +214,13 @@ def _add_episode(dataset: Any, episode_dir: Path) -> None:
     dataset.save_episode()
 
 
-def convert(source: Path, repo_id: str, output_root: Path | None) -> None:
+def convert(
+    source: Path,
+    repo_id: str,
+    output_root: Path | None,
+    *,
+    include_ee_pose: bool = False,
+) -> None:
     """Convert one completed episode or a directory of completed episodes."""
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
@@ -178,13 +232,13 @@ def convert(source: Path, repo_id: str, output_root: Path | None) -> None:
     dataset = LeRobotDataset.create(
         repo_id=repo_id,
         fps=max(1, int(round(float(first_metadata["control_hz"])))),
-        features=_build_features(first_metadata),
+        features=_build_features(first_metadata, include_ee_pose=include_ee_pose),
         root=output_root,
         use_videos=True,
     )
     for episode_dir in episodes:
         print(f"Converting {episode_dir}")
-        _add_episode(dataset, episode_dir)
+        _add_episode(dataset, episode_dir, include_ee_pose=include_ee_pose)
 
 
 def main() -> None:
@@ -197,8 +251,18 @@ def main() -> None:
         default=None,
         help="LeRobot dataset root; omit to use LeRobot's default location",
     )
+    parser.add_argument(
+        "--include-ee-pose",
+        action="store_true",
+        help="retain absolute observation/command EE poses for joint+EE auxiliary training",
+    )
     args = parser.parse_args()
-    convert(args.source, args.repo_id, args.output_root)
+    convert(
+        args.source,
+        args.repo_id,
+        args.output_root,
+        include_ee_pose=args.include_ee_pose,
+    )
 
 
 if __name__ == "__main__":

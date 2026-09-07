@@ -77,12 +77,13 @@ def _snapshot(now_ns: int, *, left_seed: float = 0.7, right_seed: float = -0.7):
             sequence=1,
         ),
         frames={
-            "front_camera": SensorFrame(
-                name="front_camera",
+            name: SensorFrame(
+                name=name,
                 data=np.zeros((8, 8, 3), dtype=np.uint8),
                 capture_monotonic_ns=now_ns,
                 sequence=1,
             )
+            for name in ("front_camera", "left_camera", "right_camera")
         },
     )
 
