@@ -61,10 +61,13 @@ def test_screwdriver_algorithms_share_model_and_executor(method: str) -> None:
     assert config.policy.effective_action_dt_s == pytest.approx(1 / 30)
     if method not in {"manimux", "rtc"}:
         assert config.execution.blend_steps == 0
-        # Keep the existing algorithm's defaults, independently of the executor.
+        # Keep algorithm defaults except the screwdriver ACT query interval.
         previous = load_config(INFRA / f"{method}-pick-red-ball-box-step1000.yaml")
         for key in ("paint", "aac", "dvac", "temporal_ensemble"):
-            assert getattr(config.execution, key) == getattr(previous.execution, key)
+            expected = getattr(previous.execution, key)
+            if method == "act-temporal-ensemble" and key == "temporal_ensemble":
+                expected = expected.model_copy(update={"query_interval_steps": 20})
+            assert getattr(config.execution, key) == expected
         assert config.policy.timeout_s == previous.policy.timeout_s
         assert config.policy.options["request_timeout_s"] == previous.policy.options[
             "request_timeout_s"

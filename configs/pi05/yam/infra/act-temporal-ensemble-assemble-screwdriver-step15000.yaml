@@ -69,7 +69,7 @@ execution:
   blend_steps: 0
   temporal_ensemble:
     coefficient: 0.01
-    query_interval_steps: 4
+    query_interval_steps: 20
   smooth:
     cutoff_hz: 8.0
     max_velocity: 0.25

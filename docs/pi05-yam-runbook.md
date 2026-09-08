@@ -76,7 +76,7 @@ envs/yam/.venv/bin/manimux run \
 |---|---|---|
 | `manimux` | `manimux` | single-inflight，剩余 0.4 s 发起补充推理，blend 4 步 |
 | `rtc` | `rtc` | 最少执行 20 步，初始延迟 4 步，beta 9.1，blend 4 步 |
-| `act-temporal-ensemble` | `act_temporal_ensemble` | coefficient 0.01，每 4 个 policy 步请求一次 |
+| `act-temporal-ensemble` | `act_temporal_ensemble` | coefficient 0.01，每 20 个 policy 步（约 0.667 s）请求一次 |
 | `aac` | `aac` | 20 个候选，motion threshold 0.2，backward beta 0.99 |
 | `paint` | `paint` | execution steps 12，初始延迟 10 步，延迟历史窗口 10 |
 | `autohorizon` | `autohorizon` | 使用已接入的 JAX selector，由模型返回执行长度 |
