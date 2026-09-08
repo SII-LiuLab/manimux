@@ -89,7 +89,7 @@ adapter: XPolicyLab/policy/LingBot_VLA2/model.py
 sampler: XPolicyLab/policy/LingBot_VLA2/rtc.py
 server:  XPolicyLab/policy/LingBot_VLA2/setup_eval_policy_server.sh
 profile: XPolicyLab/policy/LingBot_VLA2/robot_configs/yam_dual_absolute.yaml
-source:  XPolicyLab/policy/LingBot_VLA2/lingbot_vla_v2/  # pinned nested submodule
+source:  XPolicyLab/policy/LingBot_VLA2/lingbot_vla_v2/  # vendored upstream source
 check:   scripts/validation/check_lingbot_vla2_yam.py
 audit:   scripts/validation/lingbot_vla2_yam_audit.py
 prepare: scripts/datasets/prepare_lingbot_vla2_base_assets.py
@@ -135,10 +135,10 @@ native_hz: 30.0
 gripper。XPolicy 保留模型原生输出语义，ManiMux 再选择对应的 `PolicyAdapter`；server
 不会把 relative action 偷偷转换成 absolute action。
 
-官方 source 已作为 pinned nested submodule 放在
-`XPolicyLab/policy/LingBot_VLA2/lingbot_vla_v2/`，revision 为
-`187f84061ba312acab3bca05a6ee26a8d75968da`。首次 clone 必须使用
-`--recursive`；已有 checkout 使用 `git submodule update --init --recursive`。
+官方 source 已直接纳入
+`XPolicyLab/policy/LingBot_VLA2/lingbot_vla_v2/`。基础版本为官方 revision
+`951475ae1b1d87553e7dc47c97b53a3d695c0d13`，YAM 扩展由 XPolicyLab 本身跟踪；
+LingBot 不再要求 nested submodule 或个人 fork。
 
 官方 loader 固定从 `checkpoint_path.parent.parent.parent / "lingbotvla_cli.yaml"`
 读取训练 config。因此 checkpoint 建议保持如下目录：
