@@ -1,10 +1,11 @@
 <div align="center">
 
-# ManiMux
+<h1><img src="assets/manimux-banner.svg" alt="ManiMux — 统一真机实验管理平台。Any Policy × Embodiment × Inference." width="100%" /></h1>
 
-**面向真机策略的本地异步推理与执行基础设施。**
+## 统一真机实验管理平台
 
-模型可以替换，控制环、机器人、安全、记录和 Viewer 始终由 ManiMux 管理。
+自由组合策略、机器人本体与推理算法。<br/>
+在同一套框架中完成实验执行、实时可视化、数据记录与评测。
 
 [![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![Ruff](https://img.shields.io/badge/lint-ruff-261230?style=flat-square&logo=ruff&logoColor=D7FF64)](https://docs.astral.sh/ruff/)
@@ -15,14 +16,25 @@
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
+**[快速开始](#10-分钟无硬件上手) · [已接入策略](#当前集成) · [推理算法](README.md#inference-algorithm-roadmap) · [Viewer](docs/viewer-tutorial.html) · [离线评测](#离线视频评测prm-as-a-judge) · [文档](#文档)**
+
 </div>
 
 ![ManiMux 真机 rollout 与实时 action-chunk 可视化](assets/manimux-viewer-demo.webp)
 
+<p align="center"><em>ManiMux 真机实验：实时相机画面、机器人可视化与 action-chunk 进度时间线。</em></p>
+
 ## 30 秒理解 ManiMux
 
-**ManiMux 是连接策略和真实机器人的异步推理运行时。** 策略负责“想接下来怎么动”，
-ManiMux 负责“什么时候执行、如何平滑、安全地下发，并把全过程记录下来”。
+**ManiMux 是以异步推理运行时为核心的统一真机实验管理平台。** 策略负责“接下来怎么动”，
+ManiMux 负责“什么时候执行、如何平滑、安全地下发”，并记录完整实验过程，用于回看与评测。
+
+| Policy · 策略 | Embodiment · 本体 | Inference · 推理 |
+|---|---|---|
+| 通过统一适配接口接入策略 | 通过本体适配器映射观测与动作 | 切换调度与采样算法，共用底层执行器 |
+
+目标是让三者可以组合，而不是每换一个组合就重写一套部署系统。当前真机验证以双臂 YAM
+为主；各组合的接入与验证状态见[当前集成](#当前集成)和[推理算法路线图](README.md#inference-algorithm-roadmap)。
 
 ```text
 相机 + 机器人状态
@@ -102,7 +114,7 @@ cp configs/mock.yaml /tmp/manimux-beginner.yaml
 
 ## 项目定位
 
-VLA 推理通常比机器人控制周期慢，而且一次输出一段 action chunk。ManiMux 把模型推理
+基于 action chunk 的策略推理通常比机器人控制周期慢。ManiMux 把模型推理
 移出控制环，并统一负责 chunk 调度、过期裁剪、双臂原子提交、执行约束、安全检查、
 数据记录和实时可视化。
 

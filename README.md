@@ -1,10 +1,9 @@
 <div align="center">
 
-# ManiMux
+<h1><img src="assets/manimux-banner.svg" alt="ManiMux — A Unified Platform for Real-Robot Experiments. Any Policy × Embodiment × Inference." width="100%" /></h1>
 
-**Local asynchronous inference and execution infrastructure for real-robot policies.**
-
-Models are replaceable; ManiMux owns the control loop, robot, safety, recording and viewer.
+Compose policies, robot embodiments and inference strategies.<br/>
+Run, visualize, record and evaluate experiments in one shared framework.
 
 [![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![Ruff](https://img.shields.io/badge/lint-ruff-261230?style=flat-square&logo=ruff&logoColor=D7FF64)](https://docs.astral.sh/ruff/)
@@ -14,15 +13,27 @@ Models are replaceable; ManiMux owns the control loop, robot, safety, recording 
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
+**[Quick Start](#ten-minute-hardware-free-start) · [Policies](#integrations) · [Inference](#inference-algorithm-roadmap) · [Viewer](docs/viewer-tutorial.html) · [Evaluation](#offline-video-evaluation-prm-as-a-judge) · [Docs](#documentation)**
+
 </div>
 
 ![ManiMux real-robot rollout with live action-chunk visualization](assets/manimux-viewer-demo.webp)
 
+<p align="center"><em>A real-robot rollout in ManiMux: live camera views, robot visualization and an action-chunk timeline.</em></p>
+
 ## ManiMux in 30 Seconds
 
-**ManiMux is an asynchronous inference runtime between policies and real robots.** The policy
-decides what should happen next; ManiMux decides when and how to execute it smoothly and safely,
-then records the complete run.
+**ManiMux is a unified real-robot experiment platform built around an asynchronous inference
+runtime.** The policy decides what should happen next; ManiMux decides when and how to execute it
+smoothly and safely, then records the complete run for inspection and evaluation.
+
+| Policy | Embodiment | Inference |
+|---|---|---|
+| Plug in a policy through a shared adapter contract | Map observations and actions through robot-specific adapters | Swap scheduling and sampling strategies while sharing the execution layer |
+
+The goal is composability, not a separate deployment stack for every combination. Current
+hardware validation centers on dual YAM; see [integrations](#integrations) and the
+[algorithm roadmap](#inference-algorithm-roadmap) for the status of individual combinations.
 
 ```text
 cameras + robot state
@@ -122,7 +133,7 @@ or model-native RTC sampling.
 
 ## Purpose
 
-VLA inference is commonly slower than a robot control period and returns actions in chunks.
+Chunk-based policy inference is commonly slower than a robot control period.
 ManiMux moves inference out of the control loop and owns replaceable inference strategies,
 chunk scheduling, stale-prefix trimming,
 atomic dual-arm commits, execution constraints, safety checks, recording and live visualization.
