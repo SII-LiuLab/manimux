@@ -79,6 +79,7 @@ class YamDualArmDriver:
             "start_duration_s",
             "start_joints",
             "home_duration_s",
+            "home_gripper_release_duration_s",
             "move_to_start_on_connect",
             "home_on_close",
         }
@@ -98,6 +99,9 @@ class YamDualArmDriver:
         self._right_path = Path(right_config)
         self._clock = clock
         self._home_duration_s = float(config.options.get("home_duration_s", 5.0))
+        self._home_gripper_release_duration_s = float(
+            config.options.get("home_gripper_release_duration_s", 1.0)
+        )
         self._start_duration_s = float(config.options.get("start_duration_s", 5.0))
         start_joints = config.options.get("start_joints")
         self._start_joints = (
@@ -110,7 +114,11 @@ class YamDualArmDriver:
                 f"unknown robot.options for yam_dual: {', '.join(unknown)}; "
                 f"known keys are {', '.join(sorted(self.OPTIONS))}"
             )
-        if self._home_duration_s <= 0 or self._start_duration_s <= 0:
+        if (
+            self._home_duration_s <= 0
+            or self._home_gripper_release_duration_s <= 0
+            or self._start_duration_s <= 0
+        ):
             raise ValueError("YAM move durations must be positive")
         self._robot: Any | None = None
         self._sequence = 0
@@ -197,12 +205,33 @@ class YamDualArmDriver:
         self._require_robot().command_joint_state(joints)
 
     def home(self) -> None:
-        home = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0])
+        achieved = np.asarray(self._require_robot().get_joint_state(), dtype=np.float64)
+        if achieved.shape != (14,) or not np.isfinite(achieved).all():
+            raise RuntimeError("YAM returned invalid joint state before homing")
+
+        # The native YAM command is 7-D per arm, so an arm-only home command is
+        # represented by six zero arm joints plus the currently achieved gripper
+        # position.  Keeping the gripper unchanged prevents a grasped object from
+        # being released while the arms are still returning home.
+        arm_home = np.zeros(14, dtype=np.float64)
+        arm_home[6] = achieved[6]
+        arm_home[13] = achieved[13]
         self._move_joints(
-            np.concatenate([home, home]),
+            arm_home,
             duration_s=self._home_duration_s,
             transition="zero home",
             parallel=False,
+            reraise_interrupt=False,
+        )
+
+        # Only after both arms have reached home do we release both grippers.
+        released_home = arm_home.copy()
+        released_home[[6, 13]] = 1.0
+        self._move_joints(
+            released_home,
+            duration_s=self._home_gripper_release_duration_s,
+            transition="home gripper release",
+            parallel=True,
             reraise_interrupt=False,
         )
 

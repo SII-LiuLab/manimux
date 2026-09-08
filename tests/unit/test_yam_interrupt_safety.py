@@ -52,8 +52,12 @@ class _Arm:
 
 class _Bimanual:
     def __init__(self) -> None:
-        self._robot_l = _Arm(np.linspace(-0.5, 0.5, 7))
-        self._robot_r = _Arm(np.linspace(0.5, -0.5, 7))
+        left = np.linspace(-0.5, 0.5, 7)
+        right = np.linspace(0.5, -0.5, 7)
+        left[-1] = 0.25
+        right[-1] = 0.75
+        self._robot_l = _Arm(left)
+        self._robot_r = _Arm(right)
 
     def get_joint_state(self) -> np.ndarray:
         return np.concatenate([self._robot_l.get_joint_state(), self._robot_r.get_joint_state()])
@@ -66,6 +70,7 @@ class _Bimanual:
 def _live_driver() -> tuple[YamDualArmDriver, _Bimanual]:
     config = load_config("configs/molmoact2/yam/infra/manimux.yaml")
     config.robot.options["home_duration_s"] = 0.4
+    config.robot.options["home_gripper_release_duration_s"] = 0.1
     config.robot.options["start_duration_s"] = 0.4
     driver = YamDualArmDriver(config.robot, SystemClock())
     backend = _Bimanual()
@@ -99,8 +104,16 @@ def test_ctrl_c_during_homing_still_reaches_zero_home() -> None:
         signal.signal(signal.SIGINT, original)
 
     for arm in (backend._robot_l, backend._robot_r):
-        assert arm.robot.completed_moves, "the homing move was aborted mid-air"
+        assert len(arm.robot.completed_moves) == 2, "the two-stage home did not complete"
         np.testing.assert_allclose(arm.robot.position, HOME)
+    np.testing.assert_allclose(
+        backend._robot_l.robot.completed_moves[0],
+        np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.25]),
+    )
+    np.testing.assert_allclose(
+        backend._robot_r.robot.completed_moves[0],
+        np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.75]),
+    )
     assert signal.getsignal(signal.SIGINT) is original
 
 

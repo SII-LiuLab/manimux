@@ -556,6 +556,7 @@ class ChunkTimelineView:
   {lanes_with_handoff}
   <div class="manimux-chunk-legend">
     <span><i style="background:#7c3aed"></i>executed</span>
+    <span><i style="background:#a78bfa;box-shadow:0 0 5px rgba(167,139,250,.9)"></i>current</span>
     <span><i style="background:#f59e0b"></i>latency</span>
     <span><i style="background:#ef4444"></i>gripper closing / closed</span>
     <span><i style="border:2px solid #94a3b8;background:transparent"></i>condition</span>

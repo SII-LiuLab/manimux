@@ -5,7 +5,7 @@
 /.local/
 /.vscode/
 /qz/
-/weekly_report/9.3/
+/weekly_report/
 
 .mypy_cache/
 .pytest_cache/

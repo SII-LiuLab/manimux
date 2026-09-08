@@ -165,6 +165,7 @@ def test_chunk_timeline_tracks_pending_rtc_overlap_and_execution() -> None:
     assert active.trimmed_steps == 3
     rendered = timeline.render_html()
     assert "100 ms" in rendered
+    assert ">current</span>" in rendered
 
 
 def test_chunk_timeline_marks_committed_closed_gripper_steps() -> None:

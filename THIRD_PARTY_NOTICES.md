@@ -6,6 +6,12 @@
 `XPolicyLab/XPolicyLab`. It remains a separately versioned project and retains
 its own license and third-party notices inside the submodule.
 
+## PRM-as-a-Judge
+
+`PRM-as-a-Judge/` is a Git submodule tracking
+`YuyangLiu2003/PRM-as-a-Judge`. It remains separately versioned under the
+Apache License 2.0; see `PRM-as-a-Judge/LICENSE`.
+
 ## MolmoAct2
 
 `src/manimux/integrations/molmoact_yam/` is derived from the YAM evaluation

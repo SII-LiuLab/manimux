@@ -1,0 +1,80 @@
+run:
+  task: put the bottle into the bin
+  output_dir: ./data/experiments/openwam-yam
+  max_steps: 1600
+
+robot:
+  driver: yam_dual
+  config: configs/robots/yam_left.yaml
+  control_hz: 30.0
+  group_dims:
+    left_arm: 7
+    right_arm: 7
+  options:
+    right_config: configs/robots/yam_right.yaml
+    move_to_start_on_connect: true
+    start_duration_s: 5.0
+    home_duration_s: 5.0
+    home_on_close: true
+
+sensors:
+  - name: yam_cameras
+    driver: camera_server
+    options:
+      endpoint: tcp://127.0.0.1:5555
+      request_timeout_ms: 500
+      max_frame_age_sec: 0.5
+      camera_names: [left_camera, front_camera, right_camera]
+
+policy:
+  worker: openwam_ws
+  adapter: openwam_yam
+  action_dt_s: 0.03333333333333333
+  timeout_s: 300.0
+  horizon_steps: 32
+  inference_delay_s: 0.0
+  startup_timeout_s: 30.0
+  expected_backend:
+    server: openwam_policy_server
+  options:
+    server: ws://127.0.0.1:8848
+    connect_timeout_s: 30.0
+    request_timeout_s: 300.0
+    response_mode: chunk
+    group_order: [left_arm, right_arm]
+    camera_map:
+      head_camera: front_camera
+      left_wrist_camera: left_camera
+      right_wrist_camera: right_camera
+    prompt_template: "A video recorded from a robot's point of view executing the following instruction: {instruction}"
+    kinematics: yam
+    kinematics_options:
+      arm_type: yam
+      gripper_type: linear_4310
+      num_arm_joints: 6
+    # Physical YAM values after OpenWAM server-side inverse normalization.
+    gripper_min: 0.0
+    gripper_max: 1.0
+    gripper_tolerance: 0.1
+
+execution:
+  runtime: manimux
+  executor: smooth
+  inference_schedule: single_inflight
+  refill_threshold_s: 0.4
+  commit_lead_s: 0.0
+  max_plan_age_s: 2.0
+  blend_steps: 8
+  smooth:
+    cutoff_hz: 8.0
+    max_velocity: 0.25
+    max_acceleration: 0.5
+    position_limit_abs: 3.14
+
+viewer:
+  enabled: true
+  robot_adapter: yam
+  policy_label: OpenWAM YAM absolute EEF20
+
+recording:
+  enabled: true
