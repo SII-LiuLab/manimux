@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Convert recorded YAM episodes into the LeRobot v3 dataset used by Pi05.
+"""Convert recorded YAM episodes into the LeRobot v3 dataset used by Pi05 and LingBot-VLA2.
 
 This is a standalone copy of the conversion path used for
 ``yam_assemble_screwdriver_20260825_v1``.  It preserves the recorded data
@@ -11,7 +11,8 @@ contract:
 * all values written here remain absolute.  Pi05 converts arm joints to
   anchor-relative actions and normalizes them later in its training pipeline;
 * with ``--include-ee-pose``, recorded observation/command end-effector poses
-  are retained in separate 24D columns for the ``pi05_yam_joint_ee`` config.
+  are retained both as 24D position+rotation-matrix columns for Pi05 and as
+  LingBot-VLA2's native 14D position+quaternion(xyzw) ``end.position`` fields.
 
 Source implementation:
 ``yam-abc-reproduce/yam_abc_reproduce/data/formats/lerobot_format.py`` at
@@ -108,6 +109,36 @@ def _pack_ee_pose(buffers: dict[str, Any], arms: list[str], *, action: bool) -> 
     ).astype(np.float32)
 
 
+def _end_pose_names(arms: list[str]) -> list[str]:
+    return [
+        name
+        for arm in arms
+        for name in (
+            f"{arm}_ee_x",
+            f"{arm}_ee_y",
+            f"{arm}_ee_z",
+            f"{arm}_ee_qx",
+            f"{arm}_ee_qy",
+            f"{arm}_ee_qz",
+            f"{arm}_ee_qw",
+        )
+    ]
+
+
+def _pack_end_pose(buffers: dict[str, Any], arms: list[str], *, action: bool) -> np.ndarray:
+    """Pack absolute EE poses as per-arm xyz+quaternion(xyzw)."""
+    from scipy.spatial.transform import Rotation
+
+    prefix = "action-" if action else ""
+    parts: list[np.ndarray] = []
+    for arm in arms:
+        position = np.asarray(buffers[f"{prefix}{arm}-ee_pos"], dtype=np.float32)
+        rotation = np.asarray(buffers[f"{prefix}{arm}-ee_rotm"]).reshape(-1, 3, 3)
+        quaternion_xyzw = Rotation.from_matrix(rotation).as_quat().astype(np.float32)
+        parts.append(np.concatenate([position, quaternion_xyzw], axis=1))
+    return np.concatenate(parts, axis=1).astype(np.float32)
+
+
 def _build_features(metadata: dict[str, Any], *, include_ee_pose: bool = False) -> dict[str, Any]:
     features: dict[str, Any] = {}
     for camera in metadata.get("cameras", []):
@@ -140,6 +171,7 @@ def _build_features(metadata: dict[str, Any], *, include_ee_pose: bool = False) 
     }
     if include_ee_pose:
         ee_pose_names = _ee_pose_names(arms)
+        end_pose_names = _end_pose_names(arms)
         features["observation.ee_pose"] = {
             "dtype": "float32",
             "shape": (len(ee_pose_names),),
@@ -149,6 +181,16 @@ def _build_features(metadata: dict[str, Any], *, include_ee_pose: bool = False) 
             "dtype": "float32",
             "shape": (len(ee_pose_names),),
             "names": ee_pose_names,
+        }
+        features["observation.state.end.position"] = {
+            "dtype": "float32",
+            "shape": (len(end_pose_names),),
+            "names": end_pose_names,
+        }
+        features["action.end.position"] = {
+            "dtype": "float32",
+            "shape": (len(end_pose_names),),
+            "names": end_pose_names,
         }
     return features
 
@@ -179,6 +221,8 @@ def _add_episode(dataset: Any, episode_dir: Path, *, include_ee_pose: bool = Fal
     if include_ee_pose:
         state_ee_pose = _pack_ee_pose(buffers, arms, action=False)
         action_ee_pose = _pack_ee_pose(buffers, arms, action=True)
+        state_end_pose = _pack_end_pose(buffers, arms, action=False)
+        action_end_pose = _pack_end_pose(buffers, arms, action=True)
 
     cameras = metadata.get("cameras", [])
     reference_role = cameras[0]["role"] if cameras else None
@@ -203,6 +247,8 @@ def _add_episode(dataset: Any, episode_dir: Path, *, include_ee_pose: bool = Fal
         if include_ee_pose:
             frame["observation.ee_pose"] = state_ee_pose[frame_index]
             frame["action.ee_pose"] = action_ee_pose[frame_index]
+            frame["observation.state.end.position"] = state_end_pose[frame_index]
+            frame["action.end.position"] = action_end_pose[frame_index]
         for camera in cameras:
             role = camera["role"]
             camera_frame_index = int(camera_indices[role][frame_index])

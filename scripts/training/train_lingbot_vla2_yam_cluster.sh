@@ -14,12 +14,16 @@ DATASET=${LINGBOT_VLA2_DATASET_PATH:-${ROOT}/datasets/lerobot/yam_assemble_screw
 DATASET_NAME=${LINGBOT_VLA2_DATASET_NAME:-$(basename "${DATASET}")}
 MODEL=${ROOT}/weights/base/lingbot-vla-v2-6b
 TOKENIZER=${ROOT}/weights/base/xiaomi/qwen3_vl_4b_processor
+TRAINING_CONFIG=${LINGBOT_VLA2_TRAINING_CONFIG:-${POLICY}/training/yam_dual.yaml}
+ROBOT_CONFIG_ROOT=${LINGBOT_VLA2_ROBOT_CONFIG_ROOT:-${POLICY}/robot_configs}
+ROBOT_NAME=${LINGBOT_VLA2_ROBOT_NAME:-yam_dual_packed_absolute}
+TRAINING_ROBOT_CONFIG=${ROBOT_CONFIG_ROOT}/${ROBOT_NAME}.yaml
+DEPLOY_ROBOT_CONFIG=${LINGBOT_VLA2_DEPLOY_ROBOT_CONFIG:-${TRAINING_ROBOT_CONFIG}}
 STATS_DIR=${LINGBOT_VLA2_STATS_DIR:-${ROOT}/cache/lingbot-vla2/${DATASET_NAME}}
 STATS=${STATS_DIR}/norm_stats.json
 OUTPUT=${ROOT}/weights/finetuned/lingbot-vla2/${run_name}
 LOG_DIR=${ROOT}/runs/lingbot-vla2
 GPU_IDS=${LINGBOT_VLA2_GPU_IDS:-0,1,2,3}
-ROBOT_NAME=yam_dual_packed_absolute
 
 export PATH="${ROOT}/envs/bin:${PATH}"
 export HF_HOME=${ROOT}/cache/huggingface
@@ -37,7 +41,6 @@ export LINGBOT_VLA2_MODEL_PATH=${MODEL}
 export LINGBOT_VLA2_TOKENIZER_PATH=${TOKENIZER}
 export LINGBOT_VLA2_DATASET_PATH=${DATASET}
 export LINGBOT_VLA2_NORM_STATS_PATH=${STATS}
-export LINGBOT_VLA2_ROBOT_NAME=${ROBOT_NAME}
 export LINGBOT_VLA2_ACTION_HORIZON=${LINGBOT_VLA2_ACTION_HORIZON:-50}
 export LINGBOT_VLA2_NATIVE_HZ=${LINGBOT_VLA2_NATIVE_HZ:-30}
 export LINGBOT_VLA2_TRAIN_WORKERS=${LINGBOT_VLA2_TRAIN_WORKERS:-8}
@@ -79,7 +82,7 @@ compute_stats() {
         --data.data_name "${ROBOT_NAME}" \
         --data.robot_name "${ROBOT_NAME}" \
         --data.train_path "${DATASET}" \
-        --data.robot_config_root "${POLICY}/robot_configs" \
+        --data.robot_config_root "${ROBOT_CONFIG_ROOT}" \
         --data.norm_path "${STATS}" \
         --data.num_workers "${LINGBOT_VLA2_STATS_WORKERS:-8}" \
         --train.chunk_size "${LINGBOT_VLA2_ACTION_HORIZON}" \
@@ -94,75 +97,129 @@ preflight() {
   require_file "${MODEL}/model.safetensors.index.json"
   require_file "${TOKENIZER}/tokenizer.json"
   require_file "${DATASET}/meta/info.json"
-  require_file "${POLICY}/robot_configs/${ROBOT_NAME}.yaml"
-  require_file "${POLICY}/training/yam_dual.yaml"
-  "${VENV}/bin/python" - "${DATASET}" "${STATS}" <<'PY'
+  require_file "${TRAINING_ROBOT_CONFIG}"
+  require_file "${DEPLOY_ROBOT_CONFIG}"
+  require_file "${TRAINING_CONFIG}"
+  require_file "${STATS}"
+  "${VENV}/bin/python" - "${DATASET}" "${STATS}" "${LINGBOT_VLA2_EE_AUX:-false}" <<'PY'
 import json
 import sys
 from pathlib import Path
 
-dataset, stats_path = map(Path, sys.argv[1:])
+dataset, stats_path = map(Path, sys.argv[1:3])
+ee_aux = sys.argv[3].lower() == "true"
 info = json.loads((dataset / "meta/info.json").read_text())
 assert info["codebase_version"] == "v3.0"
 assert info["total_episodes"] == 19
 assert info["total_frames"] == 17789
 assert info["features"]["observation.state"]["shape"] == [14]
 assert info["features"]["action"]["shape"] == [14]
+if ee_aux:
+    assert info["features"]["observation.ee_pose"]["shape"] == [24]
+    assert info["features"]["action.ee_pose"]["shape"] == [24]
+    assert info["features"]["observation.state.end.position"]["shape"] == [14]
+    assert info["features"]["action.end.position"]["shape"] == [14]
 stats = json.loads(stats_path.read_text())
 assert stats["count"] == 17789
-for key, width in {
+expected = {
     "observation.state.arm.position": 12,
     "observation.state.effector.position": 2,
     "action.arm.position": 12,
     "action.effector.position": 2,
-}.items():
+}
+if ee_aux:
+    expected.update({
+        "observation.state.end.position": 14,
+        "action.end.position": 14,
+    })
+for key, width in expected.items():
     assert len(stats["norm_stats"][key]["mean"]) == width
 print(json.dumps({
     "dataset": dataset.name,
     "episodes": info["total_episodes"],
     "frames": info["total_frames"],
     "fps": info["fps"],
+    "ee_aux": ee_aux,
     "gpus": __import__("torch").cuda.device_count(),
 }, indent=2))
 PY
+}
+
+run_training() {
+  local train_args=(
+    tasks/vla/train_lingbotvla.py "${TRAINING_CONFIG}"
+    --model.model_path "${MODEL}"
+    --model.tokenizer_path "${TOKENIZER}"
+    --data.data_name "${ROBOT_NAME}"
+    --data.train_path "${DATASET}"
+    --data.robot_config_root "${ROBOT_CONFIG_ROOT}"
+    --data.norm_stats_file "${STATS}"
+    --data.num_workers "${LINGBOT_VLA2_TRAIN_WORKERS:-8}"
+    --train.output_dir "${OUTPUT}"
+    --train.seed 0
+    --train.chunk_size "${LINGBOT_VLA2_ACTION_HORIZON}"
+    --train.micro_batch_size "${LINGBOT_VLA2_MICRO_BATCH_SIZE}"
+    --train.gradient_accumulation_steps "${LINGBOT_VLA2_GRAD_ACCUM_STEPS}"
+    --train.max_steps "${LINGBOT_VLA2_MAX_STEPS:-60000}"
+    --train.save_steps "${LINGBOT_VLA2_SAVE_STEPS:-1000}"
+    --train.enable_resume false
+    --train.use_wandb false
+  )
+  if [[ -n "${LINGBOT_VLA2_GLOBAL_BATCH_SIZE:-}" ]]; then
+    train_args+=(--train.global_batch_size "${LINGBOT_VLA2_GLOBAL_BATCH_SIZE}")
+  fi
+  if [[ -n "${LINGBOT_VLA2_MOGE_PATH:-}" ]]; then
+    train_args+=(--train.align_params.depth.moge_path "${LINGBOT_VLA2_MOGE_PATH}")
+  fi
+  if [[ -n "${LINGBOT_VLA2_MORGBD_PATH:-}" ]]; then
+    train_args+=(--train.align_params.depth.morgbd_path "${LINGBOT_VLA2_MORGBD_PATH}")
+  fi
+  if [[ -n "${LINGBOT_VLA2_DINO_VIDEO_CKPT:-}" ]]; then
+    train_args+=(--train.align_params.video.ckpt_path "${LINGBOT_VLA2_DINO_VIDEO_CKPT}")
+  fi
+  if [[ -n "${LINGBOT_VLA2_DINO_VIDEO_CONFIG:-}" ]]; then
+    train_args+=(--train.align_params.video.config_path "${LINGBOT_VLA2_DINO_VIDEO_CONFIG}")
+  fi
+
+  (
+    cd "${SOURCE}"
+    CUDA_VISIBLE_DEVICES=${GPU_IDS} PATH="${VENV}/bin:${PATH}" \
+      bash -o pipefail train.sh "${train_args[@]}"
+  ) 2>&1 | tee "${LOG_DIR}/${run_name}.log"
+
+  cp -f "${STATS}" "${OUTPUT}/norm_stats.json"
+  cp -f "${DEPLOY_ROBOT_CONFIG}" "${OUTPUT}/robot_config.yaml"
+  cp -f "${TRAINING_ROBOT_CONFIG}" "${OUTPUT}/training_robot_config.yaml"
 }
 
 case "${mode}" in
   gate-train)
     LINGBOT_VLA2_MAX_STEPS=1 LINGBOT_VLA2_SAVE_STEPS=1 \
       bash "$0" smoke "${run_name}-smoke"
-    require_file "${ROOT}/weights/finetuned/lingbot-vla2/${run_name}-smoke/bundle.yaml"
+    require_file "${ROOT}/weights/finetuned/lingbot-vla2/${run_name}-smoke/checkpoints/global_step_1/hf_ckpt/model.safetensors.index.json"
     LINGBOT_VLA2_MAX_STEPS=3000 LINGBOT_VLA2_SAVE_STEPS=500 \
       bash "$0" train "${run_name}"
     ;;
   prepare)
     install_environment
-    preflight
     compute_stats
+    preflight
     ;;
   smoke|train)
     install_environment
-    preflight
     compute_stats
+    preflight
     if [[ "${mode}" == "smoke" ]]; then
       export LINGBOT_VLA2_MAX_STEPS=${LINGBOT_VLA2_MAX_STEPS:-1}
       export LINGBOT_VLA2_SAVE_STEPS=${LINGBOT_VLA2_SAVE_STEPS:-1}
     else
       export LINGBOT_VLA2_MAX_STEPS=${LINGBOT_VLA2_MAX_STEPS:-3000}
       export LINGBOT_VLA2_SAVE_STEPS=${LINGBOT_VLA2_SAVE_STEPS:-500}
-      if [[ -d "${OUTPUT}" ]] && find "${OUTPUT}" -mindepth 1 -print -quit | grep -q .; then
-        echo "Refusing to overwrite existing run: ${OUTPUT}" >&2
-        exit 2
-      fi
     fi
-    export LINGBOT_VLA2_CHECKPOINT_DIR=${OUTPUT}
-    CUDA_VISIBLE_DEVICES=${GPU_IDS} bash "${POLICY}/train.sh" \
-      yam assemble_the_screwdriver yam_dual joint 0 "${GPU_IDS}" \
-      2>&1 | tee "${LOG_DIR}/${run_name}.log"
+    run_training
     ;;
   *)
     echo "Usage: $0 [prepare|smoke|train|gate-train] [run_name]" >&2
     exit 2
     ;;
 esac
-

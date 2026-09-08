@@ -6,6 +6,7 @@ The scripts are grouped by responsibility:
 - `datasets/`: convert datasets, compute statistics, and prepare model assets.
 - `validation/`: offline probes, configuration checks, and diagnostic audits.
 - `media/`: viewer recording and other presentation helpers.
+- `training/`: cluster launchers for dataset stats, smoke runs, and formal training.
 
 Run commands from the repository root so relative config and environment paths
 resolve consistently. For example:

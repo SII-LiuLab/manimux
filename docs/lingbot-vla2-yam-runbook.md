@@ -25,6 +25,17 @@ gripper、12 hand、4 waist、2 head、3 mobile base、4 reserved。真正送进
 有效维度由训练 config、robot config 和 norm stats 一起决定，不是把 YAM 的 14
 维数据随便塞进 55 维零向量。
 
+论文把 Joint 与 EEF 作为两种 action space 分开消融：平均成功率分别为 55.0% 和
+56.0%，并指出不同任务偏好不同表示；论文没有声称“joint+EEF 同时监督”更优。官方
+代码的 55D feature/mask 机制允许同一 robot config 同时打开两块，因此本项目增加
+joint+EEF 联合监督作为扩展实验，而不是冒充论文默认 setting。
+
+联合监督时，模型输入仍只有 joint + gripper 14D；绝对 EEF state 只作为计算相对
+EEF target 的锚点，不进入模型 state。YAM action 有 28 个有效维度：relative joint
+12D、local-frame relative EEF 14D（每臂 `XYZ + quaternion(xyzw)`）和 absolute gripper 2D。官方 `joint_mask`
+让同一个 flow-matching L2 loss 只平均这些有效维度；并不存在第二个单独加权的
+“pos loss”。部署仍选 joint-only robot config，只执行 joint+gripper，EEF 是训练辅助目标。
+
 ## ManiMux / XPolicy 分层
 
 ```text
@@ -82,6 +93,8 @@ source:  XPolicyLab/policy/LingBot_VLA2/lingbot_vla_v2/  # pinned nested submodu
 check:   scripts/validation/check_lingbot_vla2_yam.py
 audit:   scripts/validation/lingbot_vla2_yam_audit.py
 prepare: scripts/datasets/prepare_lingbot_vla2_base_assets.py
+joint+EEF train: scripts/training/train_lingbot_vla2_yam_joint_ee_cluster.sh
+joint+EEF profile: configs/lingbot-vla2/yam/robot_configs/yam_dual_joint_ee_relative.yaml
 stats:   src/manimux/integrations/lingbot_vla2_yam/norm_stats/yam_60ep.json
 ```
 

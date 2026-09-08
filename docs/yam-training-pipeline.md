@@ -29,7 +29,7 @@ normalization。
 
 ```bash
 cd "$CODE"
-envs/yam/.venv/bin/python scripts/datasets/convert_yam_to_lerobot.py \
+"$DATA/envs/lingbot-vla2/.venv/bin/python" scripts/datasets/convert_yam_to_lerobot.py \
   "$DATA/datasets/raw/assemble_the_screwdriver_20260825" \
   --repo-id yam_assemble_screwdriver_20260825_v1 \
   --output-root "$DATA/datasets/lerobot/yam_assemble_screwdriver_20260825_v1"
@@ -61,15 +61,15 @@ cp "$DATA/xr1/yam_assemble_screwdriver_20260825_v1/yam_assemble_screwdriver_2026
 XR-1 使用 EE pose delta 数据接口，不能直接把 Pi05 的 14 维 joint LeRobot 目录当作 XR-1
 数据集。
 
-### 1.3 Pi05：joint 控制 + 12D EE 辅助监督（独立数据集）
+### 1.3 Pi05 / LingBot：joint + EE 联合监督（独立数据集）
 
 纯 joint 数据集和配置保持不变。联合监督使用新的 LeRobot repo ID，并额外保留双臂
-绝对 EE position/rotation matrix；50 步 action chunk 取出后，训练 transform 才按照当前帧
-EE 坐标系计算每个 future target 的 `XYZ + axis-angle` delta。
+绝对 EE position/rotation matrix。转换器同时写入 LingBot 原生的双臂 14D
+`XYZ + quaternion(xyzw)` pose，两个模型各自在训练 transform 中计算相对目标。
 
 ```bash
 cd "$CODE"
-envs/yam/.venv/bin/python scripts/datasets/convert_yam_to_lerobot.py \
+"$DATA/envs/lingbot-vla2/.venv/bin/python" scripts/datasets/convert_yam_to_lerobot.py \
   "$DATA/datasets/raw/assemble_the_screwdriver_20260825" \
   --repo-id yam_assemble_screwdriver_20260825_v1_joint_ee \
   --output-root "$DATA/datasets/lerobot/yam_assemble_screwdriver_20260825_v1_joint_ee" \
@@ -78,6 +78,12 @@ envs/yam/.venv/bin/python scripts/datasets/convert_yam_to_lerobot.py \
 
 该配置的训练目标为 26 个有效维度：前 14 维保持原 joint/gripper 契约，后 12 维是左右臂
 EE `XYZ + axis-angle` delta；Pi05 的 32 维模型接口不变，推理输出仍只取前 14 维。
+
+LingBot 使用同一份数据集，但目标表示不同：12D relative joint、14D local-frame relative
+EEF pose 和 2D absolute gripper，共 28 个有效维度；其余位置由官方 55D canonical mask
+屏蔽。输入 state 仍只有 12D joint + 2D gripper；绝对 EEF state 只在 transform 内作为
+delta 锚点，不进入模型。LingBot 的 EEF rotation 是 quaternion，不是 Pi05/XR-1 的
+axis-angle。
 
 ## 2. normalization
 
@@ -89,12 +95,20 @@ PI05_WORKSPACE="$CODE" bash scripts/training/train_pi05_yam_cluster.sh \
   prepare assemble-screwdriver-v1-s0-8xh100-15k
 ```
 
-LingBot 转换并统计：
+LingBot joint-only 的统计由 wrapper 生成：
 
 ```bash
-cd "$CODE/XPolicyLab/policy/LingBot_VLA2"
-bash process_data.sh yam assemble_screwdriver yam_dual joint \
-  "" "$DATA/datasets/raw/assemble_the_screwdriver_20260825"
+cd "$CODE"
+bash scripts/training/train_lingbot_vla2_yam_cluster.sh \
+  prepare assemble-screwdriver-lingbot-joint-only
+```
+
+joint + EEF native-depth 使用独立 dataset/stats：
+
+```bash
+cd "$CODE"
+bash scripts/training/train_lingbot_vla2_yam_joint_ee_cluster.sh \
+  prepare assemble-screwdriver-lingbot-joint-ee-native-depth
 ```
 
 XR-1 的 `prepare_xr1_yam_dataset.py` 会在输出目录生成匹配的 `norm_stats.json` 和 data
@@ -131,22 +145,30 @@ PI05_WORKSPACE="$CODE" bash scripts/training/train_pi05_yam_joint_ee_cluster.sh 
 
 ## 4. LingBot-VLA2 训练
 
-`LINGBOT_VLA2_ENABLE_RESUME=false` 确保从 foundation checkpoint 开始，不读取旧 optimizer
-状态：
+纯 joint 旧实验仍使用原 wrapper 和原数据集，不会被 joint+EEF 配置覆盖：
 
 ```bash
-cd "$CODE/XPolicyLab/policy/LingBot_VLA2"
-LINGBOT_VLA2_DATASET_PATH="$DATA/datasets/lingbot/yam-assemble-screwdriver" \
-LINGBOT_VLA2_NORM_STATS_PATH="$DATA/datasets/lingbot/yam-assemble-screwdriver/norm_stats.json" \
-LINGBOT_VLA2_MODEL_PATH="$CODE/checkpoints/pretrained/lingbot-vla-v2-6b" \
-LINGBOT_VLA2_TOKENIZER_PATH="$CODE/checkpoints/pretrained/qwen3_vl_4b_processor" \
-LINGBOT_VLA2_MICRO_BATCH_SIZE=1 LINGBOT_VLA2_GRAD_ACCUM_STEPS=64 \
+cd "$CODE"
+LINGBOT_VLA2_GPU_IDS=0,1,2,3,4,5,6,7 \
+LINGBOT_VLA2_MICRO_BATCH_SIZE=1 LINGBOT_VLA2_GRAD_ACCUM_STEPS=8 \
 LINGBOT_VLA2_MAX_STEPS=15000 LINGBOT_VLA2_SAVE_STEPS=1000 \
-LINGBOT_VLA2_ENABLE_RESUME=false \
-bash train.sh yam assemble_screwdriver yam_dual joint 0 0,1,2,3,4,5,6,7
+bash scripts/training/train_lingbot_vla2_yam_cluster.sh \
+  train assemble-screwdriver-lingbot-joint-only-8xh100-b64-15k
 ```
 
-wrapper 会把 `lingbotvla_cli.yaml`、`robot_config.yaml` 和 `norm_stats.json` 复制到 checkpoint。
+joint + EEF 使用官方 native-depth 辅助任务，并保持 8 卡、global batch 64、15K steps、
+每 1K 保存：
+
+```bash
+cd "$CODE"
+bash scripts/training/train_lingbot_vla2_yam_joint_ee_cluster.sh \
+  train assemble-screwdriver-lingbot-joint-ee-native-depth-8xh100-b64-15k
+```
+
+该 wrapper 显式使用官方 real-robot teacher 三件套：MoGe、LingBot-Depth/MoRGBD、
+DINO-Video。训练 robot config 同时开启 joint 和 EEF；输出目录中的
+`robot_config.yaml` 则是 joint-only relative 部署配置，因此真机仍只执行 joint+gripper。
+`training_robot_config.yaml` 保留联合监督配置用于追溯。
 
 ## 5. Xiaomi Robotics 1 / XR-1 训练
 

@@ -53,6 +53,10 @@ data:
 
 train:
   output_dir: null
+  moe_monitor_interval: 1000
+  vlm_causal: true
+  vlm_fsdp: true
+  use_moe: true
   action_dim: 55
   max_action_dim: 55
   max_state_dim: 55
@@ -68,27 +72,44 @@ train:
   enable_fp32: true
   enable_mixed_precision: true
   enable_gradient_checkpointing: true
+  use_wandb: false
   precompute_grid_thw: true
   attention_implementation: flex_cached
+  use_compile: true
   data_parallel_mode: fsdp2
+  enable_full_shard: false
   data_parallel_replicate_size: 1
   data_parallel_shard_size: 8
   module_fsdp_enable: true
+  ulysses_parallel_size: 1
   freeze_vit: false
+  freeze_vision_encoder: false
+  tokenizer_max_length: 72
   optimizer: muon
   lr: 5.0e-5
   lr_decay_style: constant
   lr_decay_ratio: 1.0
   lr_min: 1.0e-7
+  num_train_epochs: 29000
   sequence_wise_mode: per_sequence
   sequence_wise_loss_coeff: 1.0e-3
+  token_num_experts: 32
+  token_top_k: 4
   router_activation: sigmoid
   router_z_loss_coeff: 1.0e-4
   routed_scaling_factor: 4.0
+  bias_update_speed: 0
+  use_shared_expert_gate: false
+  use_moe_expert_lr: true
   token_moe_layers: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35]
   token_moe_intermediate_size: 512
+  token_shared_intermediate_size: 704
   expert_hidden_size: 768
   expert_intermediate_size: 2752
+  rmpad: false
+  rmpad_with_pos_ids: false
+  ckpt_manager: dcp
+  save_epochs: 29000
   align_params:
     mode: query
     num_task_tokens: 8
