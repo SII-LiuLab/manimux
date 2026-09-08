@@ -13,7 +13,6 @@ eval_batch: false
 checkpoint_variant: lingbot_vla2_yam_assemble_screwdriver_step_15000
 
 lingbot_vla2_root: lingbot_vla_v2
-official_source_revision: 187f84061ba312acab3bca05a6ee26a8d75968da
 qwen3vl_path: /home/ubuntu/manimux/checkpoints/pretrained/qwen3_vl_4b_processor
 model_root: /home/ubuntu/manimux/checkpoints/finetuned/ziyang/lingbot-vla2-native-depth-relative-step15000/checkpoints/global_step_15000/hf_ckpt
 training_config_path: /home/ubuntu/manimux/checkpoints/finetuned/ziyang/lingbot-vla2-native-depth-relative-step15000/lingbotvla_cli.yaml

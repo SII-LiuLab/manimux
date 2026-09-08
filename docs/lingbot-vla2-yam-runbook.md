@@ -15,7 +15,7 @@ zero-shot 不是官方承诺的使用方式。为了测它是否已经学到跨�
 ## 上游基线
 
 - 官方源码：<https://github.com/Robbyant/lingbot-vla-v2>
-- 当前集成 revision：`187f84061ba312acab3bca05a6ee26a8d75968da`
+- 内置源码基线：官方 `951475a`，另含 XPolicyLab 的 YAM 适配扩展
 - 官方 foundation weights：`robbyant/lingbot-vla-v2-6b`
 - 官方 RoboTwin 后训练 weights：`robbyant/lingbot-vla-v2-6b-robotwin`
 - 源码许可证：Apache-2.0
