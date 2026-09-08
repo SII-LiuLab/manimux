@@ -1,6 +1,6 @@
 run:
   task: Assemble the screwdriver.
-  output_dir: ./data/experiments/pi05-assemble-screwdriver-step15000/rtc
+  output_dir: ./data/experiments/pi05-assemble-screwdriver-step15000/dvac
   max_steps: 12000
 
 robot:
@@ -31,7 +31,7 @@ policy:
   worker: xpolicylab_ws
   adapter: xpolicylab
   action_dt_s: 0.03333333333333333
-  timeout_s: 2.0
+  timeout_s: 30.0
   horizon_steps: 50
   inference_delay_s: 0.0
   expected_backend:
@@ -47,10 +47,10 @@ policy:
       norm_stats_path: /home/ubuntu/manimux/checkpoints/finetuned/ziyang/pi05-yam-assemble-screwdriver-b64-step15000/assets/yam_assemble_screwdriver_20260825_v1
       action_horizon: 50
       num_steps: 10
-  startup_timeout_s: 30.0
+  startup_timeout_s: 60.0
   options:
     server: ws://127.0.0.1:8500
-    request_timeout_s: 10.0
+    request_timeout_s: 120.0
     group_order: [left_arm, right_arm]
     group_prefixes:
       left_arm: left
@@ -62,16 +62,17 @@ policy:
       cam_right_wrist: right_camera
 
 execution:
-  runtime: rtc
-  rtc:
-    min_execute_steps: 20
-    initial_delay_steps: 4
-    delay_buffer_size: 10
-    beta: 9.1
+  runtime: dvac
+  dvac:
+    tail_steps: 5
+    alpha: 2.0
+    rolling_window_size: 5
+    min_execution_steps: 1
+    max_execution_steps: 50
   executor: smooth
   commit_lead_s: 0.0
-  max_plan_age_s: 2.0
-  blend_steps: 4
+  max_plan_age_s: 30.0
+  blend_steps: 0
   smooth:
     cutoff_hz: 8.0
     max_velocity: 0.25
@@ -90,7 +91,7 @@ execution:
 viewer:
   enabled: true
   robot_adapter: yam
-  policy_label: Pi05 YAM screwdriver step-15000 · RTC
+  policy_label: Pi05 YAM screwdriver step-15000 · DVAC paper reproduction
 
 recording:
   enabled: true

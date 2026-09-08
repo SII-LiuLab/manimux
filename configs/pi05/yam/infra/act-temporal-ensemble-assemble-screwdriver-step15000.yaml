@@ -1,6 +1,6 @@
 run:
   task: Assemble the screwdriver.
-  output_dir: ./data/experiments/pi05-assemble-screwdriver-step15000/rtc
+  output_dir: ./data/experiments/pi05-assemble-screwdriver-step15000/act-temporal-ensemble
   max_steps: 12000
 
 robot:
@@ -62,16 +62,14 @@ policy:
       cam_right_wrist: right_camera
 
 execution:
-  runtime: rtc
-  rtc:
-    min_execute_steps: 20
-    initial_delay_steps: 4
-    delay_buffer_size: 10
-    beta: 9.1
+  runtime: act_temporal_ensemble
   executor: smooth
   commit_lead_s: 0.0
   max_plan_age_s: 2.0
-  blend_steps: 4
+  blend_steps: 0
+  temporal_ensemble:
+    coefficient: 0.01
+    query_interval_steps: 4
   smooth:
     cutoff_hz: 8.0
     max_velocity: 0.25
@@ -90,7 +88,7 @@ execution:
 viewer:
   enabled: true
   robot_adapter: yam
-  policy_label: Pi05 YAM screwdriver step-15000 · RTC
+  policy_label: Pi05 YAM screwdriver step-15000 · ACT temporal ensemble
 
 recording:
   enabled: true

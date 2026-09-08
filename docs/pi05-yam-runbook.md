@@ -63,7 +63,39 @@ envs/yam/.venv/bin/manimux run \
   --config configs/pi05/yam/infra/manimux-pick-red-ball-box-step1000.yaml
 ```
 
-## 螺丝刀 step-15000：ManiMux 与 RTC
+## 螺丝刀 step-15000：七种算法、统一 Executor
+
+这套配置使用同一份 step-15000 checkpoint、checkpoint-matched norm stats、任务文本、
+三相机映射、起始位和 Recorder。模型原生输出均为 `50 × 14` absolute joint actions，
+轨迹点间隔 `1/30 s`。算法只改变采样、chunk 选择和调度，不切换底层 executor。
+
+所有配置位于 `configs/pi05/yam/infra/`，共同后缀为
+`-assemble-screwdriver-step15000.yaml`：
+
+| 算法 / 文件名前缀 | runtime | 算法配置 |
+|---|---|---|
+| `manimux` | `manimux` | single-inflight，剩余 0.4 s 发起补充推理，blend 4 步 |
+| `rtc` | `rtc` | 最少执行 20 步，初始延迟 4 步，beta 9.1，blend 4 步 |
+| `act-temporal-ensemble` | `act_temporal_ensemble` | coefficient 0.01，每 4 个 policy 步请求一次 |
+| `aac` | `aac` | 20 个候选，motion threshold 0.2，backward beta 0.99 |
+| `paint` | `paint` | execution steps 12，初始延迟 10 步，延迟历史窗口 10 |
+| `autohorizon` | `autohorizon` | 使用已接入的 JAX selector，由模型返回执行长度 |
+| `dvac` | `dvac` | tail 5，alpha 2.0，滚动窗口 5，执行长度 1–50 |
+
+统一的底层设置为 `executor: smooth`、100 Hz 控制、8 Hz cutoff、关节速度上限
+`0.25 rad/s`、加速度上限 `0.5 rad/s²`、绝对位置上限 `3.14 rad`；左右夹爪均为
+连续 `0–1`，速度上限 `1.0 /s`、加速度上限 `12.0 /s²`。
+这些设置和原有螺丝刀 ManiMux / RTC 一致。ACT、AAC、PAINT、AutoHorizon、DVAC 按各自
+契约保留 `blend_steps: 0`；blend 属于 Timeline 拼接，不是底层 SmoothExecutor 参数。
+
+AAC 继续使用现有 `yam_60ep_ee_increment.json` 作为**候选评分用** EE 增量统计；
+它不是螺丝刀任务专门重新估计的统计，也不替换 checkpoint 的动作归一化文件。
+各方法保留已有的冷启动 timeout，输出分别写入
+`data/experiments/pi05-assemble-screwdriver-step15000/<算法前缀>/`。
+
+2026-09-08 补齐 ACT、AAC、PAINT、AutoHorizon、DVAC 五份螺丝刀配置。
+这表示复用现有算法实现并完成配置/单元回归，不代表新增的五种组合已在该 checkpoint 上
+完成 GPU 或真机测试；既有算法的实测记录见下方方法文档。历史红球和 Robocurve 配置保留不变。
 
 先在 `/home/ubuntu/manimux` 启动同一个 Pi05 policy server：
 
@@ -74,28 +106,23 @@ XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
   --config configs/pi05/yam/server/finetune-assemble-screwdriver-step15000.yaml
 ```
 
-普通 ManiMux chunk runtime：
+模型服务无需随算法更换；在另一终端选择一种 runtime，例如 PAINT：
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
-  --config configs/pi05/yam/infra/manimux-assemble-screwdriver-step15000.yaml
 envs/yam/.venv/bin/manimux serve \
-  --config configs/pi05/yam/infra/manimux-assemble-screwdriver-step15000.yaml
+  --config configs/pi05/yam/infra/paint-assemble-screwdriver-step15000.yaml
 ```
 
-Pi-guided RTC runtime（仍复用上面的同一个 policy server）：
+替换文件名前缀即可选择表中的其他算法，例如 RTC：
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
-  --config configs/pi05/yam/infra/rtc-assemble-screwdriver-step15000.yaml
 envs/yam/.venv/bin/manimux serve \
   --config configs/pi05/yam/infra/rtc-assemble-screwdriver-step15000.yaml
 ```
 
-两种 runtime 只能选一种运行。`manimux-...` 是普通 `runtime: manimux`，`rtc-...` 是
-`runtime: rtc`；不要同时启动两个 ManiMux runtime，也不要为 RTC 再启动一个 policy server。
+七种 runtime 选择一种运行，共用上面的同一个 policy server。
 
 Pi05 上的训练免推理方法由方法文档单独维护：
 

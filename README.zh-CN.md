@@ -295,6 +295,44 @@ envs/yam/.venv/bin/manimux serve \
 这些只展示入口，不代替 checkpoint 检查、preflight、CAN 检查和停止流程。运行真机前
 必须打开对应 runbook，并确认急停、工作区和两路 CAN 状态。
 
+## 离线视频评测：PRM-as-a-Judge
+
+项目通过 `PRM-as-a-Judge/` 子模块接入 **PRM-as-a-Judge 1.5**，目前使用的评判模型为
+**Robo-Dopamine-GRM-2.0-8B-Preview**。评测只读取录像，不启动机器人或策略服务。
+
+**当前入口不是只传视频根目录，而是必须提供 JSONL manifest。**
+例如创建 `data/prm/manifest.jsonl`，每行对应一条 rollout：
+
+```json
+{"case_id":"pi05-rollout-003","task":"Assemble the screwdriver.","video":"/absolute/path/to/session/rollout-003/videos/front_camera.mp4","model":"pi05_step15000","benchmark":"yam_real_top"}
+```
+
+必填项为 `case_id`、`task`（或 `instruction`）、`video`；相对视频路径以 manifest 所在目录
+为基准。多条视频、多模型比较就追加多行，使用不同 case ID，并填写 `model` 方便分组。
+不要求人工成功/失败标签。我们之前的 YAM top 视角评测只填 `front_camera.mp4`，
+Dopamine 会将该视频复用到三个相机槽位；这仍然是**单 top 视角评测**，不是三视角融合。
+
+已安装独立的 `prm-judge` Conda 环境时，在项目根目录运行：
+
+```bash
+git submodule update --init PRM-as-a-Judge
+
+PRM_GPU_MEMORY_UTILIZATION=0.68 \
+conda run --no-capture-output -n prm-judge python scripts/evaluation/prm_as_a_judge.py eval \
+  --manifest data/prm/manifest.jsonl \
+  --prm dopamine \
+  --prm-path checkpoints/pretrained/Robo-Dopamine-GRM-2.0-8B-Preview \
+  --output-root data/prm/results \
+  --gpus 0 --eval-mode forward --frame-interval 72 --batch-size 10 \
+  --outlier-method none --smoothing none --visualize
+```
+
+权重保存在本地，不随 Git 上传。`--frame-interval 72` 表示每隔 72 个原视频帧采样一次，
+不是每条视频采样 72 帧。结果位于 `data/prm/results/run_*/`，包括 `run_summary.json`、
+`per_case.jsonl`、`metrics.xlsx`、`report.md` 和 `visualizations/report.html`。
+可关注 MC@25/50/75、MP、PPL、CRA、STR、DRR 等过程指标，不必将成功率作为主要结果。
+环境安装、视角字段及结果解释见 [PRM 使用说明](docs/prm-as-a-judge.md)。
+
 ## 配置约定
 
 ```text
@@ -329,6 +367,7 @@ Safety、Recorder 与 Viewer 协议不随模型复制。完整接口见
 
 ## 文档
 
+- [PRM-as-a-Judge 离线视频评测](docs/prm-as-a-judge.md)
 - [Viewer 可视化使用教程](docs/viewer-tutorial.html)
 - [XPolicyLab 集成](docs/xpolicylab-runbook.md)
 - [MolmoAct2](docs/molmoact-yam-runbook.md) · [ABC](docs/abc-yam-runbook.md)

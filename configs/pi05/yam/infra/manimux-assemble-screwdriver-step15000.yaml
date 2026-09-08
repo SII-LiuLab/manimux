@@ -65,8 +65,7 @@ execution:
   runtime: manimux
   executor: smooth
   inference_schedule: single_inflight
-  # Submit only after the previous chunk is effectively exhausted. The model
-  # worker remains off the 100 Hz safety loop, but chunks do not overlap.
+  # Refill with 0.4 s remaining; inference can overlap the active chunk.
   refill_threshold_s: 0.4
   commit_lead_s: 0.0
   max_plan_age_s: 2.0

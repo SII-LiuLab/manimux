@@ -390,6 +390,48 @@ These snippets show entry points only. They do not replace checkpoint validation
 CAN checks or shutdown procedures. Model setup stays in its runbook; ACT, AAC, PAINT and later
 strategy commands stay in the linked method documentation in the algorithm list.
 
+## Offline Video Evaluation: PRM-as-a-Judge
+
+ManiMux includes **PRM-as-a-Judge 1.5** as the `PRM-as-a-Judge/` submodule. Our
+recorded-video evaluations use **Robo-Dopamine-GRM-2.0-8B-Preview** as the judge.
+This runs offline; it does not start a robot or a policy server.
+
+**The current entry point requires a JSONL manifest, not just a video root directory.**
+Save one JSON object per rollout in a file such as `data/prm/manifest.jsonl`:
+
+```json
+{"case_id":"pi05-rollout-003","task":"Assemble the screwdriver.","video":"/absolute/path/to/session/rollout-003/videos/front_camera.mp4","model":"pi05_step15000","benchmark":"yam_real_top"}
+```
+
+`case_id`, `task` (or `instruction`), and `video` are required. Relative video paths resolve
+against the manifest's directory. Add more lines to evaluate multiple rollouts or models;
+use distinct case IDs and set `model` for grouped comparisons. No human success label is required.
+For our YAM top-view setup, select `front_camera.mp4` only. The Dopamine adapter repeats that
+single video into its three camera slots; this is **top-only**, not three-view evaluation.
+
+From the repository root, with the dedicated `prm-judge` Conda environment installed:
+
+```bash
+git submodule update --init PRM-as-a-Judge
+
+PRM_GPU_MEMORY_UTILIZATION=0.68 \
+conda run --no-capture-output -n prm-judge python scripts/evaluation/prm_as_a_judge.py eval \
+  --manifest data/prm/manifest.jsonl \
+  --prm dopamine \
+  --prm-path checkpoints/pretrained/Robo-Dopamine-GRM-2.0-8B-Preview \
+  --output-root data/prm/results \
+  --gpus 0 --eval-mode forward --frame-interval 72 --batch-size 10 \
+  --outlier-method none --smoothing none --visualize
+```
+
+The weights are local and excluded from Git. `--frame-interval 72` means one sample every
+72 source frames, not 72 samples per video. Results appear in `data/prm/results/run_*/`:
+`run_summary.json`, `per_case.jsonl`, `metrics.xlsx`, `report.md`, and `visualizations/report.html`.
+The toolkit computes progress/process metrics including MC@25/50/75, MP, PPL, CRA, STR and DRR;
+you can report these without making success rate the headline result.
+For environment setup, input views and report interpretation, see the
+[PRM usage guide](docs/prm-as-a-judge.md).
+
 ## Configuration Convention
 
 ```text
@@ -424,6 +466,7 @@ copied per model. See [Architecture](docs/architecture.md) for the complete cont
 
 ## Documentation
 
+- [PRM-as-a-Judge offline video evaluation](docs/prm-as-a-judge.md)
 - [Real-robot experiment design](docs/experiment-design.md)
 - [Experiment infrastructure and Viewer workflow](docs/experiment-infra.md)
 - [Viewer visual tutorial](docs/viewer-tutorial.html)
