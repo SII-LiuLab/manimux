@@ -2,7 +2,7 @@
 
 # ManiMux
 
-**Local asynchronous inference and execution infrastructure for real-robot Policies.**
+**Local asynchronous inference and execution infrastructure for real-robot policies.**
 
 Models are replaceable; ManiMux owns the control loop, robot, safety, recording and viewer.
 
@@ -20,7 +20,7 @@ Models are replaceable; ManiMux owns the control loop, robot, safety, recording 
 
 ## ManiMux in 30 Seconds
 
-**ManiMux is an asynchronous inference runtime between VLA policies and real robots.** The policy
+**ManiMux is an asynchronous inference runtime between policies and real robots.** The policy
 decides what should happen next; ManiMux decides when and how to execute it smoothly and safely,
 then records the complete run.
 
