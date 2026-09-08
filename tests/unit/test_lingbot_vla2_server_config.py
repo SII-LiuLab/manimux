@@ -44,7 +44,7 @@ def test_server_rejects_contract_drift(override, message) -> None:
 def test_missing_posttraining_artifacts_are_blocked() -> None:
     report = _validate(_minimal_config())
     assert report["status"] == "blocked"
-    assert report["rtc_capability"] == "blocked_relative_action_contract"
+    assert report["rtc_capability"] == "pi_guided_v1_sampler"
     assert any("missing files" in error for error in report["errors"])
 
 

@@ -1,20 +1,21 @@
 run:
-  task: put the bottle into the bin
-  output_dir: ./data
-  max_steps: 1600
+  task: Assemble the screwdriver.
+  output_dir: ./data/experiments/lingbot-vla2-assemble-screwdriver-step15000/rtc
+  max_steps: 12000
 
 robot:
   driver: yam_dual
   config: configs/robots/yam_left.yaml
-  control_hz: 30.0
+  control_hz: 100.0
   group_dims:
     left_arm: 7
     right_arm: 7
   options:
     right_config: configs/robots/yam_right.yaml
     move_to_start_on_connect: true
-    start_duration_s: 5.0
-    home_duration_s: 5.0
+    start_joints: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+    start_duration_s: 3.0
+    home_duration_s: 3.0
     home_on_close: true
 
 sensors:
@@ -28,15 +29,26 @@ sensors:
 
 policy:
   worker: xpolicylab_ws
-  adapter: xr1_yam
-  action_dt_s: 0.033333
+  adapter: lingbot_vla2_yam
+  action_dt_s: 0.03333333333333333
   timeout_s: 2.0
-  horizon_steps: 30
+  horizon_steps: 50
   inference_delay_s: 0.0
+  expected_backend:
+    server: xpolicylab_policy_server
+    model:
+      policy_family: lingbot_vla2
+      task_name: assemble_the_screwdriver
+      checkpoint_variant: lingbot_vla2_yam_assemble_screwdriver_step_15000
+      model_root: /home/ubuntu/manimux/checkpoints/finetuned/ziyang/lingbot-vla2-native-depth-relative-step15000/checkpoints/global_step_15000/hf_ckpt
+      norm_stats_path: /home/ubuntu/manimux/checkpoints/finetuned/ziyang/lingbot-vla2-native-depth-relative-step15000/norm_stats.json
+      action_horizon: 50
+      native_hz: 30.0
+      action_semantics: anchor_relative_arm_absolute_gripper
   startup_timeout_s: 120.0
   options:
-    server: ws://127.0.0.1:8500
-    request_timeout_s: 10.0
+    server: ws://127.0.0.1:8501
+    request_timeout_s: 20.0
     group_order: [left_arm, right_arm]
     group_prefixes:
       left_arm: left
@@ -46,24 +58,18 @@ policy:
       cam_head: front_camera
       cam_left_wrist: left_camera
       cam_right_wrist: right_camera
-    action_codec: xr1_ee_delta
-    kinematics: yam
-    kinematics_options:
-      arm_type: yam
-      gripper_type: linear_4310
-      num_arm_joints: 6
 
 execution:
   runtime: rtc
   rtc:
-    min_execute_steps: 15
-    initial_delay_steps: 8
+    min_execute_steps: 20
+    initial_delay_steps: 12
     delay_buffer_size: 10
-    beta: 4.25
+    beta: 5.0
   executor: smooth
   commit_lead_s: 0.0
-  max_plan_age_s: 1.0
-  blend_steps: 8
+  max_plan_age_s: 2.0
+  blend_steps: 4
   smooth:
     cutoff_hz: 8.0
     max_velocity: 0.25
@@ -78,19 +84,12 @@ execution:
       max_acceleration: 12.0
       closed_value: 0.0
       open_value: 1.0
-  mpc:
-    horizon_steps: 15
-    dynamics_a: 0.85
-    tracking_weight: 10.0
-    command_delta_weight: 1.0
-    max_velocity: 0.25
-    max_acceleration: 0.5
-    position_limit_abs: 3.14
 
 viewer:
   enabled: true
   robot_adapter: yam
-  policy_label: Xiaomi XR-1 RTC via XPolicyLab
+  policy_label: LingBot-VLA2 YAM screwdriver step-15000 · RTC
 
 recording:
   enabled: true
+  video_fps: 30.0

@@ -340,6 +340,13 @@ envs/yam/.venv/bin/manimux serve \
   --config configs/lingbot-vla2/yam/infra/manimux-assemble-screwdriver-step15000.yaml
 ```
 
+For sampler-level RTC, keep the same LingBot policy server and replace the runtime config:
+
+```bash
+envs/yam/.venv/bin/manimux serve \
+  --config configs/lingbot-vla2/yam/infra/rtc-assemble-screwdriver-step15000.yaml
+```
+
 #### Xiaomi XR-1 step-15000
 
 ```bash
@@ -356,6 +363,13 @@ envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
 
 envs/yam/.venv/bin/manimux serve \
   --config configs/xiaomi-xr1/yam/infra/manimux-assemble-screwdriver-step15000.yaml
+```
+
+For sampler-level RTC, keep the same XR-1 policy server and replace the runtime config:
+
+```bash
+envs/yam/.venv/bin/manimux serve \
+  --config configs/xiaomi-xr1/yam/infra/rtc-assemble-screwdriver-step15000.yaml
 ```
 
 Open `http://localhost:8086`, then operate Viewer in this order:

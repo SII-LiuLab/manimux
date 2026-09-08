@@ -85,6 +85,7 @@ finetune server: configs/lingbot-vla2/yam/server/finetune.yaml
 base server:     configs/lingbot-vla2/yam/server/base.yaml
 infra:   configs/lingbot-vla2/yam/infra/manimux.yaml
 rtc:     configs/lingbot-vla2/yam/infra/rtc.yaml
+step-15000 rtc: configs/lingbot-vla2/yam/infra/rtc-assemble-screwdriver-step15000.yaml
 adapter: XPolicyLab/policy/LingBot_VLA2/model.py
 sampler: XPolicyLab/policy/LingBot_VLA2/rtc.py
 server:  XPolicyLab/policy/LingBot_VLA2/setup_eval_policy_server.sh
@@ -186,7 +187,8 @@ RTC 配置使用同一个检查入口：
 
 ```bash
 envs/yam/.venv/bin/python scripts/validation/check_lingbot_vla2_yam.py \
-  --infra-config configs/lingbot-vla2/yam/infra/rtc.yaml
+  --config configs/lingbot-vla2/yam/server/finetune-assemble-screwdriver-step15000.yaml \
+  --infra-config configs/lingbot-vla2/yam/infra/rtc-assemble-screwdriver-step15000.yaml
 ```
 
 除相同的 Hz/dt/horizon 契约外，它还验证 sampler capability、`beta > 0`、delay
@@ -403,15 +405,15 @@ ManiMux RtcRuntime
        guidance = VJP(clean, (condition - clean) * weights)
        guided_velocity = velocity - scale(t, beta) * guidance
   -> official unnormalize/unpad
-  -> absolute YAM joint chunk [H, 14]
+  -> relative-arm + absolute-gripper chunk [H, 14]
+  -> lingbot_vla2_yam adapter restores absolute YAM joint waypoints
 ```
 
 纯 CPU 离线测试已覆盖 guidance 方向、zero-mask 等价于 native velocity、mask
 范围、YAM 14D 拆分、55D padding/mask，以及 guidance 确实在 flow loop 内逐步
 执行。
 
-当前 base 资产已完成 GPU、官方模型 forward 和 XPolicy WS 验证；缺少的是匹配 YAM
-post-training 的 checkpoint/stats，以及 RTC 真机实测。`rtc.yaml` 的
-`initial_delay_steps: 12` 和 `min_execute_steps: 20` 当前只满足静态约束，不代表已完成
-RTC 参数标定。因此默认先使用 `infra/manimux.yaml`，拿到 finetune 权重后再单独验证
-RTC。
+当前 step-15000 post-training checkpoint/stats 已接入 sampler RTC，静态配置与 CPU
+guidance 测试已经通过；尚缺真实 GPU conditioned RTC forward 与真机实测。
+`initial_delay_steps: 12` 和 `min_execute_steps: 20` 只满足静态约束，不代表已经完成
+RTC 延迟参数标定。

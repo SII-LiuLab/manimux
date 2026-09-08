@@ -176,3 +176,34 @@ def test_get_action_rtc_dispatches_sampler_level_bridge() -> None:
         "right_arm_joint_state",
         "right_ee_joint_state",
     }
+
+
+def test_get_action_rtc_preserves_relative_action_metadata() -> None:
+    module = _load_model_module()
+
+    class FakeBridge:
+        @staticmethod
+        def infer(*_):
+            return {
+                "action.arm.position": np.zeros((2, 12), dtype=np.float32),
+                "action.effector.position": np.ones((2, 2), dtype=np.float32),
+            }
+
+    model = object.__new__(module.Model)
+    model._observations = [{"task": "assemble"}]
+    model.action_horizon = 2
+    model.action_dim = 14
+    model.robot_info = ROBOT_INFO
+    model.action_semantics = module.RELATIVE_ACTION_SEMANTICS
+    model._rtc_bridge = FakeBridge()
+
+    result = model.get_action_rtc(
+        {
+            "action_condition": np.zeros((2, 14), dtype=np.float32),
+            "condition_weights": np.array([1.0, 0.5], dtype=np.float32),
+            "beta": 5.0,
+        }
+    )
+
+    assert result["action_semantics"] == module.RELATIVE_ACTION_SEMANTICS
+    assert len(result["actions"]) == 2

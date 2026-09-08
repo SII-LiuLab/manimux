@@ -65,13 +65,22 @@ execution:
   inference_schedule: single_inflight
   refill_threshold_s: 0.6
   commit_lead_s: 0.0
-  max_plan_age_s: 3.0
+  max_plan_age_s: 2.0
   blend_steps: 4
   smooth:
     cutoff_hz: 8.0
     max_velocity: 0.25
     max_acceleration: 0.5
     position_limit_abs: 3.14
+    gripper:
+      mode: continuous
+      group_indices:
+        left_arm: 6
+        right_arm: 6
+      max_velocity: 1.0
+      max_acceleration: 12.0
+      closed_value: 0.0
+      open_value: 1.0
 
 viewer:
   enabled: true

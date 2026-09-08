@@ -1,20 +1,21 @@
 run:
-  task: put the bottle into the bin
-  output_dir: ./data
-  max_steps: 1600
+  task: Assemble the screwdriver.
+  output_dir: ./data/experiments/xiaomi-xr1-assemble-screwdriver-step15000/rtc
+  max_steps: 12000
 
 robot:
   driver: yam_dual
   config: configs/robots/yam_left.yaml
-  control_hz: 30.0
+  control_hz: 100.0
   group_dims:
     left_arm: 7
     right_arm: 7
   options:
     right_config: configs/robots/yam_right.yaml
     move_to_start_on_connect: true
-    start_duration_s: 5.0
-    home_duration_s: 5.0
+    start_joints: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+    start_duration_s: 3.0
+    home_duration_s: 3.0
     home_on_close: true
 
 sensors:
@@ -29,13 +30,29 @@ sensors:
 policy:
   worker: xpolicylab_ws
   adapter: xr1_yam
-  action_dt_s: 0.033333
+  action_dt_s: 0.03333333333333333
   timeout_s: 2.0
   horizon_steps: 30
   inference_delay_s: 0.0
+  expected_backend:
+    server: xpolicylab_policy_server
+    model:
+      policy_name: Xiaomi_Robotics_1
+      task_name: assemble_the_screwdriver
+      checkpoint_variant: xiaomi_xr1_yam_assemble_screwdriver_step_15000
+      checkpoint_source: local_xiaomi_xr1_yam_assemble_screwdriver_step_15000
+      norm_stats_source: checkpoint_matched_yam_assemble_screwdriver_20260825_v1
+      train_config_name: xiaomi_xr1_yam_posttrain
+      observation_profile: yam_native_three_rgb
+      repo_id: RoboDojo_real-assemble_the_screwdriver-yam_dual-ee
+      model_path: /home/ubuntu/manimux/checkpoints/finetuned/ziyang/xiaomi-xr1-assemble-screwdriver-b64-step15000
+      norm_stats_path: /home/ubuntu/manimux/checkpoints/finetuned/ziyang/xiaomi-xr1-assemble-screwdriver-b64-step15000/norm_stats.json
+      action_horizon: 30
+      num_steps: 5
+      action_type: ee
   startup_timeout_s: 120.0
   options:
-    server: ws://127.0.0.1:8500
+    server: ws://127.0.0.1:8501
     request_timeout_s: 10.0
     group_order: [left_arm, right_arm]
     group_prefixes:
@@ -62,8 +79,8 @@ execution:
     beta: 4.25
   executor: smooth
   commit_lead_s: 0.0
-  max_plan_age_s: 1.0
-  blend_steps: 8
+  max_plan_age_s: 2.0
+  blend_steps: 4
   smooth:
     cutoff_hz: 8.0
     max_velocity: 0.25
@@ -78,19 +95,12 @@ execution:
       max_acceleration: 12.0
       closed_value: 0.0
       open_value: 1.0
-  mpc:
-    horizon_steps: 15
-    dynamics_a: 0.85
-    tracking_weight: 10.0
-    command_delta_weight: 1.0
-    max_velocity: 0.25
-    max_acceleration: 0.5
-    position_limit_abs: 3.14
 
 viewer:
   enabled: true
   robot_adapter: yam
-  policy_label: Xiaomi XR-1 RTC via XPolicyLab
+  policy_label: Xiaomi XR-1 YAM screwdriver step-15000 · RTC
 
 recording:
   enabled: true
+  video_fps: 30.0

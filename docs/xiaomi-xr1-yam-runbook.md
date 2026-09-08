@@ -54,6 +54,7 @@ uv pip install --python envs/xr1/.venv/bin/python -e XPolicyLab
 base server:    configs/xiaomi-xr1/yam/server/base.yaml
 ManiMux:        configs/xiaomi-xr1/yam/infra/manimux.yaml
 RTC:            configs/xiaomi-xr1/yam/infra/rtc.yaml
+step-15000 RTC: configs/xiaomi-xr1/yam/infra/rtc-assemble-screwdriver-step15000.yaml
 ```
 
 RTC 将 ManiMux `30 x 14` overlap condition 通过 FK 反编码到模型原生 `30 x 60` 空间，
@@ -202,8 +203,8 @@ envs/xr1/.venv/bin/python scripts/validation/check_xr1_rtc_sampler.py
 通过后，才使用同一个 server 做 RTC 对照：
 
 ```bash
-envs/yam/.venv/bin/manimux run --config configs/xiaomi-xr1/yam/infra/manimux.yaml
-envs/yam/.venv/bin/manimux run --config configs/xiaomi-xr1/yam/infra/rtc.yaml
+envs/yam/.venv/bin/manimux run --config configs/xiaomi-xr1/yam/infra/manimux-assemble-screwdriver-step15000.yaml
+envs/yam/.venv/bin/manimux run --config configs/xiaomi-xr1/yam/infra/rtc-assemble-screwdriver-step15000.yaml
 ```
 
 不要同时运行 ManiMux 与 RTC。相机、Viewer、CAN 检查和停止顺序参考
