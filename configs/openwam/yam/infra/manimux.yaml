@@ -27,7 +27,9 @@ sensors:
       camera_names: [left_camera, front_camera, right_camera]
 
 policy:
-  worker: openwam_ws
+  # OpenWAM is hosted by the standard XPolicyLab server. The model and its
+  # vendored upstream source live under XPolicyLab/policy/OpenWAM.
+  worker: xpolicylab_ws
   adapter: openwam_yam
   action_dt_s: 0.03333333333333333
   timeout_s: 300.0
@@ -37,15 +39,14 @@ policy:
   expected_backend:
     server: openwam_policy_server
   options:
-    server: ws://127.0.0.1:8848
+    server: ws://127.0.0.1:8500
     connect_timeout_s: 30.0
     request_timeout_s: 300.0
-    response_mode: chunk
     group_order: [left_arm, right_arm]
     camera_map:
-      head_camera: front_camera
-      left_wrist_camera: left_camera
-      right_wrist_camera: right_camera
+      cam_head: front_camera
+      cam_left_wrist: left_camera
+      cam_right_wrist: right_camera
     prompt_template: "A video recorded from a robot's point of view executing the following instruction: {instruction}"
     kinematics: yam
     kinematics_options:

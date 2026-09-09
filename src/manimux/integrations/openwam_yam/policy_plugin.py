@@ -25,7 +25,6 @@ import numpy as np
 from PIL import Image
 
 from manimux.config import PolicyConfig, RobotConfig
-from manimux.integrations.openwam_yam.ws_client import OpenWAMWsClient
 from manimux.policies.capabilities import PolicyCapabilities
 from manimux.types import (
     ActionChunk,
@@ -313,6 +312,18 @@ class OpenWAMYamAdapter:
         )
 
     def decode_action(self, raw: object, context: ActionContext) -> ActionChunk:
+        if isinstance(raw, Sequence) and raw and isinstance(raw[0], Mapping):
+            rows = []
+            for step in raw:
+                left = np.asarray(step["left_ee_pose"], dtype=np.float64)
+                right = np.asarray(step["right_ee_pose"], dtype=np.float64)
+                rows.append(np.concatenate([
+                    left[:3, 3], matrix_to_rot6d(left[:3, :3]),
+                    np.asarray(step["left_ee_joint_state"], dtype=np.float64).reshape(-1)[:1],
+                    right[:3, 3], matrix_to_rot6d(right[:3, :3]),
+                    np.asarray(step["right_ee_joint_state"], dtype=np.float64).reshape(-1)[:1],
+                ]))
+            raw = np.asarray(rows, dtype=np.float64)
         actions = np.asarray(raw, dtype=np.float64)
         if actions.shape != (self._horizon_steps, ACTION_DIM):
             raise ValueError(

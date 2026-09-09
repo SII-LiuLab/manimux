@@ -99,12 +99,6 @@ def _lingbot_vla2_yam_adapter_factory(
     return build_adapter(robot, policy)
 
 
-def _openwam_ws_factory(config: PolicyConfig) -> PolicyModel:
-    from manimux.integrations.openwam_yam.policy_plugin import build_model
-
-    return build_model(config)
-
-
 def _openwam_yam_adapter_factory(
     robot: RobotConfig,
     policy: PolicyConfig,
@@ -119,7 +113,6 @@ _MODEL_BUILTINS: dict[str, PolicyModelFactory] = {
     "molmoact_http": _molmoact_http_factory,
     "abc_http": _abc_http_factory,
     "xpolicylab_ws": _xpolicylab_ws_factory,
-    "openwam_ws": _openwam_ws_factory,
 }
 _ADAPTER_BUILTINS: dict[str, PolicyAdapterFactory] = {
     "identity": _identity_adapter_factory,
