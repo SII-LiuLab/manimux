@@ -44,12 +44,6 @@ xpolicylab = [
   "websockets>=14",
 ]
 
-# OpenWAM itself remains in an isolated Python/CUDA environment. ManiMux only
-# needs the official policy server's JSON WebSocket transport.
-openwam = [
-  "websockets>=14",
-]
-
 # torch is deliberately absent: the ABC checkpoint is validated against the
 # CUDA-12.8 build, which lives on a different index than the pinned cu121 wheels
 # used by molmoact-yam. Install it into envs/abc first, then this group.

@@ -11,6 +11,7 @@ robot:
     left_arm: 7
     right_arm: 7
   options:
+    deployment_bound: false
     right_config: configs/robots/yam_right.yaml
     move_to_start_on_connect: true
     start_duration_s: 5.0
@@ -37,7 +38,11 @@ policy:
   inference_delay_s: 0.0
   startup_timeout_s: 30.0
   expected_backend:
-    server: openwam_policy_server
+    server: xpolicylab_policy_server
+    model:
+      policy_family: openwam
+      observation_profile: yam_base
+      allow_dummy_policy: false
   options:
     server: ws://127.0.0.1:8500
     connect_timeout_s: 30.0
@@ -47,16 +52,11 @@ policy:
       cam_head: front_camera
       cam_left_wrist: left_camera
       cam_right_wrist: right_camera
-    prompt_template: "A video recorded from a robot's point of view executing the following instruction: {instruction}"
     kinematics: yam
     kinematics_options:
       arm_type: yam
       gripper_type: linear_4310
       num_arm_joints: 6
-    # Physical YAM values after OpenWAM server-side inverse normalization.
-    gripper_min: 0.0
-    gripper_max: 1.0
-    gripper_tolerance: 0.1
 
 execution:
   runtime: manimux

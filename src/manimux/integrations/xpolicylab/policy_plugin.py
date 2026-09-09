@@ -186,6 +186,11 @@ class XPolicyLabWsPolicyModel:
             instruction=request.instruction,
             frequency=self._frequency,
         )
+        extra_state = getattr(request, "xpolicylab_state", None)
+        if extra_state is not None:
+            if not isinstance(extra_state, Mapping) or set(extra_state) & set(observation["state"]):
+                raise ValueError("XPolicy additional state must not replace canonical joint state")
+            observation["state"].update(extra_state)
         # Embodiment adapters (e.g. sapolicy_yam) may attach EE poses / intrinsics
         # that the generic joint-state codec does not carry.
         extra_info = getattr(request, "xpolicylab_additional_info", None)
