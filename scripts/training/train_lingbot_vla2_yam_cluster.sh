@@ -49,6 +49,11 @@ export LINGBOT_VLA2_GRAD_ACCUM_STEPS=${LINGBOT_VLA2_GRAD_ACCUM_STEPS:-8}
 export LINGBOT_VLA2_USE_WANDB=false
 export LINGBOT_VLA2_ENABLE_RESUME=false
 
+WORKSPACE_PYTHONPATH=${SOURCE}:${WORKSPACE}/XPolicyLab:${WORKSPACE}/src
+if [[ -n "${PYTHONPATH:-}" ]]; then
+  WORKSPACE_PYTHONPATH=${WORKSPACE_PYTHONPATH}:${PYTHONPATH}
+fi
+
 mkdir -p "${STATS_DIR}" "${LOG_DIR}"
 
 require_file() {
@@ -90,6 +95,7 @@ compute_stats() {
   (
     cd "${SOURCE}"
     CUDA_VISIBLE_DEVICES=${stats_gpu} PATH="${VENV}/bin:${PATH}" \
+      PYTHONPATH="${WORKSPACE_PYTHONPATH}" \
       bash -o pipefail train.sh scripts/compute_norm_stats.py configs/vla/norm_compute/post_data.yaml \
         --data.data_name "${ROBOT_NAME}" \
         --data.robot_name "${ROBOT_NAME}" \
@@ -207,6 +213,7 @@ run_training() {
   (
     cd "${SOURCE}"
     CUDA_VISIBLE_DEVICES=${GPU_IDS} PATH="${VENV}/bin:${PATH}" \
+      PYTHONPATH="${WORKSPACE_PYTHONPATH}" \
       bash -o pipefail train.sh "${train_args[@]}"
   ) 2>&1 | tee "${LOG_DIR}/${run_name}.log"
 

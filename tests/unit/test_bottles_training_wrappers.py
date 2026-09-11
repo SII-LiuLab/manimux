@@ -11,6 +11,9 @@ def test_generic_lingbot_and_xr1_wrappers_are_task_neutral() -> None:
         assert "assemble_the_screwdriver" not in source
         assert "Assemble the screwdriver." not in source
 
+    lingbot = (TRAINING / "train_lingbot_vla2_yam_cluster.sh").read_text()
+    assert 'PYTHONPATH="${WORKSPACE_PYTHONPATH}"' in lingbot
+
 
 def test_bottles_wrappers_select_all_data_and_eight_gpus() -> None:
     lingbot = (TRAINING / "train_lingbot_vla2_yam_bottles_cluster.sh").read_text()
