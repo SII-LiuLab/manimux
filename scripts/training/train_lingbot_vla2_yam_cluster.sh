@@ -2,7 +2,7 @@
 set -euo pipefail
 
 mode=${1:-train}
-run_name=${2:-assemble-screwdriver-v1-s0-4xh100-3k}
+run_name=${2:-yam-v1-s0-4xh100-3k}
 
 ROOT=${YAM_TRAIN_ROOT:-/inspire/hdd2/project/liu-ming-huan/public/ziyang/yam_fintune_data}
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -10,10 +10,10 @@ WORKSPACE=${LINGBOT_VLA2_WORKSPACE:-${REPO_ROOT}}
 POLICY=${WORKSPACE}/XPolicyLab/policy/LingBot_VLA2
 SOURCE=${POLICY}/lingbot_vla_v2
 VENV=${ROOT}/envs/lingbot-vla2/.venv
-DATASET=${LINGBOT_VLA2_DATASET_PATH:-${ROOT}/datasets/lerobot/yam_assemble_screwdriver_20260825_v1}
-DATASET_NAME=${LINGBOT_VLA2_DATASET_NAME:-$(basename "${DATASET}")}
-MODEL=${ROOT}/weights/base/lingbot-vla-v2-6b
-TOKENIZER=${ROOT}/weights/base/xiaomi/qwen3_vl_4b_processor
+DATASET=${LINGBOT_VLA2_DATASET_PATH:-}
+DATASET_NAME=${LINGBOT_VLA2_DATASET_NAME:-${DATASET##*/}}
+MODEL=${LINGBOT_VLA2_MODEL_PATH:-${ROOT}/weights/base/lingbot-vla-v2-6b}
+TOKENIZER=${LINGBOT_VLA2_TOKENIZER_PATH:-${ROOT}/weights/base/xiaomi/qwen3_vl_4b_processor}
 TRAINING_CONFIG=${LINGBOT_VLA2_TRAINING_CONFIG:-${POLICY}/training/yam_dual.yaml}
 ROBOT_CONFIG_ROOT=${LINGBOT_VLA2_ROBOT_CONFIG_ROOT:-${POLICY}/robot_configs}
 ROBOT_NAME=${LINGBOT_VLA2_ROBOT_NAME:-yam_dual_packed_absolute}
@@ -56,6 +56,18 @@ require_file() {
     echo "Required artifact is missing: $1" >&2
     exit 1
   fi
+}
+
+require_value() {
+  if [[ -z "$2" ]]; then
+    echo "$1 must be set" >&2
+    exit 1
+  fi
+}
+
+validate_configuration() {
+  require_value LINGBOT_VLA2_DATASET_PATH "${DATASET}"
+  require_value LINGBOT_VLA2_DATASET_NAME "${DATASET_NAME}"
 }
 
 install_environment() {
@@ -101,17 +113,28 @@ preflight() {
   require_file "${DEPLOY_ROBOT_CONFIG}"
   require_file "${TRAINING_CONFIG}"
   require_file "${STATS}"
-  "${VENV}/bin/python" - "${DATASET}" "${STATS}" "${LINGBOT_VLA2_EE_AUX:-false}" <<'PY'
+  "${VENV}/bin/python" - \
+    "${DATASET}" \
+    "${STATS}" \
+    "${LINGBOT_VLA2_EE_AUX:-false}" \
+    "${LINGBOT_VLA2_EXPECTED_EPISODES:-}" \
+    "${LINGBOT_VLA2_EXPECTED_FRAMES:-}" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 dataset, stats_path = map(Path, sys.argv[1:3])
 ee_aux = sys.argv[3].lower() == "true"
+expected_episodes = int(sys.argv[4]) if sys.argv[4] else None
+expected_frames = int(sys.argv[5]) if sys.argv[5] else None
 info = json.loads((dataset / "meta/info.json").read_text())
 assert info["codebase_version"] == "v3.0"
-assert info["total_episodes"] == 19
-assert info["total_frames"] == 17789
+assert info["total_episodes"] > 0
+assert info["total_frames"] > 0
+if expected_episodes is not None:
+    assert info["total_episodes"] == expected_episodes
+if expected_frames is not None:
+    assert info["total_frames"] == expected_frames
 assert info["features"]["observation.state"]["shape"] == [14]
 assert info["features"]["action"]["shape"] == [14]
 if ee_aux:
@@ -120,7 +143,7 @@ if ee_aux:
     assert info["features"]["observation.state.end.position"]["shape"] == [14]
     assert info["features"]["action.end.position"]["shape"] == [14]
 stats = json.loads(stats_path.read_text())
-assert stats["count"] == 17789
+assert stats["count"] == info["total_frames"]
 expected = {
     "observation.state.arm.position": 12,
     "observation.state.effector.position": 2,
@@ -197,15 +220,17 @@ case "${mode}" in
     LINGBOT_VLA2_MAX_STEPS=1 LINGBOT_VLA2_SAVE_STEPS=1 \
       bash "$0" smoke "${run_name}-smoke"
     require_file "${ROOT}/weights/finetuned/lingbot-vla2/${run_name}-smoke/checkpoints/global_step_1/hf_ckpt/model.safetensors.index.json"
-    LINGBOT_VLA2_MAX_STEPS=3000 LINGBOT_VLA2_SAVE_STEPS=500 \
+    LINGBOT_VLA2_MAX_STEPS=${LINGBOT_VLA2_MAX_STEPS:-3000} LINGBOT_VLA2_SAVE_STEPS=${LINGBOT_VLA2_SAVE_STEPS:-500} \
       bash "$0" train "${run_name}"
     ;;
   prepare)
+    validate_configuration
     install_environment
     compute_stats
     preflight
     ;;
   smoke|train)
+    validate_configuration
     install_environment
     compute_stats
     preflight

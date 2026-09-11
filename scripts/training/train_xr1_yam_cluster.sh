@@ -2,7 +2,7 @@
 set -euo pipefail
 
 mode=${1:-train}
-run_name=${2:-assemble-screwdriver-v1-s0-4xh100-3k}
+run_name=${2:-yam-v1-s0-4xh100-3k}
 
 ROOT=${YAM_TRAIN_ROOT:-/inspire/hdd2/project/liu-ming-huan/public/ziyang/yam_fintune_data}
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -10,15 +10,15 @@ WORKSPACE=${XR1_WORKSPACE:-${REPO_ROOT}}
 POLICY=${WORKSPACE}/XPolicyLab/policy/Xiaomi_Robotics_1
 XR1=${POLICY}/xiaomi_robotics_1/xr1
 VENV=${ROOT}/envs/xr1/.venv
-DATASET=${XR1_DATASET_PATH:-${ROOT}/datasets/xr1/RoboDojo_real-assemble_the_screwdriver-yam_dual-ee}
-BASE_MODEL=${ROOT}/weights/base/xiaomi/model_states.pt
-PROCESSOR=${ROOT}/weights/base/xiaomi/qwen3_vl_4b_processor
+DATASET=${XR1_DATASET_PATH:-}
+BASE_MODEL=${XR1_BASE_MODEL_PATH:-${ROOT}/weights/base/xiaomi/model_states.pt}
+PROCESSOR=${XR1_PROCESSOR_PATH:-${ROOT}/weights/base/xiaomi/qwen3_vl_4b_processor}
 OUTPUT=${ROOT}/weights/finetuned/xiaomi-xr1/${run_name}
 LOG_DIR=${ROOT}/runs/xiaomi-xr1
 GPU_IDS=${XR1_GPU_IDS:-0,1,2,3}
-DATA_CONFIG_NAME=${XR1_DATA_CONFIG_NAME:-yam_assemble_the_screwdriver}
-TASK_NAME=${XR1_TASK_NAME:-assemble_the_screwdriver}
-INSTRUCTION=${XR1_INSTRUCTION:-Assemble the screwdriver.}
+DATA_CONFIG_NAME=${XR1_DATA_CONFIG_NAME:-}
+TASK_NAME=${XR1_TASK_NAME:-}
+INSTRUCTION=${XR1_INSTRUCTION:-}
 
 export PATH="${ROOT}/envs/bin:${PATH}"
 export HF_HOME=${ROOT}/cache/huggingface
@@ -35,7 +35,7 @@ export XR1_QWEN_VL_CONFIG_SOURCE=${PROCESSOR}
 export XR1_LOGGER=${XR1_LOGGER:-tensorboard}
 export MAX_LENGTH=${XR1_MAX_LENGTH:-20000}
 
-mkdir -p "${VENV%/.venv}" "${DATASET}" "${LOG_DIR}"
+mkdir -p "${VENV%/.venv}" "${LOG_DIR}"
 
 require_file() {
   if [[ ! -e "$1" ]]; then
@@ -44,22 +44,27 @@ require_file() {
   fi
 }
 
+require_value() {
+  if [[ -z "$2" ]]; then
+    echo "$1 must be set" >&2
+    exit 1
+  fi
+}
+
+validate_configuration() {
+  require_value XR1_DATASET_PATH "${DATASET}"
+  require_value XR1_DATA_CONFIG_NAME "${DATA_CONFIG_NAME}"
+  require_value XR1_TASK_NAME "${TASK_NAME}"
+  require_value XR1_INSTRUCTION "${INSTRUCTION}"
+}
+
 find_episodes() {
   if [[ -n "${XR1_YAM_EPISODES:-}" ]]; then
     printf '%s\n' "${XR1_YAM_EPISODES}"
     return
   fi
-  mapfile -t candidates < <(
-    find "${ROOT}/datasets" -maxdepth 6 -type d \
-      -name assemble_the_screwdriver_20260825 | sort
-  )
-  if [[ "${#candidates[@]}" -ne 1 ]]; then
-    echo "Expected exactly one raw screwdriver-assembly episode directory, found ${#candidates[@]}:" >&2
-    printf '  %s\n' "${candidates[@]}" >&2
-    echo "Set XR1_YAM_EPISODES explicitly." >&2
-    exit 1
-  fi
-  printf '%s\n' "${candidates[0]}"
+  echo "XR1_YAM_EPISODES must be set when the converted dataset is absent" >&2
+  exit 1
 }
 
 install_environment() {
@@ -85,6 +90,7 @@ install_environment() {
 }
 
 prepare_data() {
+  mkdir -p "${DATASET}"
   if [[ "${XR1_REBUILD_DATA:-0}" != "1" && -s "${DATASET}/manifest.json" ]]; then
     echo "[Xiaomi_Robotics_1] reusing converted dataset: ${DATASET}"
   else
@@ -92,7 +98,7 @@ prepare_data() {
     episodes=$(find_episodes)
     echo "[Xiaomi_Robotics_1] raw episodes=${episodes}"
     PYTHONPATH="${WORKSPACE}/src" "${VENV}/bin/python" \
-      "${WORKSPACE}/scripts/prepare_xr1_yam_dataset.py" \
+      "${WORKSPACE}/scripts/datasets/prepare_xr1_yam_dataset.py" \
       --episodes "${episodes}" \
       --output "${DATASET}" \
       --instruction "${INSTRUCTION}" \
@@ -117,7 +123,7 @@ PY
 }
 
 preflight() {
-  require_file "${WORKSPACE}/scripts/prepare_xr1_yam_dataset.py"
+  require_file "${WORKSPACE}/scripts/datasets/prepare_xr1_yam_dataset.py"
   require_file "${BASE_MODEL}"
   require_file "${PROCESSOR}/config.json"
   require_file "${PROCESSOR}/tokenizer.json"
@@ -132,8 +138,12 @@ from pathlib import Path
 dataset, model = map(Path, sys.argv[1:])
 manifest = json.loads((dataset / "manifest.json").read_text())
 assert manifest["schema"] == "manimux.xr1_yam_dataset.v1"
-assert manifest["episodes"] == 19
-assert manifest["frames"] == 17789
+assert manifest["episodes"] > 0
+assert manifest["frames"] > 0
+import os
+for field, variable in (("episodes", "XR1_EXPECTED_EPISODES"), ("frames", "XR1_EXPECTED_FRAMES")):
+    if os.environ.get(variable):
+        assert manifest[field] == int(os.environ[variable]), (field, manifest[field], os.environ[variable])
 assert model.stat().st_size > 9_000_000_000
 print(json.dumps({
     "dataset": str(dataset),
@@ -154,15 +164,17 @@ case "${mode}" in
       echo "XR-1 smoke did not produce a checkpoint under ${smoke_root}" >&2
       exit 1
     fi
-    XR1_MAX_STEPS=3000 XR1_SAVE_INTERVAL=500 \
+    XR1_MAX_STEPS=${XR1_MAX_STEPS:-3000} XR1_SAVE_INTERVAL=${XR1_SAVE_INTERVAL:-500} \
       bash "$0" train "${run_name}"
     ;;
   prepare)
+    validate_configuration
     install_environment
     prepare_data
     preflight
     ;;
   smoke|train)
+    validate_configuration
     install_environment
     prepare_data
     preflight
@@ -196,4 +208,3 @@ case "${mode}" in
     exit 2
     ;;
 esac
-
