@@ -24,4 +24,5 @@ def test_bottles_wrappers_select_all_data_and_eight_gpus() -> None:
         assert "0,1,2,3,4,5,6,7" in source
         assert "EXPECTED_EPISODES" in source and "50" in source
         assert "EXPECTED_FRAMES" in source and "35118" in source
-        assert "MAX_STEPS" in source and "15000" in source
+        assert "MAX_STEPS" in source and "30000" in source
+        assert "5000" in source
