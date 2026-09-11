@@ -13,6 +13,8 @@ def test_generic_lingbot_and_xr1_wrappers_are_task_neutral() -> None:
 
     lingbot = (TRAINING / "train_lingbot_vla2_yam_cluster.sh").read_text()
     assert 'PYTHONPATH="${WORKSPACE_PYTHONPATH}"' in lingbot
+    assert "RESOLVED_TRAINING_CONFIG" in lingbot
+    assert "--train.align_params" not in lingbot
 
 
 def test_bottles_wrappers_select_all_data_and_eight_gpus() -> None:

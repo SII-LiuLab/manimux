@@ -21,6 +21,7 @@ TRAINING_ROBOT_CONFIG=${ROBOT_CONFIG_ROOT}/${ROBOT_NAME}.yaml
 DEPLOY_ROBOT_CONFIG=${LINGBOT_VLA2_DEPLOY_ROBOT_CONFIG:-${TRAINING_ROBOT_CONFIG}}
 STATS_DIR=${LINGBOT_VLA2_STATS_DIR:-${ROOT}/cache/lingbot-vla2/${DATASET_NAME}}
 STATS=${STATS_DIR}/norm_stats.json
+RESOLVED_TRAINING_CONFIG=${LINGBOT_VLA2_RESOLVED_TRAINING_CONFIG:-${STATS_DIR}/training.yaml}
 OUTPUT=${ROOT}/weights/finetuned/lingbot-vla2/${run_name}
 LOG_DIR=${ROOT}/runs/lingbot-vla2
 GPU_IDS=${LINGBOT_VLA2_GPU_IDS:-0,1,2,3}
@@ -85,6 +86,40 @@ install_environment() {
   bash "${POLICY}/install.sh"
 }
 
+resolve_training_config() {
+  require_file "${TRAINING_CONFIG}"
+  "${VENV}/bin/python" - \
+    "${TRAINING_CONFIG}" \
+    "${RESOLVED_TRAINING_CONFIG}" \
+    "${LINGBOT_VLA2_MOGE_PATH:-}" \
+    "${LINGBOT_VLA2_MORGBD_PATH:-}" \
+    "${LINGBOT_VLA2_DINO_VIDEO_CKPT:-}" \
+    "${LINGBOT_VLA2_DINO_VIDEO_CONFIG:-}" <<'PY'
+import sys
+from pathlib import Path
+
+import yaml
+
+source, destination = map(Path, sys.argv[1:3])
+moge_path, morgbd_path, video_ckpt, video_config = sys.argv[3:]
+config = yaml.safe_load(source.read_text())
+align = config.get("train", {}).get("align_params")
+if align is not None:
+    depth = align.setdefault("depth", {})
+    video = align.setdefault("video", {})
+    if moge_path:
+        depth["moge_path"] = moge_path
+    if morgbd_path:
+        depth["morgbd_path"] = morgbd_path
+    if video_ckpt:
+        video["ckpt_path"] = video_ckpt
+    if video_config:
+        video["config_path"] = video_config
+destination.parent.mkdir(parents=True, exist_ok=True)
+destination.write_text(yaml.safe_dump(config, sort_keys=False))
+PY
+}
+
 compute_stats() {
   if [[ -s "${STATS}" ]]; then
     echo "[LingBot_VLA2] reusing norm stats: ${STATS}"
@@ -118,7 +153,17 @@ preflight() {
   require_file "${TRAINING_ROBOT_CONFIG}"
   require_file "${DEPLOY_ROBOT_CONFIG}"
   require_file "${TRAINING_CONFIG}"
+  require_file "${RESOLVED_TRAINING_CONFIG}"
   require_file "${STATS}"
+  for artifact in \
+    "${LINGBOT_VLA2_MOGE_PATH:-}" \
+    "${LINGBOT_VLA2_MORGBD_PATH:-}" \
+    "${LINGBOT_VLA2_DINO_VIDEO_CKPT:-}" \
+    "${LINGBOT_VLA2_DINO_VIDEO_CONFIG:-}"; do
+    if [[ -n "${artifact}" ]]; then
+      require_file "${artifact}"
+    fi
+  done
   "${VENV}/bin/python" - \
     "${DATASET}" \
     "${STATS}" \
@@ -176,7 +221,7 @@ PY
 
 run_training() {
   local train_args=(
-    tasks/vla/train_lingbotvla.py "${TRAINING_CONFIG}"
+    tasks/vla/train_lingbotvla.py "${RESOLVED_TRAINING_CONFIG}"
     --model.model_path "${MODEL}"
     --model.tokenizer_path "${TOKENIZER}"
     --data.data_name "${ROBOT_NAME}"
@@ -196,18 +241,6 @@ run_training() {
   )
   if [[ -n "${LINGBOT_VLA2_GLOBAL_BATCH_SIZE:-}" ]]; then
     train_args+=(--train.global_batch_size "${LINGBOT_VLA2_GLOBAL_BATCH_SIZE}")
-  fi
-  if [[ -n "${LINGBOT_VLA2_MOGE_PATH:-}" ]]; then
-    train_args+=(--train.align_params.depth.moge_path "${LINGBOT_VLA2_MOGE_PATH}")
-  fi
-  if [[ -n "${LINGBOT_VLA2_MORGBD_PATH:-}" ]]; then
-    train_args+=(--train.align_params.depth.morgbd_path "${LINGBOT_VLA2_MORGBD_PATH}")
-  fi
-  if [[ -n "${LINGBOT_VLA2_DINO_VIDEO_CKPT:-}" ]]; then
-    train_args+=(--train.align_params.video.ckpt_path "${LINGBOT_VLA2_DINO_VIDEO_CKPT}")
-  fi
-  if [[ -n "${LINGBOT_VLA2_DINO_VIDEO_CONFIG:-}" ]]; then
-    train_args+=(--train.align_params.video.config_path "${LINGBOT_VLA2_DINO_VIDEO_CONFIG}")
   fi
 
   (
@@ -233,12 +266,14 @@ case "${mode}" in
   prepare)
     validate_configuration
     install_environment
+    resolve_training_config
     compute_stats
     preflight
     ;;
   smoke|train)
     validate_configuration
     install_environment
+    resolve_training_config
     compute_stats
     preflight
     if [[ "${mode}" == "smoke" ]]; then
