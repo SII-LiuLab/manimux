@@ -28,7 +28,6 @@ from typing import Any
 
 import numpy as np
 
-
 WRITE_COMPLETE_FLAG = "write_complete.flag"
 
 
@@ -207,7 +206,11 @@ def _add_episode(dataset: Any, episode_dir: Path, *, include_ee_pose: bool = Fal
     arms = metadata.get("arm_names") or ["left"]
 
     state = np.concatenate(
-        [part for arm in arms for part in (buffers[f"{arm}-joint_pos"], buffers[f"{arm}-gripper_pos"])],
+        [
+            part
+            for arm in arms
+            for part in (buffers[f"{arm}-joint_pos"], buffers[f"{arm}-gripper_pos"])
+        ],
         axis=1,
     ).astype(np.float32)
     action = np.concatenate(
@@ -253,9 +256,9 @@ def _add_episode(dataset: Any, episode_dir: Path, *, include_ee_pose: bool = Fal
             role = camera["role"]
             camera_frame_index = int(camera_indices[role][frame_index])
             for image_key in camera.get("image_keys", []):
-                frame[_lerobot_image_name(role, image_key)] = buffers[
-                    f"{role}-images-{image_key}"
-                ][camera_frame_index]
+                frame[_lerobot_image_name(role, image_key)] = buffers[f"{role}-images-{image_key}"][
+                    camera_frame_index
+                ]
         dataset.add_frame(frame)
     dataset.save_episode()
 
@@ -266,6 +269,9 @@ def convert(
     output_root: Path | None,
     *,
     include_ee_pose: bool = False,
+    video_codec: str = "libsvtav1",
+    streaming_encoding: bool = False,
+    encoder_threads: int | None = None,
 ) -> None:
     """Convert one completed episode or a directory of completed episodes."""
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
@@ -275,16 +281,30 @@ def convert(
         raise FileNotFoundError(f"No completed YAM episodes found under {source}")
 
     first_metadata = _load_metadata(episodes[0])
+    # Offline conversion can feed faster than an encoder. LeRobot's live-capture
+    # default queue (30) drops frames after a short timeout; reserve an entire
+    # episode per camera so offline conversion never takes that lossy path.
+    encoder_queue_maxsize = 30
+    if streaming_encoding:
+        encoder_queue_maxsize = max(int(_load_metadata(ep)["num_frames"]) for ep in episodes) + 1
     dataset = LeRobotDataset.create(
         repo_id=repo_id,
         fps=max(1, int(round(float(first_metadata["control_hz"])))),
         features=_build_features(first_metadata, include_ee_pose=include_ee_pose),
         root=output_root,
         use_videos=True,
+        vcodec=video_codec,
+        streaming_encoding=streaming_encoding,
+        encoder_queue_maxsize=encoder_queue_maxsize,
+        encoder_threads=encoder_threads,
     )
-    for episode_dir in episodes:
-        print(f"Converting {episode_dir}")
-        _add_episode(dataset, episode_dir, include_ee_pose=include_ee_pose)
+    try:
+        for episode_dir in episodes:
+            print(f"Converting {episode_dir}", flush=True)
+            _add_episode(dataset, episode_dir, include_ee_pose=include_ee_pose)
+    finally:
+        # LeRobot v3 buffers parquet data and episode metadata until finalized.
+        dataset.finalize()
 
 
 def main() -> None:
@@ -302,12 +322,18 @@ def main() -> None:
         action="store_true",
         help="retain absolute observation/command EE poses for joint+EE auxiliary training",
     )
+    parser.add_argument("--video-codec", default="libsvtav1")
+    parser.add_argument("--streaming-encoding", action="store_true")
+    parser.add_argument("--encoder-threads", type=int, default=None)
     args = parser.parse_args()
     convert(
         args.source,
         args.repo_id,
         args.output_root,
         include_ee_pose=args.include_ee_pose,
+        video_codec=args.video_codec,
+        streaming_encoding=args.streaming_encoding,
+        encoder_threads=args.encoder_threads,
     )
 
 
