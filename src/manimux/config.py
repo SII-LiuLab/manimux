@@ -64,6 +64,7 @@ class PolicyConfig(StrictModel):
     horizon_steps: int = Field(default=20, gt=1)
     inference_delay_s: float = Field(default=0.04, ge=0)
     startup_timeout_s: float = Field(default=30.0, gt=0)
+    action_decoding: Literal["inline", "process"] = "inline"
     expected_backend: ExpectedBackendConfig | None = None
     options: dict[str, object] = Field(default_factory=dict)
 
@@ -111,9 +112,41 @@ class GripperHysteresisConfig(StrictModel):
         return self
 
 
+class GripperReleaseGuardConfig(StrictModel):
+    mode: Literal["latched_release"] = "latched_release"
+    kinematics: str = "yam"
+    kinematics_options: dict[str, object] = Field(default_factory=dict)
+    position_tolerance_m: float = Field(default=0.02, gt=0, le=0.05)
+    phase_timeout_s: float = Field(default=2.0, gt=0, le=10.0)
+
+
+class GripperGraspGuardConfig(StrictModel):
+    """Finish closing at the captured pose before permitting a new arm target."""
+
+    position_tolerance_m: float = Field(default=0.02, gt=0, le=0.05)
+    rotation_tolerance_rad: float = Field(default=0.0872664626, gt=0, le=0.174532926)
+    settle_s: float = Field(default=0.15, gt=0, le=1.0)
+    aperture_stability: float = Field(default=0.01, gt=0, le=0.05)
+    phase_timeout_s: float = Field(default=2.0, gt=0, le=10.0)
+    approach_max_velocity: float | None = Field(default=None, gt=0)
+
+
 class SmoothConfig(ExecutorLimitsConfig):
     cutoff_hz: float = Field(default=8.0, gt=0)
+    tracking_mode: Literal["legacy", "braking"] = "legacy"
     gripper: GripperHysteresisConfig | None = None
+    release_guard: GripperReleaseGuardConfig | None = None
+    grasp_guard: GripperGraspGuardConfig | None = None
+
+    @model_validator(mode="after")
+    def validate_release_guard(self) -> SmoothConfig:
+        if self.grasp_guard and self.release_guard is None:
+            raise ValueError("grasp_guard requires release_guard for shared pose tracking")
+        if self.release_guard and (self.gripper is None or self.gripper.mode != "continuous"):
+            raise ValueError("release_guard requires a continuous gripper")
+        if self.release_guard and self.tracking_mode != "braking":
+            raise ValueError("latched_release requires braking tracking")
+        return self
 
 
 class MPCConfig(ExecutorLimitsConfig):
@@ -245,6 +278,10 @@ class ExecutionConfig(StrictModel):
     commit_lead_s: float = Field(default=0.02, ge=0)
     max_plan_age_s: float = Field(default=1.0, gt=0)
     blend_steps: int = Field(default=2, ge=0)
+    # Cap original source rows, before latency trimming; policy inference stays unchanged.
+    max_chunk_steps: int | None = Field(default=None, ge=2)
+    independent_group_decoding: bool = False
+    decode_budget_ms: float = Field(default=40.0, gt=0, le=200)
     smooth: SmoothConfig = SmoothConfig()
     mpc: MPCConfig = MPCConfig()
     command_safety: CommandSafetyConfig = CommandSafetyConfig()
@@ -256,6 +293,19 @@ class ExecutionConfig(StrictModel):
 
     @model_validator(mode="after")
     def validate_strategy_fields(self) -> ExecutionConfig:
+        if self.independent_group_decoding and (
+            self.runtime != "manimux" or self.executor != "smooth"
+            or self.smooth.tracking_mode != "braking"
+            or self.smooth.gripper is None
+            or self.smooth.gripper.mode != "continuous"
+        ):
+            raise ValueError(
+                "independent group decoding requires braking smooth with continuous grippers"
+            )
+        if self.max_chunk_steps is not None and (
+            self.runtime != "manimux" or self.executor not in {"smooth", "direct", "mpc"}
+        ):
+            raise ValueError("max_chunk_steps requires the ordinary ManiMux joint timeline")
         if self.runtime == "rtc":
             ignored = {"inference_schedule", "refill_threshold_s"}.intersection(
                 self.model_fields_set
@@ -355,6 +405,13 @@ class ManiMuxConfig(StrictModel):
 
     @model_validator(mode="after")
     def validate_runtime_contract(self) -> ManiMuxConfig:
+        if self.execution.independent_group_decoding and self.policy.action_decoding != "process":
+            raise ValueError("independent group decoding requires process action decoding")
+        if (
+            self.execution.max_chunk_steps is not None
+            and self.execution.max_chunk_steps > self.policy.horizon_steps
+        ):
+            raise ValueError("max_chunk_steps must not exceed policy.horizon_steps")
         command_safety = self.execution.command_safety
         if command_safety.configured:
             expected_groups = set(self.robot.group_dims)

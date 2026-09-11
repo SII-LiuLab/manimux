@@ -3,12 +3,12 @@ from __future__ import annotations
 import re
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from manimux.clock import Clock, SystemClock
 from manimux.config import ManiMuxConfig
-from manimux.policies import PolicyCapabilities, build_policy_adapter
+from manimux.policies import ActionDecoderClient, PolicyCapabilities, build_policy_adapter
 from manimux.policies.base import decode_policy_action, prepare_policy_request
 from manimux.policies.worker import PolicyWorkerClient
 from manimux.recording import EpisodeRecorder
@@ -23,7 +23,7 @@ from manimux.runtime.inference import (
     prepare_strategy_chunk,
 )
 from manimux.runtime.safety import RuntimeState, SafetyGuard
-from manimux.runtime.timeline import ActionTimeline
+from manimux.runtime.timeline import ActionTimeline, CommitResult
 from manimux.sensors import build_sensor
 from manimux.types import (
     ActionContext,
@@ -78,14 +78,10 @@ def _metadata_mismatches(
                     f"{field_path} expected a mapping, got {type(actual_value).__name__}"
                 )
                 continue
-            mismatches.extend(
-                _metadata_mismatches(expected_value, actual_value, path=field_path)
-            )
+            mismatches.extend(_metadata_mismatches(expected_value, actual_value, path=field_path))
             continue
         if actual_value != expected_value:
-            mismatches.append(
-                f"{field_path} expected {expected_value!r}, got {actual_value!r}"
-            )
+            mismatches.append(f"{field_path} expected {expected_value!r}, got {actual_value!r}")
     return mismatches
 
 
@@ -109,9 +105,18 @@ class EdgeRuntime:
         self._sensors = [build_sensor(sensor, self._clock) for sensor in config.sensors]
         self._adapter = build_policy_adapter(config.robot, config.policy)
         self._adapter.validate(config.robot, config.policy)
+        if config.execution.independent_group_decoding and not getattr(
+            self._adapter, "supports_independent_group_decode", False
+        ):
+            raise ValueError("adapter does not support independent group decoding")
+        self._decoder = None
+        if config.policy.action_decoding == "process":
+            if config.execution.runtime != "manimux":
+                raise ValueError("process action decoding currently requires runtime=manimux")
+            self._decoder = ActionDecoderClient(config.robot, config.policy, self._adapter)
         self._session_id = f"session-{uuid.uuid4().hex}"
         self._worker = PolicyWorkerClient(config.policy, self._session_id)
-        self._timeline = ActionTimeline(config.robot.group_dims)
+        self._timeline = self._build_timeline()
         self._executor = self._build_executor()
         self._strategy = strategy or DefaultChunkStrategy(config)
         self._launch_mode = launch_mode
@@ -151,6 +156,12 @@ class EdgeRuntime:
             return SmoothExecutor(self._config.execution.smooth, control_dt_s)
         return MPCExecutor(self._config.execution.mpc, control_dt_s)
 
+    def _build_timeline(self) -> ActionTimeline:
+        return ActionTimeline(
+            self._config.robot.group_dims,
+            max_source_steps=self._config.execution.max_chunk_steps,
+        )
+
     def _hold_command(self, now_ns: int, groups: GroupVector) -> RobotCommand:
         return RobotCommand(
             groups=copy_group_vector(groups),
@@ -160,9 +171,7 @@ class EdgeRuntime:
 
     def _validate_policy_capabilities(self) -> None:
         capabilities = getattr(self._worker, "capabilities", PolicyCapabilities())
-        missing = self._strategy.required_sampling_modes.difference(
-            capabilities.sampling_modes
-        )
+        missing = self._strategy.required_sampling_modes.difference(capabilities.sampling_modes)
         if missing:
             raise RuntimeError(
                 f"execution strategy {self._strategy.name!r} requires sampling modes "
@@ -189,12 +198,18 @@ class EdgeRuntime:
                 "session_id": self._session_id,
                 "task": self._config.run.task,
                 "executor_kind": self._config.execution.executor,
+                "smooth": (
+                    self._config.execution.smooth.model_dump(mode="json")
+                    if self._config.execution.executor == "smooth"
+                    else None
+                ),
                 "runtime": self._strategy.name,
                 "policy_label": self._config.viewer.policy_label,
                 "policy_worker": self._config.policy.worker,
                 "policy_adapter": self._config.policy.adapter,
                 "action_dt_s": self._config.policy.effective_action_dt_s,
                 "horizon_steps": self._config.policy.horizon_steps,
+                "max_chunk_steps": self._config.execution.max_chunk_steps,
                 "blend_steps": self._config.execution.blend_steps,
                 "experiment_mode": self._config.run.experiment_mode,
                 "layout_id": self._config.run.layout_id,
@@ -225,6 +240,8 @@ class EdgeRuntime:
                 sensor.start()
                 sensor.read()
             self._worker.start()
+            if self._decoder is not None:
+                self._decoder.start()
             self._validate_policy_capabilities()
             capabilities = getattr(self._worker, "capabilities", PolicyCapabilities())
             recorder.update_metadata(
@@ -284,7 +301,7 @@ class EdgeRuntime:
                     self._robot.home()
                     state = self._robot.get_state()
                     self._safety.reset(state)
-                    self._timeline = ActionTimeline(self._config.robot.group_dims)
+                    self._timeline = self._build_timeline()
                     self._executor.reset(state)
                     self._strategy.reset()
                     previous_command = copy_group_vector(state.groups)
@@ -294,17 +311,66 @@ class EdgeRuntime:
                     recorder.event("viewer_home_requested", step=steps)
                     next_tick_ns = self._clock.now_ns()
                     continue
+                if self._decoder is not None and viewer_control.paused:
+                    self._timeline = self._build_timeline()
+                    discard_responses_through = max(discard_responses_through, request_seq)
                 self._state = (
-                    RuntimeState.RUNNING
-                    if not viewer_control.paused
-                    else RuntimeState.PAUSED
+                    RuntimeState.RUNNING if not viewer_control.paused else RuntimeState.PAUSED
                 )
 
                 if not self._worker.is_alive and not worker_failure_reported:
                     worker_failure_reported = True
                     recorder.event("policy_worker_stopped", step=steps)
 
+                decoded_chunk = None
                 response = self._worker.poll()
+                if self._decoder is not None:
+                    decoded = self._decoder.poll()
+                    if decoded is not None:
+                        if response is not None:
+                            raise RuntimeError("model response arrived while decode was in flight")
+                        response = decoded.response
+                        decoded_chunk = decoded.chunk
+                        if decoded.error is not None:
+                            response = replace(response, error=decoded.error)
+                    elif (
+                        response is not None
+                        and response.error is None
+                        and response.session_id == self._session_id
+                        and response.request_seq > discard_responses_through
+                        and response.request_seq >= last_submitted_seq
+                        and response.finished_time_ns <= last_request_deadline_ns
+                        and response.raw_action is not None
+                    ):
+                        if self._clock.now_ns() > last_request_deadline_ns:
+                            response = replace(response, error="deadline_exceeded_before_decode")
+                        else:
+                            self._decoder.submit(
+                                response,
+                                ActionContext(
+                                    request_seq=response.request_seq,
+                                    observation_time_ns=response.observation_time_ns,
+                                    created_time_ns=response.finished_time_ns,
+                                    execution_time_ns=self._clock.now_ns()
+                                    + int(self._config.execution.commit_lead_s * 1e9),
+                                    measured_state=state,
+                                    max_source_steps=self._config.execution.max_chunk_steps,
+                                    independent_groups=self._config.execution.independent_group_decoding,
+                                    decode_budget_ms=(
+                                        self._config.execution.decode_budget_ms
+                                        if self._config.execution.independent_group_decoding
+                                        else None
+                                    ),
+                                ),
+                                last_request_deadline_ns,
+                            )
+                            recorder.event(
+                                "decode_submitted",
+                                request_seq=response.request_seq,
+                                seed_time_ns=state.monotonic_ns,
+                            )
+                            # Keep inference+decode in flight until both arms finish.
+                            response = None
                 if response is not None:
                     request_in_flight = False
                     submission_visuals = pending_visuals.get(response.request_seq, {})
@@ -336,25 +402,34 @@ class EdgeRuntime:
                         pending_visuals.pop(response.request_seq, None)
                     else:
                         try:
-                            chunk = decode_policy_action(
-                                self._adapter,
-                                response.raw_action,
-                                ActionContext(
-                                    request_seq=response.request_seq,
-                                    observation_time_ns=response.observation_time_ns,
-                                    created_time_ns=response.finished_time_ns,
-                                    execution_time_ns=(
-                                        now_ns
-                                        + int(
-                                            self._config.execution.commit_lead_s
-                                            * 1_000_000_000
-                                        )
-                                        if self._strategy.name == "manimux"
-                                        else None
+                            decode_start = time.perf_counter_ns()
+                            chunk = (
+                                decoded_chunk
+                                if decoded_chunk is not None
+                                else decode_policy_action(
+                                    self._adapter,
+                                    response.raw_action,
+                                    ActionContext(
+                                        request_seq=response.request_seq,
+                                        observation_time_ns=response.observation_time_ns,
+                                        created_time_ns=response.finished_time_ns,
+                                        execution_time_ns=(
+                                            now_ns
+                                            + int(
+                                                self._config.execution.commit_lead_s * 1_000_000_000
+                                            )
+                                            if self._strategy.name == "manimux"
+                                            else None
+                                        ),
+                                        measured_state=state,
+                                        max_source_steps=self._config.execution.max_chunk_steps,
                                     ),
-                                    measured_state=state,
-                                ),
+                                )
                             )
+                            if decoded_chunk is None:
+                                chunk.metadata["decode_ms"] = (
+                                    time.perf_counter_ns() - decode_start
+                                ) / 1e6
                         except (TypeError, ValueError) as exc:
                             self._strategy.on_response_rejected(response)
                             rejected_plans += 1
@@ -372,6 +447,7 @@ class EdgeRuntime:
                             )
                             pending_visuals.pop(response.request_seq, None)
                             chunk = None
+                        now_ns = self._clock.now_ns()
                         if chunk is not None and chunk.action_space != "joint_position":
                             self._strategy.on_response_rejected(response)
                             rejected_plans += 1
@@ -403,10 +479,7 @@ class EdgeRuntime:
                             except (TypeError, ValueError) as exc:
                                 self._strategy.on_response_rejected(response)
                                 rejected_plans += 1
-                                reason = (
-                                    "invalid_strategy_chunk:"
-                                    f"{type(exc).__name__}:{exc}"
-                                )
+                                reason = f"invalid_strategy_chunk:{type(exc).__name__}:{exc}"
                                 recorder.event(
                                     "plan_rejected",
                                     request_seq=response.request_seq,
@@ -434,18 +507,33 @@ class EdgeRuntime:
                                 measured=state.groups,
                                 last_command=last_command,
                             )
-                            result = self._timeline.commit(
-                                chunk,
-                                now_ns=now_ns,
-                                commit_lead_ns=int(
-                                    self._config.execution.commit_lead_s * 1_000_000_000
-                                ),
-                                max_plan_age_ns=int(
-                                    self._config.execution.max_plan_age_s * 1_000_000_000
-                                ),
-                                current_command=commit.current_command,
-                                blend_steps=commit.blend_steps,
+                            # FK/decoding may consume time. Crop against the actual commit time.
+                            now_ns = self._clock.now_ns()
+                            chunk.metadata["observation_to_commit_ms"] = (
+                                now_ns - chunk.observation_time_ns
+                            ) / 1e6
+                            commit_lead_ns = int(self._config.execution.commit_lead_s * 1e9)
+                            source_end_ns = (
+                                chunk.observation_time_ns
+                                + (chunk.source_offset_steps + chunk.horizon_steps - 1)
+                                * chunk.dt_ns
                             )
+                            if (
+                                self._decoder is not None
+                                and now_ns + commit_lead_ns > source_end_ns
+                            ):
+                                result = CommitResult(False, "no_future_horizon")
+                            else:
+                                result = self._timeline.commit(
+                                    chunk,
+                                    now_ns=now_ns,
+                                    commit_lead_ns=commit_lead_ns,
+                                    max_plan_age_ns=int(
+                                        self._config.execution.max_plan_age_s * 1_000_000_000
+                                    ),
+                                    current_command=commit.current_command,
+                                    blend_steps=commit.blend_steps,
+                                )
                             if result.accepted:
                                 accepted_plans += 1
                                 last_inference_ms = response.inference_ms
@@ -535,7 +623,10 @@ class EdgeRuntime:
                                 )
                                 pending_visuals.pop(response.request_seq, None)
 
-                if self._worker.is_alive:
+                if self._worker.is_alive and not (
+                    self._decoder is not None
+                    and self._state != RuntimeState.RUNNING
+                ):
                     snapshot = ObservationSnapshot(state=state, frames=frames)
                     submission = self._strategy.build_submission(
                         session_id=self._session_id,
@@ -584,9 +675,7 @@ class EdgeRuntime:
                             **submission.event_fields,
                         }
                         if bool(submission.event_fields.get("conditioned", False)):
-                            executed_steps = int(
-                                submission.event_fields.get("executed_steps", 0)
-                            )
+                            executed_steps = int(submission.event_fields.get("executed_steps", 0))
                             visual_fields["conditioned_overlap_steps"] = max(
                                 0, self._config.policy.horizon_steps - executed_steps
                             )
@@ -604,6 +693,7 @@ class EdgeRuntime:
                     recorder.event(kind, **fields)
                     self._viewer.publish_event(kind, step=steps, metadata=fields)
 
+                now_ns = self._clock.now_ns()
                 reference = self._timeline.reference_horizon(
                     now_ns=now_ns,
                     dt_ns=self._control_dt_ns,
@@ -615,6 +705,25 @@ class EdgeRuntime:
                         name: values[0].copy() for name, values in reference.groups.items()
                     }
                     command = self._executor.step(now_ns, state, reference)
+                    if (
+                        isinstance(self._executor, SmoothExecutor)
+                        and self._config.execution.smooth.release_guard is not None
+                    ):
+                        recorder.event(
+                            "gripper_decision", step=steps, monotonic_ns=now_ns,
+                            plan_id=reference.plan_id, groups=self._executor.gripper_diagnostics,
+                        )
+                elif (
+                    self._state == RuntimeState.RUNNING
+                    and isinstance(self._executor, SmoothExecutor)
+                    and self._executor.braking_tracking
+                ):
+                    command = self._executor.brake_hold(now_ns, state)
+                    if self._executor.has_pending_gripper_event:
+                        recorder.event(
+                            "gripper_decision", step=steps, monotonic_ns=now_ns,
+                            plan_id=None, groups=self._executor.gripper_diagnostics,
+                        )
                 else:
                     self._executor.reset(state)
                     self._safety.reset(state)
@@ -719,7 +828,10 @@ class EdgeRuntime:
                     self._robot.home()
                 except BaseException as exc:
                     cleanup_errors.append(exc)
-            for closer in (self._robot.close, self._worker.close):
+            closers = [self._robot.close, self._worker.close]
+            if self._decoder is not None:
+                closers.append(self._decoder.close)
+            for closer in closers:
                 try:
                     closer()
                 except BaseException as exc:

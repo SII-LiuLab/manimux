@@ -116,10 +116,7 @@ def _parse_model_frame_transforms(
     raw = options.get("model_from_kinematics")
     if raw is None:
         return {group: np.eye(4, dtype=np.float64) for group in group_order}
-    return {
-        group: np.asarray(raw[group], dtype=np.float64)
-        for group in group_order
-    }
+    return {group: np.asarray(raw[group], dtype=np.float64) for group in group_order}
 
 
 def _parse_wire_image_hw(options: Mapping[str, object]) -> tuple[int, int]:
@@ -166,15 +163,14 @@ class SAPolicyYamAdapter:
     def __init__(self, robot: RobotConfig, policy: PolicyConfig) -> None:
         from manimux.kinematics import build_kinematics
 
-        self._group_order = _string_sequence(
-            policy.options, "group_order", DEFAULT_GROUP_ORDER
-        )
+        self._group_order = _string_sequence(policy.options, "group_order", DEFAULT_GROUP_ORDER)
         self._horizon_steps = policy.horizon_steps
+        self.action_space = _string_option(policy.options, "action_space", "joint_position")
+        if self.action_space != "joint_position":
+            raise ValueError("SAPolicy adapter outputs joint_position; EEF targets require IK")
         self._action_dt_ns = int(policy.effective_action_dt_s * 1_000_000_000)
         self._camera_map = _parse_camera_map(policy.options)
-        self._intrinsics = _parse_intrinsics(
-            policy.options, tuple(self._camera_map)
-        )
+        self._intrinsics = _parse_intrinsics(policy.options, tuple(self._camera_map))
         self._wire_image_hw = _parse_wire_image_hw(policy.options)
         self._model_from_kinematics = _parse_model_frame_transforms(
             policy.options, self._group_order
@@ -249,14 +245,40 @@ class SAPolicyYamAdapter:
             request_seq=request.request_seq,
             observation_time_ns=request.observation_time_ns,
             deadline_ns=request.deadline_ns,
-            observation=ObservationSnapshot(
-                state=snapshot.state, frames=resized_frames
-            ),
+            observation=ObservationSnapshot(state=snapshot.state, frames=resized_frames),
             instruction=request.instruction,
             xpolicylab_additional_info={"sapolicy": sap_info},
         )
 
     def decode_action(self, raw: object, context: ActionContext) -> ActionChunk:
+        return self._decode_action(raw, context)
+
+    # A decoder process owns its own kinematics; measured_state is the complete
+    # decode seed, so it does not need the observation-side anchor cache.
+    supports_context_only_decode = True
+    supports_independent_group_decode = True
+
+    @property
+    def decode_partitions(self) -> tuple[str, ...]:
+        return tuple(self._group_order)
+
+    def warmup_decode(self, partition: str | None) -> None:
+        if self.action_space == "joint_position":
+            seed = self._kinematics.clip_arm_joints(np.zeros(ARM_JOINTS))
+            pose = self._kinematics.fk(seed, 0.5)
+            self._kinematics.ik(pose, seed, 0.5)
+
+    def decode_action_partition(
+        self, raw: object, context: ActionContext, partition: str
+    ) -> ActionChunk:
+        if partition not in self._group_order:
+            raise ValueError(f"unknown SAPolicy decode partition {partition!r}")
+        return self._decode_action(raw, context, partition)
+
+    def _decode_action(
+        self, raw: object, context: ActionContext, partition: str | None = None,
+        hold_reason: str | None = None,
+    ) -> ActionChunk:
         raw_actions = raw.get("actions") if isinstance(raw, Mapping) else raw
         actions = np.asarray(raw_actions, dtype=np.float64)
         if actions.shape != (self._horizon_steps, WIRE_ACTION_DIM):
@@ -266,31 +288,57 @@ class SAPolicyYamAdapter:
             )
         if not np.isfinite(actions).all():
             raise ValueError("SAPolicy actions contain non-finite values")
+        if any(np.any(np.linalg.norm(actions[:, start:start + 4], axis=1) < 1e-12)
+               for start in (3, 11)):
+            raise ValueError("SAPolicy actions contain zero quaternions")
         anchor = self._anchors.pop(context.request_seq, None)
-        if anchor is None:
+        if anchor is None and context.measured_state is None:
             raise ValueError(
                 f"SAPolicy adapter has no observation anchor for request {context.request_seq}"
             )
 
         groups: dict[str, np.ndarray] = {}
+        ik_diagnostics: dict[str, object] = {}
+        raw_eef: dict[str, object] = {}
+        hold_from_step: dict[str, int] = {}
+        end, offset = self._horizon_steps, 0
+        expired = False
+        if context.max_source_steps is not None:
+            end = min(end, context.max_source_steps)
+            execution_ns = context.execution_time_ns or context.observation_time_ns
+            offset = max(0, (execution_ns - context.observation_time_ns) // self._action_dt_ns)
+            expired = offset >= end
+            # Keep a nonempty placeholder so the timeline rejects no_future_horizon.
+            offset = min(offset, end - 1)
         for arm_index, group in enumerate(self._group_order):
+            if partition is not None and group != partition:
+                continue
+            raw_eef[group] = actions[:, arm_index * 8 : arm_index * 8 + 8].tolist()
             state_start = arm_index * GROUP_DIM
-            seed_state = anchor[state_start : state_start + GROUP_DIM]
+            seed_state = None if anchor is None else anchor[state_start : state_start + GROUP_DIM]
             if context.measured_state is not None:
                 measured = context.measured_state.groups.get(group)
                 if measured is None:
-                    raise ValueError(
-                        f"SAPolicy measured state is missing group {group!r}"
-                    )
+                    raise ValueError(f"SAPolicy measured state is missing group {group!r}")
                 seed_state = np.asarray(measured, dtype=np.float64)
                 if seed_state.shape != (GROUP_DIM,) or not np.isfinite(seed_state).all():
-                    raise ValueError(
-                        f"SAPolicy measured state group {group!r} is invalid"
-                    )
+                    raise ValueError(f"SAPolicy measured state group {group!r} is invalid")
+            assert seed_state is not None
+            if context.independent_groups:
+                groups[group], failed_at = self._solve_arm_bounded(
+                    group, actions[offset:end, arm_index * 8 : arm_index * 8 + 8],
+                    seed_state, budget_ms=context.decode_budget_ms,
+                    diagnostics=ik_diagnostics,
+                    hold_reason=hold_reason or ("expired_prefix" if expired else None),
+                )
+                if failed_at is not None:
+                    hold_from_step[group] = failed_at
+                continue
             groups[group] = self._solve_arm(
                 group,
-                actions[:, arm_index * 8 : arm_index * 8 + 8],
+                actions[offset:end, arm_index * 8 : arm_index * 8 + 8],
                 np.asarray(seed_state[:ARM_JOINTS], dtype=np.float64),
+                diagnostics=ik_diagnostics,
             )
 
         return ActionChunk(
@@ -298,32 +346,109 @@ class SAPolicyYamAdapter:
             request_seq=context.request_seq,
             observation_time_ns=context.observation_time_ns,
             created_time_ns=context.created_time_ns,
-            action_space="joint_position",
+            action_space=self.action_space,
             dt_ns=self._action_dt_ns,
             groups=groups,
+            source_offset_steps=offset,
+            hold_from_step=hold_from_step,
+            metadata={
+                "raw_model_eef": raw_eef,
+                "ik": ik_diagnostics,
+            },
         )
 
+    def decode_hold_partition(self, raw, context, partition, reason) -> ActionChunk:
+        """Build a typed hold without invoking IK (worker timeout fallback)."""
+        if not context.independent_groups or partition not in self._group_order:
+            raise ValueError("independent decode hold is not enabled")
+        return self._decode_action(raw, context, partition, hold_reason=reason)
+
+    def _solve_arm_bounded(
+        self, group, actions, seed_state, *, budget_ms, diagnostics, hold_reason=None,
+    ):
+        import time
+
+        if budget_ms is None or budget_ms <= 0:
+            raise ValueError("independent decoding requires a positive IK budget")
+        started = time.monotonic_ns()
+        deadline = started + int(budget_ms * 1e6)
+        current = self._kinematics.clip_arm_joints(seed_state[:ARM_JOINTS])
+        previous_gripper = float(seed_state[-1])
+        out = np.tile(np.r_[current, previous_gripper], (len(actions), 1))
+        results, durations, failed_at = [], [], None
+        for step, row in enumerate(actions):
+            point_start = time.monotonic_ns()
+            reason = hold_reason or ("budget_exceeded" if point_start >= deadline else None)
+            if reason:
+                converged, result = False, {"reason": reason, "iterations": 0}
+            else:
+                target = self._kinematics_from_model[group] @ _wire_endpose_to_pose(row[:7])
+                converged, solved, result = self._kinematics.ik_bounded(
+                    target, current, float(row[7]), deadline_ns=deadline,
+                )
+                if converged:
+                    current = self._kinematics.clip_arm_joints(solved)
+                    previous_gripper = float(row[7])
+            durations.append((time.monotonic_ns() - point_start) / 1e6)
+            results.append(result)
+            out[step] = np.r_[current, previous_gripper]
+            if not converged:
+                failed_at = step
+                out[step:] = out[step]
+                break
+        diagnostics[group] = {
+            "ik_ms": (time.monotonic_ns() - started) / 1e6,
+            "step_ms": durations, "step_results": results,
+            "converged": [i < (failed_at if failed_at is not None else len(actions))
+                          for i in range(len(actions))],
+            "failed_steps": int(failed_at is not None),
+            "skipped_steps": 0 if failed_at is None else len(actions) - failed_at - 1,
+            "hold_from_step": failed_at, "budget_ms": budget_ms,
+            "seed_joints": np.asarray(seed_state[:ARM_JOINTS]).tolist(),
+        }
+        return out, failed_at
+
     def _solve_arm(
-        self, group: str, actions: np.ndarray, seed: np.ndarray
+        self,
+        group: str,
+        actions: np.ndarray,
+        seed: np.ndarray,
+        *,
+        diagnostics: dict[str, object] | None = None,
     ) -> np.ndarray:
         horizon = actions.shape[0]
         out = np.empty((horizon, GROUP_DIM), dtype=np.float64)
         current = self._kinematics.clip_arm_joints(seed)
         failures = 0
+        import time
+
+        durations = []
+        converged_steps = []
         for step, row in enumerate(actions):
             gripper = float(row[7])
             model_target = _wire_endpose_to_pose(row[:7])
             target = self._kinematics_from_model[group] @ model_target
+            started = time.perf_counter_ns()
             converged, raw_solved = self._kinematics.ik(target, current, float(gripper))
+            durations.append((time.perf_counter_ns() - started) / 1e6)
             solved = np.asarray(raw_solved, dtype=np.float64)
             if converged and solved.shape == (ARM_JOINTS,) and np.isfinite(solved).all():
                 current = self._kinematics.clip_arm_joints(solved)
             else:
                 failures += 1
+            converged_steps.append(bool(converged))
             out[step, :ARM_JOINTS] = current
             out[step, ARM_JOINTS] = float(gripper)
         if failures:
             log.warning("%s: IK did not converge on %d/%d chunk steps", group, failures, horizon)
+        if diagnostics is not None:
+            diagnostics[group] = {
+                "ik_ms": sum(durations),
+                "step_ms": durations,
+                "converged": converged_steps,
+                "failed_steps": failures,
+                "seed_joints": np.asarray(seed).tolist(),
+            }
         if not np.isfinite(out).all():
             raise ValueError(f"SAPolicy IK produced non-finite joints for {group}")
         return out

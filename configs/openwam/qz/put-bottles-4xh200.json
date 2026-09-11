@@ -1,0 +1,25 @@
+{
+  "logic_compute_group_id": "lcg-66732043-4b17-46ba-b0d0-dc5cd90b7caf",
+  "name": "openwam-put-bottles-v1-s0-30k-4xh200-direct-20260910-v2",
+  "project_id": "project-7e1061b9-ba1f-4cea-a850-9e0ec009aff9",
+  "workspace_id": "ws-2338d5b1-fe44-450f-90c6-35cc0cf03a9f",
+  "framework": "pytorch",
+  "command": "bash -lc 'set -euo pipefail\nexport OPENWAM_TRAIN_ROOT=/inspire/hdd3/project/agent-driven-world-model/ky26300/manimux_training\nexport OPENWAM_WORKSPACE=\"$OPENWAM_TRAIN_ROOT/operate/manimux-openwam\"\nexport OPENWAM_PYTHON=\"$OPENWAM_TRAIN_ROOT/envs/openwam/.venv/bin/python\"\nexport OPENWAM_GPU_IDS=0,1,2,3\nexport CUDA_VISIBLE_DEVICES=0,1,2,3\nexport WANDB_MODE=disabled\nexport WANDB_DISABLED=true\ntest \"$(nvidia-smi -L | wc -l)\" -eq 4\n\"$OPENWAM_PYTHON\" -c \"import torch; devices=list(range(torch.cuda.device_count())); print(torch.__version__, torch.version.cuda, devices); assert len(devices)==4\"\nbash \"$OPENWAM_WORKSPACE/scripts/training/train_openwam_yam_bottles_cluster.sh\" train put-bottles-openwam-v1-s0-30k\n'",
+  "framework_config": [
+    {
+      "image_type": "SOURCE_OFFICIAL",
+      "image": "docker.sii.shaipower.online/inspire-studio/pytorch:25.06-py3",
+      "instance_count": 1,
+      "shm_gi": 64,
+      "spec_id": "4bd74abe-ccfc-43b1-a1d6-c5b3fde57a9f"
+    }
+  ],
+  "auto_fault_tolerance": false,
+  "task_priority": 5,
+  "reserve_on_fail_ms": "60000",
+  "reserve_on_success_ms": "60000",
+  "enable_notification": false,
+  "enable_troubleshoot": false,
+  "is_publicpath_readonly": false,
+  "description": "OpenWAM YAM put-bottles direct formal train; 50 episodes/35118 frames; native EEF20 next-achieved-state targets; foundation SHA256 180a02653118b0f96da28a9cae9ec7b4c1c1e6cd0e4608b56c7b4884f8001d3d; 30000 global/micro-steps (3750 optimizer updates); save every 5000 global steps; per-GPU batch1, grad accumulation8, seed0; no W&B; task priority 5."
+}

@@ -13,7 +13,7 @@ class CameraDriver(Protocol):
     def read(
         self,
         img_size: tuple[int, int] | None = None,
-    ) -> tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray | None]:
         """Read a frame from the camera.
 
         Args:
@@ -22,7 +22,7 @@ class CameraDriver(Protocol):
 
         Returns:
             np.ndarray: The color image.
-            np.ndarray: The depth image.
+            np.ndarray | None: The depth image, or None for RGB-only capture.
         """
 
 

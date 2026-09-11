@@ -23,3 +23,5 @@ recordings/
 logs/
 /3cam_tcp.ckpt
 *.ckpt
+tests/
+**/**/test*

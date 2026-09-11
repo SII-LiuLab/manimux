@@ -1,0 +1,25 @@
+# RGB-only capture matching teleop; ABC consumes no depth.
+# The ABC model server applies letterbox preprocessing.
+sensors:
+  cameras:
+    left_camera:
+      device_id: '260322276964'
+      width: 640
+      height: 480
+      fps: 30
+      max_frame_age_sec: 0.5
+      enable_depth: false
+    front_camera:
+      device_id: '260322276687'
+      width: 640
+      height: 480
+      fps: 30
+      max_frame_age_sec: 0.5
+      enable_depth: false
+    right_camera:
+      device_id: '260322274672'
+      width: 640
+      height: 480
+      fps: 30
+      max_frame_age_sec: 0.5
+      enable_depth: false

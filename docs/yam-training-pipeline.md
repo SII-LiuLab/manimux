@@ -134,6 +134,9 @@ PI05_WORKSPACE="$CODE" bash scripts/training/train_pi05_yam_cluster.sh \
 
 joint + EE 辅助监督使用独立配置 `pi05_yam_joint_ee` 和独立 wrapper：
 
+新上传的 `put_bottles_into_the_bin`（50 段、35,118 帧）使用单独的
+[hdd3 数据准备与训练入口](pi05-bottles-joint-ee-training.md)，不要套用下面螺丝刀数据的名称。
+
 ```bash
 cd "$CODE"
 OPENPI_GPU_IDS=0,1,2,3,4,5,6,7 \

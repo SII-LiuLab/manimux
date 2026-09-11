@@ -290,6 +290,7 @@ def test_runtime_package_binds_to_factories_not_to_a_policy_or_a_body() -> None:
         "manimux.policies",
         "manimux.policies.base",
         "manimux.policies.worker",
+        "manimux.kinematics",  # Factory used by the optional measured-pose release guard.
     }
     import ast
 

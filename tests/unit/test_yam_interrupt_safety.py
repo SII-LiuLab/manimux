@@ -92,6 +92,40 @@ def _interrupt_after(delay_s: float, count: int = 1) -> threading.Thread:
 HOME = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0])
 
 
+def test_home_moves_both_arms_concurrently_before_releasing_grippers(monkeypatch) -> None:
+    driver, backend = _live_driver()
+    started = threading.Barrier(2, timeout=2.0)
+    completed = {name: threading.Event() for name in ("left", "right")}
+    calls = {name: [] for name in completed}
+
+    def move(name, native):
+        def run(target, time_interval_s):
+            target = np.asarray(target).copy()
+            if not calls[name]:
+                np.testing.assert_array_equal(target[:6], np.zeros(6))
+                assert target[6] == native.position[6]
+                # A sequential home cannot pass this barrier.
+                started.wait()
+                if name == "right":
+                    assert completed["left"].wait(timeout=2.0)
+                assert time_interval_s == driver._home_duration_s
+                native.position = target
+                calls[name].append(target)
+                completed[name].set()
+            else:
+                assert all(event.is_set() for event in completed.values())
+                np.testing.assert_array_equal(target, HOME)
+                native.position = target
+                calls[name].append(target)
+
+        return run
+
+    for name, arm in (("left", backend._robot_l), ("right", backend._robot_r)):
+        monkeypatch.setattr(arm.robot, "move_joints", move(name, arm.robot))
+    driver.home()
+    assert all(len(moves) == 2 for moves in calls.values())
+
+
 def test_ctrl_c_during_homing_still_reaches_zero_home() -> None:
     driver, backend = _live_driver()
     original = signal.getsignal(signal.SIGINT)

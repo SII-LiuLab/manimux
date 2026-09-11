@@ -1,5 +1,47 @@
 # SAPolicy + YAM 接入手册
 
+## 2026-09-10 真机基线
+
+当前瓶子任务使用 `server/teleop50-raw.yaml` 配合
+`infra/manimux-braking-h25.yaml`，不是下文早期 ABC 权重示例：
+
+```bash
+envs/yam/.venv/bin/manimux serve \
+  --config configs/sapolicy/yam/infra/manimux-braking-h25.yaml
+```
+
+已有模型服务、相机和 Viewer 时只使用现有服务流程；GUI Prepare 后由操作者点
+Start。模型 RAW 预测 50 步，执行前 25 个源时间步内仍有效的部分。关节限速
+0.6 rad/s、1.5 rad/s²；夹爪连续控制限速 1/s、12/s²。双臂并行 IK，失败臂减速
+保持，另一臂继续。抓取时锁定开始闭合的位姿，到位后闭合，开度稳定且取得新观测后
+才继续移动；释放时锁定末端目标，到位后完成张爪，再等待释放后的新观测。
+正常 Finish 时双臂同时 Home，时长 5 秒。
+
+操作者最新反馈为“抓的不是很准，但行为没问题”。这是当前可复现的行为基线，
+抓取精度仍待单独排查。执行细节见[减速跟踪](braking-execution.md)和
+[独立 IK 与释放控制](independent-ik-execution.md)。
+
+清理前的代码以文件形式保存在
+`/home/ubuntu/sa/diagnostics/cleanup_20260910/before-cleanup-manimux.tar`，
+配套 XPolicyLab 备份为同目录的 `before-cleanup-xpolicylab.tar`。
+UMI／Cartesian／协同执行、
+direct/debounced 夹爪试验和重复配置已从当前版本移除；完整 direct 执行器及
+`manimux-direct-async.yaml` 留作历史对照。恢复某个试验时先将备份解压到独立目录，
+避免覆盖当前真机工作目录。
+
+按操作者要求，本轮修改不做 commit 或 push，保留为本地工作区改动。
+权重、训练 YAML、
+normalizer、DINO 权重和 SpatialAlign Python 源码的 SHA-256 记录在
+`configs/sapolicy/yam/server/teleop50-raw.assets.json`，这些大文件不进入 Git。
+XPolicyLab 的 SA 预处理修复仍是子仓库中的本地改动；其他模型的待提交内容
+保持原样。离线回归命令：
+
+```bash
+bash scripts/validation/test_sapolicy_rollout.sh
+```
+
+该命令只运行单元测试和 mock runtime，不连接真机、不加载模型权重。
+
 ## 当前结论
 
 SAPolicy 经 **XPolicyLab WebSocket** 接入 ManiMux：

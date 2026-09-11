@@ -102,3 +102,15 @@ def test_unknown_inference_strategy_fails_before_runtime_construction(tmp_path: 
 
     with pytest.raises(PluginError, match="manimux.inference_strategies"):
         build_runtime(config, tmp_path)
+
+
+def test_execution_prefix_rejects_incompatible_runtime_and_oversized_horizon():
+    cfg = load_config('configs/mock.yaml').model_dump()
+    cfg['execution']['max_chunk_steps'] = 25
+    with pytest.raises(ValidationError, match='must not exceed'):
+        ManiMuxConfig.model_validate(cfg)
+    cfg['policy']['horizon_steps'] = 50
+    assert ManiMuxConfig.model_validate(cfg).execution.max_chunk_steps == 25
+    cfg['execution']['runtime'] = 'rtc'
+    with pytest.raises(ValidationError, match='ordinary ManiMux'):
+        ManiMuxConfig.model_validate(cfg)

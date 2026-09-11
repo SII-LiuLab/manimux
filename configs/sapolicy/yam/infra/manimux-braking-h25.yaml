@@ -1,0 +1,201 @@
+# SAPolicy: braking-aware tracking, model horizon 50, source execution prefix 25.
+# Keep SA RAW / 50-step / process decoding; continuous gripper avoids hold hysteresis.
+run:
+  task: put the plastic bottles in the bin
+  output_dir: ./data/sapolicy/teleop50_raw_braking_h25
+  max_steps: 18000
+  experiment_mode: false
+robot:
+  driver: yam_dual
+  config: configs/robots/yam_left.yaml
+  control_hz: 100.0
+  group_dims:
+    left_arm: 7
+    right_arm: 7
+  options:
+    right_config: configs/robots/yam_right.yaml
+    move_to_start_on_connect: false
+    start_joints:
+    - -0.21648737315937971
+    - 0.7326237888151361
+    - 0.7944228274967582
+    - -0.2523460746166162
+    - -0.11768520637826718
+    - -0.3980697337300665
+    - 0.9901674677653165
+    - -0.22564278629739754
+    - 1.1377508201724265
+    - 0.6948577096208126
+    - -0.1802471961547223
+    - -0.15392538338292816
+    - -0.0791561760891124
+    - 0.9990685638717227
+    start_duration_s: 8.0
+    home_duration_s: 5.0
+    home_on_close: true
+sensors:
+- name: yam_cameras
+  driver: camera_server
+  options:
+    endpoint: tcp://127.0.0.1:5555
+    request_timeout_ms: 500
+    max_frame_age_sec: 0.15
+    camera_names:
+    - front_camera
+    - left_camera
+    - right_camera
+policy:
+  worker: xpolicylab_ws
+  adapter: sapolicy_yam
+  action_dt_s: 0.03333333333333333
+  timeout_s: 5.0
+  horizon_steps: 50
+  inference_delay_s: 0.0
+  startup_timeout_s: 180.0
+  options:
+    server: ws://127.0.0.1:8500
+    connect_timeout_s: 5.0
+    request_timeout_s: 5.0
+    group_order:
+    - left_arm
+    - right_arm
+    group_prefixes:
+      left_arm: left
+      right_arm: right
+    gripper_dofs: 1
+    wire_image_hw:
+    - 168
+    - 224
+    camera_map:
+      top: front_camera
+      left: left_camera
+      right: right_camera
+    model_from_kinematics:
+      left_arm:
+      - - 1.0
+        - 3.6732e-06
+        - 3.6732e-06
+        - 0.2522021
+      - - -3.6732e-06
+        - 1.0
+        - -5.3072e-06
+        - 0.3100003422
+      - - -3.6732e-06
+        - 5.3072e-06
+        - 1.0
+        - 0.7504985942
+      - - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+      right_arm:
+      - - 1.0
+        - 3.6732e-06
+        - 3.6732e-06
+        - 0.2522021
+      - - -3.6732e-06
+        - 1.0
+        - -5.3072e-06
+        - -0.3099996578
+      - - -3.6732e-06
+        - 5.3072e-06
+        - 1.0
+        - 0.7504985942
+      - - 0.0
+        - 0.0
+        - 0.0
+        - 1.0
+    camera_intrinsics:
+      top:
+      - - 394.7972412109375
+        - 0.0
+        - 317.49383544921875
+      - - 0.0
+        - 394.2569885253906
+        - 241.21372985839844
+      - - 0.0
+        - 0.0
+        - 1.0
+      left:
+      - - 394.2466125488281
+        - 0.0
+        - 319.2265930175781
+      - - 0.0
+        - 393.6261901855469
+        - 241.67579650878906
+      - - 0.0
+        - 0.0
+        - 1.0
+      right:
+      - - 394.0639953613281
+        - 0.0
+        - 321.9771728515625
+      - - 0.0
+        - 393.66046142578125
+        - 244.92794799804688
+      - - 0.0
+        - 0.0
+        - 1.0
+    kinematics: yam
+    kinematics_options:
+      arm_type: yam
+      gripper_type: linear_4310
+      num_arm_joints: 6
+      pos_threshold: 0.004
+      ori_threshold: 0.002
+      max_iters: 300
+      recovery_ori_threshold: 0.0872664626
+      recovery_max_joint_delta: 0.35
+    action_space: joint_position
+  action_decoding: process
+  expected_backend:
+    server: xpolicylab_policy_server
+    model:
+      policy_name: SAPolicy
+      action_horizon: 50
+      model_path: /home/ubuntu/manimux/checkpoints/finetuned/sapolicy/abc130k/ft_teleop50_from_abc_notcpkv_rot5_bs1024_raw.ckpt
+execution:
+  runtime: manimux
+  executor: smooth
+  inference_schedule: single_inflight
+  refill_threshold_s: 0.2
+  commit_lead_s: 0.0
+  max_plan_age_s: 2.0
+  blend_steps: 4
+  max_chunk_steps: 25
+  independent_group_decoding: true
+  decode_budget_ms: 40.0
+  smooth:
+    grasp_guard:
+      approach_max_velocity: 0.25
+      position_tolerance_m: 0.02
+      rotation_tolerance_rad: 0.0872664626
+      settle_s: 0.15
+      aperture_stability: 0.01
+      phase_timeout_s: 3.0
+    release_guard:
+      mode: latched_release
+      phase_timeout_s: 2.0
+      kinematics: yam
+      position_tolerance_m: 0.02
+    cutoff_hz: 8.0
+    tracking_mode: braking
+    max_velocity: 0.6
+    max_acceleration: 1.5
+    position_limit_abs: 3.14
+    gripper:
+      mode: continuous
+      group_indices:
+        left_arm: 6
+        right_arm: 6
+      max_velocity: 1.0
+      max_acceleration: 12.0
+      closed_value: 0.0
+      open_value: 1.0
+viewer:
+  enabled: true
+  robot_adapter: yam
+  policy_label: SAPolicy RAW | IK recovery 5deg | latched release | prefix 25
+recording:
+  enabled: true
+  video_fps: 30.0

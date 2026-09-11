@@ -366,3 +366,197 @@ def test_interrupt_homes_only_when_configured(tmp_path: Path) -> None:
 
     assert robot.home_calls == 1
     assert events.index("robot.stop") < events.index("robot.close")
+
+
+def test_decode_latency_is_included_in_commit_expiry(tmp_path: Path) -> None:
+    import time
+
+    config = load_config("configs/mock.yaml")
+    config.run.max_steps = 3
+    config.execution.max_plan_age_s = 2
+    runtime = EdgeRuntime(config, tmp_path)
+    runtime._robot = _HomeTestRobot(config.robot.group_dims)
+    runtime._worker = _HomeTestWorker()
+    runtime._viewer = _AutoRunningViewer()
+    runtime._sensors = []
+
+    class SlowAdapter:
+        def decode_action(self, raw, context):
+            time.sleep(0.25)  # Longer than the response's entire 4 x 50 ms chunk.
+            return raw
+
+        def build_observation(self, snapshot):
+            return snapshot
+
+    runtime._adapter = SlowAdapter()
+    result = runtime.run()
+    assert result.accepted_plans == 0
+    events = [
+        json.loads(line) for line in (result.episode_dir / "events.jsonl").read_text().splitlines()
+    ]
+    assert any(e.get("reason") == "no_future_horizon" for e in events)
+
+
+def test_braking_runtime_keeps_50_predictions_and_executes_25_step_prefix(tmp_path: Path):
+    config = load_config('configs/mock.yaml')
+    config.run.max_steps = 180
+    config.policy.horizon_steps = 50
+    config.policy.action_dt_s = 1 / 30
+    config.policy.inference_delay_s = .08
+    config.execution.smooth.tracking_mode = 'braking'
+    config.execution.smooth.max_velocity = .8
+    config.execution.smooth.max_acceleration = 3.
+    config.execution.max_chunk_steps = 25
+    config.execution.inference_schedule = 'single_inflight'
+    config.execution.commit_lead_s = 0
+    # Force a gap after a moving plan so braking through missing inference is exercised.
+    config.execution.refill_threshold_s = .001
+    runtime = EdgeRuntime(config, tmp_path)
+    gap_speeds = []
+    original = runtime._executor.brake_hold
+
+    def brake_hold(now_ns, state):
+        if runtime._executor._previous_velocity is not None:
+            gap_speeds.append(max(
+                np.max(abs(v)) for v in runtime._executor._previous_velocity.values()
+            ))
+        return original(now_ns, state)
+
+    runtime._executor.brake_hold = brake_hold
+    result = runtime.run()
+    assert result.accepted_plans >= 2
+    assert gap_speeds and max(gap_speeds) > .01
+    z = zarr.open_group(str(result.episode_dir / 'data.zarr'), mode='r')
+    events = [
+        json.loads(line)
+        for line in (result.episode_dir / 'events.jsonl').read_text().splitlines()
+    ]
+    boundaries = {e['plan_id']: e for e in events if e['kind'] == 'plan_boundary'}
+    for key in z['plans']:
+        p = z['plans/' + key]
+        b = boundaries.get(p.attrs['plan_id'])
+        if b is None:
+            continue
+        assert p['infra_output/left_arm'].shape[0] == 50
+        assert p['committed/left_arm'].shape[0] == 25 - b['trimmed_steps']
+    q = z['ticks/command/left_arm'][:]
+    v = np.diff(q, axis=0) / .01
+    assert np.max(abs(v)) <= .8 + 1e-9
+    assert np.max(abs(np.diff(v, axis=0) / .01)) <= 3 + 1e-8
+    meta = json.loads((result.episode_dir / 'meta.json').read_text())
+    assert meta['horizon_steps'] == 50 and meta['max_chunk_steps'] == 25
+    assert meta['smooth']['tracking_mode'] == 'braking'
+
+
+def test_release_guard_diagnostics_survive_runtime_json_recording(tmp_path):
+    from manimux.config import GripperHysteresisConfig, GripperReleaseGuardConfig
+
+    class Worker(_HomeTestWorker):
+        def poll(self):
+            response = super().poll()
+            if response is not None:
+                for values in response.raw_action.groups.values():
+                    values[:] = 0.0  # Already closed: non-opening comparison returns numpy.bool.
+            return response
+
+    config = load_config('configs/mock.yaml')
+    config.run.max_steps = 25
+    config.sensors = []
+    config.robot.group_dims = {'left_arm': 7, 'right_arm': 7}
+    config.execution.smooth.tracking_mode = 'braking'
+    config.execution.smooth.gripper = GripperHysteresisConfig(
+        mode='continuous', group_indices={'left_arm':6, 'right_arm':6})
+    config.execution.smooth.release_guard = GripperReleaseGuardConfig()
+    runtime = EdgeRuntime(config, tmp_path)
+    runtime._worker = Worker()
+    result = runtime.run()
+    assert result.steps == 25 and not result.episode_dir.name.endswith('.partial')
+    events = [json.loads(line) for line in (result.episode_dir/'events.jsonl').read_text().splitlines()]
+    decisions = [e for e in events if e['kind']=='gripper_decision']
+    assert decisions
+    assert all(d['groups'][arm]['release_blocked'] is False
+               for d in decisions for arm in config.robot.group_dims)
+
+
+def test_latched_release_completes_through_timeline_gap_with_recorded_phases(tmp_path):
+    from manimux.config import GripperHysteresisConfig, GripperReleaseGuardConfig
+
+    class Worker(_HomeTestWorker):
+        def poll(self):
+            response = super().poll()
+            if response is not None:
+                for values in response.raw_action.groups.values():
+                    values[:] = 0.
+                    values[:,0] = .12
+                    values[:,-1] = 1.
+            return response
+
+    config = load_config('configs/mock.yaml')
+    config.run.max_steps = 180
+    config.sensors = []
+    config.robot.group_dims = {'left_arm':7,'right_arm':7}
+    config.policy.timeout_s = 5
+    config.execution.smooth.tracking_mode = 'braking'
+    config.execution.smooth.max_velocity = .6
+    config.execution.smooth.max_acceleration = 1.5
+    config.execution.smooth.gripper = GripperHysteresisConfig(
+        mode='continuous', group_indices={'left_arm':6,'right_arm':6},
+        max_velocity=1,max_acceleration=12)
+    config.execution.smooth.release_guard = GripperReleaseGuardConfig(mode='latched_release')
+    runtime = EdgeRuntime(config,tmp_path)
+    runtime._worker = Worker()
+    result = runtime.run()
+    assert result.steps == 180
+    events = [json.loads(line) for line in (result.episode_dir/'events.jsonl').read_text().splitlines()]
+    decisions = [e for e in events if e['kind']=='gripper_decision']
+    phases = {e['groups']['right_arm']['release_phase'] for e in decisions}
+    assert {'opening','await_observation'} <= phases
+    assert any(e['plan_id'] is None for e in decisions)
+    z = zarr.open_group(str(result.episode_dir/'data.zarr'),mode='r')
+    assert z['ticks/command/right_arm'][-1,-1] > .98
+
+
+def test_grasp_guard_completes_before_lift_through_inference_gap(tmp_path):
+    from manimux.config import (
+        GripperGraspGuardConfig, GripperHysteresisConfig, GripperReleaseGuardConfig,
+    )
+
+    class Worker(_HomeTestWorker):
+        def poll(self):
+            response = super().poll()
+            if response is not None:
+                for values in response.raw_action.groups.values():
+                    values[:] = 0.
+                    values[:, 0] = .12
+                    values[:, -1] = .8
+            return response
+
+    config = load_config('configs/mock.yaml')
+    config.run.max_steps = 240
+    config.sensors = []
+    config.robot.group_dims = {'left_arm': 7, 'right_arm': 7}
+    config.policy.timeout_s = 5
+    config.execution.smooth.tracking_mode = 'braking'
+    config.execution.smooth.max_velocity = .6
+    config.execution.smooth.max_acceleration = 1.5
+    config.execution.smooth.gripper = GripperHysteresisConfig(
+        mode='continuous', group_indices={'left_arm': 6, 'right_arm': 6},
+        max_velocity=1, max_acceleration=12)
+    config.execution.smooth.release_guard = GripperReleaseGuardConfig()
+    config.execution.smooth.grasp_guard = GripperGraspGuardConfig()
+    runtime = EdgeRuntime(config, tmp_path)
+    for n in config.robot.group_dims:
+        runtime._robot._groups[n][-1] = 1.
+        runtime._robot._target[n][-1] = 1.
+    runtime._worker = Worker()
+    result = runtime.run()
+    assert result.steps == 240
+    events = [json.loads(line) for line in (result.episode_dir/'events.jsonl').read_text().splitlines()]
+    decisions = [e for e in events if e['kind'] == 'gripper_decision']
+    phases = {e['groups']['right_arm'].get('grasp_phase') for e in decisions}
+    assert {'approach', 'closing', 'await_observation'} <= phases
+    assert any(e['plan_id'] is None and e['groups']['right_arm'].get('grasp_phase') == 'closing'
+               for e in decisions)
+    z = zarr.open_group(str(result.episode_dir/'data.zarr'), mode='r')
+    assert z['ticks/command/right_arm'][-1, -1] < .02
+    assert z['ticks/command/right_arm'][:, 0].max() <= .12 + 1e-9

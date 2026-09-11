@@ -1,5 +1,85 @@
 # ABC + YAM 运行手册
 
+## 已下载的官方 bottles 75k（2026-09-10 验证）
+
+本机已有两份 ABC 权重：`abc_dit_xl_200k_model.pt` 和
+`official_bottles_75k/bottles_75k.pt`，都在 `checkpoints/pretrained/abc/`。
+下面这组命令明确选择 **bottles 75k**。ABC 的 HTTP worker 和 YAM adapter
+已经注册，无需接入 XPolicyLab，也不经过 EEF→IK。
+
+```bash
+cd /home/ubuntu/manimux
+envs/abc/.venv/bin/manimux-abc-server \
+  --host 127.0.0.1 --port 8300 \
+  --checkpoint checkpoints/pretrained/abc/official_bottles_75k/bottles_75k.pt \
+  --norm-stats-path checkpoints/pretrained/abc/official_bottles_75k/norm_stats.json \
+  --device cuda:0 --diffusion-steps 10 \
+  --prompt 'put the plastic bottles in the bin'
+```
+
+实际下载的文件包含 `model`、`step=75000`、`norm_stats`。服务优先使用嵌入的
+统计量；已经核验 state/actions 的 mean/std 与相邻 JSON 逐值一致。
+上游 `prepare.py` 对应下载项是 `checkpoints/bottles_release_prep_75k.pt`。
+
+复用已运行的相机和 Viewer，在结束其他 policy 的 runtime 后启动 ABC runtime：
+
+若相机服务尚未运行，使用 640×480、与 teleop 一致的 RGB-only 配置启动：
+
+```bash
+envs/yam/.venv/bin/manimux-camera-server --config configs/abc/yam/cameras.yaml
+```
+
+旧通用 `configs/cameras.yaml` 省略尺寸，默认采集 640×360；这与当前成功 SA
+路径的输入视野不同。ABC 服务保留自己的 letterbox 预处理，不使用 SA 的裁剪。
+本次准备时，左 D405 在同时启用 RGB/深度时持续等待超时，RGB-only 可正常出帧。
+相机配置新增可选 `enable_depth: false`；其他配置默认仍为 RGB+深度。
+RGB-only 的 `read()` 明确返回 `(RGB, None)`，不伪造深度图，ZMQ RGB 协议不变。
+
+```bash
+envs/yam/.venv/bin/manimux serve \
+  --config configs/abc/yam/infra/official-bottles-75k-smooth.yaml
+```
+
+由用户在 GUI Prepare / Start rollout。`official-bottles-75k-smooth.yaml` 采用
+已经用于 SA 的公共执行器配置：100 Hz 控制，braking smooth，关节限速
+0.6 rad/s、加速度 1.5 rad/s²；抓取接近阶段限速 0.25 rad/s。
+夹爪独立限速 1.0/s、加速度 12.0/s²，连续 `[0,1]`，沿用抓取/释放位置保护。
+这套保护只做 FK 判断到位，不对 DiT 输出解 IK；独立双臂 IK 解码关闭。
+模型仍以 30 Hz 预测 30 步，源轨迹上限 25 步，剩余 0.3 秒请求下一次推理。
+延迟裁剪仍可能减少实际执行行数，例如 200 ms 延迟会裁掉前 6 行，保留 19 行。
+最长 18000 控制步（180 秒），连接时不自动移到起始姿态，结束时沿用双臂回 Home。
+
+`official-bottles-75k.yaml` 保留为原来的 direct 对照配置：30 Hz 控制，
+源轨迹上限 15 步，不使用 smooth 的限速与夹爪事件处理。本次准备的是 smooth 配置。
+
+离线验证可独立重跑，不连接机械臂：
+
+```bash
+envs/yam/.venv/bin/python scripts/validation/abc_yam_offline_infer.py \
+  --config configs/abc/yam/infra/official-bottles-75k-smooth.yaml \
+  --episode ~/teleop_data/put_bottles_into_the_bin/20260905_155053_7fc15edb \
+  --output data/diagnostics/abc_official_75k_20260910
+```
+
+本次录制数据第 0/150/300 帧经真实 HTTP worker→模型→adapter 均返回有限的
+`30×14` 绝对关节动作，拆分为左右臂 `30×7` 后逐值一致，夹爪在 `[0,1]` 内。
+10 步采样、FP32、RTX 4090，含 HTTP 的三次耗时约 203/184/211 ms。
+报告和原始输出保存在输出目录的 `report.json`、`actions.npz`。
+这验证了接口和推理链路，尚未证明此官方权重能在本机场景成功抓瓶子。
+
+此次对照审计确认：ABC 与 Pi 的输入都来自请求时实测关节状态；左右臂各 7 维、
+弧度绝对关节、夹爪 0 关/1 开的语义一致。ABC 保留自己的 CLIP/DINO 图像与状态
+归一化，不能替换成 Pi/SA 的预处理。公共 `edge.py`、`timeline.py`、`smooth.py`
+负责异步推理、延迟裁剪、减速、独立夹爪和收尾，没有 ABC 专属的旧控制循环。
+差异来自旧 direct 配置没有选择 smooth。新配置对三组保存的真实模型输出做过
+时间轴→smooth→SafetyGuard 离线探测（理想反馈，不模拟真机动力学），通过限速
+与轨迹耗尽后的保持检查；ABC、timeline、executor 的现有测试均通过。
+本次部署证据位于 `data/deployments/abc_official_75k_smooth_20260910/`。
+
+## 通用 200k 配置
+
+下文保留原有 200k 模型启动方式；不要与上面的 75k 命令混用。
+
 和 MolmoAct 完全一样的四个服务，只有第 1 步（模型服务）和第 4 步的配置文件不同。
 运行前清空机械臂工作区并准备好急停。
 

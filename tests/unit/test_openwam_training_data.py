@@ -26,7 +26,7 @@ def test_recording_to_training_sample(tmp_path):
     count = 35
     (recording / "write_complete.flag").touch()
     (recording / "metadata.json").write_text(json.dumps({
-        "num_frames": count, "extra": {"eepose": {"enabled": True}}
+        "num_frames": count, "control_hz": 30, "extra": {"eepose": {"enabled": True}}
     }))
     transforms = np.tile(np.eye(4), (count, 1, 1))
     transforms[:, 0, 3] = np.arange(count) * .001
@@ -44,6 +44,8 @@ def test_recording_to_training_sample(tmp_path):
     assert converter.export_episode(recording, target, "move", 30) == count
     with pytest.raises(ValueError, match="overwrite"):
         converter.export_episode(recording, target, "move", 30)
+    with pytest.raises(ValueError, match="frequency"):
+        converter.export_episode(recording, dataset_root / "wrong.hdf5", "move", 20)
 
     from XPolicyLab.policy.OpenWAM.model import _resolve_openwam_root, validate_deployment
     _resolve_openwam_root(None)

@@ -220,7 +220,7 @@ class YamDualArmDriver:
             arm_home,
             duration_s=self._home_duration_s,
             transition="zero home",
-            parallel=False,
+            parallel=True,
             reraise_interrupt=False,
         )
 

@@ -89,6 +89,51 @@ both training and the post-training artifact check use the resume directory.
 No environment installation is performed. Select an existing interpreter with
 `OPENWAM_PYTHON`; a missing executable fails before data preparation.
 
+### QZ hdd3 put-bottles profile
+
+The fixed, non-submitting QZ profile is
+`scripts/training/train_openwam_yam_bottles_cluster.sh`. It uses the 50-episode,
+35,118-frame, 30 Hz `put_bottles_into_the_bin` dataset, four visible GPUs,
+30,000 OpenWAM global/micro-steps, and checkpoints every 5,000 global steps.
+Per-GPU batch is 1 with gradient accumulation 8 (effective optimizer batch 32),
+so 30,000 global steps correspond to 3,750 optimizer updates. W&B is disabled
+through both the environment and Hydra; stdout/checkpoints remain the source of
+truth.
+
+Before any job is created, run its CPU-only readiness gate on a QZ notebook:
+
+```bash
+bash scripts/training/setup_openwam_qz_env.sh
+bash scripts/training/train_openwam_yam_bottles_cluster.sh ready
+```
+
+The QZ setup script creates an isolated venv but deliberately inherits the
+CUDA/Torch stack supplied by the QZ image. It pins NumPy 1.x for that Torch
+ABI, uses headless OpenCV (no `libGL.so.1` dependency), and ends with both
+`pip check` and an import check. It does not install another CUDA wheel.
+
+`ready` verifies the exact dataset manifest/counts, hashes the 24 GB foundation
+weight, requires its self-contained tokenizer, runs the native OpenWAM dataset
+preparation/statistics/sample check, and prints the exact four-GPU command via
+`--dry-run`. It does not initialize CUDA, create a QZ job, or start training.
+
+After resource/job approval, the command used inside the allocated job is:
+
+```bash
+bash scripts/training/train_openwam_yam_bottles_cluster.sh gate-train
+```
+
+`gate-train` first produces a one-step smoke checkpoint and only then enters the
+30k run. Do not call it from a login/notebook shell.
+
+The prepared QZ request is
+`configs/openwam/qz/put-bottles-4xh200.json`. It pins the `embodied-world-model`
+project, its private training workspace, the official PyTorch 25.06 image, and
+the predefined 4xH200/80-CPU/900-GiB specification. Keeping the JSON in the
+repository does not submit it. Re-check identity, duplicate job names, hashes,
+and resource availability, then obtain explicit approval before invoking
+`qz train CreateJob`.
+
 ## Inference and evaluation
 
 ```bash

@@ -106,6 +106,9 @@ class ActionContext:
     # separate from the observation embedded in the policy request: the latter
     # defines the trajectory clock, while the former is the safest IK seed.
     measured_state: RobotState | None = None
+    max_source_steps: int | None = None
+    decode_budget_ms: float | None = None
+    independent_groups: bool = False
 
 
 @dataclass(slots=True)
@@ -121,6 +124,8 @@ class ActionChunk:
     # Keeping this separate preserves observation_time_ns for plan-age checks.
     source_offset_steps: int = 0
     metadata: dict[str, object] = field(default_factory=dict)
+    # First invalid row per group, relative to this chunk (before timeline trim).
+    hold_from_step: dict[str, int] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.dt_ns <= 0:
@@ -128,6 +133,9 @@ class ActionChunk:
         if self.source_offset_steps < 0:
             raise ValueError("action chunk source_offset_steps must be non-negative")
         self.groups = _trajectory_groups(self.groups, label="action chunk")
+        for name, step in self.hold_from_step.items():
+            if name not in self.groups or not 0 <= step < self.horizon_steps:
+                raise ValueError("invalid action chunk hold_from_step")
 
     @property
     def horizon_steps(self) -> int:
@@ -151,6 +159,10 @@ class ActionHorizon:
     dt_ns: int
     plan_id: str
     groups: GroupTrajectory
+    hold_groups: tuple[str, ...] = ()
+    # Unblended joint reference at start_time_ns for measured tracking checks.
+    tracking_groups: GroupVector | None = None
+    observation_time_ns: int | None = None
 
     def __post_init__(self) -> None:
         if self.dt_ns <= 0:
@@ -177,4 +189,5 @@ def copy_action_chunk(chunk: ActionChunk) -> ActionChunk:
         groups={name: values.copy() for name, values in chunk.groups.items()},
         source_offset_steps=chunk.source_offset_steps,
         metadata=dict(chunk.metadata),
+        hold_from_step=dict(chunk.hold_from_step),
     )

@@ -53,6 +53,10 @@ class _FakeKinematics:
         )
         return converged, solved
 
+    def ik_bounded(self, target, seed, gripper, *, deadline_ns):
+        ok, solved = self.ik(target, seed, gripper)
+        return ok, solved, {"reason": "converged" if ok else "stagnation"}
+
 
 def _build_adapter(monkeypatch):
     config = load_config(CONFIG)
@@ -177,3 +181,46 @@ def test_sapolicy_holds_last_good_when_ik_fails(monkeypatch) -> None:
     assert chunk.groups["right_arm"].shape == (16, 7)
     np.testing.assert_allclose(chunk.groups["left_arm"][6, 0], chunk.groups["left_arm"][5, 0])
     assert chunk.groups["left_arm"][7, 0] == pytest.approx(0.07)
+
+
+
+
+def test_bounded_decode_skips_expired_and_unused_rows_and_holds_failed_gripper(monkeypatch):
+    adapter, fake = _build_adapter(monkeypatch)
+    actions = np.tile(_wire_actions(adapter), (4, 1))[:50]
+    adapter._horizon_steps = 50
+    actions[:, 7] = np.linspace(.2, 1, 50)
+    fake.fail_x = [.06]
+    now = 1_000_000_000
+    chunk = adapter.decode_action(actions, ActionContext(
+        1, now, now, execution_time_ns=now + 3 * adapter._action_dt_ns,
+        measured_state=_snapshot(now).state, max_source_steps=25,
+        independent_groups=True, decode_budget_ms=100,
+    ))
+    assert chunk.source_offset_steps == 3 and chunk.horizon_steps == 22
+    assert chunk.hold_from_step == {"left_arm": 3}
+    assert len(fake.ik_calls) == 4 + 22
+    assert fake.ik_calls[0][0][0, 3] == pytest.approx(.03)
+    assert len(chunk.metadata["raw_model_eef"]["left_arm"]) == 50
+    np.testing.assert_allclose(chunk.groups["left_arm"][3:, 6], actions[5, 7])
+    assert chunk.metadata["ik"]["right_arm"]["failed_steps"] == 0
+
+
+def test_expired_prefix_never_invokes_ik(monkeypatch):
+    adapter, fake = _build_adapter(monkeypatch)
+    now = 1_000_000_000
+    chunk = adapter.decode_action(_wire_actions(adapter), ActionContext(
+        1, now, now, execution_time_ns=now + 16 * adapter._action_dt_ns,
+        measured_state=_snapshot(now).state, max_source_steps=12,
+        independent_groups=True, decode_budget_ms=40,
+    ))
+    assert fake.ik_calls == []
+    assert chunk.source_offset_steps == 11 and chunk.horizon_steps == 1
+    assert chunk.hold_from_step == {"left_arm": 0, "right_arm": 0}
+
+
+def test_retired_eef_execution_mode_is_rejected_before_robot_connection():
+    config = load_config(CONFIG)
+    config.policy.options["action_space"] = "eef_pose"
+    with pytest.raises(ValueError, match="EEF targets require IK"):
+        SAPolicyYamAdapter(config.robot, config.policy)

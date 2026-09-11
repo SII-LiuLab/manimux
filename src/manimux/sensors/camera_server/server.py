@@ -233,6 +233,9 @@ def _build_cameras_from_config(cfg_path: Path) -> dict[str, RealSenseCamera]:
             fps = int(spec.get("fps", 30))
             max_frame_age_sec = float(spec.get("max_frame_age_sec", 0.30))
             flip = bool(spec.get("flip", False))
+            enable_depth = spec.get("enable_depth", True)
+            if not isinstance(enable_depth, bool):
+                raise ValueError(f"camera {name!r} enable_depth must be a boolean")
             logger.info(
                 "Opening camera %s (device_id=%s, %dx%d@%d, max_age=%.3fs, flip=%s)",
                 name,
@@ -250,6 +253,7 @@ def _build_cameras_from_config(cfg_path: Path) -> dict[str, RealSenseCamera]:
                 height=height,
                 fps=fps,
                 max_frame_age_sec=max_frame_age_sec,
+                enable_depth=enable_depth,
             )
     except Exception:
         for camera in cameras.values():

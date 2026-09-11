@@ -29,6 +29,7 @@ def build_plan_boundary_payload(
         "monotonic_ns": monotonic_ns,
         "plan_id": chunk.plan_id,
         "request_seq": chunk.request_seq,
+        "action_space": chunk.action_space,
         "blend_anchor_source": blend_anchor_source,
         "blend_steps": blend_steps,
         "trimmed_steps": trimmed_steps,

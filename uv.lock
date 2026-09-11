@@ -979,7 +979,7 @@ requires-dist = [
     { name = "yourdfpy", specifier = ">=0.0.58" },
     { name = "zarr", specifier = ">=2.18,<3" },
 ]
-provides-extras = ["molmoact-yam", "xpolicylab", "abc-yam", "xr1-yam"]
+provides-extras = ["molmoact-yam", "xpolicylab", "openwam", "abc-yam", "xr1-yam"]
 
 [package.metadata.requires-dev]
 dev = [

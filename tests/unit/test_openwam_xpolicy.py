@@ -204,3 +204,29 @@ def test_training_arguments(tmp_path):
     args.overrides = ["dataloader.variant=sim"]
     with pytest.raises(ValueError, match="contract"):
         build_command(args)
+
+
+def test_qz_launcher_disables_wandb_and_pins_training_budget():
+    launcher = (ROOT / "scripts/training/train_openwam_yam_cluster.sh").read_text()
+    profile = (ROOT / "scripts/training/train_openwam_yam_bottles_cluster.sh").read_text()
+    setup = (ROOT / "scripts/training/setup_openwam_qz_env.sh").read_text()
+    package = (ROOT / "XPolicyLab/policy/OpenWAM/OpenWAM/pyproject.toml").read_text()
+    loader = (
+        ROOT
+        / "XPolicyLab/policy/OpenWAM/OpenWAM/openwam/model/video_backbone/wan/shared/core/loader/config.py"
+    ).read_text()
+    assert "WANDB_MODE=disabled" in launcher
+    assert '"project.wandb.project=null"' in launcher
+    assert "OPENWAM_MAX_STEPS:-30000" in profile
+    assert "OPENWAM_SAVE_INTERVAL:-5000" in profile
+    assert "OPENWAM_GPU_IDS:-0,1,2,3" in profile
+    assert "OPENWAM_EXPECTED_EPISODES=50" in profile
+    assert "OPENWAM_EXPECTED_FRAMES=35118" in profile
+    assert "resolve_deploy_checkpoint_dir" in launcher
+    assert '--checkpoint "${deploy_checkpoint_dir}" --check' in launcher
+    assert "--system-site-packages" in setup
+    assert "numpy==1.26.4" in setup
+    assert "torch==" not in setup
+    assert '"opencv-python-headless>=4.7,<5"' in package
+    assert "from modelscope import snapshot_download" not in loader.split("class ModelConfig", 1)[0]
+    assert "from huggingface_hub import snapshot_download" not in loader.split("class ModelConfig", 1)[0]

@@ -1,0 +1,27 @@
+# Matched teleop50 RAW checkpoint; expose all 50 predicted steps.
+policy_name: SAPolicy
+protocol: ws
+host: 127.0.0.1
+port: 8500
+task_name: put_the_plastic_bottles_in_the_bin
+env_cfg_type: yam_dual
+action_type: ee
+eval_batch: false
+sapolicy_root: /home/ubuntu/sa/deployments/teleop50_6000_qz/code
+cfg_file: /home/ubuntu/sa/deployments/teleop50_6000_qz/code/teleop50_6000_raw_local.yaml
+model_path: /home/ubuntu/manimux/checkpoints/finetuned/sapolicy/abc130k/ft_teleop50_from_abc_notcpkv_rot5_bs1024_raw.ckpt
+workspace: /home/ubuntu/sa/deployments/teleop50_6000_qz
+backbone_path: /home/ubuntu/sa/dinov2_vitl14_pretrain.pth
+normalizer_path: /home/ubuntu/sa/deployments/teleop50_6000_qz/bottles_norm_stats_real_h50_state_bs1024_lr057.pt
+output_format: packed_ee_wire
+action_horizon: 50
+body_frame_actions: true
+tcp_forward_offset_m: 0.0
+use_ema: false
+ckpt_type: raw
+camera_names:
+- top
+- left
+- right
+device: cuda:0
+dry_run: false

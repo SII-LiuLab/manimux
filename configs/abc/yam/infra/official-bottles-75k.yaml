@@ -1,0 +1,63 @@
+# Pair with official_bottles_75k/bottles_75k.pt (step 75000).
+# Its embedded normalization matches the adjacent norm_stats.json.
+run:
+  task: put the plastic bottles in the bin
+  output_dir: ./data/abc/official_bottles_75k
+  max_steps: 5400
+
+robot:
+  driver: yam_dual
+  config: configs/robots/yam_left.yaml
+  control_hz: 30.0
+  group_dims:
+    left_arm: 7
+    right_arm: 7
+  options:
+    right_config: configs/robots/yam_right.yaml
+    move_to_start_on_connect: false
+    home_duration_s: 5.0
+    home_on_close: true
+
+sensors:
+  - name: yam_cameras
+    driver: camera_server
+    options:
+      endpoint: tcp://127.0.0.1:5555
+      request_timeout_ms: 500
+      max_frame_age_sec: 0.5
+      camera_names: [left_camera, front_camera, right_camera]
+
+policy:
+  worker: abc_http
+  adapter: abc_yam
+  action_dt_s: 0.03333333333333333
+  timeout_s: 1.0
+  horizon_steps: 30
+  options:
+    server: http://127.0.0.1:8300
+    group_order: [left_arm, right_arm]
+    camera_map:
+      left_cam: left_camera
+      top_cam: front_camera
+      right_cam: right_camera
+    diffusion_steps: 10
+
+execution:
+  # Existing ABC joint path; no EEF decoding or IK, no gripper binarization.
+  executor: direct
+  inference_schedule: single_inflight
+  refill_threshold_s: 0.3
+  commit_lead_s: 0.0
+  max_plan_age_s: 1.0
+  blend_steps: 0
+  # Cap the source prefix to 15 of 30 rows (0.5 s), before latency trimming.
+  max_chunk_steps: 15
+
+viewer:
+  enabled: true
+  robot_adapter: yam
+  policy_label: ABC official bottles 75k
+
+recording:
+  enabled: true
+  video_fps: 30.0

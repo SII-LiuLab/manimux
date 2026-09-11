@@ -9,9 +9,12 @@ REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 WORKSPACE=${PI05_WORKSPACE:-${REPO_ROOT}}
 POLICY=${WORKSPACE}/XPolicyLab/policy/Pi_05
 OPENPI=${POLICY}/openpi
+export PYTHONPATH="${OPENPI}/src:${OPENPI}/packages/openpi-client/src:${WORKSPACE}:${PYTHONPATH:-}"
 VENV=${OPENPI_ENV_DIR:-${ROOT}/envs/pi05/.venv}
 DATASET_NAME=${OPENPI_LEROBOT_REPO_ID:-yam_assemble_screwdriver_20260825_v1}
-DATASET=${ROOT}/datasets/lerobot/${DATASET_NAME}
+LEROBOT_HOME=${OPENPI_LEROBOT_HOME:-${ROOT}/datasets/lerobot}
+DATASET=${LEROBOT_HOME}/${DATASET_NAME}
+TASK_NAME=${OPENPI_TASK_NAME:-assemble_the_screwdriver}
 TRAIN_CONFIG_NAME=${OPENPI_TRAIN_CONFIG_NAME:-pi05_yam}
 EE_AUX=${PI05_EE_AUX:-false}
 BASE_PARAMS=${OPENPI_BASE_PARAMS:-${ROOT}/weights/base/pi05_base/params}
@@ -25,7 +28,7 @@ export PATH="${ROOT}/envs/bin:${PATH}"
 export UV_CACHE_DIR=${ROOT}/cache/uv
 export UV_PROJECT_ENVIRONMENT=${VENV}
 export HF_HOME=${ROOT}/cache/huggingface
-export HF_LEROBOT_HOME=${ROOT}/datasets/lerobot
+export HF_LEROBOT_HOME=${LEROBOT_HOME}
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 export OPENPI_DATA_HOME=${ROOT}/cache/openpi
@@ -61,14 +64,20 @@ dataset = Path(sys.argv[1])
 ee_aux = sys.argv[2].lower() == "true"
 info = json.loads((dataset / "meta/info.json").read_text())
 assert info["codebase_version"] == "v3.0"
-assert info["total_episodes"] == 19
-assert info["total_frames"] == 17789
+assert info["total_episodes"] > 0
+assert info["total_frames"] > 0
+import os
+for field, variable in (("total_episodes", "OPENPI_EXPECTED_EPISODES"),
+                        ("total_frames", "OPENPI_EXPECTED_FRAMES")):
+    if os.environ.get(variable):
+        assert info[field] == int(os.environ[variable]), (field, info[field], os.environ[variable])
 assert info["features"]["observation.state"]["shape"] == [14]
 assert info["features"]["action"]["shape"] == [14]
 if ee_aux:
     assert info["features"]["observation.ee_pose"]["shape"] == [24]
     assert info["features"]["action.ee_pose"]["shape"] == [24]
-print(json.dumps({"dataset": dataset.name, "episodes": 19, "frames": 17789}, indent=2))
+print(json.dumps({"dataset": dataset.name, "episodes": info["total_episodes"],
+                  "frames": info["total_frames"]}, indent=2))
 PY
   python3 - "${NORM_STATS}" "${EE_AUX}" <<'PY'
 import json
@@ -123,8 +132,9 @@ case "${mode}" in
     OPENPI_BATCH_SIZE=4 OPENPI_NUM_TRAIN_STEPS=1 OPENPI_SAVE_INTERVAL=1 \
       OPENPI_MAX_TO_KEEP=1 bash "$0" smoke "${run_name}"
     require_file "${ROOT}/weights/finetuned/pi05/${run_name}-smoke/1/params/manifest.ocdbt"
-    OPENPI_BATCH_SIZE=${OPENPI_BATCH_SIZE:-32} OPENPI_NUM_TRAIN_STEPS=3000 \
-      OPENPI_SAVE_INTERVAL=500 OPENPI_MAX_TO_KEEP=10 \
+    OPENPI_BATCH_SIZE=${OPENPI_BATCH_SIZE:-32} \
+      OPENPI_NUM_TRAIN_STEPS=${OPENPI_NUM_TRAIN_STEPS:-3000} \
+      OPENPI_SAVE_INTERVAL=${OPENPI_SAVE_INTERVAL:-500} OPENPI_MAX_TO_KEEP=${OPENPI_MAX_TO_KEEP:-10} \
       bash "$0" train "${run_name}"
     ;;
   prepare)
@@ -154,7 +164,7 @@ case "${mode}" in
       fi
     fi
     bash "${POLICY}/train.sh" \
-      yam assemble_the_screwdriver yam_dual joint 0 "${GPU_IDS}" \
+      yam "${TASK_NAME}" yam_dual joint 0 "${GPU_IDS}" \
       2>&1 | tee "${LOG_DIR}/${run_name}-${mode}.log"
     ;;
   *)

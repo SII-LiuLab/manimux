@@ -15,6 +15,7 @@ import yaml
 
 from manimux.config import load_config
 from manimux.policies import build_policy_adapter, build_policy_model
+from manimux.policies.base import prepare_policy_request
 from manimux.runtime.aac import AacInferenceRequest
 from manimux.runtime.autohorizon import AutoHorizonInferenceRequest
 from manimux.runtime.dvac import DvacInferenceRequest
@@ -198,7 +199,7 @@ def main() -> int:
 
     model = build_policy_model(config.policy)
     adapter = build_policy_adapter(config.robot, config.policy)
-    request = adapter.prepare_request(request)
+    request = prepare_policy_request(adapter, request)
     started = time.perf_counter()
     try:
         model.reset(session_id)

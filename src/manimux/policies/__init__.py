@@ -144,9 +144,11 @@ def build_policy_adapter(robot: RobotConfig, policy: PolicyConfig) -> PolicyAdap
     return factory(robot, policy)
 
 
+from manimux.policies.decoder import ActionDecoderClient  # noqa: E402
 from manimux.policies.worker import PolicyWorkerClient  # noqa: E402
 
 __all__ = [
+    "ActionDecoderClient",
     "FakePolicyAdapter",
     "FakePolicyModel",
     "PolicyAdapter",

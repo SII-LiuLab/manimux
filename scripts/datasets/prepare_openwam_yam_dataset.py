@@ -6,8 +6,12 @@ controller commands. All input episodes must belong to the training split.
 """
 
 import argparse
+import hashlib
 import json
+import os
+import shutil
 import sys
+import uuid
 from pathlib import Path
 
 import cv2
@@ -26,6 +30,14 @@ CAMERAS = {
 }
 
 
+def _sha256(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
 def export_episode(source, target, instruction, frequency):
     if target.exists():
         raise ValueError(f"Refusing to overwrite {target}")
@@ -35,6 +47,11 @@ def export_episode(source, target, instruction, frequency):
     if not metadata.get("extra", {}).get("eepose", {}).get("enabled", False):
         raise ValueError("Recording must declare achieved EE poses")
     count = int(metadata["num_frames"])
+    recorded_frequency = float(metadata.get("control_hz", frequency))
+    if not np.isclose(recorded_frequency, frequency, rtol=0.0, atol=1e-6):
+        raise ValueError(
+            f"Recording frequency {recorded_frequency} Hz does not match requested {frequency} Hz"
+        )
     if count < 2:
         raise ValueError("At least two frames required")
     state = {}
@@ -103,6 +120,8 @@ def main():
     parser.add_argument(
         "--frequency", type=float, required=True, help="Recorded frame rate; no resampling"
     )
+    parser.add_argument("--expected-episodes", type=int)
+    parser.add_argument("--expected-frames", type=int)
     args = parser.parse_args()
     if Path(args.task).name != args.task or args.task in {".", ".."}:
         parser.error("task must be a directory name")
@@ -111,17 +130,59 @@ def main():
     episodes = sorted(path for path in args.episodes.iterdir() if path.is_dir())
     if not episodes:
         parser.error("No episodes found")
+    if args.expected_episodes is not None and len(episodes) != args.expected_episodes:
+        parser.error(f"Expected {args.expected_episodes} episodes, found {len(episodes)}")
+
+    output = args.output.resolve()
+    if output.exists():
+        parser.error(f"Output already exists; refusing to overwrite: {output}")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    staging = output.parent / f".{output.name}.partial-{uuid.uuid4().hex}"
     frames = 0
-    for index, episode in enumerate(episodes):
-        frames += export_episode(
-            episode,
-            args.output / args.task / "yam_dual/data" / f"episode_{index:06d}.hdf5",
-            args.instruction,
-            args.frequency,
+    artifacts = []
+    try:
+        for index, episode in enumerate(episodes):
+            target = staging / args.task / "yam_dual/data" / f"episode_{index:06d}.hdf5"
+            count = export_episode(episode, target, args.instruction, args.frequency)
+            frames += count
+            artifacts.append(
+                {
+                    "episode": episode.name,
+                    "file": str(target.relative_to(staging)),
+                    "frames": count,
+                    "bytes": target.stat().st_size,
+                    "sha256": _sha256(target),
+                }
+            )
+        if args.expected_frames is not None and frames != args.expected_frames:
+            raise ValueError(f"Expected {args.expected_frames} frames, converted {frames}")
+        manifest = {
+            "schema_version": 1,
+            "source": str(args.episodes.resolve()),
+            "task": args.task,
+            "embodiment": "yam_dual",
+            "frequency_hz": args.frequency,
+            "action_mode": "eef",
+            "action_target": "next_achieved_state",
+            "pose_frame": "per_arm_robot_base",
+            "gripper_convention": "zero_closed_one_open",
+            "episodes": len(episodes),
+            "frames": frames,
+            "artifacts": artifacts,
+        }
+        meta = staging / "meta"
+        meta.mkdir(parents=True)
+        (meta / "openwam_yam_manifest.json").write_text(
+            json.dumps(manifest, indent=2, sort_keys=True) + "\n"
         )
+        os.replace(staging, output)
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
     print(
         json.dumps(
-            {"episodes": len(episodes), "frames": frames, "action_target": "next_achieved_state"}
+            {**manifest, "artifacts": len(artifacts)},
+            sort_keys=True,
         )
     )
 

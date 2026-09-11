@@ -15,6 +15,7 @@ constraints drive the mimic finger.
 from __future__ import annotations
 
 import threading
+import time
 import xml.etree.ElementTree as ET
 from copy import deepcopy
 from pathlib import Path
@@ -89,11 +90,19 @@ class YamKinematics:
         pos_threshold: float = 1e-4,
         ori_threshold: float = 1e-4,
         max_iters: int = 200,
+        recovery_ori_threshold: float | None = None,
+        recovery_max_joint_delta: float = 0.35,
     ) -> None:
         self._num_arm_joints = int(num_arm_joints)
         self._pos_threshold = float(pos_threshold)
         self._ori_threshold = float(ori_threshold)
         self._max_iters = int(max_iters)
+        if recovery_ori_threshold is not None and not 0 < recovery_ori_threshold <= np.pi / 18:
+            raise ValueError("recovery_ori_threshold must be in (0, 10 degrees]")
+        if recovery_max_joint_delta <= 0:
+            raise ValueError("recovery_max_joint_delta must be positive")
+        self._recovery_ori_threshold = recovery_ori_threshold
+        self._recovery_max_joint_delta = float(recovery_max_joint_delta)
         self._assets_root = Path(assets_root) if assets_root else DEFAULT_ASSETS_ROOT
         self._arm_type = arm_type
         self._gripper_type = gripper_type
@@ -109,6 +118,7 @@ class YamKinematics:
         self._lock = threading.Lock()
         self._solver: object | None = None
         self._limits: list | None = None
+        self._arm_limits = self.joint_position_limits()
 
     @property
     def num_arm_joints(self) -> int:
@@ -171,6 +181,8 @@ class YamKinematics:
 
     def joint_position_limits(self) -> tuple[FloatArray, FloatArray]:
         """Return lower/upper limits for the canonical arm-joint vector."""
+        if hasattr(self, "_arm_limits"):
+            return self._arm_limits[0].copy(), self._arm_limits[1].copy()
         lower = np.full(self._num_arm_joints, -np.inf, dtype=np.float64)
         upper = np.full(self._num_arm_joints, np.inf, dtype=np.float64)
         for qpos_index in range(self._num_arm_joints):
@@ -276,3 +288,131 @@ class YamKinematics:
         # mink's ConfigurationLimit still leaks ~1 mrad past a stop; clip so the
         # commanded joints stay inside the same range SafetyGuard enforces.
         return bool(converged), self.clip_arm_joints(joints)
+
+    def ik_bounded(
+        self, target_pose: FloatArray, init_joints: FloatArray, gripper: float,
+        *, deadline_ns: int,
+    ) -> tuple[bool, FloatArray, dict[str, object]]:
+        accepted, joints, info = self._ik_bounded_task(
+            target_pose, init_joints, gripper, deadline_ns=deadline_ns,
+            orientation_cost=1.0, orientation_threshold=self._ori_threshold,
+        )
+        if accepted or self._recovery_ori_threshold is None or time.monotonic_ns() >= deadline_ns:
+            return accepted, joints, info
+        strict_info = dict(info)
+        # Keep the position tolerance and physical joint bounds. Only soften
+        # orientation, and reject branch changes relative to this waypoint's seed.
+        for cost in (0.1, 0.02):
+            if time.monotonic_ns() >= deadline_ns:
+                break
+            ok, candidate, recovery = self._ik_bounded_task(
+                target_pose, joints, gripper, deadline_ns=deadline_ns,
+                orientation_cost=cost, orientation_threshold=self._recovery_ori_threshold,
+            )
+            delta = float(np.max(np.abs(candidate - np.asarray(init_joints))))
+            info = {**recovery, "strict_result": strict_info, "recovery_used": True,
+                    "recovery_max_joint_delta_rad": delta}
+            if ok and delta <= self._recovery_max_joint_delta:
+                info["reason"] = "recovered_orientation"
+                return True, candidate, info
+            if ok:
+                info["reason"] = "recovery_joint_delta_exceeded"
+        # An unconstrained recovery can leave the seed's allowed neighborhood
+        # even when a valid nearby solution exists. Search inside that region
+        # before rejecting the waypoint, keeping successful existing solves intact.
+        seed = self.clip_arm_joints(init_joints)
+        lower, upper = self.joint_position_limits()
+        bounds = (np.maximum(lower, seed - self._recovery_max_joint_delta),
+                  np.minimum(upper, seed + self._recovery_max_joint_delta))
+        for cost in (0.1, 0.02):
+            if time.monotonic_ns() >= deadline_ns:
+                break
+            ok, candidate, recovery = self._ik_bounded_task(
+                target_pose, seed, gripper, deadline_ns=deadline_ns,
+                orientation_cost=cost, orientation_threshold=self._recovery_ori_threshold,
+                joint_bounds=bounds,
+            )
+            delta = float(np.max(np.abs(candidate - np.asarray(init_joints))))
+            info = {**recovery, "strict_result": strict_info, "recovery_used": True,
+                    "recovery_method": "seed_box",
+                    "recovery_max_joint_delta_rad": delta}
+            if ok and delta <= self._recovery_max_joint_delta:
+                info["reason"] = "recovered_orientation"
+                return True, candidate, info
+        return False, joints, info
+
+    def _ik_bounded_task(
+        self, target_pose: FloatArray, init_joints: FloatArray, gripper: float,
+        *, deadline_ns: int, orientation_cost: float, orientation_threshold: float,
+        joint_bounds: tuple[FloatArray, FloatArray] | None = None,
+    ) -> tuple[bool, FloatArray, dict[str, object]]:
+        """Same Mink objective/limits, with a cooperative deadline and stall exit.
+
+        A single native QP cannot be preempted here; the decoder process client
+        separately bounds how long publication waits for that process.
+        """
+        import mink
+
+        target = np.asarray(target_pose, dtype=np.float64)
+        if target.shape != (4, 4) or not np.isfinite(target).all():
+            raise ValueError("target_pose must be a finite 4x4 transform")
+        qpos = self.robot_state_to_qpos(self.clip_arm_joints(init_joints), gripper)
+        reason, iterations = "max_iters", 0
+        with self._lock:
+            if not hasattr(self, "_bounded_configuration"):
+                self._bounded_configuration = mink.Configuration(self.model)
+            configuration = self._bounded_configuration
+            configuration.update(qpos)
+            task = mink.FrameTask(
+                frame_name=EE_SITE, frame_type="site", position_cost=1.0,
+                orientation_cost=orientation_cost, lm_damping=1.0,
+            )
+            task.set_target(mink.SE3.from_matrix(target))
+            limits = self._joint_limits()
+            if joint_bounds is not None:
+                local_limit = mink.ConfigurationLimit(self.model)
+                local_limit.lower[:self._num_arm_joints] = joint_bounds[0]
+                local_limit.upper[:self._num_arm_joints] = joint_bounds[1]
+                limits = [local_limit]
+            best, stale = float("inf"), 0
+            for iteration in range(self._max_iters + 1):
+                error = task.compute_error(configuration)
+                pos, rot = float(np.linalg.norm(error[:3])), float(np.linalg.norm(error[3:]))
+                # Like the original i2rt solver, take at least one update. Using
+                # the convergence tolerance as a seed deadband quantizes small
+                # moving targets into repeated holds followed by larger jumps.
+                if iteration > 0 and pos <= self._pos_threshold and rot <= orientation_threshold:
+                    reason = "converged"
+                    break
+                if time.monotonic_ns() >= deadline_ns:
+                    reason = "budget_exceeded"
+                    break
+                if iteration == self._max_iters:
+                    break
+                score = max(pos / self._pos_threshold, rot / orientation_threshold)
+                if score < best * (1.0 - 1e-4):
+                    best, stale = score, 0
+                else:
+                    stale += 1
+                if stale >= 12:
+                    reason = "stagnation"
+                    break
+                velocity = mink.solve_ik(configuration, [task], .01, "quadprog",
+                                         damping=1e-4, limits=limits)
+                configuration.integrate_inplace(velocity, .01)
+                iterations += 1
+            joints = self.clip_arm_joints(configuration.q[:self._num_arm_joints])
+            if joint_bounds is not None:
+                joints = np.clip(joints, *joint_bounds)
+        # Validate the actual clipped command, not the solver's unclipped state.
+        pos, rot = self.pose_error(target, joints, gripper)
+        converged = pos <= self._pos_threshold and rot <= orientation_threshold
+        if converged:
+            reason = "converged"
+        elif reason == "converged":
+            reason = "clipped_residual"
+        return converged, joints, {
+            "reason": reason, "iterations": iterations,
+            "position_error_m": pos, "rotation_error_rad": rot,
+            "joint_limit_margin_rad": float(np.min(self.joint_limit_margins(joints))),
+        }

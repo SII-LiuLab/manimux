@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -27,6 +27,9 @@ class _ActivePlan:
     start_time_ns: int
     dt_ns: int
     groups: GroupTrajectory
+    hold_from_step: dict[str, int] = field(default_factory=dict)
+    unblended_groups: GroupTrajectory | None = None
+    observation_time_ns: int | None = None
 
     @property
     def horizon_steps(self) -> int:
@@ -40,7 +43,15 @@ class _ActivePlan:
 class ActionTimeline:
     """Single-plan, time-indexed, atomically replaced action reference."""
 
-    def __init__(self, group_dims: dict[str, int]) -> None:
+    def __init__(
+        self,
+        group_dims: dict[str, int],
+        *,
+        max_source_steps: int | None = None,
+    ) -> None:
+        if max_source_steps is not None and max_source_steps < 2:
+            raise ValueError("max_source_steps must be at least two")
+        self._max_source_steps = max_source_steps
         self._group_dims = dict(group_dims)
         self._active: _ActivePlan | None = None
         self._accepted_request_seq = -1
@@ -76,6 +87,7 @@ class ActionTimeline:
             dt_ns=active.dt_ns,
             plan_id=active.plan_id,
             groups={name: values.copy() for name, values in active.groups.items()},
+            observation_time_ns=active.observation_time_ns,
         )
 
     def commit(
@@ -104,10 +116,18 @@ class ActionTimeline:
         age_at_commit_ns = max(0, start_time_ns - chunk.observation_time_ns)
         source_cursor = int(age_at_commit_ns // chunk.dt_ns)
         trimmed_steps = max(0, source_cursor - chunk.source_offset_steps)
-        if trimmed_steps >= chunk.horizon_steps:
+        end = chunk.horizon_steps
+        if self._max_source_steps is not None:
+            end = min(end, self._max_source_steps - chunk.source_offset_steps)
+        if trimmed_steps >= end:
             return CommitResult(False, "no_future_horizon")
 
-        groups = {name: values[trimmed_steps:].copy() for name, values in chunk.groups.items()}
+        groups = {name: values[trimmed_steps:end].copy() for name, values in chunk.groups.items()}
+        unblended_groups = {name: values.copy() for name, values in groups.items()}
+        hold_from_step = {
+            name: max(0, step - trimmed_steps)
+            for name, step in chunk.hold_from_step.items() if step < end
+        }
         actual_blend_steps = min(blend_steps, next(iter(groups.values())).shape[0])
         if actual_blend_steps:
             current = copy_group_vector(current_command)
@@ -122,6 +142,9 @@ class ActionTimeline:
             start_time_ns=start_time_ns,
             dt_ns=chunk.dt_ns,
             groups=groups,
+            hold_from_step=hold_from_step,
+            unblended_groups=unblended_groups,
+            observation_time_ns=chunk.observation_time_ns,
         )
         self._active = new_plan
         self._accepted_request_seq = chunk.request_seq
@@ -166,4 +189,24 @@ class ActionTimeline:
             dt_ns=dt_ns,
             plan_id=active.plan_id,
             groups={name: np.stack(values) for name, values in samples.items()},
+            tracking_groups=self._tracking_sample(now_ns),
+            observation_time_ns=active.observation_time_ns,
+            # Stop before interpolation/feedforward could enter an invalid row.
+            hold_groups=tuple(
+                name for name, first_invalid in active.hold_from_step.items()
+                if now_ns + max(0, horizon_steps - 1) * dt_ns
+                >= active.start_time_ns + max(0, first_invalid - 1) * active.dt_ns
+            ),
         )
+
+    def _tracking_sample(self, now_ns: int) -> GroupVector | None:
+        active = self._active
+        if active is None or active.unblended_groups is None:
+            return None
+        position = np.clip((now_ns - active.start_time_ns) / active.dt_ns,
+                           0, active.horizon_steps - 1)
+        lo = int(np.floor(position))
+        hi = min(lo + 1, active.horizon_steps - 1)
+        alpha = position - lo
+        return {name: (1 - alpha) * values[lo] + alpha * values[hi]
+                for name, values in active.unblended_groups.items()}

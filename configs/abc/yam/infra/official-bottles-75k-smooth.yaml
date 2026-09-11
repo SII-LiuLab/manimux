@@ -1,0 +1,107 @@
+# ABC joint output with the working SA shared executor settings.
+# No IK or independent IK decoding; 30 predicted rows, source prefix 25.
+run:
+  task: put the plastic bottles in the bin
+  output_dir: ./data/abc/official_bottles_75k_smooth_h25
+  max_steps: 18000
+  experiment_mode: false
+robot:
+  driver: yam_dual
+  config: configs/robots/yam_left.yaml
+  control_hz: 100.0
+  group_dims:
+    left_arm: 7
+    right_arm: 7
+  options:
+    right_config: configs/robots/yam_right.yaml
+    move_to_start_on_connect: false
+    start_joints:
+    - -0.21648737315937971
+    - 0.7326237888151361
+    - 0.7944228274967582
+    - -0.2523460746166162
+    - -0.11768520637826718
+    - -0.3980697337300665
+    - 0.9901674677653165
+    - -0.22564278629739754
+    - 1.1377508201724265
+    - 0.6948577096208126
+    - -0.1802471961547223
+    - -0.15392538338292816
+    - -0.0791561760891124
+    - 0.9990685638717227
+    start_duration_s: 8.0
+    home_duration_s: 5.0
+    home_on_close: true
+sensors:
+- name: yam_cameras
+  driver: camera_server
+  options:
+    endpoint: tcp://127.0.0.1:5555
+    request_timeout_ms: 500
+    max_frame_age_sec: 0.15
+    camera_names:
+    - front_camera
+    - left_camera
+    - right_camera
+policy:
+  worker: abc_http
+  adapter: abc_yam
+  action_dt_s: 0.03333333333333333
+  timeout_s: 1.0
+  horizon_steps: 30
+  options:
+    server: http://127.0.0.1:8300
+    group_order:
+    - left_arm
+    - right_arm
+    camera_map:
+      left_cam: left_camera
+      top_cam: front_camera
+      right_cam: right_camera
+    diffusion_steps: 10
+execution:
+  runtime: manimux
+  executor: smooth
+  inference_schedule: single_inflight
+  refill_threshold_s: 0.3
+  commit_lead_s: 0.0
+  max_plan_age_s: 2.0
+  blend_steps: 4
+  max_chunk_steps: 25
+  independent_group_decoding: false
+  decode_budget_ms: 40.0
+  smooth:
+    grasp_guard:
+      approach_max_velocity: 0.25
+      position_tolerance_m: 0.02
+      rotation_tolerance_rad: 0.0872664626
+      settle_s: 0.15
+      aperture_stability: 0.01
+      phase_timeout_s: 3.0
+    release_guard:
+      mode: latched_release
+      phase_timeout_s: 2.0
+      kinematics: yam
+      position_tolerance_m: 0.02
+    cutoff_hz: 8.0
+    tracking_mode: braking
+    max_velocity: 0.6
+    max_acceleration: 1.5
+    position_limit_abs: 3.14
+    gripper:
+      mode: continuous
+      group_indices:
+        left_arm: 6
+        right_arm: 6
+      max_velocity: 1.0
+      max_acceleration: 12.0
+      closed_value: 0.0
+      open_value: 1.0
+viewer:
+  enabled: true
+  robot_adapter: yam
+  policy_label: ABC DiT bottles 75k | shared braking + gripper | prefix 25
+recording:
+  enabled: true
+  video_fps: 30.0

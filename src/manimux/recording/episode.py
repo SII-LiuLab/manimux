@@ -98,6 +98,13 @@ class EpisodeRecorder:
             dt_ns=horizon.dt_ns,
             plan_id=horizon.plan_id,
             groups={name: values.copy() for name, values in horizon.groups.items()},
+            hold_groups=horizon.hold_groups,
+            tracking_groups=(
+                None
+                if horizon.tracking_groups is None
+                else {name: value.copy() for name, value in horizon.tracking_groups.items()}
+            ),
+            observation_time_ns=horizon.observation_time_ns,
         )
 
     def record_plan(
@@ -201,6 +208,9 @@ class EpisodeRecorder:
                         "created_time_ns": chunk.created_time_ns,
                         "action_space": chunk.action_space,
                         "dt_ns": chunk.dt_ns,
+                        "source_offset_steps": chunk.source_offset_steps,
+                        "hold_from_step": dict(chunk.hold_from_step),
+                        "metadata": dict(chunk.metadata),
                     }
                 )
                 for name, plan_values in chunk.groups.items():
@@ -209,8 +219,10 @@ class EpisodeRecorder:
             committed.attrs.update(
                 {
                     "start_time_ns": record.committed.start_time_ns,
+                    "observation_time_ns": record.committed.observation_time_ns,
                     "dt_ns": record.committed.dt_ns,
                     "plan_id": record.committed.plan_id,
+                    "action_space": record.infra_output.action_space,
                 }
             )
             for name, plan_values in record.committed.groups.items():

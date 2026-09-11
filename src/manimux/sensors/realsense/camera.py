@@ -39,11 +39,13 @@ class RealSenseCamera(CameraDriver):
         height: int = 360,
         fps: int = 30,
         max_frame_age_sec: float = 0.30,
+        enable_depth: bool = True,
     ):
         import pyrealsense2 as rs
 
         self._device_id = device_id
         self._flip = flip
+        self._enable_depth = enable_depth
         self._width = int(width)
         self._height = int(height)
         self._fps = int(fps)
@@ -69,7 +71,7 @@ class RealSenseCamera(CameraDriver):
         self._rs = rs
         self._pipeline = None
         self._config = None
-        self._align = rs.align(rs.stream.color)
+        self._align = rs.align(rs.stream.color) if enable_depth else None
 
         self._start_pipeline()
         self._start_capture_thread()
@@ -88,15 +90,18 @@ class RealSenseCamera(CameraDriver):
             try:
                 with self._lock:
                     frames = self._pipeline.wait_for_frames(timeout_ms=self._read_timeout_ms)
-                    frames = self._align.process(frames)
+                    if self._align is not None:
+                        frames = self._align.process(frames)
                     color_frame = frames.get_color_frame()
-                    depth_frame = frames.get_depth_frame()
+                    depth_frame = frames.get_depth_frame() if self._enable_depth else None
 
-                if not color_frame or not depth_frame:
+                if not color_frame or (self._enable_depth and not depth_frame):
                     raise RuntimeError("Invalid RealSense frame pair received.")
 
                 color_image = np.asanyarray(color_frame.get_data()).copy()
-                depth_image = np.asanyarray(depth_frame.get_data()).copy()
+                depth_image = (
+                    np.asanyarray(depth_frame.get_data()).copy() if depth_frame else None
+                )
                 timestamp = time.time()
 
                 with self._frame_lock:
@@ -132,13 +137,14 @@ class RealSenseCamera(CameraDriver):
             self._config = rs.config()
             if self._device_id is not None:
                 self._config.enable_device(self._device_id)
-            self._config.enable_stream(
-                rs.stream.depth,
-                self._width,
-                self._height,
-                rs.format.z16,
-                self._fps,
-            )
+            if self._enable_depth:
+                self._config.enable_stream(
+                    rs.stream.depth,
+                    self._width,
+                    self._height,
+                    rs.format.z16,
+                    self._fps,
+                )
             self._config.enable_stream(
                 rs.stream.color,
                 self._width,
@@ -166,7 +172,7 @@ class RealSenseCamera(CameraDriver):
     def read(
         self,
         img_size: tuple[int, int] | None = None,  # farthest: float = 0.12
-    ) -> tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray | None]:
         """Read a frame from the camera.
 
         Args:
@@ -175,7 +181,7 @@ class RealSenseCamera(CameraDriver):
 
         Returns:
             np.ndarray: The color image, shape=(H, W, 3)
-            np.ndarray: The depth image, shape=(H, W, 1)
+            np.ndarray | None: Depth (H, W, 1), or None when depth is disabled.
         """
         import cv2
 
@@ -188,7 +194,8 @@ class RealSenseCamera(CameraDriver):
             frame_timestamp = self._latest_frame_timestamp
             last_error = self._last_capture_error
 
-        if color_image is None or depth_image is None or frame_timestamp is None:
+        if (color_image is None or frame_timestamp is None
+                or (self._enable_depth and depth_image is None)):
             if last_error is not None:
                 raise RuntimeError(
                     "RealSense capture thread failed to produce a frame."
@@ -207,13 +214,15 @@ class RealSenseCamera(CameraDriver):
         else:
             resized_color = cv2.resize(color_image, img_size)
             image = cv2.cvtColor(resized_color, cv2.COLOR_BGR2RGB)
-            depth = cv2.resize(depth_image, img_size)
+            depth = cv2.resize(depth_image, img_size) if depth_image is not None else None
 
         if self._flip:
             image = cv2.rotate(image, cv2.ROTATE_180)
-            depth = cv2.rotate(depth, cv2.ROTATE_180)
+            if depth is not None:
+                depth = cv2.rotate(depth, cv2.ROTATE_180)
 
-        depth = depth[:, :, None]
+        if depth is not None:
+            depth = depth[:, :, None]
 
         return image, depth
 
