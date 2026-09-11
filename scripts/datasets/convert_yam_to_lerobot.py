@@ -296,7 +296,11 @@ def convert(
         "use_videos": True,
     }
     create_parameters = inspect.signature(LeRobotDataset.create).parameters
-    if "vcodec" in create_parameters:
+    accepts_extra_options = any(
+        parameter.kind is inspect.Parameter.VAR_KEYWORD
+        for parameter in create_parameters.values()
+    )
+    if "vcodec" in create_parameters or accepts_extra_options:
         create_options.update(
             vcodec=video_codec,
             streaming_encoding=streaming_encoding,
