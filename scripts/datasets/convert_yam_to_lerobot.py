@@ -22,6 +22,7 @@ commit ``e65f7e4dba718e99913a7bd02385b30110b49540``.
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 from pathlib import Path
 from typing import Any
@@ -287,16 +288,23 @@ def convert(
     encoder_queue_maxsize = 30
     if streaming_encoding:
         encoder_queue_maxsize = max(int(_load_metadata(ep)["num_frames"]) for ep in episodes) + 1
+    create_options: dict[str, Any] = {
+        "repo_id": repo_id,
+        "fps": max(1, int(round(float(first_metadata["control_hz"])))),
+        "features": _build_features(first_metadata, include_ee_pose=include_ee_pose),
+        "root": output_root,
+        "use_videos": True,
+    }
+    create_parameters = inspect.signature(LeRobotDataset.create).parameters
+    if "vcodec" in create_parameters:
+        create_options.update(
+            vcodec=video_codec,
+            streaming_encoding=streaming_encoding,
+            encoder_queue_maxsize=encoder_queue_maxsize,
+            encoder_threads=encoder_threads,
+        )
     dataset = LeRobotDataset.create(
-        repo_id=repo_id,
-        fps=max(1, int(round(float(first_metadata["control_hz"])))),
-        features=_build_features(first_metadata, include_ee_pose=include_ee_pose),
-        root=output_root,
-        use_videos=True,
-        vcodec=video_codec,
-        streaming_encoding=streaming_encoding,
-        encoder_queue_maxsize=encoder_queue_maxsize,
-        encoder_threads=encoder_threads,
+        **create_options,
     )
     try:
         for episode_dir in episodes:
