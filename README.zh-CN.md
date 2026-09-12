@@ -21,17 +21,27 @@ Any Policy × Embodiment × Inference
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
-[**Features**](#features) · [**演示**](#演示) · [**架构**](#架构) · [**使用指南**](docs/guideline.md) · [**文档**](docs/README.md)
+[**Features**](#features) · [**视频**](#demo) · [**架构**](#architecture) · [**快速启动**](#quick-start) · [**文档**](docs/README.md) · [**引用**](#citation)
 
 </div>
 
 **ManiMux 是一个覆盖数采、策略部署与评测的真机实验平台。**
-它将 Policy、推理策略、Executor 与本体解耦，让研究者在同一套控制栈上比较不同方法，
-通过 GUI 管理实验，并查看机器人实际执行了什么。
+换一个模型，不应该重写一套机器人控制代码。ManiMux 将**预测什么、何时执行、如何控制硬件**
+分开，让不同模型和 chunk 调度方法复用同一套实验流程。
 
-> 安装与启动命令见[使用指南](docs/guideline.md)；模型、算法与接口细节见[文档索引](docs/README.md)。
+通过主臂 Policy 采集示范，用可配置的 Executor 执行模型动作，在 Robo GUI 中查看相机、
+轨迹与 chunk 切换。每条实验记录串起模型预测、实际下发与机器人反馈，再接入人工标注或
+离线 Judge 评测。**XPolicyLab** 提供模型接入，**PRM-as-a-Judge** 提供离线评测。
 
-## Features
+> 📖 安装与环境准备见[使用指南](docs/guideline.md)，也可直接查看下方 [Pi05 全链路示例](#quick-start)；模型、算法与接口细节见[文档索引](docs/README.md)。
+
+## News
+
+- **[2026-09-12]** YAM 主从臂数采接入 ManiMux，采集与推理可共用控制配置。[数采说明](docs/yam-collection.md) · [变更](https://github.com/SII-LiuLab/manimux/commit/9d14670)
+
+<a id="features"></a>
+
+## ✨ Features
 
 | 功能 | 状态 | 提供什么 |
 |---|:---:|---|
@@ -47,49 +57,125 @@ Any Policy × Embodiment × Inference
 ✅ 表示已有实现，不代表所有模型 / 本体组合均已验证。
 [接入数量](docs/README.md#support-counts)也包含仅模型和仿真路径。
 
-## 演示
+<a id="demo"></a>
+
+## 🎬 演示视频
+
+双臂 YAM 真机 rollout：实时相机、3D 机器人状态与 action-chunk 切换。
 
 ![ManiMux 真机 rollout：实时相机、机器人状态与 action-chunk 可视化](assets/manimux-viewer-demo.webp)
 
-## 架构
+[**▶ 打开 MP4 录屏**](assets/manimux_2026-09-05_23-17-35-00.00.03.144-00.00.34.914-seg1-00.00.02.596-00.00.34.966.mp4)
+
+<a id="architecture"></a>
+
+## 🧩 架构
+
+**模型推理与硬件执行各司其职。** 推理策略决定何时生成、如何接续 chunk；
+Executor 将目标动作变成机器人命令。
 
 ```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 180, "curve": "basis", "nodeSpacing": 24, "rankSpacing": 28, "padding": 14}}}%%
 flowchart LR
-    observation["Cameras + robot state"] --> xpolicy["XPolicyLab"]
-    observation --> native["Native policy adapters"]
+    OBS["<b>OBSERVE</b><br/>Cameras · robot state<br/>Build policy inputs"]:::stage
 
-    subgraph runtime["ManiMux execution"]
-        strategy["Inference strategy + Timeline"] --> executor["Executor + Safety"]
+    subgraph THINK["<b>PREDICT</b>"]
+        direction TB
+        XPOLICY["<b>XPolicyLab</b><br/>Pi05 · XR-1 · GR00T<br/>LingBot · OpenWAM"]:::xpolicy
+        NATIVE["<b>Native adapters</b><br/>MolmoAct2 · ABC"]:::native
+        XPOLICY ~~~ NATIVE
     end
 
-    xpolicy --> strategy
-    native --> strategy
-    teleop["Teleop GUI + LeaderPolicy"] --> executor
-    profile["Shared control profile"] -.-> executor
-    executor --> robot["RobotDriver + hardware"]
-    executor -.-> viewer["Robo GUI"]
-    executor -.-> records["Episode records"]
-    viewer -.->|human labels| records
-    records --> prm["PRM-as-a-Judge"]
+    PLAN["<b>ADAPT & SCHEDULE</b><br/>Async · RTC · PAINT<br/>Serial · adaptive<br/><br/>Adapter → Timeline"]:::handoff
+    ACT["<b>EXECUTE</b><br/>Direct · Smooth · MPC<br/><br/>Executor + Safety<br/>Control profile"]:::stage
+    ROBOT(["<b>ROBOT</b><br/>RobotDriver<br/>Hardware"]):::robot
+    TELEOP["<b>COLLECT</b><br/>YAM GUI<br/>LeaderPolicy"]:::collection
+    REVIEW(["<b>REVIEW</b><br/>Robo GUI · records<br/>Human labels<br/>PRM-as-a-Judge"]):::side
 
-    classDef component fill:#eef2ff,stroke:#6366f1,color:#312e81
-    classDef control fill:#eff6ff,stroke:#3b82f6,color:#1e3a8a
-    classDef interface fill:#ecfdf5,stroke:#10b981,color:#064e3b
-    class xpolicy,native,prm component
-    class strategy,executor,robot control
-    class teleop,viewer interface
+    OBS --> THINK --> PLAN --> ACT --> ROBOT
+    TELEOP --> ACT
+    ACT -.-> REVIEW
+
+    classDef stage fill:#F6F8FA,stroke:#8C959F,stroke-width:1px,color:#1F2328
+    classDef handoff fill:#FFF4E5,stroke:#E36209,stroke-width:2.5px,color:#1F2328
+    classDef side fill:#FFFFFF,stroke:#8C959F,stroke-dasharray:4 3,color:#57606A
+    classDef robot fill:#1F2328,stroke:#1F2328,color:#FFFFFF
+    classDef xpolicy fill:#8957E5,stroke:#6633B8,color:#FFFFFF
+    classDef native fill:#2F6FEB,stroke:#1B4DB1,color:#FFFFFF
+    classDef collection fill:#1A7F55,stroke:#125C3D,color:#FFFFFF
+    style THINK fill:#FFFFFF,stroke:#8C959F,stroke-dasharray:5 4,color:#1F2328
 ```
 
-数采复用执行接口，但不经过 chunk 推理调度，保留自己的 GUI 与保存格式。
+模型 server 不直接控制硬件。数采绕过 chunk 推理调度、复用执行接口，
+同时保留自己的采集 GUI 与保存格式。
 
 **GitHub：**[ManiMux](https://github.com/SII-LiuLab/manimux) · [XPolicyLab](https://github.com/Cuzyoung/XPolicyLab) · [PRM-as-a-Judge](https://github.com/YuyangLiu2003/PRM-as-a-Judge)
 
-## 使用指南
+<a id="quick-start"></a>
+
+## 🚀 快速启动 · Pi05 on YAM
+
+以下示例使用 **Pi05 纯 joint、step-30000、放瓶子任务与 RTC**。
+需要先准备好 YAM / OpenPI 环境、checkpoint 和本机设备配置，见[环境指南](docs/guideline.md#pi05-30k-on-yam)。
+没有硬件可先运行 [mock 示例](docs/guideline.md#hardware-free-start)。
+
+从仓库根目录，在**四个独立终端**运行。已有匹配的相机或 Viewer 服务时可复用；
+数采与推理不要同时控制同一个机器人。
+
+```bash
+# Terminal 1: cameras
+envs/yam/.venv/bin/manimux-camera-server --config configs/cameras.yaml
+
+# Terminal 2: Viewer
+envs/yam/.venv/bin/manimux-viewer --robot yam --host 127.0.0.1 --port 8086
+
+# Terminal 3: pure-joint 30k model server
+XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
+  scripts/servers/pi05_yam_server.py \
+  --config configs/pi05/yam/server/put-bottles/joint-step30000.yaml
+
+# Terminal 4: matching RTC runtime
+envs/yam/.venv/bin/manimux serve \
+  --config configs/pi05/yam/infra/put-bottles/rtc-joint-step30000.yaml
+```
+
+打开 **http://127.0.0.1:8086**，按 **Prepare → Start rollout → Finish & Home** 操作。
+正常 rollout 不强制打分，实验 rollout 需人工标注后再进入下一条。
+server 与 runtime 的配置必须配套：这里是 **joint**，不是 **joint+EE**。
+
+## 📚 使用指南
 
 - **开始运行：**[完整指南](docs/guideline.md) · [配置说明](configs/README.md)。
 - **模型与算法：**[组件和模型手册](docs/README.md) · [推理方法](docs/README.md#inference-and-execution)。
 - **采集与评测：**[YAM 数采](docs/yam-collection.md) · [实验流程](docs/experiment-infra.md) · [PRM 评测](docs/prm-as-a-judge.md)。
 - **扩展开发：**[架构与接口](docs/architecture.md)。
+
+<a id="citation"></a>
+
+## 📝 引用
+
+如果 ManiMux 帮助了你的实验，欢迎引用本仓库。
+使用 XPolicyLab 接入模型时，也请引用 [XPolicyLab 论文](https://arxiv.org/abs/2608.09892)。
+
+```bibtex
+@misc{manimux2026,
+  title = {{ManiMux}: A Composable Platform for Real-Robot Experiments},
+  year = {2026},
+  howpublished = {GitHub repository},
+  url = {https://github.com/SII-LiuLab/manimux}
+}
+
+@article{community2026xpolicylab,
+  title = {{XPolicyLab}: A Unified Standard and Open Ecosystem for Robot Policy Evaluation and Deployment},
+  author = {{XPolicyLab Community} and Chen, Tianxing and Chen, Yue and Nian, Tian and others},
+  journal = {arXiv preprint arXiv:2608.09892},
+  year = {2026},
+  doi = {10.48550/arXiv.2608.09892},
+  url = {https://arxiv.org/abs/2608.09892}
+}
+```
+
+---
 
 真机需要匹配的模型契约与硬件安全措施；软件检查不等于安全认证或任务成功。
 上游来源：[声明](THIRD_PARTY_NOTICES.md) · [许可](licenses)。

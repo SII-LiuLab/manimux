@@ -21,17 +21,29 @@ Any Policy × Embodiment × Inference
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
-[**Features**](#features) · [**Demo**](#demo) · [**Architecture**](#architecture) · [**Guideline**](docs/guideline.md) · [**Documentation**](docs/README.md)
+[**Features**](#features) · [**Video**](#demo) · [**Architecture**](#architecture) · [**Quick Start**](#quick-start) · [**Documentation**](docs/README.md) · [**Citation**](#citation)
 
 </div>
 
 **ManiMux is a real-robot experiment platform for data collection, policy deployment and evaluation.**
-It decouples policies, inference strategies, executors and embodiments, so researchers can compare
-methods on a shared control stack, operate trials through a GUI, and inspect what the robot actually executed.
+Changing a policy should not mean rebuilding the robot control stack. ManiMux separates
+**what to predict, when to execute, and how to control the hardware**, so models and chunking
+methods can be compared through a consistent experiment workflow.
 
-> Installation and startup commands: [Guideline](docs/guideline.md). Model and method details: [Documentation](docs/README.md).
+Collect demonstrations with a leader policy, run learned policies through configurable executors,
+and inspect camera streams, trajectories and chunk handoffs in Robo GUI. Episode records connect
+model predictions to issued commands and robot feedback, with human labels and offline judging
+for evaluation. **XPolicyLab** provides policy integrations; **PRM-as-a-Judge** provides offline evaluation.
 
-## Features
+> 📖 Start with the [Guideline](docs/guideline.md) for installation and setup, or use the [Pi05 example](#quick-start) below. Detailed model and method guides live in [Documentation](docs/README.md).
+
+## News
+
+- **[2026-09-12]** YAM teleoperation collection now runs through ManiMux, with shared collection / inference control profiles. [Details](docs/yam-collection.md) · [Change](https://github.com/SII-LiuLab/manimux/commit/9d14670)
+
+<a id="features"></a>
+
+## ✨ Features
 
 | Feature | Status | What it provides |
 |---|:---:|---|
@@ -47,49 +59,126 @@ methods on a shared control stack, operate trials through a GUI, and inspect wha
 ✅ denotes implemented functionality, not validation of every model / hardware combination.
 [Support counts](docs/README.md#support-counts) also include model-only and simulation paths.
 
-## Demo
+<a id="demo"></a>
+
+## 🎬 Demo Video
+
+Dual-arm YAM rollout with live cameras, 3D robot state and action-chunk handoffs.
 
 ![ManiMux rollout with live cameras, robot state and action-chunk visualization](assets/manimux-viewer-demo.webp)
 
-## Architecture
+[**▶ Open the MP4 recording**](assets/manimux_2026-09-05_23-17-35-00.00.03.144-00.00.34.914-seg1-00.00.02.596-00.00.34.966.mp4)
+
+<a id="architecture"></a>
+
+## 🧩 Architecture
+
+**Policy inference and hardware execution are separate responsibilities.** The inference strategy
+decides when and how to hand off a chunk; the executor turns its targets into robot commands.
 
 ```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 180, "curve": "basis", "nodeSpacing": 24, "rankSpacing": 28, "padding": 14}}}%%
 flowchart LR
-    observation["Cameras + robot state"] --> xpolicy["XPolicyLab"]
-    observation --> native["Native policy adapters"]
+    OBS["<b>OBSERVE</b><br/>Cameras · robot state<br/>Build policy inputs"]:::stage
 
-    subgraph runtime["ManiMux execution"]
-        strategy["Inference strategy + Timeline"] --> executor["Executor + Safety"]
+    subgraph THINK["<b>PREDICT</b>"]
+        direction TB
+        XPOLICY["<b>XPolicyLab</b><br/>Pi05 · XR-1 · GR00T<br/>LingBot · OpenWAM"]:::xpolicy
+        NATIVE["<b>Native adapters</b><br/>MolmoAct2 · ABC"]:::native
+        XPOLICY ~~~ NATIVE
     end
 
-    xpolicy --> strategy
-    native --> strategy
-    teleop["Teleop GUI + LeaderPolicy"] --> executor
-    profile["Shared control profile"] -.-> executor
-    executor --> robot["RobotDriver + hardware"]
-    executor -.-> viewer["Robo GUI"]
-    executor -.-> records["Episode records"]
-    viewer -.->|human labels| records
-    records --> prm["PRM-as-a-Judge"]
+    PLAN["<b>ADAPT & SCHEDULE</b><br/>Async · RTC · PAINT<br/>Serial · adaptive<br/><br/>Adapter → Timeline"]:::handoff
+    ACT["<b>EXECUTE</b><br/>Direct · Smooth · MPC<br/><br/>Executor + Safety<br/>Control profile"]:::stage
+    ROBOT(["<b>ROBOT</b><br/>RobotDriver<br/>Hardware"]):::robot
+    TELEOP["<b>COLLECT</b><br/>YAM GUI<br/>LeaderPolicy"]:::collection
+    REVIEW(["<b>REVIEW</b><br/>Robo GUI · records<br/>Human labels<br/>PRM-as-a-Judge"]):::side
 
-    classDef component fill:#eef2ff,stroke:#6366f1,color:#312e81
-    classDef control fill:#eff6ff,stroke:#3b82f6,color:#1e3a8a
-    classDef interface fill:#ecfdf5,stroke:#10b981,color:#064e3b
-    class xpolicy,native,prm component
-    class strategy,executor,robot control
-    class teleop,viewer interface
+    OBS --> THINK --> PLAN --> ACT --> ROBOT
+    TELEOP --> ACT
+    ACT -.-> REVIEW
+
+    classDef stage fill:#F6F8FA,stroke:#8C959F,stroke-width:1px,color:#1F2328
+    classDef handoff fill:#FFF4E5,stroke:#E36209,stroke-width:2.5px,color:#1F2328
+    classDef side fill:#FFFFFF,stroke:#8C959F,stroke-dasharray:4 3,color:#57606A
+    classDef robot fill:#1F2328,stroke:#1F2328,color:#FFFFFF
+    classDef xpolicy fill:#8957E5,stroke:#6633B8,color:#FFFFFF
+    classDef native fill:#2F6FEB,stroke:#1B4DB1,color:#FFFFFF
+    classDef collection fill:#1A7F55,stroke:#125C3D,color:#FFFFFF
+    style THINK fill:#FFFFFF,stroke:#8C959F,stroke-dasharray:5 4,color:#1F2328
 ```
 
-Teleoperation reuses execution interfaces without chunk scheduling; it retains its own GUI and recording format.
+Model servers never command hardware. Teleoperation bypasses chunk scheduling and reuses the
+execution interfaces, while retaining its own collection GUI and recording format.
 
 **GitHub:** [ManiMux](https://github.com/SII-LiuLab/manimux) · [XPolicyLab](https://github.com/Cuzyoung/XPolicyLab) · [PRM-as-a-Judge](https://github.com/YuyangLiu2003/PRM-as-a-Judge)
 
-## Guides
+<a id="quick-start"></a>
+
+## 🚀 Quick Start · Pi05 on YAM
+
+This example runs **Pi05 pure-joint, step-30000, put-bottles with RTC**. It assumes the YAM and
+OpenPI environments, checkpoint and local device configuration are already prepared;
+see the [setup guide](docs/guideline.md#pi05-30k-on-yam). For a hardware-free first run, use the
+[mock example](docs/guideline.md#hardware-free-start).
+
+From the repository root, run these in **four separate terminals**. Reuse matching camera / Viewer
+services if already running; collection and inference must not control the same robot simultaneously.
+
+```bash
+# Terminal 1: cameras
+envs/yam/.venv/bin/manimux-camera-server --config configs/cameras.yaml
+
+# Terminal 2: Viewer
+envs/yam/.venv/bin/manimux-viewer --robot yam --host 127.0.0.1 --port 8086
+
+# Terminal 3: pure-joint 30k model server
+XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
+  scripts/servers/pi05_yam_server.py \
+  --config configs/pi05/yam/server/put-bottles/joint-step30000.yaml
+
+# Terminal 4: matching RTC runtime
+envs/yam/.venv/bin/manimux serve \
+  --config configs/pi05/yam/infra/put-bottles/rtc-joint-step30000.yaml
+```
+
+Open **http://127.0.0.1:8086**, then **Prepare → Start rollout → Finish & Home**.
+Normal rollouts need no label; experiment rollouts require a human label before the next trial.
+Keep the server and runtime configs paired: this example uses **joint**, not **joint+EE**.
+
+## 📚 Guides
 
 - **Run:** [Guideline](docs/guideline.md) · [Configuration](configs/README.md).
 - **Integrate:** [Components and policy runbooks](docs/README.md) · [Inference methods](docs/README.md#inference-and-execution).
 - **Collect / evaluate:** [YAM collection](docs/yam-collection.md) · [Experiment workflow](docs/experiment-infra.md) · [PRM guide](docs/prm-as-a-judge.md).
 - **Extend:** [Architecture contracts](docs/architecture.md).
+
+<a id="citation"></a>
+
+## 📝 Citation
+
+If ManiMux supports your experiments, please cite the repository. For experiments using its
+XPolicyLab integration, please also cite the [XPolicyLab paper](https://arxiv.org/abs/2608.09892).
+
+```bibtex
+@misc{manimux2026,
+  title = {{ManiMux}: A Composable Platform for Real-Robot Experiments},
+  year = {2026},
+  howpublished = {GitHub repository},
+  url = {https://github.com/SII-LiuLab/manimux}
+}
+
+@article{community2026xpolicylab,
+  title = {{XPolicyLab}: A Unified Standard and Open Ecosystem for Robot Policy Evaluation and Deployment},
+  author = {{XPolicyLab Community} and Chen, Tianxing and Chen, Yue and Nian, Tian and others},
+  journal = {arXiv preprint arXiv:2608.09892},
+  year = {2026},
+  doi = {10.48550/arXiv.2608.09892},
+  url = {https://arxiv.org/abs/2608.09892}
+}
+```
+
+---
 
 Physical robots require matching model contracts and hardware safety measures; software checks do not certify safety or task success.
 Upstream attribution: [notices](THIRD_PARTY_NOTICES.md) · [licenses](licenses).
