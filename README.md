@@ -1,9 +1,9 @@
 <div align="center">
 
 # ManiMux
-**A composable platform for real-robot experiments.**
+**A unified, composable platform for real-robot experiments.**
 
-Any Policy × Embodiment × Inference
+Policy × Runtime × Embodiment
 
 [![Platform](https://img.shields.io/badge/Platform-7C3AED?style=flat-square)](#features)
 [![Robo GUI](https://img.shields.io/badge/Robo%20GUI-0891B2?style=flat-square)](docs/viewer-tutorial.html)
@@ -25,21 +25,27 @@ Any Policy × Embodiment × Inference
 
 </div>
 
-**ManiMux is a real-robot experiment platform for data collection, policy deployment and evaluation.**
-Changing a policy should not mean rebuilding the robot control stack. ManiMux separates
-**what to predict, when to execute, and how to control the hardware**, so models and chunking
-methods can be compared through a consistent experiment workflow.
+**ManiMux brings data collection, policy deployment and evaluation onto a shared real-robot
+control foundation.** Instead of rebuilding the deployment stack for every model or robot,
+choose the **policy, runtime strategy, executor and embodiment** through configuration.
+Standard interfaces separate model inference from hardware control, making integrations reusable
+across embodiments rather than tied to one model–robot pair.
 
-Collect demonstrations with a leader policy, run learned policies through configurable executors,
-and inspect camera streams, trajectories and chunk handoffs in Robo GUI. Episode records connect
-model predictions to issued commands and robot feedback, with human labels and offline judging
-for evaluation. **XPolicyLab** provides policy integrations; **PRM-as-a-Judge** provides offline evaluation.
+**One experiment workflow, visible in Robo GUI.** Prepare and run trials, inspect live cameras,
+3D state, trajectories and chunk handoffs, then review predictions, commands and robot feedback.
+**XPolicyLab** provides the model integration boundary; human labels and **PRM-as-a-Judge**
+support evaluation of the recorded experiments.
+
+**Collect with the control semantics you deploy with.** Teleoperation reuses ManiMux's hardware
+interfaces and shared control profiles to align action timing, joint/gripper conventions and
+motion limits between demonstrations and policy execution. Optional execution smoothing stays
+an explicit choice—not a hidden difference in a separate deployment stack.
 
 > 📖 Start with the [Guideline](docs/guideline.md) for installation and setup, or use the [Pi05 example](#quick-start) below. Detailed model and method guides live in [Documentation](docs/README.md).
 
 ## News
 
-- **[2026-09-12]** YAM teleoperation collection now runs through ManiMux, with shared collection / inference control profiles. [Details](docs/yam-collection.md) · [Change](https://github.com/SII-LiuLab/manimux/commit/9d14670)
+- **[2026-09-13] Initial version in development.** We are building a shared foundation for configurable policy deployment, teleoperation collection and GUI-driven real-robot experiments.
 
 <a id="features"></a>
 
@@ -47,11 +53,12 @@ for evaluation. **XPolicyLab** provides policy integrations; **PRM-as-a-Judge** 
 
 | Feature | Status | What it provides |
 |---|:---:|---|
-| Composable deployment | ✅ | Policy × inference strategy × executor × embodiment |
+| Composable deployment | ✅ | Config-driven policy × runtime strategy × executor × embodiment |
+| Cross-embodiment interfaces | ✅ | Shared contracts; YAM hardware and ManiUniCon simulation integrations |
 | Inference methods | ✅ | Async, serial, RTC, PAINT and adaptive chunking |
 | Robo GUI | ✅ | Rollout controls, cameras, 3D state, trajectories and chunk timelines |
 | Teleop collection | ✅ | Leader policy + YAM GUI, with ManiMux follower control |
-| Shared control profiles | ✅ | Common hardware settings, action timing and arm / gripper limits |
+| Collection / deployment alignment | ✅ | Shared hardware interfaces, action timing and arm / gripper limits |
 | Execution evidence | ✅ | Configs, observations, actions, commands, feedback, events and video |
 | Evaluation | ✅ | Human labels + offline PRM / LLM judging |
 | UMI / DAgger collection | — | [Collection roadmap](docs/README.md#collection-status) |
@@ -84,7 +91,7 @@ flowchart LR
     subgraph THINK["<b>PREDICT</b>"]
         direction TB
         XPOLICY["<b>XPolicyLab</b><br/>Pi05 · XR-1 · GR00T<br/>LingBot · OpenWAM"]:::xpolicy
-        NATIVE["<b>Native adapters</b><br/>MolmoAct2 · ABC"]:::native
+        NATIVE["<b>Legacy native</b><br/>MolmoAct2 · ABC"]:::native
         XPOLICY ~~~ NATIVE
     end
 
@@ -110,6 +117,8 @@ flowchart LR
 
 Model servers never command hardware. Teleoperation bypasses chunk scheduling and reuses the
 execution interfaces, while retaining its own collection GUI and recording format.
+New model integrations must follow the [XPolicyLab-only route](AGENTS.md#model-integration-xpolicylab-only);
+the native paths shown here remain for compatibility pending migration.
 
 **GitHub:** [ManiMux](https://github.com/SII-LiuLab/manimux) · [XPolicyLab](https://github.com/Cuzyoung/XPolicyLab) · [PRM-as-a-Judge](https://github.com/YuyangLiu2003/PRM-as-a-Judge)
 

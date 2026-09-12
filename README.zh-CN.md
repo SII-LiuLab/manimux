@@ -1,9 +1,9 @@
 <div align="center">
 
 # ManiMux
-**从数采、推理到评测的组合式真机实验平台。**
+**统一控制底座，自由组合策略、推理与本体的真机实验平台。**
 
-Any Policy × Embodiment × Inference
+Policy × Runtime × Embodiment
 
 [![Platform](https://img.shields.io/badge/Platform-7C3AED?style=flat-square)](#features)
 [![Robo GUI](https://img.shields.io/badge/Robo%20GUI-0891B2?style=flat-square)](docs/viewer-tutorial.html)
@@ -25,19 +25,24 @@ Any Policy × Embodiment × Inference
 
 </div>
 
-**ManiMux 是一个覆盖数采、策略部署与评测的真机实验平台。**
-换一个模型，不应该重写一套机器人控制代码。ManiMux 将**预测什么、何时执行、如何控制硬件**
-分开，让不同模型和 chunk 调度方法复用同一套实验流程。
+**ManiMux 将数采、策略部署与评测放在同一套真机控制底座上。**
+换模型、换算法、换本体，不必从头搭建部署流程：通过配置组合 **Policy、Runtime 策略、
+Executor 与本体**。标准接口分离模型推理与硬件控制，让接入能力跨本体复用，
+而不是为每个“模型 × 机器人”单独维护一套代码。
 
-通过主臂 Policy 采集示范，用可配置的 Executor 执行模型动作，在 Robo GUI 中查看相机、
-轨迹与 chunk 切换。每条实验记录串起模型预测、实际下发与机器人反馈，再接入人工标注或
-离线 Judge 评测。**XPolicyLab** 提供模型接入，**PRM-as-a-Judge** 提供离线评测。
+**用 Robo GUI 管理实验，看清每一步执行。** 从准备、启动 rollout，到实时相机、3D 状态、
+轨迹与 chunk 切换，再到回看模型预测、下发命令和机器人反馈，形成统一的实验流程。
+**XPolicyLab** 负责模型接入，人工标注与 **PRM-as-a-Judge** 支持实验记录的评测。
+
+**怎么采，就按同样的控制语义去执行。** 主从臂数采复用 ManiMux 的硬件接口与公共控制配置，
+对齐动作时间、关节/夹爪约定和运动限幅，从控制层减少训推差异。
+推理端需要的 smooth 等处理仍可显式选择，不再藏在另一套部署代码里。
 
 > 📖 安装与环境准备见[使用指南](docs/guideline.md)，也可直接查看下方 [Pi05 全链路示例](#quick-start)；模型、算法与接口细节见[文档索引](docs/README.md)。
 
 ## News
 
-- **[2026-09-12]** YAM 主从臂数采接入 ManiMux，采集与推理可共用控制配置。[数采说明](docs/yam-collection.md) · [变更](https://github.com/SII-LiuLab/manimux/commit/9d14670)
+- **[2026-09-13] Initial 版本正在开发。** 正在完善可组合的策略部署、主从臂数采与 GUI 实验管理，共用统一的真机控制底座。
 
 <a id="features"></a>
 
@@ -45,11 +50,12 @@ Any Policy × Embodiment × Inference
 
 | 功能 | 状态 | 提供什么 |
 |---|:---:|---|
-| 组合式部署 | ✅ | Policy × 推理策略 × Executor × 本体 |
+| 组合式部署 | ✅ | 配置驱动 Policy × Runtime 策略 × Executor × 本体 |
+| 跨本体接口 | ✅ | 统一契约；已接入 YAM 真机与 ManiUniCon 仿真 |
 | 可插拔推理 | ✅ | 异步、串行、RTC、PAINT 与自适应 chunking |
 | Robo GUI | ✅ | 实验控制、相机、3D 状态、轨迹和 chunk 时间线 |
 | Teleop 数采 | ✅ | 主臂 Policy + YAM GUI，从臂统一走 ManiMux |
-| 公共控制配置 | ✅ | 共享硬件参数、动作间隔与手臂 / 夹爪限幅 |
+| 采集—部署一致性 | ✅ | 共享硬件接口、动作时间与手臂 / 夹爪限幅 |
 | 执行记录 | ✅ | 配置、观测、预测动作、下发命令、反馈、事件和视频 |
 | 实验评测 | ✅ | 人工标注 + 离线 PRM / LLM Judge |
 | UMI / DAgger 数采 | — | [采集路线图](docs/README.md#collection-status) |
@@ -82,7 +88,7 @@ flowchart LR
     subgraph THINK["<b>PREDICT</b>"]
         direction TB
         XPOLICY["<b>XPolicyLab</b><br/>Pi05 · XR-1 · GR00T<br/>LingBot · OpenWAM"]:::xpolicy
-        NATIVE["<b>Native adapters</b><br/>MolmoAct2 · ABC"]:::native
+        NATIVE["<b>Legacy native</b><br/>MolmoAct2 · ABC"]:::native
         XPOLICY ~~~ NATIVE
     end
 
@@ -108,6 +114,8 @@ flowchart LR
 
 模型 server 不直接控制硬件。数采绕过 chunk 推理调度、复用执行接口，
 同时保留自己的采集 GUI 与保存格式。
+新模型必须走 [XPolicyLab 统一接入路径](AGENTS.md#model-integration-xpolicylab-only)；
+图中的 native 仅为迁移前保留的兼容入口。
 
 **GitHub：**[ManiMux](https://github.com/SII-LiuLab/manimux) · [XPolicyLab](https://github.com/Cuzyoung/XPolicyLab) · [PRM-as-a-Judge](https://github.com/YuyangLiu2003/PRM-as-a-Judge)
 

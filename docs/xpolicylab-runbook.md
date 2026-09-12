@@ -86,6 +86,15 @@ uv pip install --python envs/yam/.venv/bin/python -e ".[xpolicylab]"
 
 ## 新模型接入清单
 
+**新模型及模型复现统一接入 `XPolicyLab/policy/<POLICY>/`，不再新增独立 native 路径。**
+先阅读仓库级 [AGENTS.md](../AGENTS.md#model-integration-xpolicylab-only) 和
+[XPolicyLab 接入规范](../XPolicyLab/CONTRIBUTING.md)。模型源码、加载、预处理、归一化、
+训练适配与 sampler 留在 XPolicyLab；ManiMux 只保留硬件/动作适配、配置、轻量启动入口与
+公共 runtime。不能只在 XPolicyLab 加一个代理壳，仍把真正的模型实现放在 ManiMux native server。
+
+已有 `molmoact_http`、`abc_http` 暂为兼容路径，目标同样是迁入 XPolicyLab。
+先验证替代实现，再切换配置和移除旧入口；不把“有一个模型目录”当成迁移完成。
+
 每个模型必须有独立 server config、infra config 和 runbook。需要确认：
 
 | 项目 | 必须从哪里得到 |

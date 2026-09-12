@@ -10,6 +10,7 @@
 - [Experiment workflow](experiment-infra.md): persistent services, normal/experiment modes and saved evidence.
 - [YAM collection](yam-collection.md): the original-style collection GUI with ManiMux follower control.
 - [Architecture](architecture.md): policy, adapter, strategy, executor and robot boundaries.
+- [Agent guide](../AGENTS.md): XPolicyLab-only model integration, legacy migration and validation rules.
 
 ## Components
 
