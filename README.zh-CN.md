@@ -5,13 +5,21 @@
 
 **换模型、换推理算法，不必重搭一套机器人控制栈。**
 
-[![Python 3.11 和 3.12](https://img.shields.io/badge/Python-3.11%20%7C%203.12-306998?style=flat-square)](pyproject.toml)
-[![模型接入：XPolicyLab 与原生适配](https://img.shields.io/badge/Policies-XPolicyLab%20%2B%20Native-306998?style=flat-square)](docs/README.md#policies-and-deployment)
-[![推理：ManiMux、RTC 和 PAINT](https://img.shields.io/badge/Inference-ManiMux%20%7C%20RTC%20%7C%20PAINT-306998?style=flat-square)](docs/README.md#inference-and-execution)
+[![平台：真机实验管理](https://img.shields.io/badge/Platform-Real--Robot%20Experiments-7C3AED?style=flat-square)](#项目定位)
+[![Robo GUI：实验、轨迹与 chunk 可视化](https://img.shields.io/badge/Robo%20GUI-Experiments%20%7C%20Trajectories%20%7C%20Chunks-0891B2?style=flat-square)](docs/viewer-tutorial.html)
+[![Python 3.11 和 3.12](https://img.shields.io/badge/Python-3.11%20%7C%203.12-3776AB?style=flat-square&logo=python&logoColor=white)](pyproject.toml)
 <br/>
-[![真机：双 YAM](https://img.shields.io/badge/Hardware-Dual%20YAM-52616b?style=flat-square)](docs/pi05-yam-runbook.md)
-[![数采：主臂策略与 GUI](https://img.shields.io/badge/Collection-Leader%20Policy%20%2B%20GUI-52616b?style=flat-square)](docs/yam-collection.md)
-[![评测：人工反馈与离线 PRM](https://img.shields.io/badge/Evaluation-Human%20%2B%20Offline%20PRM-52616b?style=flat-square)](docs/prm-as-a-judge.md)
+[![组件：XPolicyLab](https://img.shields.io/badge/Component-XPolicyLab-4F46E5?style=flat-square&logo=github&logoColor=white)](XPolicyLab/)
+[![组件：PRM-as-a-Judge](https://img.shields.io/badge/Component-PRM--as--a--Judge-9333EA?style=flat-square&logo=github&logoColor=white)](PRM-as-a-Judge/)
+<br/>
+[![Policy：10 个接入，含 2 个仅模型路径](https://img.shields.io/badge/Policies-10%20Integrations-2EA043?style=flat-square)](docs/README.md#support-counts)
+[![本体：1 个真机与 1 个仿真接入](https://img.shields.io/badge/Embodiments-1%20Real%20%2B%201%20Sim-2563EB?style=flat-square)](docs/README.md#support-counts)
+[![推理：8 种模式](https://img.shields.io/badge/Inference-8%20Modes-F97316?style=flat-square)](docs/README.md#support-counts)
+<br/>
+[![数采：Teleop 遥操作](https://img.shields.io/badge/Collection-Teleop-D97706?style=flat-square)](docs/yam-collection.md)
+[![评测：人工反馈与 LLM Judge](https://img.shields.io/badge/Evaluation-Human%20%2B%20LLM%20Judge-DB2777?style=flat-square)](docs/prm-as-a-judge.md)
+[![UMI 数采：即将支持](https://img.shields.io/badge/UMI-Coming%20Soon-0D9488?style=flat-square)](#采集路线图)
+[![DAgger 数采：即将支持](https://img.shields.io/badge/DAgger-Coming%20Soon-8B5CF6?style=flat-square)](#采集路线图)
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
@@ -33,6 +41,8 @@
 
 **Any Policy × Embodiment × Inference** 是组合式接口的设计目标，不是任意组合零适配的承诺。
 当前真机开发以双 YAM 为主；新的模型与本体组合仍需匹配动作契约、适配器并完成验证。
+徽章数量按接入范围统计，包含仅模型和仿真路径；[统计口径](docs/README.md#support-counts)
+不代表所有模型、本体和推理方法的组合都已能直接部署。
 
 ## Features
 
@@ -40,7 +50,7 @@
   模型特有的预处理与采样逻辑留在模型接入层。
 - **可插拔推理算法：**通过相同执行接口比较异步 ManiMux、串行执行、RTC、PAINT、
   Temporal Ensembling 和自适应 chunking；各方法分别说明后端要求与验证状态。
-- **Viewer 控制实验：**在同一界面 Prepare、Start、Pause、Finish，结合实时相机、
+- **Robo GUI 真机实验界面：**在同一界面 Prepare、Start、Pause、Finish，结合实时相机、
   3D 机器人和轨迹叠加观察执行过程。
 - **实时 chunk 可视化：**呈现推理进度、已执行动作、延迟裁剪、chunk 交接、
   RTC condition 关系和夹爪闭合目标，让调度过程可见。
@@ -54,6 +64,11 @@
   手臂 / 夹爪运动限幅，同时允许不同的 executor、输出频率和滤波选择。
 - **离线视频评测：**接入 PRM-as-a-Judge，结合人工标签分析任务过程；
   judge 在离线运行，不进入真机控制环。
+
+### 采集路线图
+
+当前已提供 YAM GUI 遥操作数采；**UMI 数采**与 **DAgger 人工接管／纠正数采**列为后续扩展，
+暂未提供可运行入口。LLM Judge 徽章对应当前通过 PRM-as-a-Judge 接入的离线模型评测。
 
 ## 演示
 

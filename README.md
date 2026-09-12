@@ -5,13 +5,21 @@
 
 **Swap the policy and inference strategy—not your robot control stack.**
 
-[![Python 3.11 and 3.12](https://img.shields.io/badge/Python-3.11%20%7C%203.12-306998?style=flat-square)](pyproject.toml)
-[![Policy integrations: XPolicyLab and native](https://img.shields.io/badge/Policies-XPolicyLab%20%2B%20Native-306998?style=flat-square)](docs/README.md#policies-and-deployment)
-[![Inference: ManiMux, RTC and PAINT](https://img.shields.io/badge/Inference-ManiMux%20%7C%20RTC%20%7C%20PAINT-306998?style=flat-square)](docs/README.md#inference-and-execution)
+[![Platform: real-robot experiments](https://img.shields.io/badge/Platform-Real--Robot%20Experiments-7C3AED?style=flat-square)](#overview)
+[![Robo GUI: experiments, trajectories and chunks](https://img.shields.io/badge/Robo%20GUI-Experiments%20%7C%20Trajectories%20%7C%20Chunks-0891B2?style=flat-square)](docs/viewer-tutorial.html)
+[![Python 3.11 and 3.12](https://img.shields.io/badge/Python-3.11%20%7C%203.12-3776AB?style=flat-square&logo=python&logoColor=white)](pyproject.toml)
 <br/>
-[![Hardware: dual YAM](https://img.shields.io/badge/Hardware-Dual%20YAM-52616b?style=flat-square)](docs/pi05-yam-runbook.md)
-[![Collection: leader policy and GUI](https://img.shields.io/badge/Collection-Leader%20Policy%20%2B%20GUI-52616b?style=flat-square)](docs/yam-collection.md)
-[![Evaluation: human feedback and offline PRM](https://img.shields.io/badge/Evaluation-Human%20%2B%20Offline%20PRM-52616b?style=flat-square)](docs/prm-as-a-judge.md)
+[![Component: XPolicyLab](https://img.shields.io/badge/Component-XPolicyLab-4F46E5?style=flat-square&logo=github&logoColor=white)](XPolicyLab/)
+[![Component: PRM-as-a-Judge](https://img.shields.io/badge/Component-PRM--as--a--Judge-9333EA?style=flat-square&logo=github&logoColor=white)](PRM-as-a-Judge/)
+<br/>
+[![Policies: 10 integrations, including 2 model-only paths](https://img.shields.io/badge/Policies-10%20Integrations-2EA043?style=flat-square)](docs/README.md#support-counts)
+[![Embodiments: 1 real robot and 1 simulation integration](https://img.shields.io/badge/Embodiments-1%20Real%20%2B%201%20Sim-2563EB?style=flat-square)](docs/README.md#support-counts)
+[![Inference: 8 modes](https://img.shields.io/badge/Inference-8%20Modes-F97316?style=flat-square)](docs/README.md#support-counts)
+<br/>
+[![Collection: teleoperation](https://img.shields.io/badge/Collection-Teleop-D97706?style=flat-square)](docs/yam-collection.md)
+[![Evaluation: human feedback and LLM judge](https://img.shields.io/badge/Evaluation-Human%20%2B%20LLM%20Judge-DB2777?style=flat-square)](docs/prm-as-a-judge.md)
+[![UMI collection: coming soon](https://img.shields.io/badge/UMI-Coming%20Soon-0D9488?style=flat-square)](#collection-roadmap)
+[![DAgger collection: coming soon](https://img.shields.io/badge/DAgger-Coming%20Soon-8B5CF6?style=flat-square)](#collection-roadmap)
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
@@ -35,6 +43,8 @@ actions, feedback and video needed to understand its behavior.
 **Any Policy × Embodiment × Inference** is the design goal, not a claim of zero-effort compatibility.
 Real-robot development currently centers on dual YAM; each new combination still needs a matching
 action contract, adapter and validation.
+Badge counts describe integration coverage, including model-only and simulation paths;
+see the [counting rules](docs/README.md#support-counts), not a claim that every combination is deployable.
 
 ## Features
 
@@ -43,7 +53,7 @@ action contract, adapter and validation.
 - **Interchangeable inference strategies.** Compare asynchronous ManiMux, serial execution, RTC,
   PAINT, temporal ensembling and adaptive chunking through the same execution interfaces.
   Backend requirements and validation status are documented per method.
-- **Viewer-driven experiments.** Prepare, start, pause and finish rollouts from one interface,
+- **Robo GUI for experiments.** Prepare, start, pause and finish rollouts from one interface,
   with live cameras, a 3D robot view and trajectory overlays.
 - **Action-chunk visualization.** Inspect inference progress, executed steps, latency trimming,
   chunk handoffs, RTC condition links and gripper-closing targets as the run unfolds.
@@ -57,6 +67,12 @@ action contract, adapter and validation.
   action-point timing and arm / gripper motion limits without forcing the same executor or filter.
 - **Offline video evaluation.** Connect recorded rollouts to PRM-as-a-Judge for process-level
   analysis alongside human labels; judge inference stays outside the robot control loop.
+
+### Collection roadmap
+
+Teleoperation is available through the YAM collection GUI. **UMI collection** and
+**DAgger-style intervention collection** are planned extensions, not implemented entry points yet.
+The LLM-judge badge refers to the offline model-judge integration through PRM-as-a-Judge.
 
 ## Demo
 

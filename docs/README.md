@@ -11,6 +11,16 @@
 - [YAM collection](yam-collection.md): the original-style collection GUI with ManiMux follower control.
 - [Architecture](architecture.md): policy, adapter, strategy, executor and robot boundaries.
 
+## Components
+
+- [XPolicyLab](../XPolicyLab/): model adapters and model-side sampling behind the shared
+  policy interface. See the [integration runbook](xpolicylab-runbook.md).
+- [PRM-as-a-Judge](../PRM-as-a-Judge/): offline model-based evaluation of recorded videos.
+  See the [evaluation guide](prm-as-a-judge.md).
+
+Both are version-pinned submodules. They are platform components, not additional policies
+or inference strategies in the support counts below.
+
 ## Policies and deployment
 
 Use each runbook's checkpoint, environment and action contract together. An available adapter
@@ -23,6 +33,27 @@ does not mean every checkpoint or inference-method combination has passed a real
 - [SAPolicy](sapolicy-yam-runbook.md) · [Shared XPolicyLab bridge](xpolicylab-runbook.md).
 - Offline / simulation paths: [Cosmos3](cosmos3-offline-runbook.md),
   [Isaac 0.5](isaac05-offline-runbook.md), [ManiUniCon](maniunicon-sim.md).
+
+## Support counts
+
+The README badges count integration coverage, not task success, hardware validation of every
+checkpoint, or support for every policy × embodiment × inference combination.
+
+- **10 policy integrations:** eight model families have YAM deployment configurations:
+  Pi05, MolmoAct2, ABC, GR00T, LingBot-VLA2, Xiaomi XR-1, OpenWAM and SAPolicy.
+  Cosmos3 and Isaac 0.5 add two model-only / offline paths, not two more YAM-ready policies.
+  Checkpoint variants, the generic XPolicyLab bridge and the collection leader policy are not counted separately.
+- **1 real + 1 simulation embodiment integration:** the dual-YAM driver and the
+  ManiUniCon/Meshcat simulation driver. Mock hardware is excluded. A model's DROID or LIBERO
+  checkpoint does not itself establish a ManiMux robot-driver integration.
+- **8 inference modes:** seven built-in strategies—ManiMux, RTC, ACT temporal ensembling,
+  AAC, PAINT, AutoHorizon and DVAC—plus serial prefix execution. Serial is a scheduling mode
+  of the ManiMux strategy, not an eighth registered strategy. Direct, Smooth and MPC are
+  executors and are not counted as inference methods.
+
+Sources: [model configurations](../configs/), [robot factories](../src/manimux/robots/__init__.py),
+[strategy registry](../src/manimux/runtime/inference.py) and [serial execution](serial-execution.md).
+UMI and DAgger are collection roadmap items and do not contribute to these implementation counts.
 
 ## Inference and execution
 
