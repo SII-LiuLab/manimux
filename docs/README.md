@@ -21,6 +21,15 @@
 Both are version-pinned submodules. They are platform components, not additional policies
 or inference strategies in the support counts below.
 
+## Collection status
+
+- **Teleop:** available through the [YAM collection GUI](yam-collection.md), with ManiMux follower control.
+- **UMI:** planned collection integration; no runnable collector entry point yet.
+- **DAgger:** planned human-intervention / corrective-data collection; no runnable collector entry point yet.
+
+The Collection badge groups current and planned collection modes. The LLM-judge badge refers
+to the offline model-judge integration through [PRM-as-a-Judge](prm-as-a-judge.md), not an additional online controller.
+
 ## Policies and deployment
 
 Use each runbook's checkpoint, environment and action contract together. An available adapter
