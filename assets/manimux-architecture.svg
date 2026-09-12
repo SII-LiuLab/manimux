@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-labelledby="title description">
+  <title id="title">ManiMux: two action sources, shared execution interfaces</title>
+  <desc id="description">Model inference passes observations through a policy adapter and an inference strategy with an action timeline. YAM collection passes leader inputs through a leader policy and a collection backend, bypassing model inference and chunk scheduling. Both paths use executor, safety and robot-driver interfaces. Explicit YAML profiles share control settings. Inference and collection retain their own recording formats and user interfaces.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 Z" fill="#627286"/>
+    </marker>
+  </defs>
+  <rect x="1" y="1" width="1278" height="718" rx="12" fill="#ffffff" stroke="#d7dee6"/>
+  <g font-family="Arial, Helvetica, sans-serif" fill="#172b43">
+    <text x="40" y="50" font-size="28" font-weight="700">Two action sources. Shared execution interfaces.</text>
+    <text x="40" y="82" font-size="19" fill="#586779">Keep model logic, scheduling and hardware control independently replaceable.</text>
+
+    <rect x="40" y="110" width="1200" height="70" rx="8" fill="#f6f8fa" stroke="#d7dee6"/>
+    <text x="60" y="139" font-size="21" font-weight="700">Explicit YAML per experiment</text>
+    <text x="60" y="165" font-size="18" fill="#586779">Model + task + inference strategy</text>
+    <path d="M 524 126 V 164" stroke="#d7dee6"/>
+    <text x="546" y="139" font-size="21" font-weight="700">Shared control profile per embodiment</text>
+    <text x="546" y="165" font-size="18" fill="#586779">Hardware settings · action interval · arm / gripper limits</text>
+
+    <text x="40" y="223" font-size="18" font-weight="700" letter-spacing="1" fill="#306998">INFERENCE</text>
+    <rect x="40" y="240" width="245" height="119" rx="8" fill="#ffffff" stroke="#b9c4d0"/>
+    <text x="60" y="274" font-size="22" font-weight="700">Policy + Adapter</text>
+    <text x="60" y="306" font-size="18" fill="#586779">Cameras + robot state</text>
+    <text x="60" y="333" font-size="18" fill="#586779">Native / XPolicyLab model</text>
+
+    <path d="M 285 299 H 357" fill="none" stroke="#627286" stroke-width="2" marker-end="url(#arrow)"/>
+    <rect x="360" y="240" width="270" height="119" rx="8" fill="#ffffff" stroke="#b9c4d0"/>
+    <text x="380" y="274" font-size="22" font-weight="700">Strategy + Timeline</text>
+    <text x="380" y="306" font-size="18" fill="#586779">ManiMux / RTC / PAINT / …</text>
+    <text x="380" y="333" font-size="18" fill="#586779">Chunk timing + handoff</text>
+
+    <text x="40" y="411" font-size="18" font-weight="700" letter-spacing="1" fill="#306998">COLLECTION</text>
+    <rect x="40" y="428" width="245" height="119" rx="8" fill="#ffffff" stroke="#b9c4d0"/>
+    <text x="60" y="462" font-size="22" font-weight="700">YAM GUI + Leader</text>
+    <text x="60" y="494" font-size="18" fill="#586779">Teaching-handle inputs</text>
+    <text x="60" y="521" font-size="18" fill="#586779">Original collection workflow</text>
+
+    <path d="M 285 487 H 357" fill="none" stroke="#627286" stroke-width="2" marker-end="url(#arrow)"/>
+    <rect x="360" y="428" width="270" height="119" rx="8" fill="#ffffff" stroke="#b9c4d0"/>
+    <text x="380" y="462" font-size="22" font-weight="700">Leader Policy</text>
+    <text x="380" y="494" font-size="18" fill="#586779">Joint targets · 30 Hz default</text>
+    <text x="380" y="521" font-size="18" fill="#586779">Collection backend</text>
+
+    <path d="M 630 299 H 665 V 393 H 713" fill="none" stroke="#627286" stroke-width="2" marker-end="url(#arrow)"/>
+    <path d="M 630 487 H 665 V 393" fill="none" stroke="#627286" stroke-width="2"/>
+    <circle cx="665" cy="393" r="4" fill="#627286"/>
+
+    <rect x="695" y="260" width="545" height="280" rx="10" fill="none" stroke="#306998" stroke-width="1.5"/>
+    <text x="716" y="292" font-size="18" font-weight="700" letter-spacing="1" fill="#306998">EXECUTION + EMBODIMENT</text>
+
+    <rect x="716" y="327" width="241" height="131" rx="8" fill="#f6f8fa" stroke="#b9c4d0"/>
+    <text x="735" y="363" font-size="22" font-weight="700">Executor + Safety</text>
+    <text x="735" y="396" font-size="18" fill="#586779">Direct / Smooth / MPC*</text>
+    <text x="735" y="425" font-size="18" fill="#586779">Limits + command checks</text>
+
+    <path d="M 957 393 H 999" fill="none" stroke="#627286" stroke-width="2" marker-end="url(#arrow)"/>
+    <rect x="1002" y="327" width="218" height="131" rx="8" fill="#f6f8fa" stroke="#b9c4d0"/>
+    <text x="1022" y="363" font-size="22" font-weight="700">Robot Driver</text>
+    <text x="1022" y="396" font-size="18" fill="#586779">Commands → hardware</text>
+    <text x="1022" y="425" font-size="18" fill="#586779">State feedback</text>
+    <text x="716" y="493" font-size="18" fill="#586779">Common interfaces, not one global execution thread.</text>
+    <text x="716" y="520" font-size="16" fill="#586779">* The shared YAM motion profile supports Direct / Smooth.</text>
+
+    <path d="M 969 540 V 592" fill="none" stroke="#627286" stroke-width="2" stroke-dasharray="5 5" marker-end="url(#arrow)"/>
+    <rect x="40" y="595" width="1200" height="89" rx="8" fill="#f6f8fa" stroke="#d7dee6"/>
+    <text x="60" y="626" font-size="21" font-weight="700">Experiment evidence and operator interfaces</text>
+    <text x="60" y="653" font-size="18" fill="#586779">Configs · observations · targets / commands · feedback · video</text>
+    <path d="M 655 611 V 667" stroke="#d7dee6"/>
+    <text x="676" y="626" font-size="18" fill="#586779">Inference: Viewer + runtime Recorder</text>
+    <text x="676" y="655" font-size="18" fill="#586779">Collection: YAM GUI + original episode format</text>
+  </g>
+</svg>

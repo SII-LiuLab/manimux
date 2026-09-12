@@ -6,7 +6,13 @@ from dataclasses import dataclass
 import numpy as np
 
 from manimux.config import SmoothConfig
-from manimux.runtime.executors.limits import ScalarLimits, limit_step, tracking_step
+from manimux.runtime.executors.limits import (
+    ScalarLimits,
+    decelerate_velocity,
+    limit_step,
+    limit_velocity,
+    tracking_step,
+)
 from manimux.types import (
     ActionHorizon,
     GroupVector,
@@ -97,8 +103,8 @@ class SmoothExecutor:
             command.plan_id = None
             return command
         for name, velocity in self._previous_velocity.items():
-            next_velocity = np.sign(velocity) * np.maximum(
-                np.abs(velocity) - self._limits.max_acceleration * self._dt_s, 0.0
+            next_velocity = decelerate_velocity(
+                velocity, self._limits.max_acceleration, self._dt_s
             )
             if self._gripper is not None and name in self._gripper.group_indices:
                 next_velocity[self._gripper.group_indices[name]] = 0.0
@@ -212,17 +218,13 @@ class SmoothExecutor:
             previous = float(self._previous[name][index])
             previous_velocity = float(self._previous_velocity[name][index])
             velocity = float(
-                np.clip(
-                    (goal - previous) / self._dt_s,
-                    -self._gripper.max_velocity,
+                limit_velocity(
+                    np.asarray((goal - previous) / self._dt_s),
+                    np.asarray(previous_velocity),
+                    self._dt_s,
                     self._gripper.max_velocity,
-                )
-            )
-            velocity = float(
-                np.clip(
-                    velocity,
-                    previous_velocity - self._gripper.max_acceleration * self._dt_s,
-                    previous_velocity + self._gripper.max_acceleration * self._dt_s,
+                    self._gripper.max_acceleration,
+                    self._gripper.max_closing_velocity,
                 )
             )
             command = previous + velocity * self._dt_s
@@ -451,13 +453,16 @@ class SmoothExecutor:
                         and self._previous[name][index] > self._gripper.close_threshold
                     )
                     if approach_limited:
+                        approach_velocity = self._grasp_guard.approach_max_velocity
                         limits = ScalarLimits(
-                            min(limits.max_velocity, self._grasp_guard.approach_max_velocity),
+                            approach_velocity if limits.max_velocity is None else min(
+                                limits.max_velocity, approach_velocity
+                            ),
                             limits.max_acceleration, limits.position_limit_abs,
                         )
                     self.gripper_diagnostics.setdefault(name, {}).update({
                         "approach_speed_limited": bool(approach_limited),
-                        "arm_velocity_limit_rad_s": float(limits.max_velocity),
+                        "arm_velocity_limit_rad_s": limits.max_velocity,
                     })
                 group_output, group_velocity = tracking_step(
                     {name: target[name]}, {name: target_velocity[name]},
@@ -477,8 +482,8 @@ class SmoothExecutor:
             )
         for name in reference.hold_groups:
             velocity = self._previous_velocity[name]
-            velocities[name] = np.sign(velocity) * np.maximum(
-                np.abs(velocity) - self._limits.max_acceleration * self._dt_s, 0.0
+            velocities[name] = decelerate_velocity(
+                velocity, self._limits.max_acceleration, self._dt_s
             )
             output[name] = self._previous[name] + velocities[name] * self._dt_s
         self._shape_grippers(now_ns, reference, output, velocities, state)

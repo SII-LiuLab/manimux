@@ -1,15 +1,12 @@
+control_profile: ../../../../robots/yam/common.yaml
 run:
   task: Put the bottles into the bin.
   output_dir: ./data/experiments/pi05-put-bottles-joint-ee-step30000/rtc
   max_steps: 12000
 
 robot:
-  driver: yam_dual
   config: configs/robots/yam_left.yaml
   control_hz: 100.0
-  group_dims:
-    left_arm: 7
-    right_arm: 7
   options:
     right_config: configs/robots/yam_right.yaml
     move_to_start_on_connect: true
@@ -30,7 +27,6 @@ sensors:
 policy:
   worker: xpolicylab_ws
   adapter: xpolicylab
-  action_dt_s: 0.03333333333333333
   timeout_s: 2.0
   horizon_steps: 50
   inference_delay_s: 0.0
@@ -74,16 +70,9 @@ execution:
   blend_steps: 4
   smooth:
     cutoff_hz: 8.0
-    max_velocity: 0.25
-    max_acceleration: 0.5
     position_limit_abs: 3.14
     gripper:
       mode: continuous
-      group_indices:
-        left_arm: 6
-        right_arm: 6
-      max_velocity: 1.0
-      max_acceleration: 12.0
       closed_value: 0.0
       open_value: 1.0
 

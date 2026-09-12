@@ -1,0 +1,29 @@
+robot:
+  driver: yam_dual
+  group_dims:
+    left_arm: 7
+    right_arm: 7
+  options:
+    left_channel: can_left
+    right_channel: can_right
+    left_hardware_options:
+      arm_type: yam
+      gripper_type: linear_4310
+      gripper_force_limit: 50.0
+    right_hardware_options:
+      arm_type: yam
+      gripper_type: linear_4310
+      gripper_force_limit: 50.0
+action_dt_s: 0.03333333333333333
+command_safety: null
+motion_limits:
+  arm:
+    max_velocity: null
+    max_acceleration: null
+  gripper:
+    group_indices:
+      left_arm: 6
+      right_arm: 6
+    max_velocity: null
+    max_acceleration: null
+    max_closing_velocity: 1.0

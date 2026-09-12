@@ -18,6 +18,15 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+collection = [
+  "av>=12",
+  "pyudev>=0.24; sys_platform == 'linux'",
+  "fastapi>=0.116",
+  "uvicorn>=0.35",
+  "opencv-python>=4.10",
+  "httpx>=0.27",
+  "h5py>=3.11",
+]
 molmoact-yam = [
   "fastapi>=0.116",
   "h5py>=3.11",
@@ -80,6 +89,7 @@ dev = [
 
 [project.scripts]
 manimux = "manimux.cli:main"
+manimux-collect = "manimux.collection.cli:main"
 manimux-viewer = "manimux.viewer.dashboard:main"
 manimux-molmoact-yam = "manimux.viewer.integrations.molmoact_yam:main"
 manimux-camera-server = "manimux.sensors.camera_server.server:main"

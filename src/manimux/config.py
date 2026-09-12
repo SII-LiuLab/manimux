@@ -83,6 +83,21 @@ class ExecutorLimitsConfig(StrictModel):
     position_limit_abs: float = Field(default=3.14, gt=0)
 
 
+class MotionRateConfig(StrictModel):
+    max_velocity: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+    max_acceleration: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+
+
+class GripperMotionConfig(MotionRateConfig):
+    group_indices: dict[str, int]
+    max_closing_velocity: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+
+
+class MotionLimitsConfig(StrictModel):
+    arm: MotionRateConfig
+    gripper: GripperMotionConfig
+
+
 class GripperHysteresisConfig(StrictModel):
     """Optional last-mile shaping for grippers embedded in joint groups."""
 
@@ -92,8 +107,9 @@ class GripperHysteresisConfig(StrictModel):
     open_threshold: float = Field(default=0.85, ge=0.0, le=1.0)
     min_closed_s: float = Field(default=0.0, ge=0.0)
     open_confirm_s: float = Field(default=0.0, ge=0.0)
-    max_velocity: float = Field(default=3.0, gt=0.0)
-    max_acceleration: float = Field(default=12.0, gt=0.0)
+    max_velocity: float | None = Field(default=3.0, gt=0.0, allow_inf_nan=False)
+    max_acceleration: float | None = Field(default=12.0, gt=0.0, allow_inf_nan=False)
+    max_closing_velocity: float | None = Field(default=None, gt=0, allow_inf_nan=False)
     closed_value: float = Field(default=0.0, ge=0.0, le=1.0)
     open_value: float = Field(default=1.0, ge=0.0, le=1.0)
 
@@ -132,6 +148,8 @@ class GripperGraspGuardConfig(StrictModel):
 
 
 class SmoothConfig(ExecutorLimitsConfig):
+    max_velocity: float | None = Field(default=2.0, gt=0, allow_inf_nan=False)
+    max_acceleration: float | None = Field(default=8.0, gt=0, allow_inf_nan=False)
     cutoff_hz: float = Field(default=8.0, gt=0)
     tracking_mode: Literal["legacy", "braking"] = "legacy"
     gripper: GripperHysteresisConfig | None = None
@@ -271,6 +289,7 @@ class DvacConfig(StrictModel):
 
 
 class ExecutionConfig(StrictModel):
+    motion_limits: MotionLimitsConfig | None = None
     runtime: str = Field(default="manimux", min_length=1)
     # Common tuning entrypoint, in policy action steps (not control ticks).
     # Each strategy retains its timing/capping semantics; see docs/chunk-steps.md.
@@ -439,7 +458,21 @@ class RecordingConfig(StrictModel):
     video_queue_size: int = Field(default=8, gt=0)
 
 
+class SharedRobotConfig(StrictModel):
+    driver: str
+    group_dims: dict[str, int]
+    options: dict[str, object] = Field(default_factory=dict)
+
+
+class ControlProfileConfig(StrictModel):
+    robot: SharedRobotConfig
+    action_dt_s: float = Field(gt=0, allow_inf_nan=False)
+    command_safety: CommandSafetyConfig | None = None
+    motion_limits: MotionLimitsConfig | None = None
+
+
 class ManiMuxConfig(StrictModel):
+    control_profile: Path | None = None
     run: RunConfig
     robot: RobotConfig
     sensors: list[SensorConfig] = []
@@ -450,6 +483,18 @@ class ManiMuxConfig(StrictModel):
 
     @model_validator(mode="after")
     def validate_runtime_contract(self) -> ManiMuxConfig:
+        motion = self.execution.motion_limits
+        if motion is not None:
+            for group, index in motion.gripper.group_indices.items():
+                if (
+                    group not in self.robot.group_dims
+                    or not 0 <= index < self.robot.group_dims[group]
+                ):
+                    raise ValueError("motion_limits gripper indices must match robot.group_dims")
+            if self.execution.executor == "mpc":
+                raise ValueError(
+                    "shared motion_limits currently support direct and smooth, not mpc"
+                )
         if (self.execution.inference_schedule == "serial"
                 and self.policy.action_decoding != "inline"):
             raise ValueError(
@@ -515,4 +560,57 @@ def load_config(path: str | Path) -> ManiMuxConfig:
         raw = yaml.safe_load(handle)
     if not isinstance(raw, dict):
         raise ValueError("configuration root must be a mapping")
-    return ManiMuxConfig.model_validate(raw)
+    profile = None
+    if raw.get("control_profile") is not None:
+        profile_path = Path(raw["control_profile"])
+        if not profile_path.is_absolute():
+            profile_path = config_path.parent / profile_path
+        profile_path = profile_path.resolve()
+        with profile_path.open("r", encoding="utf-8") as handle:
+            profile = ControlProfileConfig.model_validate(yaml.safe_load(handle))
+        raw["control_profile"] = profile_path
+        robot = raw.setdefault("robot", {})
+        _set_shared_value(robot, "driver", profile.robot.driver, "robot.driver")
+        _set_shared_value(robot, "group_dims", profile.robot.group_dims, "robot.group_dims")
+        options = robot.setdefault("options", {})
+        for name, value in profile.robot.options.items():
+            _set_shared_value(options, name, value, f"robot.options.{name}")
+        policy = raw.setdefault("policy", {})
+        _set_shared_value(policy, "action_dt_s", profile.action_dt_s, "policy.action_dt_s")
+        execution = raw.setdefault("execution", {})
+        if not isinstance(execution, dict):
+            raise ValueError("execution must be a mapping")
+        envelope = profile.command_safety or CommandSafetyConfig()
+        if "command_safety" in execution:
+            local = CommandSafetyConfig.model_validate(execution["command_safety"] or {})
+            if local != envelope:
+                raise ValueError("execution.command_safety conflicts with control_profile")
+        execution["command_safety"] = envelope.model_dump()
+        if profile.motion_limits is not None:
+            _set_shared_value(
+                execution, "motion_limits", profile.motion_limits.model_dump(),
+                "execution.motion_limits",
+            )
+    execution = raw.get("execution", {})
+    if isinstance(execution, dict) and execution.get("motion_limits") is not None:
+        motion = MotionLimitsConfig.model_validate(execution["motion_limits"])
+        smooth = execution.setdefault("smooth", {})
+        for name, value in motion.arm.model_dump().items():
+            _set_shared_value(smooth, name, value, f"execution.smooth.{name}")
+        gripper = smooth.setdefault("gripper", {"mode": "continuous"})
+        for name, value in motion.gripper.model_dump().items():
+            _set_shared_value(gripper, name, value, f"execution.smooth.gripper.{name}")
+    config = ManiMuxConfig.model_validate(raw)
+    if profile is not None and not math.isclose(
+        config.policy.effective_action_dt_s, profile.action_dt_s, rel_tol=1e-9
+    ):
+        raise ValueError("policy effective action interval conflicts with control_profile")
+    return config
+
+
+def _set_shared_value(target: dict, name: str, value: object, label: str) -> None:
+    if not isinstance(target, dict):
+        raise ValueError(f"{label.rsplit('.', 1)[0]} must be a mapping")
+    if name in target and target[name] != value:
+        raise ValueError(f"{label} conflicts with control_profile; edit the shared profile")
+    target[name] = value

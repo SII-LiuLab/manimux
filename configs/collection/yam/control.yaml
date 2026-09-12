@@ -1,0 +1,20 @@
+control_profile: ../../robots/yam/common.yaml
+run:
+  task: YAM leader teleoperation
+  output_dir: data/collection
+robot:
+  config: configs/robots/yam_left.yaml
+  control_hz: 30.0
+  options:
+    right_config: configs/robots/yam_right.yaml
+    move_to_start_on_connect: false
+    home_on_close: false
+policy:
+  worker: local_yam_leader
+  adapter: identity
+  timeout_s: 0.5
+  horizon_steps: 2
+execution:
+  executor: direct
+viewer:
+  enabled: false

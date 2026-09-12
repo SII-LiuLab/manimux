@@ -1,15 +1,27 @@
 # Configuration layout
 
-模型运行配置按 `configs/<model>/<embodiment>/{server,infra}/` 组织：
+模型运行配置按 `configs/<model>/<embodiment>/{server,infra}/` 组织；
+任务相关配置继续按 task 分子目录，避免将所有实验堆在 `infra/` 下：
 
 ```text
 configs/
   <model>/
     <embodiment>/
       server/
+        <task>/
+          <checkpoint>.yaml
         <checkpoint-or-backend>.yaml
       infra/
+        <task>/
+          <runtime>-<checkpoint>.yaml
         <experiment>.yaml
+  collection/
+    <embodiment>/
+      station.yaml
+      control.yaml
+  robots/
+    <embodiment>/
+      common.yaml
 ```
 
 `server/` 只描述模型服务、checkpoint、norm stats 和模型原生采样参数；`infra/` 描述
@@ -26,11 +38,32 @@ ManiMux 的机器人、传感器、policy wire、执行器、Viewer 和记录。
 
 - `cameras.yaml`：共享相机服务；
 - `robots/`：机器人 driver 配置；
+- `robots/yam/common.yaml`：显式引用时共享的 YAM 控制参数；
+- `collection/<embodiment>/`：本体专用、config 驱动的数采入口；
 - `mock.yaml`：全 mock runtime；
 - `maniunicon_meshcat.example.yaml`：通用仿真示例。
 
 新增本体时不要复制模型目录，例如 Pi05 的 ALOHA 配置应放到
 `configs/pi05/aloha/`，而不是创建新的 `pi05-aloha` 模型目录。
+
+## 采集与推理的公共控制参数
+
+配置通过顶层 `control_profile` 显式引用公共 YAML，路径相对引用它的配置文件解析。
+公共文件只允许一层引用，不递归继承；局部配置与公共值冲突时直接报错。
+这不是全仓库默认覆盖，未引用 profile 的旧实验保持原行为。
+
+YAM 的公共部分包括 driver、关节分组、CAN 通道、夹爪类型/力、动作点间隔、
+`command_safety` 和独立的 arm/gripper `motion_limits`。当前同步数采与两套
+放瓶子 Pi05 RTC 30k 配置共享 `configs/robots/yam/common.yaml`。
+
+- 采集默认同步 30 Hz Direct，每次主臂采样下发一次双臂目标。
+- RTC 默认 100 Hz Smooth，但 policy 动作点仍为 30 Hz。
+- 共用运动限幅；Smooth 滤波、输出频率和推理调度由各自配置选择。
+- 手臂软件速度/加速度限幅当前为 `null`；夹爪闭合目标限速为 `1.0 /s`，
+  打开目标直接切换。硬件保护不会因此被关闭。
+- 共享 `motion_limits` 支持 Direct / Smooth；MPC 不支持这组配置时明确拒绝。
+
+具体字段、配置边界和记录语义见 [YAM 数采说明](../docs/yam-collection.md#shared-control-profile)。
 
 ## 第一份配置：`configs/mock.yaml`
 

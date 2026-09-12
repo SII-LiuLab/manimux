@@ -1,7 +1,40 @@
 # Pi05 + YAM 运行手册
 
-本文只覆盖 Pi05 模型、checkpoint、输入输出契约和普通 ManiMux 基线。推理方法的原理、
-参数、验证步骤和真机命令归各自的方法文档，不在模型 runbook 重复维护。
+本文覆盖 Pi05 模型、checkpoint、输入输出契约和配套启动命令。推理方法的原理、
+完整参数和验证步骤归各自的方法文档，不在模型 runbook 重复维护。
+
+## 放瓶子 step-30000
+
+纯 joint 与 joint+EE 是两份不同的 checkpoint；即使都使用端口 `8500`，也不能混用
+server 和 infra 配置。以下命令从仓库根目录执行，要求已安装 YAM / OpenPI 环境并准备
+配置指定的 checkpoint 和相机。权重和本机设备配置不会随 README 命令自动安装。
+
+### 纯 joint + RTC
+
+完整的四终端启动命令集中在 [使用指南](guideline.md#pi05-30k-on-yam)：
+相机 → Viewer → `server/put-bottles/joint-step30000.yaml` 模型服务
+→ `infra/put-bottles/rtc-joint-step30000.yaml` runtime。
+
+该配对使用 `pi05-yam-put-bottles-joint-step30000` 权重，模型 horizon 为 50，轨迹点间隔
+为 `1/30 s`，RTC 的 `chunk_steps` 为 12。这不是将模型输出裁成 12 步：
+RTC 发起下一次推理后，仍会在等待响应时继续执行旧 chunk。
+
+### 切换为 joint+EE
+
+先停止旧模型 server 和当前 runtime，再将两条命令中的配置一起换为：
+
+- server：`configs/pi05/yam/server/put-bottles/joint-ee-step30000.yaml`；
+- runtime：`configs/pi05/yam/infra/put-bottles/rtc-joint-ee-step30000.yaml`。
+
+两套 RTC 都显式引用 [`configs/robots/yam/common.yaml`](../configs/robots/yam/common.yaml)，
+与 YAM 数采共享硬件参数、动作间隔和运动限幅；执行器仍为 100 Hz Smooth、8 Hz 滤波。
+公共配置当前不附加手臂速度/加速度限幅，夹爪保留 `1.0 /s` 的闭合目标限速，打开目标直接切换。
+这不等于取消硬件保护，也不保证物理夹爪恰好一秒闭合。
+详见 [共享控制说明](yam-collection.md#shared-control-profile)。其他历史配置不会自动继承这些设置。
+
+遇到 `policy backend identity mismatch`，先检查端口上实际加载的模型与配置是否匹配，
+不要删除 `expected_backend` 来绕过检查。只核对本地路径和契约、不启动服务时，
+可在模型 server 命令中添加 `--check`。
 
 ## 本地红球任务 checkpoint
 

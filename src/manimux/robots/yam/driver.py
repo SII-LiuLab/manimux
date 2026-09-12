@@ -82,6 +82,10 @@ class YamDualArmDriver:
             "home_gripper_release_duration_s",
             "move_to_start_on_connect",
             "home_on_close",
+            "left_channel",
+            "right_channel",
+            "left_hardware_options",
+            "right_hardware_options",
         }
     )
 
@@ -98,6 +102,11 @@ class YamDualArmDriver:
         self._left_path = config.config
         self._right_path = Path(right_config)
         self._clock = clock
+        self._options = dict(config.options)
+        for side in ("left", "right"):
+            options = self._options.get(f"{side}_hardware_options", {})
+            if not isinstance(options, dict):
+                raise ValueError(f"robot.options.{side}_hardware_options must be a mapping")
         self._home_duration_s = float(config.options.get("home_duration_s", 5.0))
         self._home_gripper_release_duration_s = float(
             config.options.get("home_gripper_release_duration_s", 1.0)
@@ -143,15 +152,19 @@ class YamDualArmDriver:
         from manimux.robots.yam.arm import YAMRobot
         from manimux.robots.yam.base import BimanualRobot
 
-        left_channel = left_cfg.get("robot", {}).get("channel")
-        right_channel = right_cfg.get("robot", {}).get("channel")
+        left_channel = self._options.get("left_channel", left_cfg.get("robot", {}).get("channel"))
+        right_channel = self._options.get("right_channel", right_cfg.get("robot", {}).get("channel"))
         if not isinstance(left_channel, str) or not isinstance(right_channel, str):
             raise ValueError("both YAM configs must define robot.channel")
         left_robot = None
         right_robot = None
         try:
-            left_robot = YAMRobot(channel=left_channel)
-            right_robot = YAMRobot(channel=right_channel)
+            left_robot = YAMRobot(
+                channel=left_channel, **self._options.get("left_hardware_options", {})
+            )
+            right_robot = YAMRobot(
+                channel=right_channel, **self._options.get("right_hardware_options", {})
+            )
             self._robot = BimanualRobot(left_robot, right_robot)
             if self._move_to_start_on_connect:
                 self._move_joints(

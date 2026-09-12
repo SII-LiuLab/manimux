@@ -1,0 +1,21 @@
+collector: yam
+execution_mode: threaded
+manimux_config: configs/collection/yam/control-threaded.yaml
+robot:
+  type: yam
+  num_arm_joints: 6
+  leader_gripper_type: yam_teaching_handle
+  leader_gripper_mode: toggle
+  bilateral_kp: 0.2
+  robots:
+    - {type: yam_left}
+    - {type: yam_right}
+  controllers:
+    - {type: yam_lead_left, controls: yam_left}
+    - {type: yam_lead_right, controls: yam_right}
+  leader_joint_signs: [-1, -1, 1, 1, -1, -1, 1]
+  leader_gripper: [6, -0.713, 0.0]
+cameras_config: configs/collection/yam/cameras.yaml
+save_root: data/collection/episodes
+task_name: put_bottles_into_the_bin
+data_format: default

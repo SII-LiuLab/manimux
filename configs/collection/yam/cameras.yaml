@@ -1,0 +1,72 @@
+# Camera roster for a YAM-ABC-Reproduce station.
+#
+# type:    decxin_mono | decxin_stereo | realsense | orbbec | mock
+# role:    unique stream prefix (e.g. top, left, right, gemini305, gemini335)
+# mode:    mono | stereo
+# serial:  device serial for stable selection (decxin: ID_SERIAL_SHORT; realsense: S/N)
+#
+# Pick & place setup: two wrists + top RealSense, plus Gemini 305 and 335 RGB.
+cameras:
+  - name: left
+    type: realsense
+    role: left
+    mode: mono
+    serial: "260322276964"   # RealSense S/N (yam-abc-cameras)
+    width: 640
+    height: 480
+    fps: 30
+    exposure_us: 10000
+    white_balance: 4000
+    enable_depth: false
+
+  - name: top
+    type: realsense
+    role: top
+    mode: mono
+    serial: "260322276687"
+    width: 640
+    height: 480
+    fps: 30
+    exposure_us: 10000
+    white_balance: 4000
+    enable_depth: false
+
+  - name: right
+    type: realsense
+    role: right
+    mode: mono
+    serial: "260322274672"
+    width: 640
+    height: 480
+    fps: 30
+    exposure_us: 10000
+    white_balance: 3500
+    enable_depth: false
+
+  - name: gemini305
+    type: orbbec
+    role: gemini305
+    mode: mono
+    serial: "CV278640000Z"
+    width: 640
+    height: 480
+    fps: 30
+
+  - name: gemini335
+    type: orbbec
+    role: gemini335
+    mode: mono
+    serial: "CP0N763000LK"
+    width: 640
+    height: 480
+    fps: 30
+
+  # Example stereo entry (one wide frame split into left/right). Uncomment to use:
+  # - name: front
+  #   type: decxin_stereo
+  #   role: left
+  #   mode: stereo
+  #   serial: null
+  #   width: 2560        # full side-by-side width; each eye becomes width//2
+  #   height: 720
+  #   fps: 30

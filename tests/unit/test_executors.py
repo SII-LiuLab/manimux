@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from manimux.config import GripperHysteresisConfig, MPCConfig, SmoothConfig
+from manimux.config import GripperHysteresisConfig, MotionLimitsConfig, MPCConfig, SmoothConfig
 from manimux.runtime.executors import DirectExecutor, MPCExecutor, SmoothExecutor
 from manimux.runtime.safety import SafetyGuard
 from manimux.types import ActionHorizon, RobotCommand, RobotState
@@ -25,6 +25,121 @@ def _reference(target: float, horizon_steps: int = 20) -> ActionHorizon:
         plan_id="plan",
         groups={"left_arm": values, "right_arm": -values},
     )
+
+
+@pytest.mark.parametrize("tracking_mode", ["legacy", "braking"])
+@pytest.mark.parametrize("velocity,acceleration", [(None, None), (1.0, None), (None, 2.0)])
+def test_smooth_optional_limits_are_finite_and_hold(tracking_mode, velocity, acceleration):
+    executor = SmoothExecutor(SmoothConfig(
+        tracking_mode=tracking_mode, max_velocity=velocity, max_acceleration=acceleration,
+    ), control_dt_s=0.01)
+    state = _state()
+    previous = state.groups["left_arm"].copy()
+    previous_velocity = np.zeros(2)
+    for index in range(100):
+        command = executor.step(index * 10_000_000, state, _reference(1.0))
+        values = command.groups["left_arm"]
+        actual_velocity = (values - previous) / 0.01
+        assert np.isfinite(values).all()
+        assert np.all(np.abs(values) <= 3.14)
+        if velocity is not None:
+            assert np.max(np.abs(actual_velocity)) <= velocity + 1e-9
+        if acceleration is not None:
+            assert np.max(np.abs(actual_velocity - previous_velocity)) <= acceleration * 0.01 + 1e-9
+        previous, previous_velocity = values.copy(), actual_velocity
+    hold = executor.brake_hold(1_000_000_000, state)
+    assert np.isfinite(hold.groups["left_arm"]).all()
+    if acceleration is None:
+        np.testing.assert_array_equal(hold.groups["left_arm"], previous)
+    reference = _reference(1.0)
+    reference.hold_groups = ("left_arm",)
+    if tracking_mode == "braking":
+        assert np.isfinite(executor.step(1_010_000_000, state, reference).groups["left_arm"]).all()
+
+
+def test_smooth_without_limits_keeps_filter_and_gripper_position_bounds():
+    executor = SmoothExecutor(SmoothConfig(
+        max_velocity=None, max_acceleration=None,
+        gripper=GripperHysteresisConfig(
+            mode="continuous", group_indices={"left_arm": 1, "right_arm": 1},
+            max_velocity=None, max_acceleration=None,
+        ),
+    ), control_dt_s=0.01)
+    command = executor.step(0, _state(), _reference(2.0))
+    assert 0.1 < command.groups["left_arm"][0] < 2.0
+    assert command.groups["left_arm"][1] == 1.0
+    assert command.groups["right_arm"][1] == 0.0
+
+
+@pytest.mark.parametrize("executor_name", ["direct", "smooth"])
+def test_common_motion_limits_separate_arm_and_gripper(executor_name):
+    motion = MotionLimitsConfig(
+        arm={"max_velocity": 0.5, "max_acceleration": 2.0},
+        gripper={"group_indices": {"left_arm": 1, "right_arm": 1},
+                 "max_velocity": 2.0, "max_acceleration": 10.0},
+    )
+    if executor_name == "direct":
+        executor = DirectExecutor(motion, control_dt_s=0.01)
+    else:
+        executor = SmoothExecutor(SmoothConfig(
+            **motion.arm.model_dump(),
+            gripper=GripperHysteresisConfig(mode="continuous", **motion.gripper.model_dump()),
+        ), control_dt_s=0.01)
+    state = _state()
+    previous = np.zeros(2)
+    previous_velocity = np.zeros(2)
+    max_velocity = np.array([0.5, 2.0])
+    max_acceleration = np.array([2.0, 10.0])
+    for index in range(50):
+        values = executor.step(index * 10_000_000, state, _reference(1.0)).groups["left_arm"]
+        velocity = (values - previous) / 0.01
+        assert np.all(np.abs(velocity) <= max_velocity + 1e-9)
+        assert np.all(np.abs(velocity - previous_velocity) <= max_acceleration * 0.01 + 1e-9)
+        previous, previous_velocity = values.copy(), velocity
+    assert values[1] > values[0]
+
+
+def test_direct_null_limits_preserve_exact_targets():
+    motion = MotionLimitsConfig(
+        arm={}, gripper={"group_indices": {"left_arm": 1, "right_arm": 1}},
+    )
+    executor = DirectExecutor(motion, control_dt_s=1 / 30)
+    for target in [0.123456789, -0.412378967, 2.7]:
+        reference = _reference(target)
+        command = executor.step(0, _state(), reference)
+        for group in command.groups:
+            np.testing.assert_array_equal(command.groups[group], reference.groups[group][0])
+
+
+@pytest.mark.parametrize("executor_name", ["direct", "smooth"])
+@pytest.mark.parametrize("frequency", [30, 100])
+def test_yam_gripper_closes_in_one_second_and_opens_immediately(executor_name, frequency):
+    motion = MotionLimitsConfig(
+        arm={}, gripper={
+            "group_indices": {"left_arm": 1, "right_arm": 1},
+            "max_closing_velocity": 1.0,
+        },
+    )
+    if executor_name == "direct":
+        executor = DirectExecutor(motion, control_dt_s=1 / frequency)
+    else:
+        executor = SmoothExecutor(SmoothConfig(
+            **motion.arm.model_dump(),
+            gripper=GripperHysteresisConfig(mode="continuous", **motion.gripper.model_dump()),
+        ), control_dt_s=1 / frequency)
+    state = RobotState(
+        groups={"left_arm": np.array([0.0, 1.0]), "right_arm": np.array([0.0, 1.0])},
+        monotonic_ns=0, sequence=0,
+    )
+    reference = _reference(0.0)
+    for index in range(frequency):
+        command = executor.step(int(index / frequency * 1e9), state, reference)
+        for group in state.groups:
+            assert command.groups[group][1] == pytest.approx(1 - (index + 1) / frequency)
+    reference.groups = {group: np.tile([0.0, 1.0], (2, 1)) for group in state.groups}
+    command = executor.step(1_000_000_000, state, reference)
+    for group in state.groups:
+        assert command.groups[group][1] == pytest.approx(1.0)
 
 
 def test_smooth_executor_obeys_acceleration_and_velocity_limits() -> None:

@@ -16,10 +16,29 @@ from manimux.robots.yam.base import Robot
 class YAMRobot(Robot):
     """A class representing a simulated YAM robot."""
 
-    def __init__(self, channel="can0"):
+    def __init__(self, channel="can0", **hardware_options):
         from i2rt.robots.get_robot import get_yam_robot
 
-        self.robot = get_yam_robot(channel=channel, gripper_type=GripperType.LINEAR_4310)
+        if "gripper_force_limit" in hardware_options:
+            import inspect
+
+            force = hardware_options["gripper_force_limit"]
+            if not np.isfinite(force) or force <= 0:
+                raise ValueError("gripper_force_limit must be finite and positive")
+            if "gripper_force_limit" not in inspect.signature(get_yam_robot).parameters:
+                if force != 50.0:
+                    raise ValueError("installed ManiMux i2rt fixes gripper force at 50 N")
+                hardware_options.pop("gripper_force_limit")
+        if "arm_type" in hardware_options:
+            from i2rt.robots.utils import ArmType
+
+            hardware_options["arm_type"] = ArmType.from_string_name(hardware_options["arm_type"])
+        gripper_type = GripperType.LINEAR_4310
+        if "gripper_type" in hardware_options:
+            gripper_type = GripperType.from_string_name(hardware_options.pop("gripper_type"))
+        self.robot = get_yam_robot(
+            channel=channel, gripper_type=gripper_type, **hardware_options
+        )
 
         # YAM has 7 joints (6 arm joints + 1 gripper)
         self._joint_names = [
