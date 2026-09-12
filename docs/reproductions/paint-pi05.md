@@ -139,7 +139,7 @@ The initial Pi05 experiment is:
 
 ```text
 server: configs/pi05/yam/server/finetune-pick-red-ball-box-step1000.yaml
-infra:  configs/pi05/yam/infra/paint-pick-red-ball-box-step1000.yaml
+infra:  configs/pi05/yam/infra/pick-red-ball-box/paint-step1000.yaml
 H:      50
 N:      10
 s:      12
@@ -170,7 +170,7 @@ After every server restart, warm the PAINT-specific JAX shape without camera, CA
 ```bash
 cd /home/ubuntu/manimux
 envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
-  --config configs/pi05/yam/infra/paint-pick-red-ball-box-step1000.yaml
+  --config configs/pi05/yam/infra/pick-red-ball-box/paint-step1000.yaml
 ```
 
 Record at least three warmed `round_trip_ms` values. Then complete the normal camera, CAN,
@@ -179,7 +179,7 @@ achieved-state, start-pose and emergency-stop checks. Only the operator starts t
 ```bash
 cd /home/ubuntu/manimux
 envs/yam/.venv/bin/manimux run \
-  --config configs/pi05/yam/infra/paint-pick-red-ball-box-step1000.yaml
+  --config configs/pi05/yam/infra/pick-red-ball-box/paint-step1000.yaml
 ```
 
 Stop with one `Ctrl-C` and wait for the configured Home return and partial episode save. Do not stop

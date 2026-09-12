@@ -9,16 +9,18 @@ JSON client or standalone OpenWAM service. The vendored upstream deployment
 modules remain because the XPolicy adapter uses their loader and preprocessor
 in-process, without starting their WebSocket listener.
 
-Install into the active, compatible XPolicy Python environment:
+For an upstream-only environment, install OpenWAM and its XPolicy extras into
+an already compatible Python environment:
 
 ```bash
 bash XPolicyLab/policy/OpenWAM/install.sh
 python -m pip install -e '.[xpolicylab]'
 ```
 
-No script creates a new model environment. CUDA/PyTorch compatibility remains
-the operator's responsibility; XPolicy integration does not make Pi05's JAX
-dependencies and every policy's PyTorch dependencies interchangeable.
+For this YAM workstation, use the isolated `envs/openwam/.venv` setup described
+under inference below. CUDA/PyTorch compatibility remains the operator's
+responsibility; XPolicy integration does not make Pi05's JAX dependencies and
+every policy's PyTorch dependencies interchangeable.
 
 ## Representation
 
@@ -135,6 +137,46 @@ and resource availability, then obtain explicit approval before invoking
 `qz train CreateJob`.
 
 ## Inference and evaluation
+
+Create the isolated local policy-server environment once. It reuses the
+CUDA/Torch installation already validated for the YAM machine, while keeping
+OpenWAM's Transformers and deployment dependencies outside `envs/yam`:
+
+```bash
+bash scripts/setup_openwam_local_env.sh
+```
+
+The checked-in 30k put-bottles deployment is already bound to the local
+checkpoint and its artifact hashes. The policy trajectory remains 30 Hz, while
+ManiMux interpolates and commands YAM at 100 Hz. Arm and gripper limits are
+separate: arms use 0.25 rad/s and 0.5 rad/s^2; normalized grippers use 1.0/s and
+12.0/s^2. Its inference schedule is serial: ManiMux executes the committed tail,
+then requests the next chunk instead of sampling concurrently.
+
+Start the policy server:
+
+```bash
+envs/openwam/.venv/bin/python scripts/servers/openwam_yam_server.py \
+  --config configs/openwam/yam/server/finetune-put-bottles-step30000.yaml
+```
+
+Then validate one real model forward plus the YAM IK boundary without touching
+the robot:
+
+```bash
+envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
+  --config configs/openwam/yam/infra/manimux-put-bottles-step30000.yaml \
+  --instruction "Put the bottles into the bin."
+```
+
+After the probe succeeds, start the camera service and ManiMux runtime:
+
+```bash
+envs/yam/.venv/bin/manimux-camera-server --config configs/cameras.yaml
+
+envs/yam/.venv/bin/manimux serve \
+  --config configs/openwam/yam/infra/manimux-put-bottles-step30000.yaml
+```
 
 ```bash
 python scripts/servers/openwam_yam_server.py --checkpoint /path/to/yam_run \

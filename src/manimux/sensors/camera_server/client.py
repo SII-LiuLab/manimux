@@ -119,6 +119,11 @@ class CameraSubscriber:
 
     def try_recv(self) -> dict[str, np.ndarray] | None:
         """Return the most recent frame dict if one is available, else None."""
+        bundle = self.try_recv_bundle()
+        return None if bundle is None else bundle.get("frames")
+
+    def try_recv_bundle(self) -> dict[str, Any] | None:
+        """Return the latest bundle, including capture timestamps for freshness."""
         latest: bytes | None = None
         # Drain the queue so we hand the consumer the freshest frame.
         while True:
@@ -133,9 +138,9 @@ class CameraSubscriber:
         except Exception as exc:  # noqa: BLE001 — drop malformed publish
             logger.warning("Dropped malformed PUB payload: %s", exc)
             return None
-        if not resp.get("ok"):
+        if not isinstance(resp, dict) or not resp.get("ok"):
             return None
-        return resp.get("frames")
+        return resp
 
     def close(self) -> None:
         with contextlib.suppress(Exception):

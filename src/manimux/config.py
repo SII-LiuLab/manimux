@@ -272,8 +272,11 @@ class DvacConfig(StrictModel):
 
 class ExecutionConfig(StrictModel):
     runtime: str = Field(default="manimux", min_length=1)
+    # Common tuning entrypoint, in policy action steps (not control ticks).
+    # Each strategy retains its timing/capping semantics; see docs/chunk-steps.md.
+    chunk_steps: int | None = Field(default=None, gt=0, strict=True)
     executor: Literal["direct", "smooth", "mpc"] = "smooth"
-    inference_schedule: Literal["deadline", "single_inflight"] = "deadline"
+    inference_schedule: Literal["deadline", "single_inflight", "serial"] = "deadline"
     refill_threshold_s: float = Field(default=0.4, gt=0)
     commit_lead_s: float = Field(default=0.02, ge=0)
     max_plan_age_s: float = Field(default=1.0, gt=0)
@@ -291,8 +294,50 @@ class ExecutionConfig(StrictModel):
     paint: PaintConfig = PaintConfig()
     dvac: DvacConfig = DvacConfig()
 
+    @model_validator(mode="before")
+    @classmethod
+    def resolve_chunk_steps(cls, value: object) -> object:
+        if not isinstance(value, dict) or value.get("chunk_steps") is None:
+            return value
+        paths = {
+            "manimux": (None, "max_chunk_steps"),
+            "rtc": ("rtc", "min_execute_steps"),
+            "paint": ("paint", "execution_steps"),
+            "act_temporal_ensemble": ("temporal_ensemble", "query_interval_steps"),
+            "dvac": ("dvac", "max_execution_steps"),
+        }
+        runtime = value.get("runtime", "manimux")
+        if runtime not in paths:
+            raise ValueError(
+                f"execution.chunk_steps is not supported by runtime {runtime!r}; "
+                "do not override an adaptive model-selected horizon with a fixed cadence"
+            )
+        section, field = paths[runtime]
+        resolved = dict(value)
+        if section is None:
+            destination = resolved
+        else:
+            nested = value.get(section, {})
+            if isinstance(nested, BaseModel):
+                nested = nested.model_dump(exclude_unset=True)
+            if not isinstance(nested, dict):
+                raise ValueError(f"execution.{section} must be a mapping")
+            destination = dict(nested)
+            resolved[section] = destination
+        steps = value["chunk_steps"]
+        if destination.get(field) is not None and destination[field] != steps:
+            path = f"{section}.{field}" if section else field
+            raise ValueError(f"execution.chunk_steps conflicts with execution.{path}")
+        destination[field] = steps
+        return resolved
+
     @model_validator(mode="after")
     def validate_strategy_fields(self) -> ExecutionConfig:
+        if self.inference_schedule == "serial":
+            if self.runtime != "manimux":
+                raise ValueError("serial scheduling requires execution.runtime=manimux")
+            if "refill_threshold_s" in self.model_fields_set:
+                raise ValueError("serial scheduling does not use refill_threshold_s")
         if self.independent_group_decoding and (
             self.runtime != "manimux" or self.executor != "smooth"
             or self.smooth.tracking_mode != "braking"
@@ -405,6 +450,14 @@ class ManiMuxConfig(StrictModel):
 
     @model_validator(mode="after")
     def validate_runtime_contract(self) -> ManiMuxConfig:
+        if (self.execution.inference_schedule == "serial"
+                and self.policy.action_decoding != "inline"):
+            raise ValueError(
+                "serial scheduling requires inline action decoding without latency trimming"
+            )
+        if (self.execution.chunk_steps is not None
+                and self.execution.chunk_steps > self.policy.horizon_steps):
+            raise ValueError("execution.chunk_steps must not exceed policy.horizon_steps")
         if self.execution.independent_group_decoding and self.policy.action_decoding != "process":
             raise ValueError("independent group decoding requires process action decoding")
         if (

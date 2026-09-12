@@ -237,7 +237,7 @@ selectors are ManiMux concerns and are not sent to the model server.
 | `scripts/validation/xpolicylab_yam_forward_probe.py` | Hardware-free AAC request and selected-horizon report |
 | `configs/groot/yam/infra/aac.yaml` | Complete GR00T/YAM experiment composition |
 | `configs/pi05/yam/infra/aac.yaml` | Robocurve 16-step Pi05/YAM composition |
-| `configs/pi05/yam/infra/aac-pick-red-ball-box-step1000.yaml` | Local 50-step Pi05/YAM composition |
+| `configs/pi05/yam/infra/pick-red-ball-box/aac-step1000.yaml` | Local 50-step Pi05/YAM composition |
 
 AAC waits until the selected chunk ends before submitting the next observation, matching the official
 synchronous rollout cadence. During model latency, the robot holds; AAC is not RTC.

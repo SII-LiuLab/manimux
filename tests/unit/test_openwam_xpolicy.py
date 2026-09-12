@@ -24,7 +24,11 @@ from manimux.types import (
     RobotState,
     SensorFrame,
 )
-from XPolicyLab.policy.OpenWAM.model import Model, validate_deployment
+from XPolicyLab.policy.OpenWAM.model import (
+    Model,
+    _configure_deploy_runtime,
+    validate_deployment,
+)
 from XPolicyLab.policy.OpenWAM.training import build_command
 
 
@@ -154,6 +158,93 @@ def test_batch_and_reset(setup):
         model.get_action()
 
 
+def test_single_stream_uses_generate_not_generate_batch():
+    class Engine:
+        def __init__(self):
+            self.calls = []
+
+        def generate(self, conditions):
+            self.calls.append(conditions)
+            return {"actions": np.zeros((3, 20), dtype=np.float32)}
+
+        def generate_batch(self, conditions):
+            raise AssertionError("single-stream inference must not use generate_batch")
+
+    class Policy:
+        @staticmethod
+        def _project_binary_dims(actions):
+            return actions
+
+    model = object.__new__(Model)
+    model.eval_batch = False
+    model.allow_dummy_policy = False
+    model.replan_steps = 2
+    model._engine = Engine()
+    model._wam_policy = Policy()
+    model._batch = {0: {"prompt": "put bottles"}}
+    model._order = [0]
+    model.observation_profile = "yam_base"
+    model._conditions = lambda payload: payload
+    model._eef20_chunk_to_native = lambda actions: actions.tolist()
+
+    result = model.get_action()
+
+    assert len(model._engine.calls) == 1
+    assert len(result["actions"]) == 2
+    assert result["action_semantics"] == SEMANTICS
+
+
+def test_deploy_optimizations_are_single_stream_only():
+    from omegaconf import OmegaConf
+
+    single = OmegaConf.create(
+        {
+            "optimization": {
+                "dit_cache": {"enabled": False},
+                "compile": {"enabled": False},
+                "decode_video": True,
+            },
+            "inference": {"inference_mode": "async"},
+        }
+    )
+    assert not _configure_deploy_runtime(
+        single,
+        {"eval_batch": False, "compile_enabled": True, "dit_cache_enabled": True},
+    )
+    assert single.optimization.compile.enabled is True
+    assert single.optimization.dit_cache.enabled is True
+    assert single.optimization.decode_video is False
+    assert single.inference.inference_mode == "sync"
+
+    batch = copy.deepcopy(single)
+    assert _configure_deploy_runtime(
+        batch,
+        {"eval_batch": True, "compile_enabled": True, "dit_cache_enabled": True},
+    )
+    assert batch.optimization.compile.enabled is False
+    assert batch.optimization.dit_cache.enabled is False
+
+
+def test_model_clips_continuous_gripper_predictions(setup):
+    _, adapter, request, config, _ = setup
+    model = Model(config)
+    payload = model._encode_obs(observation(adapter, request))
+    chunk = np.tile(np.asarray(payload["state"], dtype=np.float64), (2, 1))
+    chunk[:, 9] = [-0.2, 1.2]
+    chunk[:, 19] = [1.3, -0.3]
+
+    actions = model._eef20_chunk_to_native(chunk)
+
+    np.testing.assert_allclose(
+        [step["left_ee_joint_state"][0] for step in actions],
+        [0.0, 1.0],
+    )
+    np.testing.assert_allclose(
+        [step["right_ee_joint_state"][0] for step in actions],
+        [1.0, 0.0],
+    )
+
+
 @pytest.mark.parametrize("failure", ["semantics", "quaternion", "gripper", "horizon", "ik"])
 def test_bad_actions_rejected(setup, failure):
     _, adapter, request, config, kin = setup
@@ -230,3 +321,24 @@ def test_qz_launcher_disables_wandb_and_pins_training_budget():
     assert '"opencv-python-headless>=4.7,<5"' in package
     assert "from modelscope import snapshot_download" not in loader.split("class ModelConfig", 1)[0]
     assert "from huggingface_hub import snapshot_download" not in loader.split("class ModelConfig", 1)[0]
+
+
+def test_checked_in_put_bottles_deployment_is_bound():
+    config = load_config(
+        ROOT / "configs/openwam/yam/infra/manimux-put-bottles-step30000.yaml"
+    )
+    identity = config.policy.expected_backend.model
+    assert config.robot.control_hz == 100.0
+    assert config.robot.options["start_joints"] == [
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+    ]
+    assert config.policy.effective_action_dt_s == pytest.approx(1.0 / 30.0)
+    assert config.policy.horizon_steps == 32
+    assert config.policy.options["deployment_bound"] is True
+    assert config.execution.inference_schedule == "serial"
+    assert config.execution.chunk_steps == 12
+    assert identity["checkpoint_file"] == "checkpoint_step_30000.safetensors"
+    assert identity["action_horizon"] == 32
+    assert config.execution.smooth.gripper.max_velocity == 1.0
+    assert config.execution.smooth.gripper.max_acceleration == 12.0

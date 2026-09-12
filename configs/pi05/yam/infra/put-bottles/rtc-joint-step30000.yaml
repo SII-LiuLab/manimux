@@ -1,7 +1,7 @@
 run:
-  task: put the bottle into the bin
-  output_dir: ./data/experiments/openwam-yam
-  max_steps: 6000
+  task: Put the bottles into the bin.
+  output_dir: ./data/experiments/pi05-put-bottles-joint-step30000/rtc
+  max_steps: 12000
 
 robot:
   driver: yam_dual
@@ -14,8 +14,8 @@ robot:
     right_config: configs/robots/yam_right.yaml
     move_to_start_on_connect: true
     start_joints: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
-    start_duration_s: 5.0
-    home_duration_s: 5.0
+    start_duration_s: 2.0
+    home_duration_s: 2.0
     home_on_close: true
 
 sensors:
@@ -28,44 +28,50 @@ sensors:
       camera_names: [left_camera, front_camera, right_camera]
 
 policy:
-  # OpenWAM is hosted by the standard XPolicyLab server. The model and its
-  # vendored upstream source live under XPolicyLab/policy/OpenWAM.
   worker: xpolicylab_ws
-  adapter: openwam_yam
+  adapter: xpolicylab
   action_dt_s: 0.03333333333333333
-  timeout_s: 300.0
-  horizon_steps: 32
+  timeout_s: 2.0
+  horizon_steps: 50
   inference_delay_s: 0.0
-  startup_timeout_s: 30.0
   expected_backend:
     server: xpolicylab_policy_server
     model:
-      policy_family: openwam
-      observation_profile: yam_base
-      allow_dummy_policy: false
+      policy_family: pi05
+      task_name: put_bottles_into_the_bin
+      checkpoint_variant: pi05_yam_put_bottles_joint_step_30000
+      checkpoint_source: qz_hdd3_put-bottles-joint-v1-s0-30k_step30000
+      norm_stats_source: checkpoint_matched_yam_put_bottles_into_the_bin_20260905_joint_ee_v1
+      train_config_name: pi05_yam
+      model_root: /home/ubuntu/manimux/checkpoints/finetuned/ziyang/pi05-yam-put-bottles-joint-step30000
+      norm_stats_path: /home/ubuntu/manimux/checkpoints/finetuned/ziyang/pi05-yam-put-bottles-joint-step30000/assets/yam_put_bottles_into_the_bin_20260905_joint_ee_v1
+      action_horizon: 50
+      num_steps: 10
+  startup_timeout_s: 30.0
   options:
     server: ws://127.0.0.1:8500
-    connect_timeout_s: 30.0
-    request_timeout_s: 300.0
+    request_timeout_s: 10.0
     group_order: [left_arm, right_arm]
+    group_prefixes:
+      left_arm: left
+      right_arm: right
+    gripper_dofs: 1
     camera_map:
       cam_head: front_camera
       cam_left_wrist: left_camera
       cam_right_wrist: right_camera
-    kinematics: yam
-    kinematics_options:
-      arm_type: yam
-      gripper_type: linear_4310
-      num_arm_joints: 6
 
 execution:
-  runtime: manimux
+  runtime: rtc
+  chunk_steps: 12
+  rtc:
+    initial_delay_steps: 4
+    delay_buffer_size: 10
+    beta: 9.1
   executor: smooth
-  inference_schedule: single_inflight
-  refill_threshold_s: 0.4
   commit_lead_s: 0.0
   max_plan_age_s: 2.0
-  blend_steps: 8
+  blend_steps: 4
   smooth:
     cutoff_hz: 8.0
     max_velocity: 0.25
@@ -84,7 +90,8 @@ execution:
 viewer:
   enabled: true
   robot_adapter: yam
-  policy_label: OpenWAM YAM absolute EEF20
+  policy_label: Pi05 YAM put-bottles joint step-30000 - RTC max 12
 
 recording:
   enabled: true
+  video_fps: 30.0

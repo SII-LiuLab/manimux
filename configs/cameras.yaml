@@ -4,6 +4,8 @@
 # 启动：
 #   envs/yam/.venv/bin/manimux-camera-server --config configs/cameras.yaml
 #
+# 本机 rollout 使用 640x480 RGB；不启用模型未使用的深度流。
+#
 # 这里的相机名要和 run 配置里 sensors.options.camera_names 以及各 policy 的
 # camera_map 对得上。查设备号：
 #   envs/yam/.venv/bin/python -c "from manimux.sensors.realsense import get_device_ids; print(get_device_ids())"
@@ -13,9 +15,21 @@ sensors:
     # 左腕相机
     left_camera:
       device_id: "260322276964"
+      width: 640
+      height: 480
+      fps: 30
+      enable_depth: false
     # 前方场景相机（MolmoAct 的 top_cam / ABC 的 top）
     front_camera:
       device_id: "260322276687"
+      width: 640
+      height: 480
+      fps: 30
+      enable_depth: false
     # 右腕相机
     right_camera:
       device_id: "260322274672"
+      width: 640
+      height: 480
+      fps: 30
+      enable_depth: false

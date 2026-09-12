@@ -129,16 +129,21 @@ class DefaultChunkStrategy:
         request_state: RequestState,
         runtime_state: RuntimeState,
     ) -> InferenceSubmission | None:
-        del runtime_state
-        refill_ns = int(self._config.execution.refill_threshold_s * 1_000_000_000)
-        request_expired = now_ns > request_state.last_deadline_ns
-        request_ready = (
-            not request_state.in_flight
-            if self._config.execution.inference_schedule == "single_inflight"
-            else request_state.last_submitted_seq < 0 or request_expired
-        )
-        if timeline.remaining_ns(now_ns) >= refill_ns or not request_ready:
-            return None
+        schedule = self._config.execution.inference_schedule
+        if schedule == "serial":
+            if (runtime_state != RuntimeState.RUNNING or request_state.in_flight
+                    or timeline.remaining_ns(now_ns) > 0):
+                return None
+        else:
+            refill_ns = int(self._config.execution.refill_threshold_s * 1_000_000_000)
+            request_expired = now_ns > request_state.last_deadline_ns
+            request_ready = (
+                not request_state.in_flight
+                if schedule == "single_inflight"
+                else request_state.last_submitted_seq < 0 or request_expired
+            )
+            if timeline.remaining_ns(now_ns) >= refill_ns or not request_ready:
+                return None
         deadline_ns = now_ns + int(self._config.policy.timeout_s * 1_000_000_000)
         request = InferenceRequest(
             session_id=session_id,

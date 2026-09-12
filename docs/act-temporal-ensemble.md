@@ -63,5 +63,5 @@ checkpoint 混用：
 
 ```bash
 envs/yam/.venv/bin/manimux run \
-  --config configs/pi05/yam/infra/act-temporal-ensemble-pick-red-ball-box-step1000.yaml
+  --config configs/pi05/yam/infra/pick-red-ball-box/act-temporal-ensemble-step1000.yaml
 ```

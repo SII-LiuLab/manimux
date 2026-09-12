@@ -23,6 +23,8 @@ HARDWARE_VERIFIED_VARIANTS = {
 }
 YAM_FINETUNED_VARIANTS = HARDWARE_VERIFIED_VARIANTS | {
     "pi05_yam_assemble_screwdriver_step_15000",
+    "pi05_yam_put_bottles_joint_step_30000",
+    "pi05_yam_put_bottles_joint_ee_step_30000",
 }
 GPU_FORWARD_VERIFIED_VARIANTS = HARDWARE_VERIFIED_VARIANTS
 TASK_QUALITY_LIMITED_VARIANTS = {

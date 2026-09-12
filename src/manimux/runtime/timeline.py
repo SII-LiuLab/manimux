@@ -30,6 +30,7 @@ class _ActivePlan:
     hold_from_step: dict[str, int] = field(default_factory=dict)
     unblended_groups: GroupTrajectory | None = None
     observation_time_ns: int | None = None
+    hold_last_step: bool = False
 
     @property
     def horizon_steps(self) -> int:
@@ -37,7 +38,8 @@ class _ActivePlan:
 
     @property
     def end_time_ns(self) -> int:
-        return self.start_time_ns + (self.horizon_steps - 1) * self.dt_ns
+        intervals = self.horizon_steps if self.hold_last_step else self.horizon_steps - 1
+        return self.start_time_ns + intervals * self.dt_ns
 
 
 class ActionTimeline:
@@ -48,10 +50,12 @@ class ActionTimeline:
         group_dims: dict[str, int],
         *,
         max_source_steps: int | None = None,
+        start_on_commit: bool = False,
     ) -> None:
         if max_source_steps is not None and max_source_steps < 2:
             raise ValueError("max_source_steps must be at least two")
         self._max_source_steps = max_source_steps
+        self._start_on_commit = start_on_commit
         self._group_dims = dict(group_dims)
         self._active: _ActivePlan | None = None
         self._accepted_request_seq = -1
@@ -104,6 +108,8 @@ class ActionTimeline:
             return CommitResult(False, "stale_request_seq")
         if now_ns - chunk.observation_time_ns > max_plan_age_ns:
             return CommitResult(False, "plan_too_old")
+        if self._start_on_commit and chunk.source_offset_steps:
+            return CommitResult(False, "serial_requires_untrimmed_chunk")
         if set(chunk.groups) != set(self._group_dims):
             return CommitResult(False, "group_mismatch")
         if set(current_command) != set(self._group_dims):
@@ -115,7 +121,9 @@ class ActionTimeline:
         start_time_ns = now_ns + commit_lead_ns
         age_at_commit_ns = max(0, start_time_ns - chunk.observation_time_ns)
         source_cursor = int(age_at_commit_ns // chunk.dt_ns)
-        trimmed_steps = max(0, source_cursor - chunk.source_offset_steps)
+        trimmed_steps = (
+            0 if self._start_on_commit else max(0, source_cursor - chunk.source_offset_steps)
+        )
         end = chunk.horizon_steps
         if self._max_source_steps is not None:
             end = min(end, self._max_source_steps - chunk.source_offset_steps)
@@ -145,6 +153,7 @@ class ActionTimeline:
             hold_from_step=hold_from_step,
             unblended_groups=unblended_groups,
             observation_time_ns=chunk.observation_time_ns,
+            hold_last_step=self._start_on_commit,
         )
         self._active = new_plan
         self._accepted_request_seq = chunk.request_seq
@@ -154,10 +163,12 @@ class ActionTimeline:
         active = self._active
         if active is None or time_ns < active.start_time_ns or time_ns > active.end_time_ns:
             return None
+        if active.hold_last_step and time_ns >= active.end_time_ns:
+            return None
         position = (time_ns - active.start_time_ns) / active.dt_ns
-        lower = int(np.floor(position))
+        lower = min(int(np.floor(position)), active.horizon_steps - 1)
         upper = min(lower + 1, active.horizon_steps - 1)
-        alpha = position - lower
+        alpha = min(position - lower, 1.0)
         return {
             name: (1.0 - alpha) * values[lower] + alpha * values[upper]
             for name, values in active.groups.items()

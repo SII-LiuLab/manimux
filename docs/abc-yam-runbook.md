@@ -29,8 +29,8 @@ envs/abc/.venv/bin/manimux-abc-server \
 envs/yam/.venv/bin/manimux-camera-server --config configs/abc/yam/cameras.yaml
 ```
 
-旧通用 `configs/cameras.yaml` 省略尺寸，默认采集 640×360；这与当前成功 SA
-路径的输入视野不同。ABC 服务保留自己的 letterbox 预处理，不使用 SA 的裁剪。
+通用 `configs/cameras.yaml` 此前省略尺寸，默认采集 640×360；现已同步为
+640×480 RGB-only。ABC 服务保留自己的 letterbox 预处理，不使用 SA 的裁剪。
 本次准备时，左 D405 在同时启用 RGB/深度时持续等待超时，RGB-only 可正常出帧。
 相机配置新增可选 `enable_depth: false`；其他配置默认仍为 RGB+深度。
 RGB-only 的 `read()` 明确返回 `(RGB, None)`，不伪造深度图，ZMQ RGB 协议不变。

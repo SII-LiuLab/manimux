@@ -21,8 +21,10 @@ from manimux.types import FloatArray, UInt8Array
 
 from .chunk_timeline import ChunkTimelineView
 from .protocol import PolicyPlan, RobotSnapshot
+from .reference_layouts import DEFAULT_LAYOUT_ROOT
 from .robots import available_robot_adapters, load_robot_adapter
 from .robots.base import RobotAdapter, RobotGroup
+from .top_overlay import TopViewOverlay
 from .transport import ControlServer, ViewerReceiver
 
 MAX_PLAN_HISTORY = 16
@@ -159,8 +161,10 @@ class PolicyViewer:
         bridge_endpoint: str,
         control_endpoint: str,
         robot: RobotAdapter,
+        reference_root: Path = DEFAULT_LAYOUT_ROOT,
     ) -> None:
         self.robot = robot
+        self.reference_root = reference_root
         self.server = viser.ViserServer(host=host, port=port, label="Universal Policy Viewer")
         self.server.gui.configure_theme(
             control_layout="fixed",
@@ -219,8 +223,10 @@ class PolicyViewer:
 
     def _build_scene(self) -> None:
         self.server.scene.set_up_direction("+z")
-        self.server.initial_camera.position = (1.45, -1.8, 1.25)
-        self.server.initial_camera.look_at = (0.25, 0.0, 0.28)
+        # Pan the initial view left so the robot appears farther right, clear of the panels.
+        # Translate position and target together to preserve viewing direction and scale.
+        self.server.initial_camera.position = (1.25, -1.93, 1.25)
+        self.server.initial_camera.look_at = (0.05, -0.13, 0.28)
         self.server.initial_camera.up = (0.0, 0.0, 1.0)
         self.server.initial_camera.fov = np.deg2rad(55.0)
         self.server.scene.add_grid(
@@ -277,6 +283,9 @@ class PolicyViewer:
         )
         self.status = self.server.gui.add_markdown("🟠 **Waiting for policy executor**")
         self.instruction = self.server.gui.add_markdown(_instruction_markdown(""))
+        self.top_overlay = TopViewOverlay(
+            self.server.gui, self.reference_root
+        )
         self.new_rollout_folder = self.server.gui.add_folder(
             "① New rollout", expand_by_default=True
         )
@@ -844,7 +853,10 @@ class PolicyViewer:
         for source_name, payload in message.get("cameras_jpeg", {}).items():
             slot = self.robot.camera_slot(source_name)
             if slot in self.camera_images:
-                self.camera_images[slot].image = self._image(str(payload))
+                image = self._image(str(payload))
+                self.camera_images[slot].image = image
+                if slot == "top":
+                    self.top_overlay.update(image)
 
     def _update_event(self, message: dict[str, Any]) -> None:
         event = str(message.get("event", "unknown"))
@@ -1064,6 +1076,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--port", type=int, default=8086)
     parser.add_argument("--bridge-endpoint", default="tcp://127.0.0.1:5568")
     parser.add_argument("--control-endpoint", default="tcp://127.0.0.1:5569")
+    parser.add_argument("--reference-root", type=Path, default=DEFAULT_LAYOUT_ROOT)
     parser.add_argument(
         "--robot",
         default="yam",
@@ -1095,6 +1108,7 @@ def main() -> None:
         args.bridge_endpoint,
         args.control_endpoint,
         robot,
+        reference_root=args.reference_root,
     )
     if args.demo:
         threading.Thread(target=_demo, args=(viewer,), daemon=True).start()

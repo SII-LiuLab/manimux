@@ -1,0 +1,22 @@
+policy_name: Pi_05
+protocol: ws
+host: 127.0.0.1
+port: 8500
+
+task_name: put_bottles_into_the_bin
+env_cfg_type: yam_dual
+action_type: joint
+eval_batch: false
+checkpoint_variant: pi05_yam_put_bottles_joint_ee_step_30000
+
+train_config_name: pi05_yam_joint_ee
+observation_profile: yam_native
+repo_id: yam_put_bottles_into_the_bin_20260905_joint_ee_v1
+model_path: /home/ubuntu/manimux/checkpoints/finetuned/ziyang/pi05-yam-put-bottles-joint-ee-step30000
+checkpoint_source: qz_hdd3_put-bottles-joint-ee-v1-s0-30k_step30000
+norm_stats_path: /home/ubuntu/manimux/checkpoints/finetuned/ziyang/pi05-yam-put-bottles-joint-ee-step30000/assets/yam_put_bottles_into_the_bin_20260905_joint_ee_v1
+norm_stats_source: checkpoint_matched_yam_put_bottles_into_the_bin_20260905_joint_ee_v1
+use_delta_joint_actions: true
+
+action_horizon: 50
+num_steps: 10

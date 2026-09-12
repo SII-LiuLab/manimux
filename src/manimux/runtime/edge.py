@@ -30,6 +30,7 @@ from manimux.types import (
     GroupVector,
     ObservationSnapshot,
     RobotCommand,
+    RobotState,
     SensorFrame,
     copy_action_chunk,
     copy_group_vector,
@@ -160,6 +161,7 @@ class EdgeRuntime:
         return ActionTimeline(
             self._config.robot.group_dims,
             max_source_steps=self._config.execution.max_chunk_steps,
+            start_on_commit=self._config.execution.inference_schedule == "serial",
         )
 
     def _hold_command(self, now_ns: int, groups: GroupVector) -> RobotCommand:
@@ -311,7 +313,10 @@ class EdgeRuntime:
                     recorder.event("viewer_home_requested", step=steps)
                     next_tick_ns = self._clock.now_ns()
                     continue
-                if self._decoder is not None and viewer_control.paused:
+                if viewer_control.paused and (
+                    self._decoder is not None
+                    or self._config.execution.inference_schedule == "serial"
+                ):
                     self._timeline = self._build_timeline()
                     discard_responses_through = max(discard_responses_through, request_seq)
                 self._state = (
@@ -713,6 +718,18 @@ class EdgeRuntime:
                             "gripper_decision", step=steps, monotonic_ns=now_ns,
                             plan_id=reference.plan_id, groups=self._executor.gripper_diagnostics,
                         )
+                elif (
+                    self._state == RuntimeState.RUNNING
+                    and self._config.execution.inference_schedule == "serial"
+                ):
+                    # Keep the last command fixed while waiting for the next chunk.
+                    # Reset executor velocity history to the held command, so a new
+                    # chunk does not resume with velocity left over before the wait.
+                    self._executor.reset(RobotState(
+                        groups=copy_group_vector(last_command),
+                        monotonic_ns=now_ns, sequence=state.sequence,
+                    ))
+                    command = self._hold_command(now_ns, last_command)
                 elif (
                     self._state == RuntimeState.RUNNING
                     and isinstance(self._executor, SmoothExecutor)

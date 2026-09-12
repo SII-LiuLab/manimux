@@ -271,10 +271,10 @@ XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
   --config configs/pi05/yam/server/finetune-assemble-screwdriver-step15000.yaml
 
 envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
-  --config configs/pi05/yam/infra/manimux-assemble-screwdriver-step15000.yaml
+  --config configs/pi05/yam/infra/assemble-screwdriver/manimux-step15000.yaml
 
 envs/yam/.venv/bin/manimux serve \
-  --config configs/pi05/yam/infra/manimux-assemble-screwdriver-step15000.yaml
+  --config configs/pi05/yam/infra/assemble-screwdriver/manimux-step15000.yaml
 ```
 
 #### LingBot-VLA2 step-15000

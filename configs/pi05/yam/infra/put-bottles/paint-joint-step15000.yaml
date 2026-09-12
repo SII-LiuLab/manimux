@@ -1,6 +1,6 @@
 run:
   task: Put the bottles into the bin.
-  output_dir: ./data/experiments/pi05-put-bottles-joint-step15000/manimux
+  output_dir: ./data/experiments/pi05-put-bottles-joint-step15000/paint
   max_steps: 12000
 
 robot:
@@ -62,13 +62,15 @@ policy:
       cam_right_wrist: right_camera
 
 execution:
-  runtime: manimux
+  runtime: paint
+  chunk_steps: 12
+  paint:
+    initial_delay_steps: 10
+    delay_buffer_size: 10
   executor: smooth
-  inference_schedule: single_inflight
-  refill_threshold_s: 0.4
   commit_lead_s: 0.0
   max_plan_age_s: 2.0
-  blend_steps: 4
+  blend_steps: 0
   smooth:
     cutoff_hz: 8.0
     max_velocity: 0.25
@@ -87,7 +89,7 @@ execution:
 viewer:
   enabled: true
   robot_adapter: yam
-  policy_label: Pi05 YAM put-bottles joint step-15000 - ManiMux
+  policy_label: Pi05 YAM put-bottles joint step-15000 - PAINT
 
 recording:
   enabled: true

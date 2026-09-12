@@ -151,7 +151,7 @@ does not rewrite the paper-selected prefix.
 
 ```text
 server: configs/pi05/yam/server/finetune-pick-red-ball-box-step1000.yaml
-infra:  configs/pi05/yam/infra/dvac-pick-red-ball-box-step1000.yaml
+infra:  configs/pi05/yam/infra/pick-red-ball-box/dvac-step1000.yaml
 ```
 
 The server, checkpoint and norm stats are identical to ordinary Pi05. Only the infra runtime and
@@ -188,7 +188,7 @@ Before any camera, CAN or robot process, run one hardware-free forward probe:
 ```bash
 cd /home/ubuntu/manimux
 envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
-  --config configs/pi05/yam/infra/dvac-pick-red-ball-box-step1000.yaml
+  --config configs/pi05/yam/infra/pick-red-ball-box/dvac-step1000.yaml
 ```
 
 Required output:
@@ -204,7 +204,7 @@ Then exercise the rolling window with three requests in one protocol session:
 ```bash
 cd /home/ubuntu/manimux
 envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_dvac_probe.py \
-  --config configs/pi05/yam/infra/dvac-pick-red-ball-box-step1000.yaml \
+  --config configs/pi05/yam/infra/pick-red-ball-box/dvac-step1000.yaml \
   --requests 3
 ```
 
@@ -221,7 +221,7 @@ operator may run:
 ```bash
 cd /home/ubuntu/manimux
 envs/yam/.venv/bin/manimux run \
-  --config configs/pi05/yam/infra/dvac-pick-red-ball-box-step1000.yaml
+  --config configs/pi05/yam/infra/pick-red-ball-box/dvac-step1000.yaml
 ```
 
 DVAC may select a very short prefix. The unchanged synchronous paper cadence then holds the last

@@ -165,7 +165,10 @@ class CameraServer:
     # Lifecycle
     # ------------------------------------------------------------------
 
-    def run(self) -> None:
+    def bind(self) -> None:
+        """Reserve endpoints before opening hardware, including on duplicate starts."""
+        if self._rep is not None:
+            return
         self._rep = self._ctx.socket(zmq.REP)
         self._rep.bind(self.rep_endpoint)
         logger.info("REP bound on %s", self.rep_endpoint)
@@ -178,6 +181,10 @@ class CameraServer:
                 self.pub_endpoint,
                 self.pub_period_sec,
             )
+
+    def run(self) -> None:
+        self.bind()
+        if self._pub is not None:
             self._pub_thread = threading.Thread(
                 target=self._pub_loop,
                 name="camera_server_pub",
@@ -237,7 +244,7 @@ def _build_cameras_from_config(cfg_path: Path) -> dict[str, RealSenseCamera]:
             if not isinstance(enable_depth, bool):
                 raise ValueError(f"camera {name!r} enable_depth must be a boolean")
             logger.info(
-                "Opening camera %s (device_id=%s, %dx%d@%d, max_age=%.3fs, flip=%s)",
+                "Opening camera %s (device_id=%s, %dx%d@%d, max_age=%.3fs, flip=%s, depth=%s)",
                 name,
                 device_id,
                 width,
@@ -245,6 +252,7 @@ def _build_cameras_from_config(cfg_path: Path) -> dict[str, RealSenseCamera]:
                 fps,
                 max_frame_age_sec,
                 flip,
+                enable_depth,
             )
             cameras[name] = RealSenseCamera(
                 device_id,
@@ -286,9 +294,8 @@ def main(argv: list[str] | None = None) -> int:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
-    cameras = _build_cameras_from_config(args.config)
     server = CameraServer(
-        cameras=cameras,
+        cameras={},
         rep_endpoint=args.rep_endpoint,
         pub_endpoint=(args.pub_endpoint or None),
         pub_period_sec=args.pub_period_sec,
@@ -300,10 +307,24 @@ def main(argv: list[str] | None = None) -> int:
         server.shutdown()
         sys.exit(0)
 
-    signal.signal(signal.SIGINT, _handle)
-    signal.signal(signal.SIGTERM, _handle)
-
-    server.run()
+    try:
+        try:
+            server.bind()
+        except zmq.ZMQError as exc:
+            if exc.errno != zmq.EADDRINUSE:
+                raise
+            logger.error(
+                "Camera endpoint already in use (%s / %s). Reuse the running camera "
+                "service, or stop it before restarting. No cameras were opened or reset.",
+                args.rep_endpoint, args.pub_endpoint,
+            )
+            return 2
+        signal.signal(signal.SIGINT, _handle)
+        signal.signal(signal.SIGTERM, _handle)
+        server.cameras = _build_cameras_from_config(args.config)
+        server.run()
+    finally:
+        server.shutdown()
     return 0
 
 

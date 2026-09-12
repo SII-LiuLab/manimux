@@ -5,7 +5,7 @@
 - **Recorded:** 2026-08-21.
 - **Target:** Pi05 JAX checkpoints through XPolicy + ManiMux AAC.
 - **Configs:** `configs/pi05/yam/infra/aac.yaml` and
-  `configs/pi05/yam/infra/aac-pick-red-ball-box-step1000.yaml`.
+  `configs/pi05/yam/infra/pick-red-ball-box/aac-step1000.yaml`.
 - **Current gate:** source, contract, shape, regression and real `N=20` GPU forward passed. YAM
   hardware rollout has not been run for Pi05 AAC.
 - **Safety boundary:** Codex did not start the Pi05 server, cameras, CAN, preflight or robot.
@@ -91,7 +91,7 @@ dt:     1/30 s
 
 ```text
 server: configs/pi05/yam/server/finetune-pick-red-ball-box-step1000.yaml
-infra:  configs/pi05/yam/infra/aac-pick-red-ball-box-step1000.yaml
+infra:  configs/pi05/yam/infra/pick-red-ball-box/aac-step1000.yaml
 output: N x 50 x 14 absolute joint positions after official output transforms
 dt:     1/30 s
 ```
@@ -149,7 +149,7 @@ Operator-run real GPU gate, after starting the matching Pi05 server:
 
 ```bash
 envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
-  --config configs/pi05/yam/infra/aac-pick-red-ball-box-step1000.yaml
+  --config configs/pi05/yam/infra/pick-red-ball-box/aac-step1000.yaml
 ```
 
 Pass criteria are `aac` capability, `N=20` finite native candidates, a finite selected `[K,14]`
@@ -165,7 +165,7 @@ emergency-stop checks, only the operator runs:
 ```bash
 cd /home/ubuntu/manimux
 envs/yam/.venv/bin/manimux run \
-  --config configs/pi05/yam/infra/aac-pick-red-ball-box-step1000.yaml
+  --config configs/pi05/yam/infra/pick-red-ball-box/aac-step1000.yaml
 ```
 
 Stop with one `Ctrl-C` and wait for the configured Home return and episode save. Do not stop the

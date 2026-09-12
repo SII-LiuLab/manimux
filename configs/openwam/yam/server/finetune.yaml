@@ -3,6 +3,8 @@ protocol: ws
 host: 127.0.0.1
 port: 8500
 eval_batch: false
+compile_enabled: true
+dit_cache_enabled: true
 bench_name: RoboDojo_real
 task_name: yam
 env_cfg_type: yam_dual

@@ -12,15 +12,14 @@ logger = logging.getLogger(__name__)
 
 
 def get_device_ids() -> list[str]:
+    """Enumerate serials without resetting devices owned by another process."""
     import pyrealsense2 as rs
 
     ctx = rs.context()
     devices = ctx.query_devices()
     device_ids = []
     for dev in devices:
-        dev.hardware_reset()
         device_ids.append(dev.get_info(rs.camera_info.serial_number))
-    time.sleep(2)
     return device_ids
 
 
@@ -152,10 +151,17 @@ class RealSenseCamera(CameraDriver):
                 rs.format.bgr8,
                 self._fps,
             )
-            self._pipeline.start(self._config)
-
-            for _ in range(self._warmup_frames):
-                self._pipeline.wait_for_frames()
+            try:
+                self._pipeline.start(self._config)
+                for _ in range(self._warmup_frames):
+                    self._pipeline.wait_for_frames()
+            except Exception:
+                # A failed constructor is never added to the server's camera map.
+                # Release this pipeline here so retrying does not keep it busy.
+                with contextlib.suppress(Exception):
+                    self._pipeline.stop()
+                self._pipeline = None
+                raise
 
     def close(self) -> None:
         """Stop capture and release the RealSense pipeline."""

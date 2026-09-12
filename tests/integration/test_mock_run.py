@@ -72,6 +72,100 @@ def test_single_inflight_schedule_refills_after_each_response(tmp_path: Path) ->
     assert result.accepted_plans >= 2
 
 
+@pytest.mark.parametrize("pause_during_inference", [False, True])
+def test_serial_full_chunks_hold_during_inference_and_discard_paused_results(
+    tmp_path: Path, pause_during_inference: bool,
+) -> None:
+    from manimux.config import ExecutionConfig
+    from manimux.robots.mock import MockDualArmDriver
+
+    class Clock:
+        now = 0
+
+        def now_ns(self):
+            return self.now
+
+        def sleep_until_ns(self, target_ns):
+            self.now = max(self.now, target_ns)
+
+    clock = Clock()
+    commands = []
+
+    class Robot(MockDualArmDriver):
+        def send_command(self, command):
+            commands.append((clock.now, np.concatenate(list(command.groups.values())).copy()))
+            super().send_command(command)
+
+    class Worker(_HomeTestWorker):
+        def __init__(self):
+            super().__init__()
+            self.requests = []
+            self.finished = {}
+
+        def submit_latest(self, request):
+            assert self.request is None
+            self.request = request
+            self.requests.append(request)
+
+        def poll(self):
+            request = self.request
+            if request is None or clock.now < request.observation_time_ns + 200_000_000:
+                return None
+            self.request = None
+            self.finished[request.request_seq] = clock.now
+            groups = {name: np.tile(np.linspace(.1, .3, 50)[:, None], (1, len(q)))
+                      for name, q in request.observation.state.groups.items()}
+            chunk = ActionChunk(f"serial-{request.request_seq}", request.request_seq,
+                                request.observation_time_ns, clock.now, "joint_position",
+                                int(1e9 / 30), groups)
+            return InferenceResponse(
+                session_id=request.session_id, request_seq=request.request_seq,
+                observation_time_ns=request.observation_time_ns,
+                finished_time_ns=clock.now, inference_ms=200., raw_action=chunk,
+            )
+
+    class Viewer(_AutoRunningViewer):
+        def poll_control(self):
+            paused = clock.now < 50_000_000 or (
+                pause_during_inference and 1_950_000_000 <= clock.now < 2_250_000_000
+            )
+            return ViewerControl(paused=paused)
+
+    config = load_config("configs/mock.yaml")
+    config.policy.horizon_steps = 50
+    config.policy.action_dt_s = 1 / 30
+    config.run.max_steps = 500
+    config.sensors = []
+    config.execution = ExecutionConfig(inference_schedule="serial", chunk_steps=50,
+                                       commit_lead_s=0, blend_steps=0)
+    runtime = EdgeRuntime(config, tmp_path, clock=clock)
+    robot = Robot(config.robot.group_dims, clock)
+    worker = Worker()
+    runtime._robot, runtime._worker, runtime._viewer = robot, worker, Viewer()
+    result = runtime.run()
+    assert result.success and result.accepted_plans >= 2
+    assert worker.requests[0].observation_time_ns == 50_000_000
+    events = [json.loads(line) for line in
+              (result.episode_dir / "events.jsonl").read_text().splitlines()]
+    accepted = [e for e in events if e["kind"] == "plan_accepted"]
+    assert all(e["trimmed_steps"] == 0 for e in accepted)
+    root = zarr.open_group(str(result.episode_dir / "data.zarr"), mode="r")
+    for key in root["plans"].group_keys():
+        assert root[f"plans/{key}/committed/left_arm"].shape[0] == 50
+    if pause_during_inference:
+        assert all(not 1_950_000_000 <= r.observation_time_ns < 2_250_000_000
+                   for r in worker.requests)
+        assert 2 not in [e["request_seq"] for e in accepted]
+    else:
+        for prev, nxt in zip(worker.requests, worker.requests[1:], strict=False):
+            assert nxt.observation_time_ns >= worker.finished[prev.request_seq] + 50 * int(1e9 / 30)
+        for request in worker.requests:
+            start = request.observation_time_ns
+            held = [q for t, q in commands if start <= t < start + 200_000_000]
+            assert len(held) > 1
+            np.testing.assert_allclose(held, np.tile(held[0], (len(held), 1)), atol=0, rtol=0)
+
+
 class _HomeTestRobot:
     def __init__(self, group_dims: dict[str, int]) -> None:
         self.groups = {name: np.ones(dim) for name, dim in group_dims.items()}

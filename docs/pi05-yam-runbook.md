@@ -20,7 +20,7 @@ checkpoints/finetuned/ziyang/pi05-yam-pick-red-ball-box-b384/1000/
 ```
 
 - server：`configs/pi05/yam/server/finetune-pick-red-ball-box-step1000.yaml`；
-- ManiMux：`configs/pi05/yam/infra/manimux-pick-red-ball-box-step1000.yaml`；
+- ManiMux：`configs/pi05/yam/infra/pick-red-ball-box/manimux-step1000.yaml`；
 - 输入：三路独立 RGB、14 维 YAM state 和红球任务文本；
 - 输出：`50 x 14` absolute joint positions；
 - 时间语义：轨迹点 30Hz，底层下发 100Hz；
@@ -45,7 +45,7 @@ XLA_PYTHON_CLIENT_PREALLOCATE=false \
   XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
   scripts/validation/pi05_yam_offline_infer.py \
   --config configs/pi05/yam/server/finetune-pick-red-ball-box-step1000.yaml \
-  --infra-config configs/pi05/yam/infra/manimux-pick-red-ball-box-step1000.yaml
+  --infra-config configs/pi05/yam/infra/pick-red-ball-box/manimux-step1000.yaml
 ```
 
 模型服务：
@@ -60,7 +60,7 @@ XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
 
 ```bash
 envs/yam/.venv/bin/manimux run \
-  --config configs/pi05/yam/infra/manimux-pick-red-ball-box-step1000.yaml
+  --config configs/pi05/yam/infra/pick-red-ball-box/manimux-step1000.yaml
 ```
 
 ## 螺丝刀 step-15000：七种算法、统一 Executor
@@ -111,7 +111,7 @@ XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
 ```bash
 cd /home/ubuntu/manimux
 envs/yam/.venv/bin/manimux serve \
-  --config configs/pi05/yam/infra/paint-assemble-screwdriver-step15000.yaml
+  --config configs/pi05/yam/infra/assemble-screwdriver/paint-step15000.yaml
 ```
 
 替换文件名前缀即可选择表中的其他算法，例如 RTC：
@@ -119,7 +119,7 @@ envs/yam/.venv/bin/manimux serve \
 ```bash
 cd /home/ubuntu/manimux
 envs/yam/.venv/bin/manimux serve \
-  --config configs/pi05/yam/infra/rtc-assemble-screwdriver-step15000.yaml
+  --config configs/pi05/yam/infra/assemble-screwdriver/rtc-step15000.yaml
 ```
 
 七种 runtime 选择一种运行，共用上面的同一个 policy server。
@@ -307,7 +307,7 @@ RTC 使用独立 infra 配置。重复评测时启动一次长期 session servic
 
 ```bash
 envs/yam/.venv/bin/manimux serve \
-  --config configs/pi05/yam/infra/rtc-pick-red-ball-box-step1000.yaml
+  --config configs/pi05/yam/infra/pick-red-ball-box/rtc-step1000.yaml
 ```
 
 它与 step-1000 Default config 使用相同的 `50 x 14` checkpoint contract、100Hz robot loop、
@@ -350,7 +350,7 @@ Viewer trail；不会继承上一条 rollout 的推理状态。camera/model/view
 
 ```bash
 envs/yam/.venv/bin/manimux run \
-  --config configs/pi05/yam/infra/rtc-pick-red-ball-box-step1000.yaml
+  --config configs/pi05/yam/infra/pick-red-ball-box/rtc-step1000.yaml
 ```
 
 ## 停止

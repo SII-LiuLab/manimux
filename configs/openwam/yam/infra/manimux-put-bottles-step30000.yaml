@@ -1,7 +1,8 @@
+# Pure serial: infer 32 rows, execute the first 12, then infer from a fresh observation.
 run:
-  task: put the bottle into the bin
-  output_dir: ./data/experiments/openwam-yam
-  max_steps: 6000
+  task: Put the bottles into the bin.
+  output_dir: ./data/experiments/openwam-put-bottles-step30000/manimux
+  max_steps: 60000
 
 robot:
   driver: yam_dual
@@ -28,8 +29,6 @@ sensors:
       camera_names: [left_camera, front_camera, right_camera]
 
 policy:
-  # OpenWAM is hosted by the standard XPolicyLab server. The model and its
-  # vendored upstream source live under XPolicyLab/policy/OpenWAM.
   worker: xpolicylab_ws
   adapter: openwam_yam
   action_dt_s: 0.03333333333333333
@@ -43,6 +42,13 @@ policy:
       policy_family: openwam
       observation_profile: yam_base
       allow_dummy_policy: false
+      checkpoint_path: /home/ubuntu/manimux/checkpoints/finetuned/openwam/put-bottles-openwam-v1-s0-30k-step30000
+      checkpoint_file: checkpoint_step_30000.safetensors
+      checkpoint_sha256: e342337dcebb0965d149bc6ac4323c462dd9ab97a66c4016c1e46eb70d7c59f9
+      training_config_sha256: 3b09536ecd2fa201aca3e52388ecc6fee48f0399e095693e63a26681b05b27a5
+      norm_stats_path: /home/ubuntu/manimux/checkpoints/finetuned/openwam/put-bottles-openwam-v1-s0-30k-step30000/normalization_stats.npy
+      norm_stats_sha256: b28b2f7af33cceeb3f5a49221c4471f349f1d311a69d52b0439d9aa6fb75bf5c
+      action_horizon: 32
   options:
     server: ws://127.0.0.1:8500
     connect_timeout_s: 30.0
@@ -57,12 +63,13 @@ policy:
       arm_type: yam
       gripper_type: linear_4310
       num_arm_joints: 6
+    deployment_bound: true
 
 execution:
   runtime: manimux
+  chunk_steps: 12
   executor: smooth
-  inference_schedule: single_inflight
-  refill_threshold_s: 0.4
+  inference_schedule: serial
   commit_lead_s: 0.0
   max_plan_age_s: 2.0
   blend_steps: 8
@@ -84,7 +91,8 @@ execution:
 viewer:
   enabled: true
   robot_adapter: yam
-  policy_label: OpenWAM YAM absolute EEF20
+  policy_label: OpenWAM YAM put-bottles step-30000 - Serial first 12
 
 recording:
   enabled: true
+  video_fps: 30.0
