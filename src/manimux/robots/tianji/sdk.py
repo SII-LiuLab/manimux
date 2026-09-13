@@ -2,13 +2,13 @@
 
 The Marvin arm SDK (Apache-2.0, 上海孚晞科技) is vendored under ``vendor/marvin``:
 its ctypes bindings plus the Linux x86-64 libraries, which the bindings load
-from their own directory. ``sdk_root`` points at a different SDK checkout
-instead (its ``SDK_PYTHON`` directory is used).
+from their own directory, and the ``ccs_m6_40.MvKDCfg`` arm table. ``sdk_root``
+points at a different SDK checkout instead (``SDK_PYTHON`` and ``CommonConfig``).
 
 The TacCap gripper SDK (``xense.taccap``) is a native build installed into the
-hardware environment. When both are used in one process, ``xense.taccap`` has to
-be imported first; the arm SDK loaded first breaks the TacCap native module's
-shared-library resolution on this stack.
+hardware environment. As in CalibWrist's ``real_run.py``, ``xense.taccap`` has
+to be imported before the Marvin bindings: the SDK ships an old JPEG library
+sharing a SONAME with TacCap's OpenCV dependency.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from pathlib import Path
 from types import ModuleType
 
 VENDOR_MARVIN = Path(__file__).resolve().parent / "vendor" / "marvin"
-KINE_CONFIG = VENDOR_MARVIN / "ccs_m6_40.MvKDCfg"
+KINE_CONFIG_NAME = "ccs_m6_40.MvKDCfg"
 
 
 def load_taccap() -> ModuleType:
@@ -37,6 +37,14 @@ def load_taccap() -> ModuleType:
         ) from exc
 
 
+def kine_config(sdk_root: Path | str | None = None) -> Path:
+    """The M6 v4.0 kinematics/limits table used by the bindings."""
+
+    if sdk_root is None:
+        return VENDOR_MARVIN / KINE_CONFIG_NAME
+    return Path(sdk_root).expanduser().resolve() / "CommonConfig" / KINE_CONFIG_NAME
+
+
 def load_marvin_robot(sdk_root: Path | str | None = None) -> ModuleType:
     """Return the vendor ``fx_robot`` binding (controller link and commands)."""
 
@@ -44,7 +52,7 @@ def load_marvin_robot(sdk_root: Path | str | None = None) -> ModuleType:
 
 
 def load_marvin_kine(sdk_root: Path | str | None = None) -> ModuleType:
-    """Return the vendor ``fx_kine`` binding (closed-form kinematics)."""
+    """Return the vendor ``fx_kine`` binding (kinematics)."""
 
     return _load_binding("fx_kine", sdk_root)
 

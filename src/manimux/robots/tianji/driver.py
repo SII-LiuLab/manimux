@@ -1,18 +1,28 @@
 """Tianji Marvin dual-arm RobotDriver.
 
-Maps ManiMux's canonical groups onto one Marvin controller (both arms share one
-UDP link) and, when mounted, the UMI follower grippers on their own USB links.
+The driver owns what is specific to this body and works at whatever rate the
+ManiMux runtime calls it. Joint limits, velocity and acceleration envelopes,
+interpolation and step shaping are not here: they come from the control
+profile's ``command_safety`` and ``motion_limits`` and are enforced by the
+shared runtime, like every other robot.
 
-* ``left_arm`` is arm A, ``right_arm`` is arm B.
-* A group is 7 joints in radians, followed by the gripper aperture (0 closed,
-  1 open) when ``end_effector`` is ``umi_follower``.
-* ``execute: false`` (the default) is read-only: the arms never leave their
-  current mode, no joint target is sent and the gripper motors stay unpowered.
-  Commands are still validated against the joint limits.
+Body-specific responsibilities:
 
-With ``execute: true`` every command is also checked against the previous one
-(``max_joint_rate_deg_s``) and against the measured joints (sustained tracking
-error), and a controlled gripper's protection faults stop the arms.
+* SDK call sequences, as in CalibWrist's real-robot path and the tianji-control
+  drivers it calls: controller link self-check, position mode with speed-ratio
+  readback, batched joint targets, soft stop, confirmed servo-off.
+* Units and layout: ``left_arm`` is arm A, ``right_arm`` is arm B; a group is 7
+  joints in radians, followed by the gripper aperture (0 closed, 1 open) with
+  the ``umi_follower`` end effector.
+* Hardware faults: controller error codes, an active arm leaving position mode,
+  feedback frames that stop advancing for ``max_feedback_age_s``, SDK FK that
+  disagrees with the DH model (checked at connect), gripper protection faults,
+  and a command further than ``max_tracking_error_deg`` from the measured joints.
+* ``execute: false`` (the default) is read-only: nothing is enabled or sent and
+  the gripper motors stay unpowered. ``gripper_control`` needs ``execute`` with
+  both arms active.
+* ``home()`` moves the active arms through ``home_waypoints_deg`` to
+  ``home_joints_deg`` on tianji-control's cosine-eased joint move.
 """
 
 from __future__ import annotations
@@ -23,45 +33,61 @@ import time
 from collections.abc import Mapping
 
 import numpy as np
-from numpy.typing import NDArray
+from scipy.spatial.transform import Rotation
 
 from manimux.clock import Clock
 from manimux.config import RobotConfig
-from manimux.kinematics.tianji import JOINT_LIMITS_DEG, NUM_ARM_JOINTS
+from manimux.kinematics.tianji import NUM_ARM_JOINTS, TianjiKinematics
 from manimux.robots._interrupt import finish_move_before_interrupt
 from manimux.types import RobotCommand, RobotState
 
 from . import sdk
 from .gripper import GripperSettings, TianjiGrippers
-from .marvin import ARM_INDEX, STATE_ERROR, STATE_POSITION, MarvinSession, describe_error
+from .marvin import (
+    ARM_INDEX,
+    STATE_POSITION,
+    ArmFeedback,
+    FloatArray,
+    MarvinArmModel,
+    MarvinSession,
+    describe_error,
+)
 
 log = logging.getLogger("manimux.robots.tianji")
-
-FloatArray = NDArray[np.float64]
 
 GROUP_ORDER = ("left_arm", "right_arm")
 ARM_OF_GROUP = {"left_arm": "A", "right_arm": "B"}
 END_EFFECTOR_INPUTS = {"umi_follower": 1, "none": 0}
 
 DEFAULT_ROBOT_IP = "192.168.1.190"
+# tianji-control config.HOME_JOINTS.
 DEFAULT_HOME_JOINTS_DEG = {
     "left_arm": (90.0, -90.0, -90.0, -90.0, 0.0, 0.0, 0.0),
     "right_arm": (-90.0, -90.0, 90.0, -90.0, 0.0, 0.0, 0.0),
 }
 HOME_RATE_HZ = 250.0
+FK_TOLERANCE_MM = 0.01
+FK_TOLERANCE_DEG = 0.01
 
 
-def _positive(options: Mapping[str, object], key: str, default: float | None) -> float | None:
+def _flag(options: Mapping[str, object], key: str) -> bool:
+    value = options.get(key, False)
+    if not isinstance(value, bool):
+        raise ValueError(f"robot.options.{key} must be true or false")
+    return value
+
+
+def _positive(options: Mapping[str, object], key: str, default: float) -> float:
     value = options.get(key, default)
-    if value is None:
-        return None
-    number = float(value)  # type: ignore[arg-type]
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError(f"robot.options.{key} must be a number")
+    number = float(value)
     if not math.isfinite(number) or number <= 0:
-        raise ValueError(f"robot.options.{key} must be a positive number")
+        raise ValueError(f"robot.options.{key} must be positive")
     return number
 
 
-def _ratio(options: Mapping[str, object], key: str, default: int | None) -> int | None:
+def _percentage(options: Mapping[str, object], key: str, default: int | None) -> int | None:
     value = options.get(key, default)
     if value is None:
         return None
@@ -86,15 +112,12 @@ class TianjiDualArmDriver:
             "robot_ip",
             "execute",
             "active_arms",
+            "gripper_control",
             "end_effector",
             "sdk_root",
             "vel_ratio",
             "acc_ratio",
-            "max_joint_rate_deg_s",
-            "limit_margin_deg",
-            "joint_limits_deg",
             "max_tracking_error_deg",
-            "max_tracking_error_s",
             "max_feedback_age_s",
             "home_joints_deg",
             "home_waypoints_deg",
@@ -108,7 +131,7 @@ class TianjiDualArmDriver:
             "gripper_grip_margin",
             "gripper_max_torque_nm",
             "gripper_stale_ms",
-            "gripper_read_period_s",
+            "gripper_read_hz",
         }
     )
 
@@ -137,10 +160,8 @@ class TianjiDualArmDriver:
         self._clock = clock
         self._gripper = end_effector == "umi_follower"
         self._ip = str(options.get("robot_ip", DEFAULT_ROBOT_IP))
-        execute = options.get("execute", False)
-        if not isinstance(execute, bool):
-            raise ValueError("robot.options.execute must be true or false")
-        self._execute = execute
+        self._execute = _flag(options, "execute")
+        _flag(options, "home_on_close")  # read by the runtime; validated here
         active = options.get("active_arms", list(GROUP_ORDER))
         if (
             not isinstance(active, list | tuple)
@@ -150,24 +171,24 @@ class TianjiDualArmDriver:
         ):
             raise ValueError("robot.options.active_arms must list left_arm and/or right_arm")
         self._active = tuple(name for name in GROUP_ORDER if name in active)
+        self._gripper_control = _flag(options, "gripper_control")
+        if self._gripper_control and (
+            not self._execute or not self._gripper or self._active != GROUP_ORDER
+        ):
+            raise ValueError(
+                "gripper_control requires execute with both arms active and the "
+                "umi_follower end effector"
+            )
         sdk_root = options.get("sdk_root")
         self._sdk_root = None if sdk_root is None else str(sdk_root)
-
-        self._vel_ratio = _ratio(options, "vel_ratio", None)
-        self._acc_ratio = _ratio(options, "acc_ratio", 100)
-        self._max_rate_deg_s = _positive(options, "max_joint_rate_deg_s", None)
-        if self._execute and (self._vel_ratio is None or self._max_rate_deg_s is None):
+        self._vel_ratio = _percentage(options, "vel_ratio", None)
+        self._acc_ratio = _percentage(options, "acc_ratio", 100)
+        if self._execute and self._vel_ratio is None:
             raise ValueError(
-                "robot.options.execute requires vel_ratio and max_joint_rate_deg_s, "
-                "matching the controller speed confirmed on this robot"
+                "robot.options.execute requires vel_ratio, the controller speed percentage"
             )
-        margin = float(options.get("limit_margin_deg", 5.0))  # type: ignore[arg-type]
-        if not math.isfinite(margin) or margin < 0:
-            raise ValueError("robot.options.limit_margin_deg must be non-negative")
-        self._lower, self._upper = self._joint_limits(options.get("joint_limits_deg", {}), margin)
-        self._max_tracking_deg = _positive(options, "max_tracking_error_deg", 5.0) or 5.0
-        self._max_tracking_s = _positive(options, "max_tracking_error_s", 0.5) or 0.5
-        self._max_feedback_age_s = _positive(options, "max_feedback_age_s", 0.1) or 0.1
+        self._max_tracking_deg = _positive(options, "max_tracking_error_deg", 5.0)
+        self._max_feedback_age_s = _positive(options, "max_feedback_age_s", 0.1)
         home = options.get("home_joints_deg", DEFAULT_HOME_JOINTS_DEG)
         if not isinstance(home, Mapping) or set(home) != set(GROUP_ORDER):
             raise ValueError("robot.options.home_joints_deg must map left_arm and right_arm")
@@ -179,7 +200,7 @@ class TianjiDualArmDriver:
             name: [_joints(point, f"home_waypoints_deg.{name}") for point in points]
             for name, points in waypoints.items()
         }
-        self._home_speed_deg_s = _positive(options, "home_speed_deg_s", 6.0) or 6.0
+        self._home_speed_deg_s = _positive(options, "home_speed_deg_s", 6.0)
         self._gripper_serials = {
             "A": None
             if options.get("left_gripper_sn") is None
@@ -189,71 +210,53 @@ class TianjiDualArmDriver:
             else str(options["right_gripper_sn"]),
         }
         self._gripper_settings = GripperSettings(
-            hz=int(options.get("gripper_hz", 100)),  # type: ignore[call-overload]
-            kp=float(options.get("gripper_kp", 8.0)),  # type: ignore[arg-type]
-            kd=float(options.get("gripper_kd", 0.3)),  # type: ignore[arg-type]
-            grip_margin=float(options.get("gripper_grip_margin", 0.036)),  # type: ignore[arg-type]
-            max_torque_nm=float(options.get("gripper_max_torque_nm", 1.0)),  # type: ignore[arg-type]
-            stale_ms=float(options.get("gripper_stale_ms", 200.0)),  # type: ignore[arg-type]
-            read_period_s=float(options.get("gripper_read_period_s", 0.05)),  # type: ignore[arg-type]
+            hz=int(_positive(options, "gripper_hz", 100)),
+            kp=_positive(options, "gripper_kp", 8.0),
+            kd=_positive(options, "gripper_kd", 0.3),
+            grip_margin=_positive(options, "gripper_grip_margin", 0.036),
+            max_torque_nm=_positive(options, "gripper_max_torque_nm", 1.0),
+            stale_ms=_positive(options, "gripper_stale_ms", 200.0),
+            read_hz=_positive(options, "gripper_read_hz", 30.0),
         )
+        self._dh = TianjiKinematics()
 
         self._session: MarvinSession | None = None
+        self._models: dict[str, MarvinArmModel] = {}
         self._grippers: TianjiGrippers | None = None
         self._prepared: list[str] = []
-        self._measured_deg: dict[str, FloatArray] = {}
         self._last_serials: tuple[int, int] | None = None
         self._last_serials_ns = 0
-        self._last_sent: tuple[int, dict[str, FloatArray]] | None = None
-        self._tracking_since_ns: int | None = None
+        self._measured_deg: dict[str, FloatArray] = {}
         self._sequence = 0
-
-    @staticmethod
-    def _joint_limits(
-        overrides: object, margin: float
-    ) -> tuple[dict[str, FloatArray], dict[str, FloatArray]]:
-        if not isinstance(overrides, Mapping) or not set(overrides) <= set(GROUP_ORDER):
-            raise ValueError("robot.options.joint_limits_deg must map arm groups to overrides")
-        lower, upper = {}, {}
-        for name in GROUP_ORDER:
-            low = np.array([limit[0] for limit in JOINT_LIMITS_DEG], dtype=np.float64)
-            high = np.array([limit[1] for limit in JOINT_LIMITS_DEG], dtype=np.float64)
-            per_joint = overrides.get(name, {})
-            if not isinstance(per_joint, Mapping):
-                raise ValueError(f"joint_limits_deg.{name} must map joint numbers 1-7 to [lo, hi]")
-            for joint, bounds in per_joint.items():
-                index = int(joint) - 1
-                pair = np.asarray(bounds, dtype=np.float64)
-                if not 0 <= index < NUM_ARM_JOINTS or pair.shape != (2,) or pair[0] >= pair[1]:
-                    raise ValueError(f"joint_limits_deg.{name}.{joint} must be [lo, hi] in degrees")
-                # An override may only narrow the controller's own limits.
-                low[index] = max(low[index], pair[0])
-                high[index] = min(high[index], pair[1])
-            low += margin
-            high -= margin
-            if np.any(low >= high):
-                raise ValueError(f"limit_margin_deg leaves no travel on {name}")
-            lower[name], upper[name] = low, high
-        return lower, upper
 
     # ---------- lifecycle ----------
 
     def connect(self) -> None:
         if self._session is not None:
             return
-        taccap = sdk.load_taccap() if self._gripper else None  # must precede the arm SDK
+        # xense.taccap must be imported before the Marvin bindings.
+        taccap = sdk.load_taccap() if self._gripper else None
+        fx_kine = sdk.load_marvin_kine(self._sdk_root)
+        config_path = sdk.kine_config(self._sdk_root)
+        models = {
+            name: MarvinArmModel(fx_kine, ARM_INDEX[ARM_OF_GROUP[name]], config_path)
+            for name in GROUP_ORDER
+        }
         session = MarvinSession(sdk.load_marvin_robot(self._sdk_root), self._ip)
         try:
             session.connect()
             self._session = session
-            feedback = session.read()
-            for name in self._active:
-                arm = feedback[ARM_INDEX[ARM_OF_GROUP[name]]]
-                if arm.err_code or arm.cur_state == STATE_ERROR:
-                    raise RuntimeError(
-                        f"{name} (arm {ARM_OF_GROUP[name]}) reports {describe_error(arm.err_code)} "
-                        f"in state {arm.cur_state}; clear it on the controller first"
-                    )
+            self._models = models
+            self._check_kinematics(session.read())
+            if taccap is not None:
+                grippers = TianjiGrippers(
+                    taccap,
+                    self._gripper_serials,
+                    control=self._gripper_control,
+                    settings=self._gripper_settings,
+                )
+                grippers.start()
+                self._grippers = grippers
             if self._execute:
                 assert self._vel_ratio is not None and self._acc_ratio is not None
                 for name in self._active:
@@ -261,19 +264,8 @@ class TianjiDualArmDriver:
                         ARM_OF_GROUP[name], self._vel_ratio, self._acc_ratio
                     )
                     self._prepared.append(name)
-            if taccap is not None:
-                grippers = TianjiGrippers(
-                    taccap,
-                    self._gripper_serials,
-                    control_arms=[ARM_OF_GROUP[name] for name in self._active]
-                    if self._execute
-                    else (),
-                    settings=self._gripper_settings,
-                )
-                grippers.start()
-                self._grippers = grippers
             log.info(
-                "Tianji connected to %s (controller version %s, %s, arms %s)",
+                "Tianji connected to %s (controller version %s, %s, active %s)",
                 self._ip,
                 session.version,
                 "EXECUTE" if self._execute else "read-only",
@@ -295,6 +287,25 @@ class TianjiDualArmDriver:
                 ) from None
             raise
 
+    def _check_kinematics(self, feedback: tuple[ArmFeedback, ArmFeedback]) -> None:
+        """The SDK's FK and the DH model must agree before anything relies on them."""
+
+        for name, arm in zip(GROUP_ORDER, feedback, strict=True):
+            q_deg = arm.joints_deg
+            sdk_fk = self._models[name].fk_mm(q_deg)
+            dh_fk = self._dh.flange(np.radians(q_deg))
+            if sdk_fk.shape != (4, 4) or not np.isfinite(sdk_fk).all():
+                raise ValueError(f"{name}: invalid SDK FK matrix")
+            position_error = float(np.linalg.norm(sdk_fk[:3, 3] - dh_fk[:3, 3] * 1e3))
+            rotation_error = float(
+                np.degrees(Rotation.from_matrix(sdk_fk[:3, :3].T @ dh_fk[:3, :3]).magnitude())
+            )
+            if position_error > FK_TOLERANCE_MM or rotation_error > FK_TOLERANCE_DEG:
+                raise ValueError(
+                    f"{name}: SDK FK versus DH mismatch ({position_error:.4f} mm, "
+                    f"{rotation_error:.4f} deg)"
+                )
+
     def _require_session(self) -> MarvinSession:
         if self._session is None:
             raise RuntimeError("Tianji dual-arm driver is not connected")
@@ -309,23 +320,25 @@ class TianjiDualArmDriver:
             self._last_serials, self._last_serials_ns = serials, now
         elif now - self._last_serials_ns > self._max_feedback_age_s * 1e9:
             raise RuntimeError(
-                f"Marvin feedback stalled for {(now - self._last_serials_ns) / 1e9:.3f} s "
-                f"(frame serials {serials})"
+                f"robot feedback did not advance for {(now - self._last_serials_ns) / 1e9:.3f} s"
+            )
+        if any(arm.err_code for arm in feedback):
+            raise RuntimeError(
+                "robot error: "
+                + "; ".join(
+                    f"{name} state {arm.cur_state} {describe_error(arm.err_code)}"
+                    for name, arm in zip(GROUP_ORDER, feedback, strict=True)
+                )
             )
         apertures = self._grippers.apertures() if self._grippers is not None else {}
         groups: dict[str, FloatArray] = {}
-        for name in GROUP_ORDER:
-            arm = feedback[ARM_INDEX[ARM_OF_GROUP[name]]]
-            if arm.err_code or arm.cur_state == STATE_ERROR:
-                raise RuntimeError(
-                    f"{name} reports {describe_error(arm.err_code)} in state {arm.cur_state}"
-                )
+        for name, arm in zip(GROUP_ORDER, feedback, strict=True):
             if self._execute and name in self._active and arm.cur_state != STATE_POSITION:
                 raise RuntimeError(
                     f"{name} left position mode (state {arm.cur_state}); emergency stop?"
                 )
             if arm.joints_deg.shape != (NUM_ARM_JOINTS,) or not np.isfinite(arm.joints_deg).all():
-                raise RuntimeError(f"{name} returned invalid joint feedback {arm.joints_deg}")
+                raise ValueError(f"{name}: invalid joint feedback")
             self._measured_deg[name] = arm.joints_deg
             values = np.radians(arm.joints_deg)
             if self._gripper:
@@ -343,203 +356,142 @@ class TianjiDualArmDriver:
             values = np.asarray(command.groups[name], dtype=np.float64)
             if values.shape != (self._width,) or not np.isfinite(values).all():
                 raise ValueError(f"Tianji {name} command must be {self._width} finite values")
+            if self._gripper and not 0.0 <= values[NUM_ARM_JOINTS] <= 1.0:
+                raise ValueError(f"Tianji {name} gripper command is outside [0, 1]")
             targets[name] = values
-        joints_deg = {name: np.degrees(targets[name][:NUM_ARM_JOINTS]) for name in self._active}
-        for name, joints in joints_deg.items():
-            outside = np.flatnonzero((joints < self._lower[name]) | (joints > self._upper[name]))
-            if outside.size:
-                index = int(outside[0])
-                raise ValueError(
-                    f"{name} J{index + 1} command {joints[index]:.2f} deg is outside "
-                    f"[{self._lower[name][index]:.1f}, {self._upper[name][index]:.1f}]"
-                )
         if not self._execute:
             return
 
-        missing = [name for name in self._active if name not in self._measured_deg]
-        if missing:
-            raise RuntimeError("read the robot state before commanding it")
-        if self._last_sent is None:
-            for name in self._active:
-                jump = float(np.max(np.abs(joints_deg[name] - self._measured_deg[name])))
-                if jump > self._max_tracking_deg:
-                    raise RuntimeError(
-                        f"{name} first command is {jump:.2f} deg from the measured joints"
-                    )
-        else:
-            dt = (command.monotonic_ns - self._last_sent[0]) / 1e9
-            if dt <= 0:
-                self._halt()
-                raise RuntimeError("Tianji command timestamps must increase")
-            assert self._max_rate_deg_s is not None
-            for name in self._active:
-                step = float(np.max(np.abs(joints_deg[name] - self._last_sent[1][name])))
-                limit = self._max_rate_deg_s * dt * 1.05
-                if step > limit:
-                    self._halt()
-                    raise RuntimeError(
-                        f"{name} joint step {step:.3f} deg exceeds {limit:.3f} deg "
-                        f"in {dt * 1e3:.1f} ms"
-                    )
-        worst_name, worst = max(
-            (
-                (name, float(np.max(np.abs(joints_deg[name] - self._measured_deg[name]))))
-                for name in self._active
-            ),
-            key=lambda item: item[1],
-        )
-        if worst > self._max_tracking_deg:
-            if self._tracking_since_ns is None:
-                self._tracking_since_ns = command.monotonic_ns
-            elif command.monotonic_ns - self._tracking_since_ns > self._max_tracking_s * 1e9:
-                self._halt()
+        joints_deg = {name: np.degrees(targets[name][:NUM_ARM_JOINTS]) for name in self._active}
+        for name, joints in joints_deg.items():
+            measured = self._measured_deg.get(name)
+            if measured is None:
+                raise RuntimeError("read the robot state before commanding it")
+            deviation = np.abs(joints - measured)
+            joint = int(np.argmax(deviation))
+            if deviation[joint] > self._max_tracking_deg:
+                self.stop()
                 raise RuntimeError(
-                    f"{worst_name} tracking error {worst:.2f} deg stayed above "
-                    f"{self._max_tracking_deg:.2f} deg for more than {self._max_tracking_s:.2f} s"
+                    f"{ARM_OF_GROUP[name]} tracking error {deviation[joint]:.3f} deg on "
+                    f"J{joint + 1} exceeds {self._max_tracking_deg:.3f} deg (all joints: "
+                    + " ".join(f"J{k + 1}={v:.2f}" for k, v in enumerate(deviation))
+                    + ")"
                 )
-        else:
-            self._tracking_since_ns = None
         if self._grippers is not None:
             fault = self._grippers.check()
-            if fault is not None:
-                self._halt()
+            if fault:
+                self.stop()
                 raise RuntimeError(f"gripper protection: {fault}")
         session.send_joints({ARM_OF_GROUP[name]: joints for name, joints in joints_deg.items()})
-        if self._grippers is not None:
-            for name in self._active:
+        if self._grippers is not None and self._gripper_control:
+            for name in GROUP_ORDER:
                 self._grippers.set_target(ARM_OF_GROUP[name], float(targets[name][NUM_ARM_JOINTS]))
-        self._last_sent = (command.monotonic_ns, joints_deg)
-
-    def _halt(self) -> None:
-        """Soft-stop the active arms and hold the grippers; used on command faults."""
-
-        session = self._session
-        if session is None:
-            return
-        for name in self._active:
-            try:
-                session.stop_running(ARM_OF_GROUP[name])
-            except Exception:  # noqa: BLE001 - already failing; keep stopping the rest
-                log.exception("stop_running failed on %s", name)
-        if self._grippers is not None:
-            try:
-                self._grippers.hold()
-            except Exception:  # noqa: BLE001
-                log.exception("gripper hold failed")
 
     def home(self) -> None:
         self._require_session()
         if not self._execute:
             log.info("Tianji is read-only; skipping home")
             return
-        stages: list[dict[str, FloatArray]] = []
         depth = max((len(self._waypoints.get(name, [])) for name in self._active), default=0)
-        for index in range(depth):
-            stage = {
+        stages = [
+            {
                 name: self._waypoints[name][index]
                 for name in self._active
                 if index < len(self._waypoints.get(name, []))
             }
-            stages.append(stage)
+            for index in range(depth)
+        ]
         stages.append({name: self._home[name] for name in self._active})
         for stage in stages:
-            self._move_joints(stage, what="Tianji home")
+            self._move_joints(stage)
 
-    def _move_joints(self, targets: Mapping[str, FloatArray], *, what: str) -> None:
-        """Cosine-eased joint move shared by every axis, with tracking checks."""
+    def _move_joints(self, targets: Mapping[str, FloatArray]) -> None:
+        """tianji-control ``move_to_joints``: one cosine-eased time base for every axis."""
 
         session = self._require_session()
         for name, target in targets.items():
-            if np.any(target < self._lower[name]) or np.any(target > self._upper[name]):
-                raise ValueError(f"{what} target for {name} is outside the joint limits")
+            model = self._models[name]
+            if np.any(target < model.lim_n) or np.any(target > model.lim_p):
+                raise ValueError(f"home target for {name} is outside the controller limits")
         feedback = session.read()
         start = {name: feedback[ARM_INDEX[ARM_OF_GROUP[name]]].joints_deg for name in targets}
         delta = {name: targets[name] - start[name] for name in targets}
         distance = max(float(np.max(np.abs(value))) for value in delta.values())
-        self._last_sent = None
         if distance <= 1e-3:
             return
         duration = (math.pi / 2.0) * distance / self._home_speed_deg_s
         period = 1.0 / HOME_RATE_HZ
-        with finish_move_before_interrupt(what, log) as interrupted:
-            started = time.monotonic()
+        deadline = time.monotonic() + duration * 2.0 + 5.0
+        with finish_move_before_interrupt("Tianji home", log) as interrupted:
             tick = 0
             while True:
                 elapsed = tick * period
-                fraction = (
-                    1.0
-                    if elapsed >= duration
-                    else 0.5 * (1.0 - math.cos(math.pi * elapsed / duration))
-                )
+                if elapsed >= duration:
+                    fraction = 1.0
+                else:
+                    fraction = 0.5 * (1.0 - math.cos(math.pi * elapsed / duration))
                 command = {name: start[name] + delta[name] * fraction for name in targets}
                 session.send_joints({ARM_OF_GROUP[name]: value for name, value in command.items()})
                 tick += 1
-                if tick % 25 == 0 or fraction >= 1.0:
+                if fraction >= 1.0:
+                    break
+                if time.monotonic() > deadline:
+                    self.stop()
+                    raise RuntimeError("Tianji home timed out")
+                if tick % 25 == 0:  # tracking check every 0.1 s
                     feedback = session.read()
                     for name, value in command.items():
                         measured = feedback[ARM_INDEX[ARM_OF_GROUP[name]]].joints_deg
                         error = float(np.max(np.abs(value - measured)))
                         if error > self._max_tracking_deg:
-                            self._halt()
+                            self.stop()
                             raise RuntimeError(
-                                f"{what}: {name} tracking error {error:.2f} deg (obstructed?)"
+                                f"Tianji home: arm {ARM_OF_GROUP[name]} tracking error "
+                                f"{error:.2f} deg exceeds the limit (obstructed?)"
                             )
-                if fraction >= 1.0:
-                    break
-                if time.monotonic() > started + 2.0 * duration + 5.0:
-                    self._halt()
-                    raise RuntimeError(f"{what} timed out")
-                time.sleep(max(0.0, started + tick * period - time.monotonic()))
+                time.sleep(period)
         if interrupted:
-            log.info("%s finished; the deferred Ctrl-C now applies.", what)
+            log.info("Tianji home finished; the deferred Ctrl-C now applies.")
 
     def stop(self) -> None:
+        """Stop the gripper motors and soft-stop the active arms."""
+
+        if self._grippers is not None:
+            self._grippers.stop_control()
         session = self._session
         if session is None or not self._execute:
             return
-        feedback = session.read()
-        session.send_joints(
-            {
-                ARM_OF_GROUP[name]: feedback[ARM_INDEX[ARM_OF_GROUP[name]]].joints_deg
-                for name in self._active
-            }
-        )
-        if self._grippers is not None:
-            self._grippers.hold()
-        self._last_sent = None
+        for name in self._active:
+            try:
+                session.stop_running(ARM_OF_GROUP[name])
+            except Exception:  # noqa: BLE001 - keep stopping the other arm
+                log.exception("stop_running failed on %s", name)
 
     def close(self) -> None:
-        errors: list[BaseException] = []
         grippers, self._grippers = self._grippers, None
-        if grippers is not None:
-            try:
-                grippers.close()
-            except BaseException as exc:
-                errors.append(exc)
         session, self._session = self._session, None
-        if session is not None:
-            for name in reversed(self._prepared):
-                try:
+        try:
+            if grippers is not None:
+                grippers.stop_control()
+            if session is not None:
+                for name in self._prepared:
                     if not session.disable(ARM_OF_GROUP[name]):
-                        errors.append(
-                            RuntimeError(
-                                f"{name} did not confirm servo-off; the motors may still be "
-                                "energised"
-                            )
+                        log.warning(
+                            "arm %s servo-off not confirmed; motors may still be energised. "
+                            "Check the controller state, and cut power if needed.",
+                            ARM_OF_GROUP[name],
                         )
-                except BaseException as exc:
-                    errors.append(exc)
+        finally:
             try:
-                session.close()
-            except BaseException as exc:
-                errors.append(exc)
-        self._prepared.clear()
-        self._measured_deg.clear()
-        self._last_serials = None
-        self._last_sent = None
-        self._tracking_since_ns = None
-        if errors:
-            raise RuntimeError("Tianji shutdown did not complete safely") from errors[0]
+                if session is not None:
+                    session.close()
+            finally:
+                if grippers is not None:
+                    grippers.close()
+                self._prepared.clear()
+                self._models.clear()
+                self._last_serials = None
+                self._measured_deg.clear()
 
 
 def build_robot(config: RobotConfig, clock: Clock) -> TianjiDualArmDriver:

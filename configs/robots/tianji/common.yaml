@@ -1,9 +1,9 @@
 # Tianji Marvin M6 dual arm (arm A = left_arm, arm B = right_arm) with UMI
 # follower grippers, shared by Tianji run configs through `control_profile:`.
 #
-# The driver starts read-only (execute: false): nothing is enabled or sent.
-# Before setting execute: true, add vel_ratio and max_joint_rate_deg_s for the
-# controller speed confirmed on this robot, and fill command_safety to match.
+# The driver handles the SDK and hardware faults. Limits and rate envelopes live
+# below and are enforced by the shared runtime: the executor shapes commands with
+# motion_limits, and SafetyGuard rejects anything outside command_safety.
 robot:
   driver: tianji_dual
   group_dims:
@@ -11,31 +11,56 @@ robot:
     right_arm: 8
   options:
     robot_ip: 192.168.1.190
-    execute: false
+    execute: false             # read-only until explicitly enabled
+    active_arms: [left_arm, right_arm]
+    gripper_control: false     # needs execute and both arms
     end_effector: umi_follower
-    left_gripper_sn: TCGU01A28Z0041s
+    left_gripper_sn: TCGU01A28Z0041s   # CalibWrist hardware.json
     right_gripper_sn: TCGU01A28Z0042s
-    limit_margin_deg: 5.0
-    joint_limits_deg:
-      right_arm:
-        6: [-58.0, 58.0]  # arm B J6 override kept by tianji-control
+    # tianji-control config.py on this machine on 2026-09-13 (VEL_RATIO 32 is an
+    # uncommitted edit; the committed value is 20). Update the envelopes below
+    # together with it.
+    vel_ratio: 32
+    acc_ratio: 100
     max_tracking_error_deg: 5.0
-    max_tracking_error_s: 0.5
     home_speed_deg_s: 6.0
     # Arm A's waypoint is not hardware-verified yet, so it homes directly.
     home_waypoints_deg:
       right_arm:
         - [-75.0, -10.0, 20.0, -80.0, 0.0, 0.0, 0.0]
 action_dt_s: 0.03333333333333333
-command_safety: null
+
+# Runtime guard, radians (index 7 is the aperture). Derived from the controller:
+#   position: ccs_m6_40 PNVA limits minus the 5 deg LIMIT_MARGIN_DEG; arm B J6
+#             narrowed to +-58 deg (JOINT_LIMIT_OVERRIDE)
+#   velocity: 180 deg/s x vel_ratio 32 %
+#   acceleration: PNVA amax at acc_ratio 100 % (450 deg/s^2 J1-J2, 900 J3-J7)
+#   aperture: the shaping limits below divided by 0.9
+command_safety:
+  position_lower:
+    left_arm: [-2.8797932657906435, -2.007128639793479, -2.8797932657906435, -2.443460952792061, -2.8797932657906435, -0.9599310885968813, -1.4835298641951802, 0.0]
+    right_arm: [-2.8797932657906435, -2.007128639793479, -2.8797932657906435, -2.443460952792061, -2.8797932657906435, -0.9250245035569946, -1.4835298641951802, 0.0]
+  position_upper:
+    left_arm: [2.8797932657906435, 2.007128639793479, 2.8797932657906435, 0.9599310885968813, 2.8797932657906435, 0.9599310885968813, 1.4835298641951802, 1.0]
+    right_arm: [2.8797932657906435, 2.007128639793479, 2.8797932657906435, 0.9599310885968813, 2.8797932657906435, 0.9250245035569946, 1.4835298641951802, 1.0]
+  max_velocity:
+    left_arm: [1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 3.3333333333333335]
+    right_arm: [1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 3.3333333333333335]
+  max_acceleration:
+    left_arm: [7.853981633974483, 7.853981633974483, 15.707963267948966, 15.707963267948966, 15.707963267948966, 15.707963267948966, 15.707963267948966, 13.333333333333334]
+    right_arm: [7.853981633974483, 7.853981633974483, 15.707963267948966, 15.707963267948966, 15.707963267948966, 15.707963267948966, 15.707963267948966, 13.333333333333334]
+
+# Executor shaping, kept inside the guard by tianji-control's CMD_RATE_MARGIN 0.9:
+#   arm: 0.9 x the guard velocity, 0.9 x the smallest guard acceleration
+#   gripper: ManiMux's default aperture rates; closing as for YAM
 motion_limits:
   arm:
-    max_velocity: null
-    max_acceleration: null
+    max_velocity: 0.9047786842338605
+    max_acceleration: 7.0685834705770345
   gripper:
     group_indices:
       left_arm: 7
       right_arm: 7
-    max_velocity: null
-    max_acceleration: null
+    max_velocity: 3.0
+    max_acceleration: 12.0
     max_closing_velocity: 1.0
