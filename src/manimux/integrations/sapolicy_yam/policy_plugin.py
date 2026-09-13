@@ -21,6 +21,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 
 from manimux.config import PolicyConfig, RobotConfig
+from manimux.runtime.rtc.request import RtcInferenceRequest
 from manimux.types import (
     ActionChunk,
     ActionContext,
@@ -65,10 +66,11 @@ def _mapping_option(options: Mapping[str, object], name: str) -> dict[str, objec
 
 
 @dataclass(slots=True)
-class SAPolicyXPolicyRequest(InferenceRequest):
+class SAPolicyXPolicyRequest(RtcInferenceRequest):
     """InferenceRequest plus EE/intrinsics for ``XPolicyLabWsPolicyModel``."""
 
     xpolicylab_additional_info: dict[str, object] = field(default_factory=dict)
+    xpolicylab_state: dict[str, object] = field(default_factory=dict)
 
 
 def _parse_camera_map(options: Mapping[str, object]) -> dict[str, str]:
@@ -200,6 +202,12 @@ class SAPolicyYamAdapter:
 
     def prepare_request(self, request: InferenceRequest) -> InferenceRequest:
         snapshot = request.observation
+        condition = getattr(request, "action_condition", None)
+        weights = getattr(request, "condition_weights", None)
+        if (condition is None) != (weights is None):
+            raise ValueError("RTC requires both action_condition and condition_weights")
+        if condition is not None:
+            condition = self._rtc_condition_to_ee(condition)
         anchor = np.concatenate(
             [
                 np.asarray(snapshot.state.groups[name], dtype=np.float64)
@@ -247,8 +255,44 @@ class SAPolicyYamAdapter:
             deadline_ns=request.deadline_ns,
             observation=ObservationSnapshot(state=snapshot.state, frames=resized_frames),
             instruction=request.instruction,
+            action_condition=condition,
+            condition_weights=weights,
+            rtc_beta=getattr(request, "rtc_beta", 5.0),
             xpolicylab_additional_info={"sapolicy": sap_info},
+            xpolicylab_state={
+                f"{side}_ee_pose": np.concatenate([
+                    payload[f"{side}_endpose"][:3],
+                    payload[f"{side}_endpose"][6:7],
+                    payload[f"{side}_endpose"][3:6],
+                ])
+                for side in ("left", "right")
+            },
         )
+
+    def _rtc_condition_to_ee(self, condition: np.ndarray) -> np.ndarray:
+        """Map the runtime's absolute joint14 timeline to model-frame WXYZ EE16.
+
+        Use the same FK, gripper aperture and calibration as the observation.
+        Body-frame deltas and checkpoint normalization belong to XPolicyLab.
+        """
+        joints = np.asarray(condition, dtype=np.float64)
+        if joints.shape != (self._horizon_steps, 2 * GROUP_DIM):
+            raise ValueError(
+                f"SAPolicy RTC joint condition must be ({self._horizon_steps}, 14)"
+            )
+        if not np.isfinite(joints).all():
+            raise ValueError("SAPolicy RTC joint condition must be finite")
+        result = np.empty((len(joints), WIRE_ACTION_DIM), dtype=np.float64)
+        for arm, group in enumerate(self._group_order):
+            for i, state in enumerate(joints[:, arm * GROUP_DIM : (arm + 1) * GROUP_DIM]):
+                pose = self._model_from_kinematics[group] @ self._kinematics.fk(
+                    state[:ARM_JOINTS], float(state[-1])
+                )
+                xyz_xyzw = _pose_to_wire_endpose(pose)
+                result[i, arm * 8 : arm * 8 + 8] = np.concatenate([
+                    xyz_xyzw[:3], xyz_xyzw[6:7], xyz_xyzw[3:6], state[-1:],
+                ])
+        return result
 
     def decode_action(self, raw: object, context: ActionContext) -> ActionChunk:
         return self._decode_action(raw, context)
@@ -280,6 +324,22 @@ class SAPolicyYamAdapter:
         hold_reason: str | None = None,
     ) -> ActionChunk:
         raw_actions = raw.get("actions") if isinstance(raw, Mapping) else raw
+        if isinstance(raw_actions, list) and raw_actions and isinstance(raw_actions[0], Mapping):
+            rows = []
+            for action in raw_actions:
+                expected = {f"{side}_{field}" for side in ("left", "right")
+                            for field in ("ee_pose", "ee_joint_state")}
+                if set(action) != expected:
+                    raise ValueError(f"Invalid SAPolicy standard action keys: {set(action)}")
+                row = []
+                for side in ("left", "right"):
+                    pose = np.asarray(action[f"{side}_ee_pose"], dtype=np.float64)
+                    grip = np.asarray(action[f"{side}_ee_joint_state"], dtype=np.float64)
+                    if pose.shape != (7,) or grip.shape != (1,):
+                        raise ValueError("SAPolicy standard EE actions require pose7 and aperture1")
+                    row.extend(np.concatenate([pose[:3], pose[4:7], pose[3:4], grip]))
+                rows.append(row)
+            raw_actions = rows
         actions = np.asarray(raw_actions, dtype=np.float64)
         if actions.shape != (self._horizon_steps, WIRE_ACTION_DIM):
             raise ValueError(

@@ -20,6 +20,7 @@ from manimux.runtime.aac import AacInferenceRequest
 from manimux.runtime.autohorizon import AutoHorizonInferenceRequest
 from manimux.runtime.dvac import DvacInferenceRequest
 from manimux.runtime.paint import PaintInferenceRequest
+from manimux.runtime.rtc import RtcInferenceRequest, inpainting_condition
 from manimux.types import (
     ActionContext,
     InferenceRequest,
@@ -78,9 +79,9 @@ def _snapshot(config_path: Path, height: int, width: int) -> ObservationSnapshot
         groups = {}
         offset = 0
         for name in group_order:
-            width = int(config.robot.group_dims[name])
-            groups[name] = packed_start[offset : offset + width]
-            offset += width
+            group_width = int(config.robot.group_dims[name])
+            groups[name] = packed_start[offset : offset + group_width]
+            offset += group_width
 
     camera_map = config.policy.options["camera_map"]
     camera_names = list(dict.fromkeys(str(name) for name in camera_map.values()))
@@ -148,12 +149,31 @@ def main() -> int:
         "session_id": session_id,
         "request_seq": 1,
         "observation_time_ns": observation_time_ns,
-        "deadline_ns": observation_time_ns
-        + int(config.policy.timeout_s * 1_000_000_000),
+        "deadline_ns": observation_time_ns + int(config.policy.timeout_s * 1_000_000_000),
         "observation": snapshot,
         "instruction": args.instruction,
     }
-    if config.execution.runtime == "aac":
+    if config.execution.runtime == "rtc":
+        from manimux.runtime.rtc.strategy import RtcInferenceStrategy
+
+        horizon = config.policy.horizon_steps
+        rtc = config.execution.rtc
+        executed = RtcInferenceStrategy(config).execution_horizon(horizon, rtc.initial_delay_steps)
+        packed_state = np.concatenate(
+            [snapshot.state.groups[name] for name in config.policy.options["group_order"]]
+        )
+        condition, weights = inpainting_condition(
+            np.tile(packed_state, (horizon, 1)),
+            executed_steps=executed,
+            delay_steps=rtc.initial_delay_steps,
+        )
+        request = RtcInferenceRequest(
+            **request_fields,
+            action_condition=condition,
+            condition_weights=weights,
+            rtc_beta=rtc.beta,
+        )
+    elif config.execution.runtime == "aac":
         aac = config.execution.aac
         request = AacInferenceRequest(
             **request_fields,
@@ -166,9 +186,7 @@ def main() -> int:
     elif config.execution.runtime == "paint":
         paint = config.execution.paint
         group_order = list(config.policy.options["group_order"])
-        packed_state = np.concatenate(
-            [snapshot.state.groups[name] for name in group_order]
-        )
+        packed_state = np.concatenate([snapshot.state.groups[name] for name in group_order])
         prefix = np.repeat(
             packed_state[None, :],
             paint.initial_delay_steps,
@@ -190,9 +208,7 @@ def main() -> int:
             dvac_alpha=dvac.alpha,
             dvac_rolling_window_size=dvac.rolling_window_size,
             dvac_min_execution_steps=dvac.min_execution_steps,
-            dvac_max_execution_steps=(
-                dvac.max_execution_steps or config.policy.horizon_steps
-            ),
+            dvac_max_execution_steps=(dvac.max_execution_steps or config.policy.horizon_steps),
         )
     else:
         request = InferenceRequest(**request_fields)
@@ -203,6 +219,9 @@ def main() -> int:
     started = time.perf_counter()
     try:
         model.reset(session_id)
+        capabilities = model.capabilities()
+        if config.execution.runtime == "rtc" and "rtc" not in capabilities.sampling_modes:
+            raise RuntimeError("Backend does not advertise RTC sampling")
         raw = model.infer(request)
     finally:
         model.close()
@@ -211,6 +230,7 @@ def main() -> int:
     if native_summary.get("native_finite") is False:
         raise ValueError("model returned non-finite native actions")
 
+    decode_started = time.perf_counter()
     chunk = adapter.decode_action(
         raw,
         ActionContext(
@@ -251,6 +271,13 @@ def main() -> int:
                 "canonical_shape": list(packed.shape),
                 "dt_s": chunk.dt_ns / 1_000_000_000,
                 "round_trip_ms": round(round_trip_ms, 1),
+                "decode_ms": round((time.perf_counter() - decode_started) * 1000, 1),
+                "sampling_mode": config.execution.runtime,
+                "sampling_modes": sorted(capabilities.sampling_modes),
+                "ik_failed_steps": {
+                    name: value.get("failed_steps")
+                    for name, value in chunk.metadata.get("ik", {}).items()
+                },
                 "minimum": float(packed.min()),
                 "maximum": float(packed.max()),
                 "first_action": packed[0].tolist(),

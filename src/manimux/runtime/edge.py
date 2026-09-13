@@ -112,8 +112,8 @@ class EdgeRuntime:
             raise ValueError("adapter does not support independent group decoding")
         self._decoder = None
         if config.policy.action_decoding == "process":
-            if config.execution.runtime != "manimux":
-                raise ValueError("process action decoding currently requires runtime=manimux")
+            if config.execution.runtime not in {"manimux", "rtc"}:
+                raise ValueError("process action decoding requires runtime=manimux or rtc")
             self._decoder = ActionDecoderClient(config.robot, config.policy, self._adapter)
         self._session_id = f"session-{uuid.uuid4().hex}"
         self._worker = PolicyWorkerClient(config.policy, self._session_id)
@@ -211,6 +211,8 @@ class EdgeRuntime:
                 "policy_label": self._config.viewer.policy_label,
                 "policy_worker": self._config.policy.worker,
                 "policy_adapter": self._config.policy.adapter,
+                "view_profile": self._config.policy.options.get("view_profile"),
+                "camera_map": self._config.policy.options.get("camera_map", {}),
                 "action_dt_s": self._config.policy.effective_action_dt_s,
                 "horizon_steps": self._config.policy.horizon_steps,
                 "max_chunk_steps": self._config.execution.max_chunk_steps,
@@ -272,6 +274,7 @@ class EdgeRuntime:
                 "executor": self._config.execution.executor,
                 "policy_label": self._config.viewer.policy_label,
                 "experiment_mode": self._config.run.experiment_mode,
+                "camera_map": self._config.policy.options.get("camera_map", {}),
                 "layout_id": self._config.run.layout_id,
                 "launch_mode": self._launch_mode,
             }
@@ -320,6 +323,9 @@ class EdgeRuntime:
                     or self._config.execution.inference_schedule == "serial"
                 ):
                     self._timeline = self._build_timeline()
+                    # RTC conditions must not refer to the timeline discarded
+                    # by Pause/Hold while a decoder response is still pending.
+                    self._strategy.reset()
                     discard_responses_through = max(discard_responses_through, request_seq)
                 self._state = (
                     RuntimeState.RUNNING if not viewer_control.paused else RuntimeState.PAUSED

@@ -88,11 +88,18 @@ class CameraServer:
     # Frame sourcing
     # ------------------------------------------------------------------
 
-    def _snapshot(self) -> dict[str, Any]:
+    def _snapshot(self, camera_names: list[str] | None = None) -> dict[str, Any]:
         """Snapshot the latest color frame from every camera (RGB uint8)."""
         frames: dict[str, Any] = {}
         timestamps: dict[str, float] = {}
-        for name, cam in self.cameras.items():
+        names = list(self.cameras) if camera_names is None else camera_names
+        if not isinstance(names, list) or not names or not all(isinstance(n, str) for n in names):
+            raise ValueError("camera_names must be a nonempty list of names")
+        missing = set(names) - self.cameras.keys()
+        if missing:
+            raise ValueError(f"Unknown cameras: {sorted(missing)}")
+        for name in names:
+            cam = self.cameras[name]
             image, _depth = cam.read()
             frames[name] = image
             # Surface the capture timestamp so the client can detect staleness.
@@ -116,7 +123,7 @@ class CameraServer:
 
         try:
             if cmd == "obs":
-                resp = self._snapshot()
+                resp = self._snapshot(req.get("camera_names"))
             elif cmd == "ping":
                 resp = {"ok": True, "pong": True}
             else:
@@ -228,9 +235,10 @@ class CameraServer:
 def _build_cameras_from_config(cfg_path: Path) -> dict[str, RealSenseCamera]:
     cfg = OmegaConf.to_container(OmegaConf.load(cfg_path), resolve=True)
     camera_cfg = cfg["sensors"]["cameras"]
-    logger.info("Discovering RealSense devices...")
-    ids = get_device_ids()
-    logger.info("Found %d RealSense devices: %s", len(ids), ids)
+    if any(spec.get("type", "realsense") == "realsense" for spec in camera_cfg.values()):
+        logger.info("Discovering RealSense devices...")
+        ids = get_device_ids()
+        logger.info("Found %d RealSense devices: %s", len(ids), ids)
     cameras: dict[str, RealSenseCamera] = {}
     try:
         for name, spec in camera_cfg.items():
@@ -254,7 +262,15 @@ def _build_cameras_from_config(cfg_path: Path) -> dict[str, RealSenseCamera]:
                 flip,
                 enable_depth,
             )
-            cameras[name] = RealSenseCamera(
+            kind = spec.get("type", "realsense")
+            if kind == "orbbec":
+                from manimux.sensors.orbbec import OrbbecCamera
+                camera_class = OrbbecCamera
+            elif kind == "realsense":
+                camera_class = RealSenseCamera
+            else:
+                raise ValueError(f"Unknown camera type {kind!r}")
+            cameras[name] = camera_class(
                 device_id,
                 flip=flip,
                 width=width,

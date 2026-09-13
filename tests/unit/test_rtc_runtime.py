@@ -94,6 +94,20 @@ def test_rtc_request_passes_the_core_worker_contract() -> None:
     assert restored.rtc_beta == 5.0
 
 
+@pytest.mark.parametrize("view", ["top", "gemini305", "gemini335"])
+def test_sapolicy_rtc_profiles_build_with_process_decoding_without_hardware(tmp_path, view):
+    config = load_config(f"configs/sapolicy/yam/infra/teleopMV51/{view}-rtc.yaml")
+    config.robot.driver = "mock_dual_arm"
+    config.sensors = []
+    config.viewer.enabled = False
+    runtime = build_runtime(config, tmp_path)
+    assert isinstance(runtime, RtcRuntime)
+    assert runtime._decoder is not None
+    assert not runtime._decoder._started
+    assert runtime._strategy.required_sampling_modes == {"rtc"}
+    assert runtime._config.execution.max_chunk_steps is None
+
+
 def test_policy_plugins_only_send_a_condition_when_one_is_present() -> None:
     import json_numpy
 

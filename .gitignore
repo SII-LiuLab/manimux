@@ -35,3 +35,8 @@ tests/
 !/tests/unit/
 /tests/unit/*
 !/tests/unit/test_yam_collection.py
+!/tests/unit/test_selected_camera_requests.py
+!/tests/unit/test_sapolicy_xpl_model.py
+!/tests/unit/test_sapolicy_xpl_transport.py
+!/tests/unit/test_sapolicy_decode_timing.py
+!/tests/unit/test_viewer_config.py
