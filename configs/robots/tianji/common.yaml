@@ -1,0 +1,41 @@
+# Tianji Marvin M6 dual arm (arm A = left_arm, arm B = right_arm) with UMI
+# follower grippers, shared by Tianji run configs through `control_profile:`.
+#
+# The driver starts read-only (execute: false): nothing is enabled or sent.
+# Before setting execute: true, add vel_ratio and max_joint_rate_deg_s for the
+# controller speed confirmed on this robot, and fill command_safety to match.
+robot:
+  driver: tianji_dual
+  group_dims:
+    left_arm: 8
+    right_arm: 8
+  options:
+    robot_ip: 192.168.1.190
+    execute: false
+    end_effector: umi_follower
+    left_gripper_sn: TCGU01A28Z0041s
+    right_gripper_sn: TCGU01A28Z0042s
+    limit_margin_deg: 5.0
+    joint_limits_deg:
+      right_arm:
+        6: [-58.0, 58.0]  # arm B J6 override kept by tianji-control
+    max_tracking_error_deg: 5.0
+    max_tracking_error_s: 0.5
+    home_speed_deg_s: 6.0
+    # Arm A's waypoint is not hardware-verified yet, so it homes directly.
+    home_waypoints_deg:
+      right_arm:
+        - [-75.0, -10.0, 20.0, -80.0, 0.0, 0.0, 0.0]
+action_dt_s: 0.03333333333333333
+command_safety: null
+motion_limits:
+  arm:
+    max_velocity: null
+    max_acceleration: null
+  gripper:
+    group_indices:
+      left_arm: 7
+      right_arm: 7
+    max_velocity: null
+    max_acceleration: null
+    max_closing_velocity: 1.0

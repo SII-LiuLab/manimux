@@ -123,6 +123,7 @@ packages = ["src/manimux"]
 "src/manimux/integrations/abc_yam/abc_minimal/third_party/clip/LICENSE" = "manimux/licenses/abc-clip-MIT.txt"
 "src/manimux/integrations/abc_yam/abc_minimal/third_party/dinov3/LICENSE.md" = "manimux/licenses/abc-dinov3.md"
 "src/manimux/integrations/xr1_yam/mibot/LICENSE" = "manimux/licenses/xiaomi-robotics-1-APACHE-2.0.txt"
+"src/manimux/robots/tianji/vendor/marvin/LICENSE" = "manimux/licenses/marvin-sdk-APACHE-2.0.txt"
 
 [tool.pytest.ini_options]
 addopts = "-q"
@@ -131,6 +132,7 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+extend-exclude = ["src/manimux/robots/tianji/vendor"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
@@ -147,7 +149,7 @@ typeCheckingMode = "off"
 python_version = "3.11"
 strict = true
 packages = ["manimux"]
-exclude = ["src/manimux/integrations/molmoact_yam"]
+exclude = ["src/manimux/integrations/molmoact_yam", "src/manimux/robots/tianji/vendor"]
 
 [[tool.mypy.overrides]]
 module = [

@@ -35,3 +35,4 @@ tests/
 !/tests/unit/
 /tests/unit/*
 !/tests/unit/test_yam_collection.py
+!/tests/unit/test_tianji_driver.py

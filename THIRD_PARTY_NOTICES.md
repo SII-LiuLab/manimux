@@ -40,6 +40,14 @@ are used only for viewer rendering. The DH parameters and joint limits in
 `src/manimux/kinematics/tianji.py` are copied from the vendor SDK's
 `CommonConfig/ccs_m6_40.MvKDCfg`.
 
+## Marvin SDK
+
+`src/manimux/robots/tianji/vendor/marvin/` contains the Python bindings
+(`fx_robot.py`, `fx_kine.py`), Linux x86-64 libraries (`libMarvinSDK.so`,
+`libKine.so`) and the `ccs_m6_40.MvKDCfg` arm table from the vendor's
+`TJ_FX_ROBOT_CONTRL_SDK`, unmodified. The SDK is Copyright 2025 上海孚晞科技有限公司
+under the Apache License 2.0; see the `LICENSE` file in that directory.
+
 ## UMI follower gripper assets
 
 `src/manimux/assets/end_effectors/umi_follower/` contains the XenseRobotics

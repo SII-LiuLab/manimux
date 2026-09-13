@@ -32,9 +32,16 @@ def _yam_factory(config: RobotConfig, clock: Clock) -> RobotDriver:
     return build_yam_robot(config, clock)
 
 
+def _tianji_factory(config: RobotConfig, clock: Clock) -> RobotDriver:
+    from manimux.robots.tianji import build_robot as build_tianji_robot
+
+    return build_tianji_robot(config, clock)
+
+
 _BUILTINS: dict[str, RobotFactory] = {
     "mock_dual_arm": _mock_factory,
     "maniunicon_meshcat_dual_arm": _maniunicon_factory,
+    "tianji_dual": _tianji_factory,
     "yam_dual": _yam_factory,
 }
 

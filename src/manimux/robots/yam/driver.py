@@ -4,9 +4,6 @@ from __future__ import annotations
 
 import contextlib
 import logging
-import signal
-import threading
-from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
@@ -16,45 +13,16 @@ import yaml
 
 from manimux.clock import Clock
 from manimux.config import RobotConfig
+from manimux.robots._interrupt import finish_move_before_interrupt
 from manimux.types import RobotCommand, RobotState
 
 log = logging.getLogger("manimux.robots.yam")
 
 
-@contextlib.contextmanager
-def _finish_move_before_interrupt(what: str) -> Iterator[list[int]]:
-    """Let a blocking arm move finish before Ctrl-C takes effect.
+def _finish_move_before_interrupt(what: str) -> contextlib.AbstractContextManager[list[int]]:
+    """i2rt's ``move_joints`` sleeps in a loop; see :func:`finish_move_before_interrupt`."""
 
-    i2rt drives ``move_joints`` with ``time.sleep`` in a loop, so a SIGINT lands
-    as ``KeyboardInterrupt`` inside that sleep: the move stops with the arm
-    mid-air and the ``close()`` that follows zeroes torques, dropping it. Defer
-    the first interrupt until the move returns. A second Ctrl-C restores the
-    default handler and aborts immediately, so a genuinely stuck move is still
-    escapable.
-    """
-    if threading.current_thread() is not threading.main_thread():
-        yield []
-        return
-
-    pending: list[int] = []
-
-    def _handler(signum: int, frame: Any) -> None:
-        if pending:
-            signal.signal(signal.SIGINT, previous)
-            raise KeyboardInterrupt
-        pending.append(signum)
-        log.warning(
-            "Ctrl-C received; finishing %s first (press Ctrl-C again to abort now).",
-            what,
-        )
-
-    previous = signal.getsignal(signal.SIGINT)
-    signal.signal(signal.SIGINT, _handler)
-    try:
-        yield pending
-    finally:
-        with contextlib.suppress(ValueError, TypeError):
-            signal.signal(signal.SIGINT, previous)
+    return finish_move_before_interrupt(what, log)
 
 
 def _load_mapping(path: Path) -> dict[str, Any]:
