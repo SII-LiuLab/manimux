@@ -1,5 +1,8 @@
 # YAM 三个模型训练流程
 
+通用单命令入口与模型清单见 [统一训练入口](training-entrypoints.md)。
+下文保留历史实验命令和参数，不作为新数据集的默认配置。
+
 本文记录从 YAM 遥操作数据到 Pi05、LingBot-VLA2、Xiaomi Robotics 1（XR-1）训练的完整命令。
 训练命令在训练服务器执行；`/inspire/.../yam_fintune_data` 是共享训练盘，训练 checkout
 统一使用其下的 `operate/manimux`。本地 `/home/ubuntu/manimux` 用于开发和真机推理。
