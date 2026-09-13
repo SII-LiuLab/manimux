@@ -686,10 +686,14 @@ class PolicyViewer:
         action_space = str(message.get("action_space", "joint_position"))
         grouped_actions = self.robot.split_actions(actions, action_space)
         metadata = dict(message.get("metadata") or {})
-        metadata["gripper_closed_steps"] = self.robot.gripper_closed_steps(
+        gripper_by_group = self.robot.gripper_closed_steps_by_group(
             grouped_actions,
             previous_positions=getattr(self, "last_joint_positions", {}),
-        ).tolist()
+        )
+        metadata["gripper_closed_steps_by_group"] = {
+            group_name: flags.tolist()
+            for group_name, flags in gripper_by_group.items()
+        }
         message["metadata"] = metadata
         start_index = int(message.get("start_index", 0))
         if start_index < 0 or start_index > len(actions):

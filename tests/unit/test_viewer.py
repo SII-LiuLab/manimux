@@ -168,7 +168,7 @@ def test_chunk_timeline_tracks_pending_rtc_overlap_and_execution() -> None:
     assert ">current</span>" in rendered
 
 
-def test_chunk_timeline_marks_committed_closed_gripper_steps() -> None:
+def test_chunk_timeline_aligns_grouped_gripper_steps_after_trim() -> None:
     timeline = ChunkTimelineView()
     timeline.update(
         {
@@ -180,18 +180,52 @@ def test_chunk_timeline_marks_committed_closed_gripper_steps() -> None:
                 "runtime": "rtc",
                 "raw_horizon_steps": 6,
                 "trimmed_steps": 2,
-                "gripper_closed_steps": [False, True, True, False],
+                "gripper_closed_steps_by_group": {
+                    "left": [False, True, True, False],
+                    "right": [True, False, False, True],
+                },
             },
         }
     )
 
     lane = timeline.lanes[0]
-    assert lane.gripper_closed_steps == (False, False, False, True, True, False)
+    assert lane.gripper_closed_steps_by_group == {
+        "left": (False, False, False, True, True, False),
+        "right": (False, False, True, False, False, True),
+    }
     rendered = timeline.render_html()
-    assert "future gripper-closed" in rendered
-    assert "gripper closing / closed" in rendered
-    assert ".latency.gripper-closed" in rendered
-    assert "background:#f59e0b; box-shadow:none" in rendered
+    assert rendered.count("group-left closed") == 2
+    assert rendered.count("group-right closed") == 2
+
+
+def test_chunk_timeline_renders_left_and_right_grippers_independently() -> None:
+    timeline = ChunkTimelineView()
+    timeline.update(
+        {
+            "kind": "plan",
+            "chunk_id": 8,
+            "actions": [[0.0]] * 4,
+            "inference_ms": 80.0,
+            "metadata": {
+                "runtime": "manimux",
+                "gripper_closed_steps_by_group": {
+                    "left": [True, False, True, False],
+                    "right": [False, True, True, False],
+                },
+            },
+        }
+    )
+
+    lane = timeline.lanes[0]
+    assert lane.gripper_closed_steps_by_group == {
+        "left": (True, False, True, False),
+        "right": (False, True, True, False),
+    }
+    rendered = timeline.render_html()
+    assert rendered.count("group-left closed") == 2
+    assert rendered.count("group-right closed") == 2
+    assert "L gripper closed" in rendered
+    assert "R gripper closed" in rendered
 
 
 def test_yam_gripper_marker_starts_when_closing_begins() -> None:
@@ -214,10 +248,10 @@ def test_yam_gripper_marker_starts_when_closing_begins() -> None:
     previous = np.zeros(7, dtype=np.float64)
     previous[6] = 1.0
 
-    flags = adapter.gripper_closed_steps(
+    flags = adapter.gripper_closed_steps_by_group(
         {"left": actions},
         previous_positions={"left": previous},
-    )
+    )["left"]
 
     assert flags.tolist() == [
         False,
@@ -233,6 +267,25 @@ def test_yam_gripper_marker_starts_when_closing_begins() -> None:
         False,
         False,
     ]
+
+
+def test_yam_gripper_markers_preserve_left_and_right_state() -> None:
+    adapter = YamAdapter.__new__(YamAdapter)
+    left = np.zeros((3, 7), dtype=np.float64)
+    right = np.zeros((3, 7), dtype=np.float64)
+    left[:, 6] = [1.0, 0.9, 0.4]
+    right[:, 6] = [1.0, 1.0, 1.0]
+    previous = {
+        "left": np.array([0.0] * 6 + [1.0]),
+        "right": np.array([0.0] * 6 + [1.0]),
+    }
+
+    grouped = adapter.gripper_closed_steps_by_group(
+        {"left": left, "right": right}, previous_positions=previous
+    )
+
+    assert grouped["left"].tolist() == [False, True, True]
+    assert grouped["right"].tolist() == [False, False, False]
 
 
 def test_chunk_timeline_alternates_lanes_and_marks_superseded_tail() -> None:

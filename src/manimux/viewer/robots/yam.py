@@ -80,13 +80,13 @@ class YamAdapter(RobotAdapter):
     def split_joint_positions(self, joint_positions: np.ndarray) -> dict[str, np.ndarray]:
         return self._split(joint_positions, sequence=False)
 
-    def gripper_closed_steps(
+    def gripper_closed_steps_by_group(
         self,
         grouped_actions: Mapping[str, np.ndarray],
         *,
         previous_positions: Mapping[str, np.ndarray] | None = None,
-    ) -> np.ndarray:
-        closing_or_closed: list[np.ndarray] = []
+    ) -> dict[str, np.ndarray]:
+        closing_or_closed: dict[str, np.ndarray] = {}
         previous_positions = previous_positions or {}
         for group_name, actions in grouped_actions.items():
             values = np.asarray(actions, dtype=np.float64)[:, 6]
@@ -96,12 +96,10 @@ class YamAdapter(RobotAdapter):
                 if previous is not None
                 else None
             )
-            closing_or_closed.append(
-                self._closing_or_closed(values, previous_value=previous_value)
+            closing_or_closed[group_name] = self._closing_or_closed(
+                values, previous_value=previous_value
             )
-        if not closing_or_closed:
-            return np.empty(0, dtype=np.bool_)
-        return np.logical_or.reduce(closing_or_closed)
+        return closing_or_closed
 
     @staticmethod
     def _closing_or_closed(

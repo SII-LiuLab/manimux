@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import html
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 
@@ -23,7 +23,9 @@ class ChunkLane:
     source_chunk_id: int | None = None
     condition_from_index: int | None = None
     latency_from_index: int | None = None
-    gripper_closed_steps: tuple[bool, ...] = ()
+    gripper_closed_steps_by_group: dict[str, tuple[bool, ...]] = field(
+        default_factory=dict
+    )
 
 
 class ChunkTimelineView:
@@ -212,14 +214,19 @@ class ChunkTimelineView:
             max(0, int(metadata.get("conditioned_overlap_steps", 0))),
         )
         frozen = min(raw_horizon, max(0, int(metadata.get("frozen_steps", 0))))
-        committed_gripper = tuple(
-            bool(value) for value in metadata.get("gripper_closed_steps", ())
-        )
-        raw_gripper = (
-            (False,) * trimmed + committed_gripper[:committed_steps]
-        )[:raw_horizon]
-        if len(raw_gripper) < raw_horizon:
-            raw_gripper += (False,) * (raw_horizon - len(raw_gripper))
+        def raw_gripper_steps(values: Any) -> tuple[bool, ...]:
+            committed = tuple(bool(value) for value in values)
+            raw = ((False,) * trimmed + committed[:committed_steps])[:raw_horizon]
+            if len(raw) < raw_horizon:
+                raw += (False,) * (raw_horizon - len(raw))
+            return raw
+
+        grouped_gripper = {
+            str(group_name): raw_gripper_steps(values)
+            for group_name, values in dict(
+                metadata.get("gripper_closed_steps_by_group") or {}
+            ).items()
+        }
         lane = ChunkLane(
             chunk_id=chunk_id,
             horizon_steps=raw_horizon,
@@ -234,7 +241,7 @@ class ChunkTimelineView:
             source_chunk_id=(
                 None if previous_chunk_id is None else int(previous_chunk_id)
             ),
-            gripper_closed_steps=raw_gripper,
+            gripper_closed_steps_by_group=grouped_gripper,
         )
         self.lanes[self._lane_index(chunk_id)] = lane
         self.active_chunk_id = chunk_id
@@ -391,11 +398,19 @@ class ChunkTimelineView:
         for index, lane in enumerate(self.lanes):
             chunk = "—" if lane.chunk_id is None else f"#{lane.chunk_id}"
             lane_class = f"{html.escape(lane.state)} {'reverse' if index else ''}"
-            cells = "".join(
-                f'<span class="manimux-chunk-cell {self._cell_state(lane, cell)}'
-                f'{" gripper-closed" if cell < len(lane.gripper_closed_steps) and lane.gripper_closed_steps[cell] else ""}"></span>'
-                for cell in range(lane.horizon_steps)
-            )
+            cells_html: list[str] = []
+            for cell in range(lane.horizon_steps):
+                markers = "".join(
+                    f'<i class="manimux-gripper-marker group-{html.escape(group_name)}'
+                    f'{" closed" if cell < len(flags) and flags[cell] else ""}" '
+                    f'title="{html.escape(group_name.title())} gripper"></i>'
+                    for group_name, flags in lane.gripper_closed_steps_by_group.items()
+                )
+                cells_html.append(
+                    f'<span class="manimux-chunk-cell '
+                    f'{self._cell_state(lane, cell)}">{markers}</span>'
+                )
+            cells = "".join(cells_html)
             condition_range = self._condition_range_html(lane)
             if not cells:
                 cells = '<span class="manimux-chunk-empty">waiting for inference</span>'
@@ -448,9 +463,16 @@ class ChunkTimelineView:
     position:relative; display:flex; gap:1px; height:18px; min-width:0;
   }}
   .manimux-chunk-cell {{
-    min-width:2px; flex:1 1 0; box-sizing:border-box;
+    position:relative; min-width:2px; flex:1 1 0; box-sizing:border-box;
     border:1px solid transparent; border-radius:2px; background:#303746;
   }}
+  .manimux-gripper-marker {{
+    position:absolute; left:1px; right:1px; z-index:2; height:3px;
+    border-radius:1px; pointer-events:none;
+  }}
+  .manimux-gripper-marker.group-left {{ top:1px; }}
+  .manimux-gripper-marker.group-right {{ bottom:1px; }}
+  .manimux-gripper-marker.closed {{ background:#ef4444; }}
   .manimux-chunk-cell.future {{
     border-color:#4b5565; background:transparent;
   }}
@@ -499,19 +521,6 @@ class ChunkTimelineView:
     background:linear-gradient(90deg,#9a5d08 20%,#f59e0b 50%,#9a5d08 80%);
     background-size:220% 100%;
   }}
-  .manimux-chunk-cell.gripper-closed {{
-    border-color:#ef4444; background:#ef4444;
-  }}
-  .manimux-chunk-cell.current.gripper-closed {{
-    background:#f87171; box-shadow:0 0 7px rgba(248,113,113,.95);
-  }}
-  .manimux-chunk-cell.latency.gripper-closed {{
-    background:#f59e0b; box-shadow:none;
-  }}
-  .manimux-chunk-cell.latency-trimmed.gripper-closed {{
-    background:repeating-linear-gradient(135deg,#f59e0b 0 3px,#9a5d08 3px 6px);
-    box-shadow:none;
-  }}
   .manimux-chunk-condition-range {{
     position:absolute; top:-3px; bottom:-3px; z-index:3;
     box-sizing:border-box; border:2px solid #94a3b8; border-radius:5px;
@@ -547,6 +556,8 @@ class ChunkTimelineView:
   .manimux-chunk-legend i {{
     display:inline-block; width:8px; height:8px; margin-right:3px; border-radius:2px;
   }}
+  .manimux-gripper-legend.left,
+  .manimux-gripper-legend.right {{ background:#ef4444; }}
   @keyframes manimux-chunk-shimmer {{ to {{ background-position:-220% 0; }} }}
   @media (max-width: 900px) {{ div:has(> .manimux-chunk-anchor) {{ display:none; }} }}
 </style>
@@ -558,7 +569,8 @@ class ChunkTimelineView:
     <span><i style="background:#7c3aed"></i>executed</span>
     <span><i style="background:#a78bfa;box-shadow:0 0 5px rgba(167,139,250,.9)"></i>current</span>
     <span><i style="background:#f59e0b"></i>latency</span>
-    <span><i style="background:#ef4444"></i>gripper closing / closed</span>
+    <span><i class="manimux-gripper-legend left"></i>L gripper closed</span>
+    <span><i class="manimux-gripper-legend right"></i>R gripper closed</span>
     <span><i style="border:2px solid #94a3b8;background:transparent"></i>condition</span>
     <span><i style="border:1px solid #4b5565"></i>future</span>
   </div>
