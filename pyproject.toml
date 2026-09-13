@@ -97,6 +97,7 @@ manimux-molmoact-server = "manimux.integrations.molmoact_yam.host_server_yam:mai
 manimux-abc-server = "manimux.integrations.abc_yam.host_server_abc:main"
 
 [project.entry-points."manimux.viewer.robots"]
+tianji = "manimux.viewer.robots.tianji:TianjiAdapter"
 yam = "manimux.viewer.robots.yam:YamAdapter"
 
 [build-system]

@@ -223,19 +223,19 @@ class PolicyViewer:
 
     def _build_scene(self) -> None:
         self.server.scene.set_up_direction("+z")
-        # Pan the initial view left so the robot appears farther right, clear of the panels.
-        # Translate position and target together to preserve viewing direction and scale.
-        self.server.initial_camera.position = (1.25, -1.93, 1.25)
-        self.server.initial_camera.look_at = (0.05, -0.13, 0.28)
+        # Adapters frame the view so the robot sits right of center, clear of the panels.
+        view = self.robot.scene_view
+        self.server.initial_camera.position = view.camera_position
+        self.server.initial_camera.look_at = view.camera_look_at
         self.server.initial_camera.up = (0.0, 0.0, 1.0)
         self.server.initial_camera.fov = np.deg2rad(55.0)
         self.server.scene.add_grid(
             "/floor",
-            width=2.0,
-            height=1.6,
+            width=view.grid_size[0],
+            height=view.grid_size[1],
             cell_size=0.1,
             section_size=0.5,
-            position=(0.25, 0.0, -0.01),
+            position=view.grid_position,
         )
         self.server.scene.add_frame("/world", axes_length=0.15, axes_radius=0.006)
         for box in self.robot.scene_boxes:
@@ -245,9 +245,27 @@ class PolicyViewer:
                 dimensions=box.dimensions,
                 position=box.position,
             )
+        for mesh in self.robot.static_meshes:
+            mesh_root = f"/environment/{mesh.name}"
+            self.server.scene.add_frame(
+                mesh_root, show_axes=False, position=mesh.position, wxyz=mesh.orientation
+            )
+            try:
+                from viser.extras import ViserUrdf
+
+                ViserUrdf(self.server, mesh.urdf_path, root_node_name=mesh_root)
+            # Scene context only; the arms and trajectories render without it.
+            except Exception as exc:  # noqa: BLE001
+                print(f"[viewer] {mesh.name} mesh unavailable ({exc})")
         for group in self.robot.groups:
             root = self._root(group)
-            self.server.scene.add_frame(root, show_axes=False, position=group.base_position)
+            # Every group child (URDF, EE frame, plans, tails) inherits this placement.
+            self.server.scene.add_frame(
+                root,
+                show_axes=False,
+                position=group.base_position,
+                wxyz=group.base_orientation,
+            )
             self.server.scene.add_frame(f"{root}/current_ee", axes_length=0.08, axes_radius=0.004)
             if group.urdf_path is None:
                 continue
@@ -1088,6 +1106,13 @@ def _parser() -> argparse.ArgumentParser:
         help="optional model/dependency root forwarded to the robot adapter",
     )
     parser.add_argument(
+        "--robot-option",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="adapter keyword argument, repeatable (e.g. end_effector=umi_follower)",
+    )
+    parser.add_argument(
         "--list-robots",
         action="store_true",
         help="list bundled/discovered adapters and exit",
@@ -1101,7 +1126,13 @@ def main() -> None:
     if args.list_robots:
         print("\n".join(available_robot_adapters()))
         return
-    robot = load_robot_adapter(args.robot, args.robot_model_root)
+    options = {}
+    for item in args.robot_option:
+        key, separator, value = item.partition("=")
+        if not separator or not key:
+            raise SystemExit(f"--robot-option expects KEY=VALUE, got {item!r}")
+        options[key] = value
+    robot = load_robot_adapter(args.robot, args.robot_model_root, options)
     viewer = PolicyViewer(
         args.host,
         args.port,

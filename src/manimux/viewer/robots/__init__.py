@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import importlib
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from importlib import metadata
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
-from .base import RobotAdapter, RobotGroup, SceneBox
+from .base import RobotAdapter, RobotGroup, SceneBox, SceneView, StaticMesh
 
-BUILTIN_ROBOTS = ("yam",)
+BUILTIN_ROBOTS = ("tianji", "yam")
 
 
 def available_robot_adapters() -> tuple[str, ...]:
@@ -33,15 +33,25 @@ def _factory_from_reference(reference: str) -> Callable[..., RobotAdapter]:
 
 
 def load_robot_adapter(
-    name_or_reference: str, model_root: Path | str | None = None
+    name_or_reference: str,
+    model_root: Path | str | None = None,
+    options: Mapping[str, str] | None = None,
 ) -> RobotAdapter:
-    """Load a built-in, installed entry-point, or ``module:factory`` adapter."""
+    """Load a built-in, installed entry-point, or ``module:factory`` adapter.
+
+    ``options`` are forwarded as keyword arguments, e.g. ``end_effector`` for Tianji.
+    """
 
     adapter: RobotAdapter
+    kwargs: dict[str, Any] = dict(options or {})
     if name_or_reference == "yam":
         from .yam import YamAdapter
 
-        adapter = YamAdapter(model_root=model_root)
+        adapter = YamAdapter(model_root=model_root, **kwargs)
+    elif name_or_reference == "tianji":
+        from .tianji import TianjiAdapter
+
+        adapter = TianjiAdapter(model_root=model_root, **kwargs)
     else:
         matching = [
             entry
@@ -52,7 +62,9 @@ def load_robot_adapter(
             Callable[..., RobotAdapter],
             matching[0].load() if matching else _factory_from_reference(name_or_reference),
         )
-        adapter = factory(model_root=model_root) if model_root is not None else factory()
+        if model_root is not None:
+            kwargs["model_root"] = model_root
+        adapter = factory(**kwargs)
     if not isinstance(adapter, RobotAdapter):
         raise TypeError(
             f"adapter {name_or_reference!r} returned {type(adapter).__name__}, "
@@ -65,6 +77,8 @@ __all__ = [
     "RobotAdapter",
     "RobotGroup",
     "SceneBox",
+    "SceneView",
+    "StaticMesh",
     "available_robot_adapters",
     "load_robot_adapter",
 ]

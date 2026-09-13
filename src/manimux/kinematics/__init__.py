@@ -16,7 +16,16 @@ def _yam_factory(**options: object) -> ArmKinematics:
     return YamKinematics(**options)  # type: ignore[arg-type]
 
 
-_BUILTINS: dict[str, Callable[..., ArmKinematics]] = {"yam": _yam_factory}
+def _tianji_factory(**options: object) -> ArmKinematics:
+    from manimux.kinematics.tianji import TianjiKinematics
+
+    return TianjiKinematics(**options)  # type: ignore[arg-type]
+
+
+_BUILTINS: dict[str, Callable[..., ArmKinematics]] = {
+    "tianji": _tianji_factory,
+    "yam": _yam_factory,
+}
 
 
 def build_kinematics(name: str, **options: object) -> ArmKinematics:
