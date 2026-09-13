@@ -1,0 +1,5 @@
+camera_mode: manual
+cameras:
+  top: gemini305
+  left: left_camera
+  right: right_camera

@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import base64
-import io
 import signal
 import threading
 import time
@@ -14,12 +12,14 @@ from typing import Any, Literal, cast
 
 import numpy as np
 import viser
-from PIL import Image
 
 from manimux.evaluation import write_manual_evaluation
 from manimux.types import FloatArray, UInt8Array
 
+from .camera_panel import CameraPanel
+from .camera_panel import _camera_panel_html as _camera_panel_html
 from .chunk_timeline import ChunkTimelineView
+from .config import ViewerConfig, load_viewer_config
 from .protocol import PolicyPlan, RobotSnapshot
 from .reference_layouts import DEFAULT_LAYOUT_ROOT
 from .robots import available_robot_adapters, load_robot_adapter
@@ -74,83 +74,6 @@ def _prefill_task(current: str, incoming: str) -> str:
     return incoming.strip() if not current.strip() else current
 
 
-def _camera_panel_html() -> str:
-    """Place stable Viser image handles in a fixed screen-space camera panel."""
-
-    return """
-<style>
-  :root {
-    --manimux-camera-width: clamp(300px, 26vw, 460px);
-    --manimux-camera-inner: calc(var(--manimux-camera-width) - 20px);
-    --manimux-camera-top-height: clamp(157.5px, calc(14.625vw - 11.25px), 247.5px);
-    --manimux-camera-small-width: clamp(136px, calc(13vw - 14px), 216px);
-    --manimux-camera-height: clamp(262px, calc(21.9375vw + 8.875px), 397px);
-  }
-  .manimux-camera-panel {
-    position: fixed; left: 16px; top: 64px;
-    width: var(--manimux-camera-width);
-    height: var(--manimux-camera-height);
-    z-index: 4;
-    padding: 10px; box-sizing: border-box; pointer-events: none;
-    border: 1px solid rgba(128, 138, 156, 0.35); border-radius: 12px;
-    background: rgba(18, 23, 32, 0.92); box-shadow: 0 8px 28px rgba(0,0,0,0.18);
-  }
-  .manimux-camera-label { position: fixed; z-index: 7;
-    padding: 3px 9px; border-radius: 999px; color: white; background: rgba(8,12,18,0.78);
-    font: 600 12px/1.4 system-ui, sans-serif; text-transform: uppercase; }
-  .manimux-camera-label-top { left: 26px; top: 74px; }
-  .manimux-camera-label-left { left: 26px;
-    top: calc(82px + var(--manimux-camera-top-height)); }
-  .manimux-camera-label-right {
-    left: calc(34px + var(--manimux-camera-small-width));
-    top: calc(82px + var(--manimux-camera-top-height)); }
-
-  div:has(> .manimux-camera-anchor) + div,
-  div:has(> .manimux-camera-anchor) + div + div,
-  div:has(> .manimux-camera-anchor) + div + div + div {
-    position: fixed; z-index: 5; margin: 0; padding: 0 !important;
-    overflow: hidden; border-radius: 8px; background: #0e131c;
-    pointer-events: auto;
-  }
-  div:has(> .manimux-camera-anchor) + div {
-    left: 26px; top: 74px; width: var(--manimux-camera-inner);
-    height: var(--manimux-camera-top-height);
-  }
-  div:has(> .manimux-camera-anchor) + div + div {
-    left: 26px; top: calc(82px + var(--manimux-camera-top-height));
-    width: var(--manimux-camera-small-width); aspect-ratio: 16 / 9;
-  }
-  div:has(> .manimux-camera-anchor) + div + div + div {
-    left: calc(34px + var(--manimux-camera-small-width));
-    top: calc(82px + var(--manimux-camera-top-height));
-    width: var(--manimux-camera-small-width); aspect-ratio: 16 / 9;
-  }
-  div:has(> .manimux-camera-anchor) + div > div,
-  div:has(> .manimux-camera-anchor) + div + div > div,
-  div:has(> .manimux-camera-anchor) + div + div + div > div {
-    width: 100%; height: 100%;
-  }
-  div:has(> .manimux-camera-anchor) + div img,
-  div:has(> .manimux-camera-anchor) + div + div img,
-  div:has(> .manimux-camera-anchor) + div + div + div img {
-    width: 100%; height: 100% !important; max-width: none !important;
-    object-fit: cover; display: block;
-  }
-  @media (max-width: 900px) {
-    .manimux-camera-panel, .manimux-camera-label,
-    div:has(> .manimux-camera-anchor) + div,
-    div:has(> .manimux-camera-anchor) + div + div,
-    div:has(> .manimux-camera-anchor) + div + div + div { display: none; }
-  }
-</style>
-<div class="manimux-camera-anchor"></div>
-<section class="manimux-camera-panel"></section>
-<span class="manimux-camera-label manimux-camera-label-top">top</span>
-<span class="manimux-camera-label manimux-camera-label-left">left</span>
-<span class="manimux-camera-label manimux-camera-label-right">right</span>
-"""
-
-
 class PolicyViewer:
     """Robot-independent dashboard backed by one selected robot adapter."""
 
@@ -162,8 +85,10 @@ class PolicyViewer:
         control_endpoint: str,
         robot: RobotAdapter,
         reference_root: Path = DEFAULT_LAYOUT_ROOT,
+        viewer_config: ViewerConfig | None = None,
     ) -> None:
         self.robot = robot
+        self.viewer_config = viewer_config or ViewerConfig()
         self.reference_root = reference_root
         self.server = viser.ViserServer(host=host, port=port, label="Universal Policy Viewer")
         self.server.gui.configure_theme(
@@ -266,25 +191,19 @@ class PolicyViewer:
                 )
 
     def _build_gui(self) -> None:
-        self.camera_panel = self.server.gui.add_html(_camera_panel_html())
-        placeholder = np.zeros((90, 160, 3), dtype=np.uint8)
-        with self.server.gui.add_folder(None):
-            self.camera_images = {
-                slot: self.server.gui.add_image(
-                    placeholder,
-                    label=None,
-                    format="jpeg",
-                    jpeg_quality=70,
-                )
-                for slot in ("top", "left", "right")
-            }
-        self.chunk_timeline_panel = self.server.gui.add_html(
-            self.chunk_timeline.render_html()
+        self.camera_view = CameraPanel(
+            self.server.gui, self.viewer_config, self.robot.camera_slot,
+            lambda image: self.top_overlay.update(image),
         )
+        with self.camera_view.display_container:
+            self.chunk_timeline_panel = self.server.gui.add_html(
+                self.chunk_timeline.render_html()
+            )
         self.status = self.server.gui.add_markdown("🟠 **Waiting for policy executor**")
         self.instruction = self.server.gui.add_markdown(_instruction_markdown(""))
         self.top_overlay = TopViewOverlay(
-            self.server.gui, self.reference_root
+            self.server.gui, self.reference_root,
+            display_container=self.camera_view.display_container,
         )
         self.new_rollout_folder = self.server.gui.add_folder(
             "① New rollout", expand_by_default=True
@@ -582,6 +501,7 @@ class PolicyViewer:
         self.preparing_rollout = False
         self.service_ready = False
         self.episode_active = False
+        self.camera_view.set_policy_map(None, reset=True)
         self._set_policy_controls_enabled(False)
         self._set_setup_controls_enabled(False)
         self._set_stage("waiting")
@@ -629,11 +549,6 @@ class PolicyViewer:
         self.finish_requested = False
         self.new_rollout_requested = False
         return state
-
-    @staticmethod
-    def _image(payload: str) -> UInt8Array:
-        raw = base64.b64decode(payload)
-        return np.array(Image.open(io.BytesIO(raw)).convert("RGB"), copy=True)
 
     def _matches_selected_robot(self, message: dict[str, Any]) -> bool:
         robot_name = str(message.get("robot", ""))
@@ -819,6 +734,8 @@ class PolicyViewer:
 
     def _update_state(self, message: dict[str, Any]) -> None:
         metadata = message.get("metadata") or {}
+        if "camera_map" in metadata:
+            self.camera_view.set_policy_map(metadata["camera_map"])
         if not self.episode_active and bool(metadata.get("episode_active", False)):
             self._update_event({"event": "episode_started", "metadata": metadata})
         joint_positions = np.asarray(message.get("joint_positions", []), dtype=np.float64)
@@ -854,18 +771,13 @@ class PolicyViewer:
                 )
         for group_name, configuration in grouped_positions.items():
             self._update_group(self.robot.group(group_name), configuration)
-        for source_name, payload in message.get("cameras_jpeg", {}).items():
-            slot = self.robot.camera_slot(source_name)
-            if slot in self.camera_images:
-                image = self._image(str(payload))
-                self.camera_images[slot].image = image
-                if slot == "top":
-                    self.top_overlay.update(image)
+        self.camera_view.update_images(message.get("cameras_jpeg", {}))
 
     def _update_event(self, message: dict[str, Any]) -> None:
         event = str(message.get("event", "unknown"))
         metadata = message.get("metadata") or {}
         if event == "episode_started":
+            self.camera_view.set_policy_map(metadata.get("camera_map"), reset=True)
             self._reset_plan_overlay()
             self._clear_achieved_tails()
             self.episode_active = True
@@ -907,6 +819,7 @@ class PolicyViewer:
             suffix = f" → switch {planned}" if planned is not None else ""
             self.executor_info.value = f"chunk #{message.get('chunk_id')} pending{suffix}"
         elif event == "episode_finished":
+            self.camera_view.clear_images()
             self.episode_active = False
             self.executor_info.value = str(metadata.get("reason", "finished"))
             episode_dir = str(metadata.get("episode_dir", ""))
@@ -948,6 +861,10 @@ class PolicyViewer:
             first_service_announcement = self.launch_mode != "serve" or new_service
             if new_service:
                 self._reset_for_new_service()
+            if new_service or first_service_announcement or "camera_map" in metadata:
+                self.camera_view.set_policy_map(
+                    metadata.get("camera_map"), reset=new_service or first_service_announcement,
+                )
             if incoming_service_id:
                 self.service_id = incoming_service_id
             self.launch_mode = "serve"
@@ -979,6 +896,7 @@ class PolicyViewer:
             elif self.evaluation_saved:
                 self.status.content = "🟡 **Runtime service ready · prepare a rollout**"
         elif event == "episode_failed":
+            self.camera_view.clear_images()
             self.episode_active = False
             self.preparing_rollout = False
             self.service_ready = True
@@ -1076,6 +994,10 @@ def _demo(viewer: PolicyViewer) -> None:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--config", type=Path,
+        help="Viewer YAML; defaults to following policy inputs, supports manual camera preview",
+    )
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8086)
     parser.add_argument("--bridge-endpoint", default="tcp://127.0.0.1:5568")
@@ -1105,6 +1027,7 @@ def main() -> None:
     if args.list_robots:
         print("\n".join(available_robot_adapters()))
         return
+    viewer_config = load_viewer_config(args.config)
     robot = load_robot_adapter(args.robot, args.robot_model_root)
     viewer = PolicyViewer(
         args.host,
@@ -1113,6 +1036,7 @@ def main() -> None:
         args.control_endpoint,
         robot,
         reference_root=args.reference_root,
+        viewer_config=viewer_config,
     )
     if args.demo:
         threading.Thread(target=_demo, args=(viewer,), daemon=True).start()
@@ -1120,6 +1044,7 @@ def main() -> None:
     signal.signal(signal.SIGINT, lambda *_: stop.set())
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
     print(f"Robot adapter: {robot.name} ({robot.label})")
+    print(f"Viewer camera mode: {viewer_config.camera_mode}")
     print(f"Open http://localhost:{args.port}")
     try:
         while not stop.wait(0.25):

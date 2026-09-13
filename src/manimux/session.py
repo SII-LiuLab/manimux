@@ -69,6 +69,7 @@ class RuntimeSessionService:
             "runtime": self._config.execution.runtime,
             "executor": self._config.execution.executor,
             "policy_label": self._config.viewer.policy_label,
+            "camera_map": self._config.policy.options.get("camera_map", {}),
             "default_experiment_mode": self._config.run.experiment_mode,
             "default_layout_id": self._config.run.layout_id,
             "last_episode_dir": (

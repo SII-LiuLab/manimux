@@ -1,0 +1,6 @@
+# Optional manual preview. Omit --config for automatic policy input views.
+camera_mode: manual
+cameras:
+  top: front_camera
+  left: left_camera
+  right: right_camera

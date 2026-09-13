@@ -53,6 +53,7 @@ class _FailingRuntime:
 def test_session_service_waits_for_viewer_then_runs_one_isolated_episode(tmp_path: Path) -> None:
     config = load_config("configs/mock.yaml")
     config.viewer.enabled = True
+    config.policy.options["camera_map"] = {"cam_head": "gemini305", "cam_left": "left_camera"}
     run_dir = tmp_path / "run-session"
     run_dir.mkdir()
     episode_dir = run_dir / "episode-one"
@@ -89,7 +90,8 @@ def test_session_service_waits_for_viewer_then_runs_one_isolated_episode(tmp_pat
 
     assert runtime.run_count == 1
     assert controls[0].closed
-    assert any(message["event"] == "runtime_service_ready" for message in messages)
+    ready = next(message for message in messages if message["event"] == "runtime_service_ready")
+    assert ready["metadata"]["camera_map"] == config.policy.options["camera_map"]
 
 
 def test_cli_keeps_run_and_adds_serve() -> None:

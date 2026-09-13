@@ -17,16 +17,16 @@ EMPTY_SLOT = "（尚未采集）"
 _PANEL_STYLE = """
 <style>
   :root {
-    --reference-top: calc(294px + var(--manimux-camera-height, 397px));
+    --reference-top: calc(var(--manimux-camera-height, 397px) + 274px);
     --reference-image-height: clamp(100px,
       calc(100dvh - var(--reference-top) - 92px),
       calc((var(--manimux-camera-width, 460px) - 22px) * .75));
   }
   div:has(> .manimux-chunk-anchor) { anchor-name: --manimux-chunks; }
   div:has(> .manimux-reference-anchor) {
-    position: fixed; left: 16px; top: var(--reference-top);
+    position: relative; left: 0; top: 0;
     width: var(--manimux-camera-width, 460px); anchor-name: --manimux-reference;
-    z-index: 4; margin: 0; padding: 0 !important;
+    z-index: 4; margin: 12px 0 0; padding: 0 !important;
   }
   .manimux-reference-panel {
     padding: 10px; border: 1px solid rgba(128,138,156,.35); border-radius: 12px;
@@ -41,7 +41,7 @@ _PANEL_STYLE = """
   .manimux-reference-image-space { height: var(--reference-image-height); }
   .manimux-reference-panel footer { margin-top: 7px; color: #a6b5c7; }
   div:has(> .manimux-reference-anchor) + div {
-    position: fixed; left: 27px; top: calc(var(--reference-top) + 51px);
+    position: absolute; left: 11px; top: calc(var(--reference-top) + 51px);
     width: calc(var(--manimux-camera-width, 460px) - 22px);
     height: var(--reference-image-height); z-index: 5;
     margin: 0; padding: 0 !important; border-radius: 8px;
@@ -53,14 +53,11 @@ _PANEL_STYLE = """
     object-fit: contain; display: block;
   }
   @supports (top: anchor(--manimux-chunks bottom)) {
-    div:has(> .manimux-reference-anchor) {
-      top: calc(anchor(--manimux-chunks bottom) + 12px);
-    }
     div:has(> .manimux-reference-anchor) + div {
       top: calc(anchor(--manimux-reference top) + 51px);
     }
   }
-  @media (max-width: 900px), (max-height: 720px) {
+  @media (max-width: 900px) {
     div:has(> .manimux-reference-anchor),
     div:has(> .manimux-reference-anchor) + div {
       position: static; width: auto; height: auto; margin: 8px 0;
@@ -75,7 +72,13 @@ _PANEL_STYLE = """
 
 
 class TopViewOverlay:
-    def __init__(self, gui: Any, root: Path = DEFAULT_LAYOUT_ROOT) -> None:
+    def __init__(
+        self,
+        gui: Any,
+        root: Path = DEFAULT_LAYOUT_ROOT,
+        *,
+        display_container: Any | None = None,
+    ) -> None:
         self.layouts = ReferenceLayouts(root)
         self._lock = threading.RLock()
         self._live: np.ndarray | None = None
@@ -83,7 +86,8 @@ class TopViewOverlay:
         self._error = ""
         # Keep the native image as the anchor's direct sibling, like the camera panel.
         # Only its binary image data changes on a frame; never replace the HTML subtree.
-        with gui.add_folder(None):
+        container = display_container if display_container is not None else gui.add_folder(None)
+        with container:
             self.panel = gui.add_html("")
             self.image = gui.add_image(
                 np.zeros((480, 640, 3), dtype=np.uint8),
@@ -150,9 +154,9 @@ class TopViewOverlay:
                 self._error = f"参考图读取失败：{exc}"
         self._render()
 
-    def update(self, image: np.ndarray) -> None:
+    def update(self, image: np.ndarray | None) -> None:
         with self._lock:
-            self._live = image.copy()
+            self._live = None if image is None else image.copy()
             self._render()
 
     def _render(self) -> None:
@@ -180,8 +184,9 @@ class TopViewOverlay:
             display = np.rint(
                 (1.0 - alpha) * self._live.astype(np.float32) + alpha * reference
             ).astype(np.uint8)
-        if display is not None:
-            self.image.image = display
+        self.image.image = (
+            display if display is not None else np.zeros((480, 640, 3), dtype=np.uint8)
+        )
         if self.status.content != note:
             self.status.content = note
         content = (

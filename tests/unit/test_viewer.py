@@ -1,16 +1,20 @@
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
 import pytest
+import viser
 
 from manimux.types import ActionChunk, ActionHorizon, RobotState, SensorFrame
 from manimux.viewer.bridge import ViewerBridge
+from manimux.viewer.camera_panel import CameraPanel
 from manimux.viewer.chunk_timeline import ChunkTimelineView
 from manimux.viewer.client import ViewerClient
+from manimux.viewer.config import ViewerConfig, load_viewer_config
 from manimux.viewer.dashboard import (
     PolicyViewer,
     _camera_panel_html,
@@ -21,6 +25,7 @@ from manimux.viewer.dashboard import (
 from manimux.viewer.protocol import PolicyPlan, RobotSnapshot, RuntimeEvent
 from manimux.viewer.robots import available_robot_adapters, load_robot_adapter
 from manimux.viewer.robots.yam import DEFAULT_I2RT_ROOT, YamAdapter
+from manimux.viewer.top_overlay import TopViewOverlay
 
 
 @pytest.mark.parametrize("experiment_mode", [False, True])
@@ -98,11 +103,245 @@ def test_camera_panel_is_screen_fixed_and_targets_stable_image_handles() -> None
     html = _camera_panel_html()
 
     assert "position: fixed" in html
+    assert "manimux-left-overlay-root" in html
+    assert "overflow-y: auto" in html
+    assert "scrollbar-width: thin" in html
     assert "manimux-camera-anchor" in html
     assert "data:image/jpeg;base64" not in html
     assert "--manimux-camera-width: clamp(300px, 26vw, 460px)" in html
+    assert "--manimux-camera-top: 16px" in html
     assert "aspect-ratio: 16 / 9" in html
     assert "object-fit: cover" in html
+    assert "←" not in html
+    assert "<small>" not in html
+    assert "left side" in html
+    assert "right side" in html
+
+
+class _CameraHandle(SimpleNamespace):
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        pass
+
+    def on_update(self, callback):
+        self.change = callback
+        return callback
+
+    def on_click(self, callback):
+        self.click = callback
+        return callback
+
+
+class _CameraGui:
+    """Validate GUI calls against installed Viser without opening sockets."""
+
+    def __getattr__(self, name):
+        def add(*args, **kwargs):
+            bound = inspect.signature(getattr(viser.GuiApi, name)).bind(None, *args, **kwargs)
+            bound.apply_defaults()
+            values = dict(bound.arguments)
+            values.pop("self")
+            value = values.get("initial_value")
+            if value is None and "options" in values:
+                value = values["options"][0]
+            return _CameraHandle(value=value, **values)
+        return add
+
+
+def _camera_viewer(config=None):
+    viewer = PolicyViewer.__new__(PolicyViewer)
+    viewer.robot = YamAdapter()
+    viewer.episode_active = True
+    viewer.paused = True
+    viewer.observe_only = False
+    viewer.progress = SimpleNamespace(value=0)
+    viewer.status = SimpleNamespace(content="")
+    viewer._update_group = lambda *_: None
+    overlay_updates = []
+    viewer.camera_view = CameraPanel(
+        _CameraGui(), config or ViewerConfig(), viewer.robot.camera_slot, overlay_updates.append,
+    )
+    return viewer, overlay_updates
+
+
+def _camera_state(camera_map=None, frames=None):
+    return RobotSnapshot(
+        robot="yam", joint_positions=np.zeros(14), cameras=frames or {},
+        step=0, max_steps=100,
+        metadata={"camera_map": camera_map} if camera_map is not None else {},
+    ).to_wire()
+
+
+@pytest.mark.parametrize(
+    "config_path",
+    [
+        "configs/pi05/yam/infra/put-bottles/rtc-joint-step30000.yaml",
+        "configs/pi05/yam/infra/put-bottles/rtc-joint-ee-step30000.yaml",
+        "configs/sapolicy/yam/infra/teleopMV51/top-rtc.yaml",
+        "configs/sapolicy/yam/infra/teleopMV51/gemini305-rtc.yaml",
+        "configs/sapolicy/yam/infra/teleopMV51/gemini335-rtc.yaml",
+    ],
+)
+def test_default_viewer_follows_pi05_and_sa_inputs_without_viewer_config(config_path):
+    from manimux.config import load_config
+
+    camera_map = load_config(config_path).policy.options["camera_map"]
+    colors = [(210, 30, 40), (40, 210, 60), (60, 80, 210)]
+    frames = {
+        physical: np.full((12, 16, 3), color, dtype=np.uint8)
+        for physical, color in zip(camera_map.values(), colors, strict=True)
+    }
+    # Non-input cameras must never overwrite the selected view.
+    for name in ("front_camera", "gemini305", "gemini335"):
+        frames.setdefault(name, np.full((12, 16, 3), 250, dtype=np.uint8))
+    viewer, overlay = _camera_viewer()
+    viewer._update_state(_camera_state(camera_map, frames))
+
+    for i, (_name, _source) in enumerate(camera_map.items()):
+        np.testing.assert_allclose(viewer.camera_view.images[i].image[0, 0], colors[i], atol=3)
+    assert next(iter(camera_map)) in viewer.camera_view.panel.content
+    assert "left side" in viewer.camera_view.panel.content
+    assert "right side" in viewer.camera_view.panel.content
+    assert "←" not in viewer.camera_view.panel.content
+    assert not any(source in viewer.camera_view.panel.content for source in camera_map.values())
+    assert "模型输入相机" in viewer.camera_view.details.content
+    assert "未应用模型内部的缩放与裁剪" not in viewer.camera_view.details.content
+    np.testing.assert_array_equal(overlay[-1], viewer.camera_view.images[0].image)
+
+
+@pytest.mark.parametrize("view", ["top", "gemini305", "gemini335"])
+def test_manual_preview_stays_separate_and_still_reports_policy_inputs(view):
+    cfg = load_viewer_config(Path(f"configs/viewer/yam-{view}.yaml"))
+    viewer, _ = _camera_viewer(cfg)
+    physical_names = cfg.cameras.model_dump().values()
+    frames = {name: np.full((12, 16, 3), 90, np.uint8) for name in physical_names}
+    camera_map = {"cam_head": "another_camera"}
+    frames["another_camera"] = np.full((12, 16, 3), 210, np.uint8)
+    viewer._update_state(_camera_state(camera_map, frames))
+
+    for handle in viewer.camera_view.images:
+        np.testing.assert_allclose(handle.image, 90, atol=3)
+    assert "手动预览" in viewer.camera_view.details.content
+    assert "cam_head ← another_camera" in viewer.camera_view.details.content
+
+
+def test_missing_metadata_uses_labeled_default_preview_and_robot_aliases():
+    viewer, _ = _camera_viewer()
+    frames = {name: np.full((12, 16, 3), 100, np.uint8)
+              for name in ("front_camera", "left_camera", "right_camera")}
+    viewer._update_state(_camera_state(frames=frames))
+    assert "尚未获取模型输入配置" in viewer.camera_view.details.content
+    assert "top" in viewer.camera_view.panel.content
+    assert "left side" in viewer.camera_view.panel.content
+    assert "right side" in viewer.camera_view.panel.content
+    for handle in viewer.camera_view.images:
+        np.testing.assert_allclose(handle.image, 100, atol=3)
+
+
+def test_policy_switch_reuses_handles_clears_old_images_and_handles_arbitrary_input_names():
+    viewer, overlay = _camera_viewer()
+    panel = viewer.camera_view
+    original_handles = tuple(panel.images)
+    old_map = {"cam_head": "front_camera", "cam_left": "left_camera", "cam_right": "right_camera"}
+    old_frames = {name: np.full((12, 16, 3), 100, np.uint8) for name in old_map.values()}
+    viewer._update_state(_camera_state(old_map, old_frames))
+    # Config order determines presentation, with no guessing from model role names.
+    new_map = {"observation.images.view_7": "gemini305", "other_view": "left_camera"}
+    viewer._update_state(_camera_state(new_map))
+    assert all(a is b for a, b in zip(original_handles, panel.images, strict=True))
+    assert overlay[-1] is None
+    assert panel.images[0].image.max() == 0
+    assert " + div + div + div { visibility: hidden" in panel.panel.content
+    assert "cam_head" not in panel.details.content
+    assert "observation.images.view_7" in panel.panel.content
+    # A packet of unselected cameras must not restore the old external image.
+    viewer._update_state(_camera_state(new_map, old_frames))
+    assert panel.images[0].image.max() == 0
+    frames = {"gemini305": np.full((12, 16, 3), 160, np.uint8)}
+    viewer._update_state(_camera_state(new_map, frames))
+    np.testing.assert_allclose(panel.images[0].image, 160, atol=3)
+    assert panel.images[1].image.max() == 0
+
+
+def test_camera_throttling_keeps_images_but_missing_selected_source_clears_them():
+    viewer, overlay = _camera_viewer()
+    camera_map = {"external": "gemini335"}
+    viewer._update_state(_camera_state(
+        camera_map, {"gemini335": np.full((12, 16, 3), 170, np.uint8)},
+    ))
+    first_image = viewer.camera_view.images[0].image
+    first_html = viewer.camera_view.panel.content
+    viewer._update_state(_camera_state(camera_map))
+    assert viewer.camera_view.images[0].image is first_image
+    assert viewer.camera_view.panel.content == first_html
+    viewer._update_state(_camera_state(
+        camera_map, {"front_camera": np.zeros((12, 16, 3), np.uint8)},
+    ))
+    assert viewer.camera_view.images[0].image.max() == 0
+    assert overlay[-1] is None
+    assert "等待图像" in viewer.camera_view.details.content
+
+
+def test_more_than_three_inputs_are_displayed_and_hidden_after_switch():
+    viewer, _ = _camera_viewer()
+    camera_map = {f"view_{i}": f"physical_{i}" for i in range(5)}
+    frames = {name: np.full((12, 16, 3), 40 + 30 * i, np.uint8)
+              for i, name in enumerate(camera_map.values())}
+    viewer._update_state(_camera_state(camera_map, frames))
+    panel = viewer.camera_view
+    assert len(panel.images) == 5
+    assert panel.extra_folder.visible
+    for i, handle in enumerate(panel.images):
+        assert handle.visible
+        np.testing.assert_allclose(handle.image, 40 + 30 * i, atol=3)
+    assert panel.images[4].label.startswith("view_4 ← physical_4")
+    viewer._update_state(_camera_state({"one_view": "physical_0"}, frames))
+    assert not panel.extra_folder.visible
+    assert [handle.visible for handle in panel.images] == [True, True, True, False, False]
+    assert " + div + div { visibility: hidden" in panel.panel.content
+
+
+def test_reset_same_camera_map_clears_frames_and_escaped_labels_are_safe():
+    viewer, overlay = _camera_viewer()
+    camera_map = {'<img src=x onerror=alert(1)>': 'camera"<x>'}
+    frames = {next(iter(camera_map.values())): np.full((12, 16, 3), 180, np.uint8)}
+    viewer._update_state(_camera_state(camera_map, frames))
+    panel = viewer.camera_view
+    assert "<img src=x" not in panel.panel.content
+    assert "&lt;img" in panel.panel.content
+    assert "&quot;&lt;x&gt;" in panel.details.content
+    panel.set_policy_map(camera_map, reset=True)
+    assert panel.images[0].image.max() == 0
+    assert overlay[-1] is None
+
+
+@pytest.mark.parametrize("invalid_map", [{"view": None}, {"": "camera"}, ["camera"]])
+def test_invalid_policy_metadata_is_labeled_and_does_not_break_default_preview(invalid_map):
+    viewer, _ = _camera_viewer()
+    viewer._update_state(_camera_state(
+        invalid_map, {"front_camera": np.full((12, 16, 3), 90, np.uint8)},
+    ))
+    assert "映射无效" in viewer.camera_view.details.content
+    np.testing.assert_allclose(viewer.camera_view.images[0].image, 90, atol=3)
+
+
+def test_clearing_live_image_does_not_keep_old_camera_under_reference(tmp_path):
+    overlay = TopViewOverlay(_CameraGui(), tmp_path)
+    handle = overlay.image
+    overlay.update(np.full((12, 16, 3), 200, np.uint8))
+    overlay.update(None)
+    assert overlay._live is None
+    assert overlay.image is handle
+    assert overlay.image.image.max() == 0
+    overlay.layouts.save("task", "01", np.full((12, 16, 3), 40, np.uint8))
+    overlay.refresh.click(None)
+    overlay.update(np.full((12, 16, 3), 200, np.uint8))
+    overlay.update(None)
+    np.testing.assert_array_equal(overlay.image.image, 40)
+    assert "仅显示参考图" in overlay.status.content
+
 
 
 def test_chunk_timeline_tracks_pending_rtc_overlap_and_execution() -> None:
@@ -224,8 +463,21 @@ def test_chunk_timeline_renders_left_and_right_grippers_independently() -> None:
     rendered = timeline.render_html()
     assert rendered.count("group-left closed") == 2
     assert rendered.count("group-right closed") == 2
-    assert "L gripper closed" in rendered
-    assert "R gripper closed" in rendered
+    assert "manimux-gripper-marker" not in rendered
+    assert "manimux-gripper-strip upper" in rendered
+    assert "manimux-gripper-strip lower" in rendered
+    assert "height:6px" in rendered
+    assert "padding:7px 0" in rendered
+    assert rendered.index('<div class="manimux-gripper-strip upper"') < rendered.index(
+        '<div class="manimux-chunk-cells">'
+    )
+    assert rendered.index('<div class="manimux-chunk-cells">') < rendered.index(
+        '<div class="manimux-gripper-strip lower"'
+    )
+    assert "manimux-gripper-legend" in rendered
+    assert "manimux-gripper-legend-icon" in rendered
+    assert "L gripper state · action · R gripper state" in rendered
+    assert "gripper open" not in rendered
 
 
 def test_yam_gripper_marker_starts_when_closing_begins() -> None:
@@ -553,6 +805,11 @@ def _service_ready_viewer() -> tuple[PolicyViewer, list[str]]:
     viewer.prepare_experiment_btn = SimpleNamespace(visible=False)
     viewer.status = SimpleNamespace(content="")
     viewer.task = SimpleNamespace(value="old task")
+    camera_updates = []
+    viewer.camera_view = SimpleNamespace(
+        set_policy_map=lambda raw, **kwargs: camera_updates.append((raw, kwargs)),
+        updates=camera_updates,
+    )
     stages: list[str] = []
     viewer._set_instruction = lambda _instruction: None  # type: ignore[method-assign]
     viewer._set_policy_controls_enabled = lambda _enabled: None  # type: ignore[method-assign]
@@ -575,6 +832,7 @@ def test_new_runtime_service_resets_an_unfinalized_rollout() -> None:
                 "runtime": "rtc",
                 "policy_label": "Pi05",
                 "default_layout_id": "default",
+                "camera_map": {"cam_head": "gemini335"},
             },
         }
     )
@@ -592,6 +850,7 @@ def test_new_runtime_service_resets_an_unfinalized_rollout() -> None:
     assert viewer.task.value == ""
     assert stages[-1] == "setup"
     assert "prepare a rollout" in viewer.status.content
+    assert viewer.camera_view.updates == [({"cam_head": "gemini335"}, {"reset": True})]
 
 
 def test_new_runtime_service_also_resets_a_finalized_unlabeled_rollout() -> None:
@@ -633,6 +892,7 @@ def test_runtime_heartbeat_loss_fails_closed_without_deleting_episode_state() ->
     assert viewer.current_episode_dir == episode_dir
     assert stages[-1] == "waiting"
     assert "Runtime unavailable" in viewer.status.content
+    assert viewer.camera_view.updates == [(None, {"reset": True})]
 
 
 def test_protocol_is_not_tied_to_yam_dimensions() -> None:

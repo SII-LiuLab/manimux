@@ -69,6 +69,10 @@ envs/yam/.venv/bin/manimux serve \
 ```
 
 打开 `http://127.0.0.1:8086`，按 **Prepare → Start rollout → Finish & Home** 操作。
+Viewer 默认跟随 runtime 上报的 `policy.options.camera_map`，标注模型输入名和实际
+相机来源；切换部署配置后自动更新，不需要额外配置 Viewer。未收到输入配置时
+显示默认 `top / left / right` 预览并明确标注。调试时可用
+`--config configs/viewer/yam-top.yaml` 选择显式的 `camera_mode: manual` 手动预览。
 正常 rollout 不强制打分，实验 rollout 要求人工标注后才能进入下一条。
 按钮、暂停和恢复的具体语义见 [Viewer 教程](viewer-tutorial.html)。
 

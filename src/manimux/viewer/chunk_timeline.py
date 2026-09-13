@@ -398,22 +398,32 @@ class ChunkTimelineView:
         for index, lane in enumerate(self.lanes):
             chunk = "—" if lane.chunk_id is None else f"#{lane.chunk_id}"
             lane_class = f"{html.escape(lane.state)} {'reverse' if index else ''}"
-            cells_html: list[str] = []
-            for cell in range(lane.horizon_steps):
-                markers = "".join(
-                    f'<i class="manimux-gripper-marker group-{html.escape(group_name)}'
-                    f'{" closed" if cell < len(flags) and flags[cell] else ""}" '
-                    f'title="{html.escape(group_name.title())} gripper"></i>'
-                    for group_name, flags in lane.gripper_closed_steps_by_group.items()
-                )
-                cells_html.append(
-                    f'<span class="manimux-chunk-cell '
-                    f'{self._cell_state(lane, cell)}">{markers}</span>'
-                )
+            cells_html = [
+                f'<span class="manimux-chunk-cell '
+                f'{self._cell_state(lane, cell)}"></span>'
+                for cell in range(lane.horizon_steps)
+            ]
             cells = "".join(cells_html)
             condition_range = self._condition_range_html(lane)
             if not cells:
                 cells = '<span class="manimux-chunk-empty">waiting for inference</span>'
+            gripper_strips = {
+                group_name: "".join(
+                    f'<i class="manimux-gripper-step group-{group_name}'
+                    f'{" closed" if cell < len(flags) and flags[cell] else ""}"></i>'
+                    for cell in range(lane.horizon_steps)
+                )
+                for group_name, flags in (
+                    (
+                        "left",
+                        lane.gripper_closed_steps_by_group.get("left", ()),
+                    ),
+                    (
+                        "right",
+                        lane.gripper_closed_steps_by_group.get("right", ()),
+                    ),
+                )
+            }
             lane_html.append(
                 f"""
                 <div class="manimux-chunk-lane {lane_class}">
@@ -421,7 +431,17 @@ class ChunkTimelineView:
                     <strong>{'A' if index == 0 else 'B'} · {chunk}</strong>
                     <span>{html.escape(self._lane_summary(lane))}</span>
                   </div>
-                  <div class="manimux-chunk-cells">{cells}{condition_range}</div>
+                  <div class="manimux-chunk-track">
+                    <div class="manimux-gripper-strip upper"
+                         title="Left gripper · red closed, clear open">
+                      {gripper_strips['left']}
+                    </div>
+                    <div class="manimux-chunk-cells">{cells}{condition_range}</div>
+                    <div class="manimux-gripper-strip lower"
+                         title="Right gripper · red closed, clear open">
+                      {gripper_strips['right']}
+                    </div>
+                  </div>
                 </div>
                 """
             )
@@ -432,10 +452,9 @@ class ChunkTimelineView:
         return f"""
 <style>
   div:has(> .manimux-chunk-anchor) {{
-    position: fixed; left: 16px;
-    top: calc(76px + var(--manimux-camera-height, 397px));
+    position: relative;
     width: var(--manimux-camera-width, clamp(300px, 26vw, 460px));
-    z-index: 4; margin: 0; padding: 0 !important;
+    z-index: 4; margin: 12px 0 0; padding: 0 !important;
   }}
   .manimux-chunk-panel {{
     box-sizing: border-box; width: 100%; padding: 10px;
@@ -456,9 +475,10 @@ class ChunkTimelineView:
   .manimux-chunk-lane.reverse .manimux-chunk-lane-head {{
     order:2; margin-top:5px; margin-bottom:0;
   }}
-  .manimux-chunk-lane.reverse .manimux-chunk-cells {{ order:1; }}
+  .manimux-chunk-lane.reverse .manimux-chunk-track {{ order:1; }}
   .manimux-chunk-lane-head strong {{ color:#f2f5fa; }}
   .manimux-chunk-lane-head span {{ overflow:hidden; text-overflow:ellipsis; }}
+  .manimux-chunk-track {{ position:relative; padding:7px 0; }}
   .manimux-chunk-cells {{
     position:relative; display:flex; gap:1px; height:18px; min-width:0;
   }}
@@ -466,13 +486,17 @@ class ChunkTimelineView:
     position:relative; min-width:2px; flex:1 1 0; box-sizing:border-box;
     border:1px solid transparent; border-radius:2px; background:#303746;
   }}
-  .manimux-gripper-marker {{
-    position:absolute; left:1px; right:1px; z-index:2; height:3px;
-    border-radius:1px; pointer-events:none;
+  .manimux-gripper-strip {{
+    position:absolute; left:0; right:0; display:flex; gap:1px; height:6px;
+    pointer-events:none;
   }}
-  .manimux-gripper-marker.group-left {{ top:1px; }}
-  .manimux-gripper-marker.group-right {{ bottom:1px; }}
-  .manimux-gripper-marker.closed {{ background:#ef4444; }}
+  .manimux-gripper-strip.upper {{ top:0; }}
+  .manimux-gripper-strip.lower {{ bottom:0; }}
+  .manimux-gripper-step {{
+    display:block; min-width:2px; flex:1 1 0; border-radius:1px;
+    background:transparent;
+  }}
+  .manimux-gripper-step.closed {{ background:#ef4444; }}
   .manimux-chunk-cell.future {{
     border-color:#4b5565; background:transparent;
   }}
@@ -552,12 +576,26 @@ class ChunkTimelineView:
     padding:1px 6px; border-radius:8px; background:#121720;
     color:#9ba7b9; font-size:9px; white-space:nowrap;
   }}
-  .manimux-chunk-legend {{ display:flex; gap:10px; margin-top:7px; color:#8794a7; font-size:10px; }}
+  .manimux-chunk-legend {{ display:flex; flex-wrap:wrap; gap:6px 10px;
+    margin-top:7px; color:#8794a7; font-size:10px; }}
   .manimux-chunk-legend i {{
     display:inline-block; width:8px; height:8px; margin-right:3px; border-radius:2px;
   }}
-  .manimux-gripper-legend.left,
-  .manimux-gripper-legend.right {{ background:#ef4444; }}
+  .manimux-gripper-legend {{ display:inline-flex; align-items:center; white-space:nowrap; }}
+  .manimux-gripper-legend-icon {{
+    position:relative; display:inline-block; width:20px; height:14px; margin-right:4px;
+  }}
+  .manimux-gripper-legend-icon::before,
+  .manimux-gripper-legend-icon::after {{
+    content:""; position:absolute; left:0; right:0; height:3px;
+    border-radius:1px; background:#ef4444;
+  }}
+  .manimux-gripper-legend-icon::before {{ top:0; }}
+  .manimux-gripper-legend-icon::after {{ bottom:0; }}
+  .manimux-gripper-legend-icon i {{
+    position:absolute; left:0; right:0; top:4px; width:auto; height:6px; margin:0;
+    border:1px solid #4b5565; border-radius:1px; background:#303746;
+  }}
   @keyframes manimux-chunk-shimmer {{ to {{ background-position:-220% 0; }} }}
   @media (max-width: 900px) {{ div:has(> .manimux-chunk-anchor) {{ display:none; }} }}
 </style>
@@ -569,10 +607,12 @@ class ChunkTimelineView:
     <span><i style="background:#7c3aed"></i>executed</span>
     <span><i style="background:#a78bfa;box-shadow:0 0 5px rgba(167,139,250,.9)"></i>current</span>
     <span><i style="background:#f59e0b"></i>latency</span>
-    <span><i class="manimux-gripper-legend left"></i>L gripper closed</span>
-    <span><i class="manimux-gripper-legend right"></i>R gripper closed</span>
     <span><i style="border:2px solid #94a3b8;background:transparent"></i>condition</span>
     <span><i style="border:1px solid #4b5565"></i>future</span>
+    <span class="manimux-gripper-legend">
+      <span class="manimux-gripper-legend-icon"><i></i></span>
+      L gripper state · action · R gripper state
+    </span>
   </div>
 </section>
 """
