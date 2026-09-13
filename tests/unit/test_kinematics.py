@@ -8,6 +8,9 @@ convention against the FK that produced the recorded ``ee_pos`` / ``ee_rotm``.
 
 from __future__ import annotations
 
+import platform
+import sys
+import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -369,6 +372,67 @@ def test_end_effector_spec_rejects_inconsistent_descriptions(tmp_path) -> None:
             load_end_effector(target)
 
 
+# The analytic IK runs the vendored Linux x86-64 Marvin kinematics library offline.
+requires_marvin_kine = pytest.mark.skipif(
+    not (sys.platform.startswith("linux") and platform.machine() == "x86_64"),
+    reason="vendored Marvin kinematics library is Linux x86-64 only",
+)
+UMI_START_A_DEG = [50.0, -40.0, -30.0, -100.0, -65.0, 0.0, 40.0]
+
+
+@requires_marvin_kine
+def test_tianji_analytic_ik_round_trips_the_umi_tool_frame() -> None:
+    tianji = kinematics.build_kinematics("tianji", end_effector="umi_follower")
+    joints = np.radians(UMI_START_A_DEG)
+    target = tianji.fk(joints, 1.0)
+    seed = joints + np.radians([0.3, -0.3, 0.3, -0.3, 0.3, -0.3, 0.3])
+    converged, solved = tianji.ik(target, seed, 1.0)
+    assert converged
+    # A redundant arm: the SDK returns the solution nearest the seed, not the pose's
+    # original joints, so check the pose and the continuity bound instead.
+    assert np.max(np.abs(np.degrees(solved - seed))) <= 1.8
+    position_error, rotation_error = tianji.pose_error(target, solved, 1.0)
+    assert position_error < 1e-5 and rotation_error < np.radians(0.2)
+
+    ok, _, info = tianji.ik_bounded(target, seed, 1.0, deadline_ns=time.monotonic_ns() + 10**9)
+    assert ok and info["reason"] == "converged" and info["iterations"] == 1
+
+
+@requires_marvin_kine
+def test_tianji_analytic_ik_rejects_like_arm_ik() -> None:
+    tianji = kinematics.build_kinematics("tianji", end_effector="umi_follower")
+    joints = np.radians(UMI_START_A_DEG)
+    target = tianji.fk(joints, 1.0)
+    far_seed = joints + np.radians([4.0, -4.0, 4.0, -4.0, 4.0, -4.0, 4.0])
+    ok, returned, info = tianji.ik_bounded(
+        target, far_seed, 1.0, deadline_ns=time.monotonic_ns() + 10**9
+    )
+    assert not ok and info["reason"] == "branch_jump"
+    np.testing.assert_allclose(returned, tianji.clip_arm_joints(far_seed))
+    relaxed = kinematics.build_kinematics(
+        "tianji", end_effector="umi_follower", max_step_deg=20.0
+    )
+    assert relaxed.ik(target, far_seed, 1.0)[0]
+
+    unreachable = target.copy()
+    unreachable[:3, 3] += [2.0, 0.0, 0.0]
+    ok, _, info = tianji.ik_bounded(
+        unreachable, joints, 1.0, deadline_ns=time.monotonic_ns() + 10**9
+    )
+    assert not ok and info["reason"] in {"ik_failed", "ik_nsp_failed", "fk_mismatch"}
+    ok, _, info = tianji.ik_bounded(target, joints, 1.0, deadline_ns=0)
+    assert not ok and info["reason"] == "budget_exceeded"
+
+
+def test_tianji_joint_limit_override_narrows_the_right_arm() -> None:
+    right = kinematics.build_kinematics(
+        "tianji", arm="right", joint_limits_deg={6: [-58.0, 58.0], 1: [-400.0, 400.0]}
+    )
+    lower, upper = right.joint_position_limits()
+    assert np.degrees(upper[5]) == pytest.approx(58.0)
+    assert np.degrees(upper[0]) == pytest.approx(170.0)
+
+
 def test_tianji_limits_are_radians_from_the_controller_table() -> None:
     tianji = kinematics.build_kinematics("tianji")
     lower, upper = tianji.joint_position_limits()
@@ -377,5 +441,3 @@ def test_tianji_limits_are_radians_from_the_controller_table() -> None:
     clipped = tianji.clip_arm_joints(np.radians([180, 0, 0, 90, 0, -70, 0]))
     np.testing.assert_allclose(np.degrees(clipped), [170, 0, 0, 60, 0, -60, 0])
     assert tianji.num_arm_joints == 7
-    with pytest.raises(NotImplementedError, match="tianji_dual"):
-        tianji.ik(np.eye(4), np.zeros(7), 1.0)
