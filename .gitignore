@@ -7,6 +7,10 @@
 /qz/
 /weekly_report/
 
+# Local dataset archive and machine-specific training experiment configuration.
+/exchange_ball_v0.tgz
+/exp_dinov2lfrz_yam_bottles_realsim_top_tcp_dit_4gpu_bs256.yaml
+
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
