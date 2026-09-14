@@ -318,6 +318,7 @@ class EdgeRuntime:
                 if viewer_control.paused and (
                     self._decoder is not None
                     or self._config.execution.inference_schedule == "serial"
+                    or getattr(self._strategy, "discard_plans_while_paused", False)
                 ):
                     self._timeline = self._build_timeline()
                     discard_responses_through = max(discard_responses_through, request_seq)
@@ -631,7 +632,10 @@ class EdgeRuntime:
                                 pending_visuals.pop(response.request_seq, None)
 
                 if self._worker.is_alive and not (
-                    self._decoder is not None
+                    (
+                        self._decoder is not None
+                        or getattr(self._strategy, "discard_plans_while_paused", False)
+                    )
                     and self._state != RuntimeState.RUNNING
                 ):
                     snapshot = ObservationSnapshot(state=state, frames=frames)

@@ -137,6 +137,12 @@ def align_rtc_condition(request, timeline, now_ns, *, offset_ns, dt_ns, group_or
 
 
 class HistoryStrategy:
+    # Read by EdgeRuntime: while the viewer holds the rollout paused, submit no
+    # inference and drop plans. A plan committed during the pause keeps its
+    # wall-clock start, so Start would make the arms chase it mid-way from an
+    # observation taken before Start.
+    discard_plans_while_paused = True
+
     def __init__(self, config):
         from manimux.integrations.umi_dp_tianji.ik_config import validate_diff_ik_profile
 

@@ -255,3 +255,77 @@ def test_timestamped_camera_retains_sequence_and_detects_clock_jump(monkeypatch)
     monkeypatch.setattr(camera_sensor.time, "time_ns", lambda: wall[0] + 50000000)
     with pytest.raises(RuntimeError, match="Wall clock jumped"):
         sensor.read()
+
+
+def test_history_strategy_asks_runtime_to_drop_plans_while_paused():
+    assert HistoryStrategy.discard_plans_while_paused is True
+
+
+@pytest.mark.parametrize("discard", [True, False])
+def test_pause_submits_and_commits_nothing_only_when_the_strategy_asks(
+    monkeypatch, tmp_path, discard
+):
+    from manimux.runtime import edge
+    from manimux.types import ActionChunk, InferenceResponse
+    from manimux.viewer.bridge import ViewerControl
+
+    class Clock:
+        now = 10**9
+
+        def now_ns(self):
+            return self.now
+
+        def sleep_until_ns(self, target_ns):
+            self.now = max(self.now + 1, target_ns)
+
+    clock = Clock()
+    submitted_while, holder = [], {}
+
+    class InstantPolicy:
+        is_alive = True
+        pending = None
+
+        def start(self):
+            pass
+
+        def submit_latest(self, request):
+            submitted_while.append(holder["runtime"]._state)
+            chunk = ActionChunk(
+                plan_id=f"p{request.request_seq}", request_seq=request.request_seq,
+                observation_time_ns=request.observation_time_ns,
+                created_time_ns=clock.now_ns(), action_space="joint_position",
+                dt_ns=50_000_000,
+                groups={name: np.tile(values, (20, 1))
+                        for name, values in request.observation.state.groups.items()},
+            )
+            self.pending = InferenceResponse(
+                request.session_id, request.request_seq, clock.now_ns(), 0.0, chunk,
+                observation_time_ns=request.observation_time_ns,
+            )
+
+        def poll(self):
+            result, self.pending = self.pending, None
+            return result
+
+        def close(self):
+            self.is_alive = False
+
+    class Strategy(edge.DefaultChunkStrategy):
+        discard_plans_while_paused = discard
+
+    monkeypatch.setattr(edge, "PolicyWorkerClient", lambda *_: InstantPolicy())
+    config = load_config(ROOT / "configs/mock.yaml")
+    config.sensors = []
+    config.run.max_steps = 10_000
+    runtime = edge.EdgeRuntime(config, tmp_path, clock=clock, strategy=Strategy(config))
+    holder["runtime"] = runtime
+    controls = iter(
+        [ViewerControl(paused=True)] * 60
+        + [ViewerControl(paused=False)] * 60
+        + [ViewerControl(paused=True, finish_requested=True)]
+    )
+    monkeypatch.setattr(runtime._viewer, "poll_control", lambda: next(controls))
+    runtime.run()
+    assert edge.RuntimeState.RUNNING in submitted_while
+    # Only the opt-in strategy stops inference during the pause; the default is unchanged.
+    assert (edge.RuntimeState.PAUSED in submitted_while) is not discard
