@@ -204,6 +204,15 @@ def test_adapter_output_clock_reset_anchor_and_ik_failure(adapter):
         model.decode_action(raw, ActionContext(1, 10**9, 10**9))
 
 
+def test_adapter_accepts_the_ws_client_unwrapped_action_list(adapter):
+    # XPolicyLabWebSocketClient.infer returns payload["actions"] for plain sampling.
+    model, _, _ = adapter
+    request = request_for(model)
+    steps = actions_for(request, model.horizon)["actions"]
+    chunk = model.decode_action(steps, ActionContext(1, 10**9, 10**9))
+    assert chunk.horizon_steps == model.horizon
+
+
 @pytest.mark.parametrize("failure", ["horizon", "quaternion", "gripper", "missing_history"])
 def test_adapter_rejects_contract_errors(adapter, failure):
     model, _, _ = adapter

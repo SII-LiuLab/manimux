@@ -228,9 +228,8 @@ class UmiDpTianjiAdapter:
         return current
 
     def decode_action(self, raw, context):
-        if not isinstance(raw, Mapping):
-            raise ValueError("UMI actions must be a standard XPolicyLab response")
-        steps = raw.get("actions")
+        # The WebSocket client unwraps a plain response to its action list.
+        steps = raw.get("actions") if isinstance(raw, Mapping) else raw
         if not isinstance(steps, Sequence) or len(steps) != self.horizon:
             raise ValueError("UMI action horizon differs from the checkpoint")
         anchors = self.anchors.pop(context.request_seq, None)
