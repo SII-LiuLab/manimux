@@ -130,12 +130,59 @@ def test_shared_finite_motion_limits_are_resolved_for_smooth_and_direct(tmp_path
 
 @pytest.mark.parametrize("value", [-1, 0, float("nan"), float("inf")])
 def test_motion_limits_reject_invalid_numeric_values(value):
-    from manimux.config import MotionRateConfig
+    from manimux.config import ArmMotionConfig, MotionRateConfig
 
     with pytest.raises(ValidationError):
         MotionRateConfig(max_velocity=value)
     with pytest.raises(ValidationError):
         MotionRateConfig(max_acceleration=value)
+    with pytest.raises(ValidationError):
+        ArmMotionConfig(max_step_dt_s=value)
+
+
+def test_motion_mode_defaults_and_explicit_selection(tmp_path):
+    from manimux.config import ArmMotionConfig
+
+    assert ArmMotionConfig().mode == "per_joint"
+    with pytest.raises(ValidationError):
+        ArmMotionConfig(mode="unknown")
+    raw = yaml.safe_load(Path("configs/collection/yam/control.yaml").read_text())
+    profile = yaml.safe_load(Path("configs/robots/yam/common.yaml").read_text())
+    profile["motion_limits"]["arm"].update(mode="isotropic", max_step_dt_s=0.016)
+    (tmp_path / "shared.yaml").write_text(yaml.safe_dump(profile))
+    raw["control_profile"] = "shared.yaml"
+    path = tmp_path / "local.yaml"
+    path.write_text(yaml.safe_dump(raw))
+    config = load_config(path)
+    assert config.execution.motion_limits.arm.mode == "isotropic"
+    assert config.execution.smooth.mode == "isotropic"
+    assert config.execution.smooth.max_step_dt_s == 0.016
+    # Arm limit mode and gripper aperture mode are different configuration fields.
+    assert config.execution.smooth.gripper.mode == "continuous"
+    # Repeated shared settings remain equivalent when older YAML omits new defaults.
+    raw["execution"]["motion_limits"] = profile["motion_limits"]
+    path.write_text(yaml.safe_dump(raw))
+    assert load_config(path).execution.smooth.mode == "isotropic"
+    raw["execution"]["smooth"] = {"mode": "per_joint"}
+    path.write_text(yaml.safe_dump(raw))
+    with pytest.raises(ValueError, match="conflicts with control_profile"):
+        load_config(path)
+
+
+def test_safety_optional_acceleration_validates_every_supplied_group():
+    from manimux.config import CommandSafetyConfig
+
+    envelope = {
+        "position_lower": {"arm": [-1.0]}, "position_upper": {"arm": [1.0]},
+        "max_velocity": {"arm": [2.0]},
+    }
+    assert CommandSafetyConfig(**envelope).max_acceleration == {}
+    assert CommandSafetyConfig(**envelope, max_acceleration=None).max_acceleration == {}
+    for invalid in ({"wrong": [1.0]}, {"arm": []}, {"arm": [-1.0]}, {"arm": [float("nan")]}):
+        with pytest.raises(ValidationError):
+            CommandSafetyConfig(**envelope, max_acceleration=invalid)
+    with pytest.raises(ValidationError, match="together"):
+        CommandSafetyConfig(max_acceleration={"arm": [1.0]})
 
 
 def test_mock_config_loads() -> None:

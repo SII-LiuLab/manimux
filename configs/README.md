@@ -65,6 +65,49 @@ YAM 的公共部分包括 driver、关节分组、CAN 通道、夹爪类型/力�
 
 具体字段、配置边界和记录语义见 [YAM 数采说明](../docs/yam-collection.md#shared-control-profile)。
 
+### 选择手臂命令的削减方式
+
+共享 profile 的 `motion_limits.arm.mode` 控制 Direct / Smooth 如何削减关节命令：
+
+| mode | 行为 |
+|---|---|
+| `per_joint`（默认） | 每个关节分别裁剪，保留已有配置的执行方式。 |
+| `isotropic` | 每条手臂各用一个比例缩小关节速度向量，配置的夹爪维度不参与比例计算。 |
+
+例如天机的公共配置：
+
+```yaml
+motion_limits:
+  arm:
+    mode: isotropic
+    max_velocity: 0.9047786842338605  # rad/s = 51.84 deg/s
+    max_step_dt_s: 0.016
+    max_acceleration: null
+  gripper:
+    group_indices: {left_arm: 7, right_arm: 7}
+    max_velocity: 3.0
+    max_acceleration: 12.0
+    max_closing_velocity: 1.0
+```
+
+`max_step_dt_s` 默认 null；配置后，速度预算允许的单步关节变化为
+`max_velocity × min(1/control_hz, max_step_dt_s)`，不改变主循环频率。
+该字段限制的是单步速度预算，不能代替 runtime 的命令超时检查。
+
+`isotropic` 也支持加速度限制：速度向量先整体缩放，再对相对上一拍速度的变化量
+整体缩放。第二步保留的是速度变化方向，所以启用加速度限制时，最终位置增量不一定
+与最初目标同方向。要使用 teleop 的纯等比例步长限制，设 `max_acceleration: null`。
+Smooth 自身的滤波、制动和位置边界仍有效；mode 只选择限速/限加速度的方式。
+
+`command_safety` 是独立的超限拒绝检查；位置上下界和速度必须一起配置，
+`max_acceleration` 可以省略或设 null。省略只关闭软件加速度检查，仍检查位置、
+速度和数值有效性，也不改变控制器的加速度档。
+
+未用共享 profile 时，在 `execution.motion_limits.arm` 选择 Direct 的模式，
+或在 `execution.smooth` 配置同名的 `mode` / `max_step_dt_s`。共享 profile 与局部
+配置不允许冲突。来源和与 teleop 的数值对比见
+[天机限速来源说明](../docs/tianji-motion-limits-provenance.md)。
+
 ## 第一份配置：`configs/mock.yaml`
 
 ManiMux 配置使用严格 schema：拼错字段或写入未知字段会直接报错，不会静默忽略。

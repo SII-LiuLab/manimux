@@ -24,6 +24,7 @@ from manimux.viewer.dashboard import (
 )
 from manimux.viewer.protocol import PolicyPlan, RobotSnapshot, RuntimeEvent
 from manimux.viewer.robots import available_robot_adapters, load_robot_adapter
+from manimux.viewer.robots.tianji import TianjiAdapter
 from manimux.viewer.robots.yam import DEFAULT_I2RT_ROOT, YamAdapter
 from manimux.viewer.top_overlay import TopViewOverlay
 
@@ -1139,6 +1140,142 @@ def test_yam_fk_and_assets_are_self_contained() -> None:
     poses = adapter.positions("left", np.stack([joints, joints]))
     assert poses.shape == (2, 3)
     assert np.isfinite(poses).all()
+
+
+def test_tianji_is_a_discovered_adapter() -> None:
+    assert "tianji" in available_robot_adapters()
+    assert isinstance(load_robot_adapter("tianji"), TianjiAdapter)
+
+
+def test_tianji_adapter_splits_arm_vectors_with_and_without_gripper() -> None:
+    adapter = TianjiAdapter()
+    for width, groups in ((7, {"left"}), (8, {"left"}), (14, {"left", "right"}),
+                          (16, {"left", "right"})):
+        assert set(adapter.split_actions(np.zeros((2, width)), "joint_position")) == groups
+    dual = adapter.split_joint_positions(np.arange(16.0))
+    np.testing.assert_array_equal(dual["right"], np.arange(8.0, 16.0))
+    with pytest.raises(ValueError, match="action_space"):
+        adapter.split_actions(np.zeros((2, 7)), "cartesian_delta")
+    with pytest.raises(ValueError, match="7, 8, 14 or 16"):
+        adapter.split_joint_positions(np.zeros(9))
+
+
+def test_tianji_urdf_joints_follow_the_dh_chain_on_both_arms() -> None:
+    yourdfpy = pytest.importorskip("yourdfpy")
+    adapter = TianjiAdapter()
+    joints = np.radians([12.0, -34.0, 56.0, -78.0, 9.0, -21.0, 43.0])
+    for group_name, suffix in (("left", "L"), ("right", "R")):
+        group = adapter.group(group_name)
+        robot = yourdfpy.URDF.load(group.urdf_path)
+        robot.update_cfg(adapter.visual_configuration(group_name, np.r_[joints, 0.5]))
+        urdf_link7 = robot.get_transform(f"Link7_{suffix}", f"Base_{suffix}")
+        # The URDF stops at Link7; the DH chain's static row adds the 95 mm flange.
+        flange_row = np.eye(4)
+        flange_row[:3, :3] = [[0.0, -1.0, 0.0], [0.0, 0.0, -1.0], [1.0, 0.0, 0.0]]
+        flange_row[:3, 3] = [0.0, -0.095, 0.0]
+        np.testing.assert_allclose(
+            urdf_link7 @ flange_row, adapter.kinematics.flange(joints), atol=1e-4
+        )
+        # The gripper chain ends at the same fingertip midpoint as the tool transform.
+        urdf_tcp = robot.get_transform("ee_tcp", f"Base_{suffix}")
+        np.testing.assert_allclose(urdf_tcp, adapter.pose(group_name, joints), atol=1e-4)
+
+
+def test_tianji_end_effector_follows_the_aperture_and_can_be_removed() -> None:
+    yourdfpy = pytest.importorskip("yourdfpy")
+    adapter = TianjiAdapter()
+    robot = yourdfpy.URDF.load(adapter.group("left").urdf_path)
+    assert robot.actuated_joint_names[-1] == "ee_joint1"
+    home = np.radians([90.0, -90.0, -90.0, -90.0, 0.0, 0.0, 0.0])
+    for aperture, angle in ((1.0, 0.0), (0.0, -0.44), (1.5, 0.0)):
+        configuration = adapter.visual_configuration("left", np.r_[home, aperture])
+        assert configuration.shape == (8,)
+        assert configuration[-1] == pytest.approx(angle)
+        robot.update_cfg(configuration)
+        assert robot.cfg[-1] == pytest.approx(angle)
+    # A state without the aperture draws the gripper at its rest (open) pose.
+    assert adapter.visual_configuration("left", home)[-1] == pytest.approx(0.0)
+
+    bare = load_robot_adapter("tianji", options={"end_effector": "none"})
+    assert set(bare.split_joint_positions(np.zeros(14))) == {"left", "right"}
+    with pytest.raises(ValueError, match="7 or 14"):
+        bare.split_joint_positions(np.zeros(16))
+    assert bare.visual_configuration("left", home).shape == (7,)
+    np.testing.assert_allclose(bare.pose("left", home), bare.kinematics.flange(home))
+    assert not bare.gripper_closed_steps(bare.split_actions(np.zeros((2, 14)))).any()
+
+
+def test_tianji_mounts_reproduce_the_measured_arm_to_arm_transform() -> None:
+    from scipy.spatial.transform import Rotation
+
+    adapter = TianjiAdapter()
+
+    def world_from(group_name: str) -> np.ndarray:
+        group = adapter.group(group_name)
+        w, x, y, z = group.base_orientation
+        transform = np.eye(4)
+        transform[:3, :3] = Rotation.from_quat([x, y, z, w]).as_matrix()
+        transform[:3, 3] = group.base_position
+        return transform
+
+    left_from_right = np.linalg.inv(world_from("left")) @ world_from("right")
+    expected = np.eye(4)
+    expected[:3, :3] = Rotation.from_euler("x", 180, degrees=True).as_matrix()
+    expected[:3, 3] = [0.0, 0.0, -0.074]
+    np.testing.assert_allclose(left_from_right, expected, atol=1e-12)
+
+
+def test_tianji_stand_is_static_scene_geometry() -> None:
+    yourdfpy = pytest.importorskip("yourdfpy")
+    adapter = TianjiAdapter()
+    (stand,) = adapter.static_meshes
+    robot = yourdfpy.URDF.load(stand.urdf_path)
+    assert set(robot.link_map) == {"Link_Base", "Link_Stand"}
+    assert robot.actuated_joint_names == []
+    (table,) = adapter.scene_boxes
+    assert table.name == "table"
+
+
+def test_tianji_camera_slots_and_gripper_markers() -> None:
+    adapter = TianjiAdapter()
+    assert adapter.camera_slot("left_wrist") == "left"
+    assert adapter.camera_slot("right_wrist_rgb") == "right"
+    chunk = np.zeros((4, 16))
+    chunk[:, 7] = [1.0, 1.0, 0.4, 0.4]
+    chunk[:, 15] = 1.0
+    flags = adapter.gripper_closed_steps(adapter.split_actions(chunk, "joint_position"))
+    np.testing.assert_array_equal(flags, [False, False, True, True])
+    joints_only = adapter.split_actions(np.zeros((3, 14)), "joint_position")
+    assert not adapter.gripper_closed_steps(joints_only).any()
+
+
+def test_tianji_demo_and_home_pose_are_renderable() -> None:
+    adapter = TianjiAdapter()
+    state, chunk = adapter.demo_sample(1.0, 16)
+    assert state.shape == (16,) and chunk.shape == (16, 16)
+    for name, values in adapter.split_joint_positions(state).items():
+        assert np.isfinite(adapter.pose(name, values)).all()
+        np.testing.assert_array_equal(adapter.visual_configuration(name, values)[:7], values[:7])
+        assert adapter.initial_configuration(name).shape == (8,)
+
+
+def test_tianji_gripper_markers_are_independent_and_use_previous_state() -> None:
+    adapter = TianjiAdapter()
+    chunk = np.zeros((3, 16))
+    chunk[:, 7] = [0.8, 0.8, 0.95]
+    chunk[:, 15] = 1.0
+    previous = {"left": np.r_[np.zeros(7), 1.0], "right": np.r_[np.zeros(7), 1.0]}
+    flags = adapter.gripper_closed_steps_by_group(
+        adapter.split_actions(chunk), previous_positions=previous
+    )
+    assert set(flags) == {"left", "right"}
+    np.testing.assert_array_equal(flags["left"], [True, True, False])
+    np.testing.assert_array_equal(flags["right"], [False, False, False])
+    assert adapter.gripper_closed_steps_by_group(
+        adapter.split_actions(np.zeros((3, 14)))
+    ) == {}
+    bare = load_robot_adapter("tianji", options={"end_effector": "none"})
+    assert bare.gripper_closed_steps_by_group(bare.split_actions(np.zeros((3, 14)))) == {}
 
 
 def test_trajectory_gradient_uses_deep_to_light_purple() -> None:

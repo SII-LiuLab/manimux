@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class StrictModel(BaseModel):
@@ -88,13 +88,18 @@ class MotionRateConfig(StrictModel):
     max_acceleration: float | None = Field(default=None, gt=0, allow_inf_nan=False)
 
 
+class ArmMotionConfig(MotionRateConfig):
+    mode: Literal["per_joint", "isotropic"] = "per_joint"
+    max_step_dt_s: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+
+
 class GripperMotionConfig(MotionRateConfig):
     group_indices: dict[str, int]
     max_closing_velocity: float | None = Field(default=None, gt=0, allow_inf_nan=False)
 
 
 class MotionLimitsConfig(StrictModel):
-    arm: MotionRateConfig
+    arm: ArmMotionConfig
     gripper: GripperMotionConfig
 
 
@@ -150,6 +155,8 @@ class GripperGraspGuardConfig(StrictModel):
 class SmoothConfig(ExecutorLimitsConfig):
     max_velocity: float | None = Field(default=2.0, gt=0, allow_inf_nan=False)
     max_acceleration: float | None = Field(default=8.0, gt=0, allow_inf_nan=False)
+    mode: Literal["per_joint", "isotropic"] = "per_joint"
+    max_step_dt_s: float | None = Field(default=None, gt=0, allow_inf_nan=False)
     cutoff_hz: float = Field(default=8.0, gt=0)
     tracking_mode: Literal["legacy", "braking"] = "legacy"
     gripper: GripperHysteresisConfig | None = None
@@ -182,26 +189,32 @@ class CommandSafetyConfig(StrictModel):
     max_velocity: dict[str, list[float]] = Field(default_factory=dict)
     max_acceleration: dict[str, list[float]] = Field(default_factory=dict)
 
+    @field_validator("max_acceleration", mode="before")
+    @classmethod
+    def optional_acceleration(cls, value: object) -> object:
+        return {} if value is None else value
+
     @property
     def configured(self) -> bool:
         return bool(self.position_lower)
 
     @model_validator(mode="after")
     def validate_envelope(self) -> CommandSafetyConfig:
-        mappings = (
+        mappings: tuple[dict[str, list[float]], ...] = (
             self.position_lower,
             self.position_upper,
             self.max_velocity,
-            self.max_acceleration,
         )
         populated = [bool(values) for values in mappings]
-        if not any(populated):
+        if not any(populated) and not self.max_acceleration:
             return self
         if not all(populated):
             raise ValueError(
                 "execution.command_safety requires position_lower, position_upper, "
-                "max_velocity, and max_acceleration together"
+                "and max_velocity together; max_acceleration is optional"
             )
+        if self.max_acceleration:
+            mappings += (self.max_acceleration,)
         groups = set(self.position_lower)
         if not groups or any(set(values) != groups for values in mappings[1:]):
             raise ValueError(
@@ -211,8 +224,8 @@ class CommandSafetyConfig(StrictModel):
             lower = self.position_lower[group]
             upper = self.position_upper[group]
             velocity = self.max_velocity[group]
-            acceleration = self.max_acceleration[group]
-            dimensions = {len(lower), len(upper), len(velocity), len(acceleration)}
+            acceleration = self.max_acceleration.get(group, [])
+            dimensions = {len(mapping[group]) for mapping in mappings}
             if dimensions == {0} or len(dimensions) != 1:
                 raise ValueError(
                     f"execution.command_safety group {group!r} vectors must share "
@@ -587,6 +600,10 @@ def load_config(path: str | Path) -> ManiMuxConfig:
                 raise ValueError("execution.command_safety conflicts with control_profile")
         execution["command_safety"] = envelope.model_dump()
         if profile.motion_limits is not None:
+            if execution.get("motion_limits") is not None:
+                execution["motion_limits"] = MotionLimitsConfig.model_validate(
+                    execution["motion_limits"]
+                ).model_dump()
             _set_shared_value(
                 execution, "motion_limits", profile.motion_limits.model_dump(),
                 "execution.motion_limits",

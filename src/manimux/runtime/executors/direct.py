@@ -42,8 +42,10 @@ class DirectExecutor:
             output, velocities = limit_step(
                 output, self._previous, self._previous_velocity, dt_s=self._dt_s,
                 limits=ScalarLimits(
-                    self._motion.arm.max_velocity, self._motion.arm.max_acceleration, None
+                    self._motion.arm.max_velocity, self._motion.arm.max_acceleration, None,
+                    self._motion.arm.mode, self._motion.arm.max_step_dt_s,
                 ),
+                gripper_indices=self._motion.gripper.group_indices,
             )
             gripper = self._motion.gripper
             for name, index in gripper.group_indices.items():

@@ -1,8 +1,10 @@
+import sys
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
+from manimux.viewer import dashboard
 from manimux.viewer.config import load_viewer_config
 from manimux.viewer.dashboard import _parser
 from manimux.viewer.robots.yam import YamAdapter
@@ -52,3 +54,29 @@ def test_invalid_viewer_config_fails_before_startup(tmp_path: Path, payload: str
     path.write_text(payload, encoding="utf-8")
     with pytest.raises(ValidationError):
         load_viewer_config(path)
+
+
+def test_viewer_startup_combines_camera_config_and_robot_options(monkeypatch, tmp_path):
+    config = tmp_path / "viewer.yaml"
+    config.write_text("camera_mode: manual\ncameras:\n  top: gemini305\n", encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", [
+        "manimux-viewer", "--robot", "tianji", "--config", str(config),
+        "--robot-option", "end_effector=none",
+    ])
+    selected = {}
+
+    class StopBeforeServing(Exception):
+        pass
+
+    def capture_viewer(*args, **kwargs):
+        selected["robot"] = args[4]
+        selected["config"] = kwargs["viewer_config"]
+        raise StopBeforeServing
+
+    monkeypatch.setattr(dashboard, "PolicyViewer", capture_viewer)
+    with pytest.raises(StopBeforeServing):
+        dashboard.main()
+    assert selected["robot"].name == "tianji"
+    assert selected["robot"].end_effector is None
+    assert selected["config"].camera_mode == "manual"
+    assert selected["config"].cameras.top == "gemini305"

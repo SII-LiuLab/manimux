@@ -34,10 +34,12 @@ class SafetyGuard:
     ) -> None:
         self._group_dims = dict(group_dims)
         self._position_limit_abs = position_limit_abs
-        raw_limits = (position_lower, position_upper, max_velocity, max_acceleration)
+        raw_limits = (position_lower, position_upper, max_velocity)
         configured = [bool(values) for values in raw_limits]
-        if any(configured) and not all(configured):
-            raise ValueError("command safety limits must be configured together")
+        if (any(configured) or max_acceleration) and not all(configured):
+            raise ValueError(
+                "command safety position and velocity limits must be configured together"
+            )
         self._position_lower = self._normalize_limits("position_lower", position_lower)
         self._position_upper = self._normalize_limits("position_upper", position_upper)
         self._max_velocity = self._normalize_limits("max_velocity", max_velocity)
@@ -126,17 +128,18 @@ class SafetyGuard:
                     f"{velocity[index]:.6f} exceeds +/-"
                     f"{self._max_velocity[name][index]:.6f}"
                 )
-            acceleration = (
-                velocity - self._previous_velocity[name]
-            ) / self._control_dt_s
-            acceleration_excess = np.abs(acceleration) - self._max_acceleration[name]
-            if np.any(acceleration_excess > 1e-8):
-                index = int(np.argmax(acceleration_excess))
-                raise ValueError(
-                    f"command group {name!r} joint {index} acceleration "
-                    f"{acceleration[index]:.6f} exceeds +/-"
-                    f"{self._max_acceleration[name][index]:.6f}"
-                )
+            if self._max_acceleration:
+                acceleration = (
+                    velocity - self._previous_velocity[name]
+                ) / self._control_dt_s
+                acceleration_excess = np.abs(acceleration) - self._max_acceleration[name]
+                if np.any(acceleration_excess > 1e-8):
+                    index = int(np.argmax(acceleration_excess))
+                    raise ValueError(
+                        f"command group {name!r} joint {index} acceleration "
+                        f"{acceleration[index]:.6f} exceeds +/-"
+                        f"{self._max_acceleration[name][index]:.6f}"
+                    )
             candidate_velocity[name] = velocity
 
         if self._rate_limits_enabled:

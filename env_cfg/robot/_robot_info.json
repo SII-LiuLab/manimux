@@ -6,5 +6,9 @@
   "droid_single": {
     "arm_dim": [7],
     "ee_dim": [1]
+  },
+  "tianji_dual": {
+    "arm_dim": [7, 7],
+    "ee_dim": [1, 1]
   }
 }

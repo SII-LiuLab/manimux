@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<robot name="tianji_stand">
+  <link name="Link_Base">
+    <inertial>
+      <origin xyz="0 1.33E-06 0.1597" rpy="0 0 0" />
+      <mass value="74.515" />
+      <inertia ixx="8.67491803" ixy="0.07182226" ixz="0" iyy="8.67495749" iyz="0.00008096" izz="4.32871357" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Link_Base.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.803922 0.823529 0.854902 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Link_Base.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="Link_Stand">
+    <inertial>
+      <origin xyz="1.321E-05 -4.225E-05 0.06485" rpy="0 0 0" />
+      <mass value="3.52" />
+      <inertia ixx="0.01763033" ixy="-0.00000075" ixz="0.00000045" iyy="0.02001856" iyz="7.41E-06" izz="0.01060882" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Link_Stand.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.803922 0.823529 0.854902 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Link_Stand.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="Joint_Stand" type="fixed">
+    <origin xyz="0 0 0.981" rpy="0 0 0" />
+    <parent link="Link_Base" />
+    <child link="Link_Stand" />
+    <axis xyz="0 0 0" />
+  </joint>
+  </robot>

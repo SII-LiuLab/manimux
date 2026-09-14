@@ -42,12 +42,17 @@ import time
 from pathlib import Path
 from typing import Any
 
+import yaml
 import zmq
-from omegaconf import OmegaConf
 
-from manimux.sensors.realsense import RealSenseCamera, get_device_ids
+from manimux.sensors.taccap.camera import V4L_BY_ID
 
 logger = logging.getLogger("camera_server")
+
+CAMERA_TYPES = ("realsense", "orbbec", "taccap")
+TACCAP_KEYS = frozenset(
+    {"type", "camera_serial", "width", "height", "fps", "max_frame_age_sec", "startup_timeout_sec"}
+)
 
 
 DEFAULT_REP_ENDPOINT = "tcp://127.0.0.1:5555"
@@ -57,11 +62,11 @@ DEFAULT_HEARTBEAT_SEC = 10.0
 
 
 class CameraServer:
-    """Owns RealSense cameras and serves their latest frames over ZMQ."""
+    """Owns the configured cameras and serves their latest frames over ZMQ."""
 
     def __init__(
         self,
-        cameras: dict[str, RealSenseCamera],
+        cameras: dict[str, Any],
         rep_endpoint: str = DEFAULT_REP_ENDPOINT,
         pub_endpoint: str | None = None,
         pub_period_sec: float = DEFAULT_PUB_PERIOD_SEC,
@@ -100,10 +105,15 @@ class CameraServer:
             raise ValueError(f"Unknown cameras: {sorted(missing)}")
         for name in names:
             cam = self.cameras[name]
-            image, _depth = cam.read()
+            read_with_timestamp = getattr(cam, "read_with_timestamp", None)
+            if callable(read_with_timestamp):
+                image, _depth, ts = read_with_timestamp()
+            else:
+                image, _depth = cam.read()
+                ts = getattr(cam, "_latest_frame_timestamp", None) or 0.0
             frames[name] = image
-            # Surface the capture timestamp so the client can detect staleness.
-            ts = getattr(cam, "_latest_frame_timestamp", None) or 0.0
+            # Timestamp must belong to the returned image even if the capture
+            # thread has already advanced to its next frame.
             timestamps[name] = float(ts)
         return {"ok": True, "frames": frames, "timestamps": timestamps}
 
@@ -232,58 +242,105 @@ class CameraServer:
 # --------------------------------------------------------------------------
 
 
-def _build_cameras_from_config(cfg_path: Path) -> dict[str, RealSenseCamera]:
-    cfg = OmegaConf.to_container(OmegaConf.load(cfg_path), resolve=True)
+def _build_cameras_from_config(
+    cfg_path: Path, *, by_id_root: Path = V4L_BY_ID
+) -> dict[str, Any]:
+    """Open every camera in ``sensors.cameras``; ``type`` selects the backend (default realsense).
+
+    Each backend's SDK is imported only when a camera of that type is configured,
+    and a configured camera that cannot be found fails the server start.
+    """
+    with Path(cfg_path).open(encoding="utf-8") as handle:
+        cfg = yaml.safe_load(handle)
     camera_cfg = cfg["sensors"]["cameras"]
-    if any(spec.get("type", "realsense") == "realsense" for spec in camera_cfg.values()):
+    kinds: dict[str, str] = {}
+    for name, spec in camera_cfg.items():
+        kind = spec.get("type", "realsense")
+        if kind not in CAMERA_TYPES:
+            raise ValueError(
+                f"camera {name!r}: unknown camera type {kind!r}; expected one of {CAMERA_TYPES}"
+            )
+        if kind == "taccap":
+            unknown = sorted(set(spec) - TACCAP_KEYS)
+            if unknown:
+                raise ValueError(f"camera {name!r}: unknown taccap keys {unknown}")
+        kinds[name] = kind
+    if "realsense" in kinds.values():
+        from manimux.sensors.realsense import get_device_ids
+
         logger.info("Discovering RealSense devices...")
         ids = get_device_ids()
         logger.info("Found %d RealSense devices: %s", len(ids), ids)
-    cameras: dict[str, RealSenseCamera] = {}
+    cameras: dict[str, Any] = {}
     try:
         for name, spec in camera_cfg.items():
-            device_id = spec["device_id"]
-            width = int(spec.get("width", 640))
-            height = int(spec.get("height", 360))
-            fps = int(spec.get("fps", 30))
-            max_frame_age_sec = float(spec.get("max_frame_age_sec", 0.30))
-            flip = bool(spec.get("flip", False))
-            enable_depth = spec.get("enable_depth", True)
-            if not isinstance(enable_depth, bool):
-                raise ValueError(f"camera {name!r} enable_depth must be a boolean")
-            logger.info(
-                "Opening camera %s (device_id=%s, %dx%d@%d, max_age=%.3fs, flip=%s, depth=%s)",
-                name,
-                device_id,
-                width,
-                height,
-                fps,
-                max_frame_age_sec,
-                flip,
-                enable_depth,
-            )
-            kind = spec.get("type", "realsense")
-            if kind == "orbbec":
-                from manimux.sensors.orbbec import OrbbecCamera
-                camera_class = OrbbecCamera
-            elif kind == "realsense":
-                camera_class = RealSenseCamera
+            if kinds[name] == "taccap":
+                cameras[name] = _open_taccap(name, spec, by_id_root)
             else:
-                raise ValueError(f"Unknown camera type {kind!r}")
-            cameras[name] = camera_class(
-                device_id,
-                flip=flip,
-                width=width,
-                height=height,
-                fps=fps,
-                max_frame_age_sec=max_frame_age_sec,
-                enable_depth=enable_depth,
-            )
+                cameras[name] = _open_rgbd(name, spec)
     except Exception:
         for camera in cameras.values():
             camera.close()
         raise
     return cameras
+
+
+def _open_taccap(name: str, spec: dict[str, Any], by_id_root: Path) -> Any:
+    from manimux.sensors.taccap import TacCapCamera
+
+    if not spec.get("camera_serial"):
+        raise ValueError(f"camera {name!r}: taccap cameras need camera_serial")
+    logger.info("Opening TacCap camera %s (serial=%s)", name, spec["camera_serial"])
+    return TacCapCamera(
+        str(spec["camera_serial"]),
+        width=int(spec.get("width", 640)),
+        height=int(spec.get("height", 480)),
+        fps=int(spec.get("fps", 30)),
+        max_frame_age_sec=float(spec.get("max_frame_age_sec", 0.30)),
+        startup_timeout_sec=float(spec.get("startup_timeout_sec", 3.0)),
+        by_id_root=by_id_root,
+    )
+
+
+def _open_rgbd(name: str, spec: dict[str, Any]) -> Any:
+    if spec.get("type", "realsense") == "orbbec":
+        from manimux.sensors.orbbec import OrbbecCamera
+
+        camera_class = OrbbecCamera
+    else:
+        from manimux.sensors.realsense import RealSenseCamera
+
+        camera_class = RealSenseCamera
+
+    device_id = spec["device_id"]
+    width = int(spec.get("width", 640))
+    height = int(spec.get("height", 360))
+    fps = int(spec.get("fps", 30))
+    max_frame_age_sec = float(spec.get("max_frame_age_sec", 0.30))
+    flip = bool(spec.get("flip", False))
+    enable_depth = spec.get("enable_depth", True)
+    if not isinstance(enable_depth, bool):
+        raise ValueError(f"camera {name!r} enable_depth must be a boolean")
+    logger.info(
+        "Opening camera %s (device_id=%s, %dx%d@%d, max_age=%.3fs, flip=%s, depth=%s)",
+        name,
+        device_id,
+        width,
+        height,
+        fps,
+        max_frame_age_sec,
+        flip,
+        enable_depth,
+    )
+    return camera_class(
+        device_id,
+        flip=flip,
+        width=width,
+        height=height,
+        fps=fps,
+        max_frame_age_sec=max_frame_age_sec,
+        enable_depth=enable_depth,
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -292,7 +349,8 @@ def main(argv: list[str] | None = None) -> int:
         "--config",
         required=True,
         type=Path,
-        help="Path to a yam_*.yaml whose sensors.cameras block lists the devices.",
+        help="Path to a cameras YAML whose sensors.cameras block lists the devices "
+        "(type: realsense by default, or orbbec/taccap).",
     )
     parser.add_argument("--rep-endpoint", default=DEFAULT_REP_ENDPOINT)
     parser.add_argument(

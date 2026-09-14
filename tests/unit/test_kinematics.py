@@ -8,6 +8,12 @@ convention against the FK that produced the recorded ``ee_pos`` / ``ee_rotm``.
 
 from __future__ import annotations
 
+import platform
+import sys
+import time
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -251,3 +257,187 @@ def test_recorded_last_bottle_target_recovers_inside_seed_bounds():
     ok, _, _ = yam.ik_bounded(pose, seed, 0.,
                              deadline_ns=time.monotonic_ns() + 1_000_000_000)
     assert not ok
+
+
+# Flange poses from the vendor SDK's Marvin_Kine.fk() with ccs_m6_40.MvKDCfg
+# (identical for arms A and B): joints in degrees -> [x, y, z] mm, rotation.
+TIANJI_SDK_FLANGE = (
+    ((0, 0, 0, 0, 0, 0, 0), (0.0, 0.0, 870.5),
+     ((1, 0, 0), (0, 1, 0), (0, 0, 1))),
+    ((90, -90, -90, -90, 0, 0, 0), (427.0, 305.0, 174.5),
+     ((0, 0, 1), (-1, 0, 0), (0, -1, 0))),
+    ((50, -40, -30, -100, -65, 0, 40), (464.6419245293656, 198.7742749840216, 177.3856794645234),
+     ((0.1467561177185103, -0.04887015050140553, 0.9879647515247294),
+      (-0.9890831803520693, -0.020687130011745283, 0.14589895464761),
+      (0.013308051403891297, -0.9985908826890189, -0.05137260677358957))),
+    ((12, -34, 56, -78, 9, -21, 43), (348.71298220702715, 372.06072003625263, 313.7151512729679),
+     ((-0.6938968578988153, -0.4128061801538545, 0.5899984815303397),
+      (-0.1986138205678619, 0.8972957953782231, 0.3942243090415303),
+      (-0.6921413878929669, 0.15636915682074604, -0.7046197456260208))),
+)
+
+
+@pytest.mark.parametrize(("joints_deg", "position_mm", "rotation"), TIANJI_SDK_FLANGE)
+def test_tianji_fk_reproduces_the_vendor_sdk(joints_deg, position_mm, rotation) -> None:
+    tianji = kinematics.build_kinematics("tianji")
+    pose = tianji.fk(np.radians(joints_deg), 1.0)
+    np.testing.assert_allclose(pose[:3, 3], np.asarray(position_mm) * 1e-3, atol=1e-9)
+    np.testing.assert_allclose(pose[:3, :3], rotation, atol=1e-9)
+
+
+# teleop configs/tool/umi.yaml kine_offset for both arms (mm, degrees).
+UMI_KINE_OFFSET = (-36.745, 0.0, 169.45, 0.0, -90.0, 180.0)
+
+
+def test_tianji_tool_offset_uses_the_sdk_xyzabc_convention() -> None:
+    from manimux.kinematics.tianji import xyzabc_to_matrix
+
+    # Marvin_Kine.xyzabc_to_mat4x4([1, 2, 3, 10, 20, 30]).
+    sample = xyzabc_to_matrix([1.0, 2.0, 3.0, 10.0, 20.0, 30.0])
+    np.testing.assert_allclose(sample[:3, :3], [
+        [0.813797681349374, -0.4409696105298824, 0.37852230636979245],
+        [0.4698463103929544, 0.8825641192593855, 0.018028311236297334],
+        [-0.34202014332566877, 0.16317591116653488, 0.9254165783983237],
+    ], atol=1e-12)
+    np.testing.assert_allclose(sample[:3, 3], [0.001, 0.002, 0.003])
+
+    joints = np.radians([50, -40, -30, -100, -65, 0, 40])
+    flange = kinematics.build_kinematics("tianji").fk(joints, 0.0)
+    tcp = kinematics.build_kinematics("tianji", tool_xyzabc=UMI_KINE_OFFSET).fk(joints, 0.0)
+    np.testing.assert_allclose(tcp, flange @ xyzabc_to_matrix(UMI_KINE_OFFSET), atol=1e-12)
+    assert np.linalg.norm(tcp[:3, 3] - flange[:3, 3]) == pytest.approx(0.173388, abs=1e-6)
+    # The bundled UMI end effector reproduces the controller's kine_offset.
+    mounted = kinematics.build_kinematics("tianji", end_effector="umi_follower").fk(joints, 0.0)
+    np.testing.assert_allclose(mounted, tcp, atol=1e-9)
+    with pytest.raises(ValueError, match="either"):
+        kinematics.build_kinematics(
+            "tianji", tool_xyzabc=UMI_KINE_OFFSET, end_effector="umi_follower"
+        )
+
+
+def test_end_effector_spec_drives_urdf_joints() -> None:
+    from manimux.kinematics.end_effector import available_end_effectors, load_end_effector
+
+    assert "umi_follower" in available_end_effectors()
+    umi = load_end_effector("umi_follower")
+    assert umi.inputs == 1 and umi.actuated_joints == ("joint1",)
+    assert umi.joint_positions([0.0]) == pytest.approx([-0.44])
+    assert umi.joint_positions([1.0]) == pytest.approx([0.0])
+    assert umi.joint_positions([1.7]) == pytest.approx([0.0])
+    assert umi.joint_positions() == pytest.approx([0.0])
+    with pytest.raises(ValueError, match="expects 1 inputs"):
+        umi.joint_positions([0.5, 0.5])
+    with pytest.raises(FileNotFoundError, match="available: .*umi_follower"):
+        load_end_effector("no_such_hand")
+
+
+def test_end_effector_is_attached_to_the_arm_flange() -> None:
+    yourdfpy = pytest.importorskip("yourdfpy")
+    from manimux.kinematics.end_effector import TCP_LINK, attach_end_effector, load_end_effector
+    from manimux.viewer.robots.tianji import DEFAULT_TIANJI_ROOT
+
+    umi = load_end_effector("umi_follower")
+    arm = DEFAULT_TIANJI_ROOT / "left" / "arm.urdf"
+    assert attach_end_effector(arm, "Flange_L", None) == arm.resolve()
+    combined = attach_end_effector(arm, "Flange_L", umi)
+    assert attach_end_effector(arm, "Flange_L", umi) == combined
+    robot = yourdfpy.URDF.load(combined)
+    assert robot.actuated_joint_names == [*(f"Joint{i}_L" for i in range(1, 8)), "ee_joint1"]
+    robot.update_cfg(np.zeros(8))
+    np.testing.assert_allclose(
+        robot.get_transform(TCP_LINK, "Flange_L"), umi.tool_transform(), atol=1e-12
+    )
+    for mesh in ET.parse(combined).getroot().iter("mesh"):
+        assert Path(mesh.get("filename")).is_file()
+    with pytest.raises(ValueError, match="flange link"):
+        attach_end_effector(arm, "Flange_X", umi)
+
+
+def test_end_effector_spec_rejects_inconsistent_descriptions(tmp_path) -> None:
+    import shutil
+
+    from manimux.kinematics.end_effector import DEFAULT_END_EFFECTOR_ROOT, load_end_effector
+
+    source = DEFAULT_END_EFFECTOR_ROOT / "umi_follower"
+    for name, replace, message in (
+        ("wrong_joint", ("joint: joint1", "joint: joint2"), "actuated joints"),
+        ("rest_mismatch", ("rest_inputs: [1.0]", "rest_inputs: []"), "rest_inputs"),
+        ("unknown_key", ("inputs: 1\n", "inputs: 1\ncolour: red\n"), "colour"),
+    ):
+        target = tmp_path / name
+        shutil.copytree(source, target)
+        spec = target / "end_effector.yaml"
+        spec.write_text(spec.read_text().replace(*replace))
+        with pytest.raises(ValueError, match=message):
+            load_end_effector(target)
+
+
+# The analytic IK runs the vendored Linux x86-64 Marvin kinematics library offline.
+requires_marvin_kine = pytest.mark.skipif(
+    not (sys.platform.startswith("linux") and platform.machine() == "x86_64"),
+    reason="vendored Marvin kinematics library is Linux x86-64 only",
+)
+UMI_START_A_DEG = [50.0, -40.0, -30.0, -100.0, -65.0, 0.0, 40.0]
+
+
+@requires_marvin_kine
+def test_tianji_analytic_ik_round_trips_the_umi_tool_frame() -> None:
+    tianji = kinematics.build_kinematics("tianji", end_effector="umi_follower")
+    joints = np.radians(UMI_START_A_DEG)
+    target = tianji.fk(joints, 1.0)
+    seed = joints + np.radians([0.3, -0.3, 0.3, -0.3, 0.3, -0.3, 0.3])
+    converged, solved = tianji.ik(target, seed, 1.0)
+    assert converged
+    # A redundant arm: the SDK returns the solution nearest the seed, not the pose's
+    # original joints, so check the pose and the continuity bound instead.
+    assert np.max(np.abs(np.degrees(solved - seed))) <= 1.8
+    position_error, rotation_error = tianji.pose_error(target, solved, 1.0)
+    assert position_error < 1e-5 and rotation_error < np.radians(0.2)
+
+    ok, _, info = tianji.ik_bounded(target, seed, 1.0, deadline_ns=time.monotonic_ns() + 10**9)
+    assert ok and info["reason"] == "converged" and info["iterations"] == 1
+
+
+@requires_marvin_kine
+def test_tianji_analytic_ik_rejects_like_arm_ik() -> None:
+    tianji = kinematics.build_kinematics("tianji", end_effector="umi_follower")
+    joints = np.radians(UMI_START_A_DEG)
+    target = tianji.fk(joints, 1.0)
+    far_seed = joints + np.radians([4.0, -4.0, 4.0, -4.0, 4.0, -4.0, 4.0])
+    ok, returned, info = tianji.ik_bounded(
+        target, far_seed, 1.0, deadline_ns=time.monotonic_ns() + 10**9
+    )
+    assert not ok and info["reason"] == "branch_jump"
+    np.testing.assert_allclose(returned, tianji.clip_arm_joints(far_seed))
+    relaxed = kinematics.build_kinematics(
+        "tianji", end_effector="umi_follower", max_step_deg=20.0
+    )
+    assert relaxed.ik(target, far_seed, 1.0)[0]
+
+    unreachable = target.copy()
+    unreachable[:3, 3] += [2.0, 0.0, 0.0]
+    ok, _, info = tianji.ik_bounded(
+        unreachable, joints, 1.0, deadline_ns=time.monotonic_ns() + 10**9
+    )
+    assert not ok and info["reason"] in {"ik_failed", "ik_nsp_failed", "fk_mismatch"}
+    ok, _, info = tianji.ik_bounded(target, joints, 1.0, deadline_ns=0)
+    assert not ok and info["reason"] == "budget_exceeded"
+
+
+def test_tianji_joint_limit_override_narrows_the_right_arm() -> None:
+    right = kinematics.build_kinematics(
+        "tianji", arm="right", joint_limits_deg={6: [-58.0, 58.0], 1: [-400.0, 400.0]}
+    )
+    lower, upper = right.joint_position_limits()
+    assert np.degrees(upper[5]) == pytest.approx(58.0)
+    assert np.degrees(upper[0]) == pytest.approx(170.0)
+
+
+def test_tianji_limits_are_radians_from_the_controller_table() -> None:
+    tianji = kinematics.build_kinematics("tianji")
+    lower, upper = tianji.joint_position_limits()
+    np.testing.assert_allclose(np.degrees(lower), [-170, -120, -170, -145, -170, -60, -90])
+    np.testing.assert_allclose(np.degrees(upper), [170, 120, 170, 60, 170, 60, 90])
+    clipped = tianji.clip_arm_joints(np.radians([180, 0, 0, 90, 0, -70, 0]))
+    np.testing.assert_allclose(np.degrees(clipped), [170, 0, 0, 60, 0, -60, 0])
+    assert tianji.num_arm_joints == 7
