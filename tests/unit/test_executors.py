@@ -9,6 +9,109 @@ from manimux.runtime.safety import SafetyGuard
 from manimux.types import ActionHorizon, RobotCommand, RobotState
 
 
+def _mode_executor(kind: str, mode: str, *, acceleration=None, max_step_dt_s=None):
+    motion = MotionLimitsConfig(
+        arm={"mode": mode, "max_velocity": 2.0, "max_acceleration": acceleration,
+             "max_step_dt_s": max_step_dt_s},
+        gripper={"group_indices": {"left_arm": 3, "right_arm": 1}},
+    )
+    if kind == "direct":
+        return DirectExecutor(motion, control_dt_s=0.01)
+    return SmoothExecutor(SmoothConfig(
+        **motion.arm.model_dump(), tracking_mode=kind,
+        gripper=GripperHysteresisConfig(mode="continuous", **motion.gripper.model_dump()),
+    ), control_dt_s=0.01)
+
+
+@pytest.mark.parametrize("kind", ["direct", "legacy", "braking"])
+def test_isotropic_scaling_is_per_arm_and_excludes_grippers(kind):
+    executor = _mode_executor(kind, "isotropic")
+    state = RobotState({"left_arm": np.zeros(4), "right_arm": np.zeros(4)}, 0, 0)
+    reference = ActionHorizon(0, 10_000_000, "ratios", {
+        "left_arm": np.tile([0.1, 0.2, 0.8, 1.0], (2, 1)),
+        "right_arm": np.tile([0.1, 1.0, -0.2, 0.4], (2, 1)),
+    })
+    command = executor.step(0, state, reference)
+    # Different arm peak -> independent scale. Even a fast gripper cannot shrink it.
+    np.testing.assert_allclose(command.groups["left_arm"], [0.0025, 0.005, 0.02, 1.0])
+    np.testing.assert_allclose(command.groups["right_arm"], [0.005, 1.0, -0.01, 0.02])
+
+
+@pytest.mark.parametrize("mode,expected", [
+    ("per_joint", [0.01, 0.02, 0.02]),
+    ("isotropic", [0.0025, 0.005, 0.02]),
+])
+def test_direct_mode_selects_the_requested_clamping_geometry(mode, expected):
+    executor = _mode_executor("direct", mode)
+    state = RobotState({"left_arm": np.zeros(4), "right_arm": np.zeros(4)}, 0, 0)
+    reference = ActionHorizon(0, 10_000_000, "geometry", {
+        "left_arm": np.tile([0.01, 0.02, 0.08, 0.0], (2, 1)),
+        "right_arm": np.zeros((2, 4)),
+    })
+    np.testing.assert_allclose(executor.step(0, state, reference).groups["left_arm"][:3], expected)
+
+
+@pytest.mark.parametrize("kind", ["direct", "legacy", "braking"])
+@pytest.mark.parametrize("mode", ["per_joint", "isotropic"])
+def test_modes_obey_velocity_and_acceleration_through_reversal_and_reset(kind, mode):
+    executor = _mode_executor(kind, mode, acceleration=3.0)
+    state = RobotState({"left_arm": np.zeros(4), "right_arm": np.zeros(4)}, 0, 0)
+    previous, previous_velocity = np.zeros(3), np.zeros(3)
+    for tick in range(120):
+        if tick == 80:
+            executor.reset(state)
+            previous, previous_velocity = np.zeros(3), np.zeros(3)
+        goal = [0.1, 0.2, 0.8, 1.0] if tick < 50 else [-0.5, 0.3, -0.2, 0.0]
+        reference = ActionHorizon(0, 10_000_000, "reverse", {
+            "left_arm": np.tile(goal, (2, 1)), "right_arm": np.zeros((2, 4)),
+        })
+        output = executor.step(tick * 10_000_000, state, reference).groups["left_arm"][:3]
+        velocity = (output - previous) / 0.01
+        assert np.max(np.abs(velocity)) <= 2.0 + 1e-9
+        assert np.max(np.abs(velocity - previous_velocity)) <= 0.03 + 1e-9
+        previous, previous_velocity = output.copy(), velocity
+    if kind != "direct":
+        held = executor.brake_hold(1_200_000_000, state).groups["left_arm"][:3]
+        velocity = (held - previous) / 0.01
+        assert np.max(np.abs(velocity - previous_velocity)) <= 0.03 + 1e-9
+        assert np.max(np.abs(velocity)) <= np.max(np.abs(previous_velocity)) + 1e-9
+
+
+@pytest.mark.parametrize("dt_s", [1 / 250, 0.1])
+@pytest.mark.parametrize("mode", ["per_joint", "isotropic"])
+def test_motion_step_budget_caps_time_without_changing_tick_timing(dt_s, mode):
+    motion = MotionLimitsConfig(
+        arm={"mode": mode, "max_velocity": 2.0, "max_step_dt_s": 0.016},
+        gripper={"group_indices": {"arm": 2}},
+    )
+    executor = DirectExecutor(motion, control_dt_s=dt_s)
+    state = RobotState({"arm": np.zeros(3)}, 0, 0)
+    reference = ActionHorizon(0, int(dt_s * 1e9), "budget", {
+        "arm": np.tile([1.0, 2.0, 1.0], (2, 1)),
+    })
+    output = executor.step(0, state, reference).groups["arm"]
+    budget = 2 * min(dt_s, 0.016)
+    expected = [budget / 2, budget, 1] if mode == "isotropic" else [budget, budget, 1]
+    np.testing.assert_allclose(output, expected)
+
+
+def test_optional_safety_acceleration_preserves_position_and_velocity_rejection():
+    guard = SafetyGuard(
+        {"arm": 1}, None, position_lower={"arm": [-1.0]},
+        position_upper={"arm": [1.0]}, max_velocity={"arm": [2.0]}, control_dt_s=0.1,
+    )
+    guard.reset(RobotState({"arm": np.zeros(1)}, 0, 0))
+    # Instant reversal remains speed-bounded, with no second-difference constraint.
+    for position in (0.2, 0.0, 0.2):
+        guard.validate_command(RobotCommand({"arm": np.array([position])}, 0, None))
+    with pytest.raises(ValueError, match="velocity"):
+        guard.validate_command(RobotCommand({"arm": np.array([0.5])}, 0, None))
+    with pytest.raises(ValueError, match="position"):
+        guard.validate_command(RobotCommand({"arm": np.array([2.0])}, 0, None))
+    with pytest.raises(ValueError, match="configured together"):
+        SafetyGuard({"arm": 1}, None, max_acceleration={"arm": [1.0]})
+
+
 def _state() -> RobotState:
     return RobotState(
         groups={"left_arm": np.zeros(2), "right_arm": np.zeros(2)},

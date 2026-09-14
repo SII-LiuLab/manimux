@@ -40,6 +40,18 @@ are used only for viewer rendering. The DH parameters and joint limits in
 `src/manimux/kinematics/tianji.py` are copied from the vendor SDK's
 `CommonConfig/ccs_m6_40.MvKDCfg`.
 
+## Tianji differential IK
+
+The differential velocity QP in `src/manimux/kinematics/tianji_diff.py` and the
+flange Jacobian in `tianji.py` are adapted from `SII-LiuLab/tianji-control`
+revision `1e7dfdbc94c62f87501d6485b8c0e43ce6dbf513` (`algos/diff_ik.py`,
+`algos/kinematics.py`, and the joint-limit objective in `algos/nullspace.py`).
+Tracking-lag guard semantics follow CalibWrist revision
+`f17a62a2ab77207de54fdca73dc8ff4d76f87cdb`. See `docs/tianji-diff-ik.md` for the
+port boundaries and numerical validation. The source tianji-control checkout
+does not include a project-level license file; no different license is asserted
+for this derived code here.
+
 ## Marvin SDK
 
 `src/manimux/robots/tianji/vendor/marvin/` contains the Python bindings

@@ -89,6 +89,14 @@ class TacCapCamera:
     def read(self, img_size: tuple[int, int] | None = None) -> tuple[np.ndarray, np.ndarray | None]:
         """Return the latest RGB frame; TacCap cameras have no depth stream."""
 
+        image, depth, _timestamp = self.read_with_timestamp(img_size)
+        return image, depth
+
+    def read_with_timestamp(
+        self, img_size: tuple[int, int] | None = None,
+    ) -> tuple[np.ndarray, np.ndarray | None, float]:
+        """Return RGB and its host receipt timestamp from the same capture."""
+
         if img_size is not None:
             raise ValueError("TacCapCamera serves frames at the configured size only")
         with self._frame_lock:
@@ -101,7 +109,7 @@ class TacCapCamera:
                 f"TacCap camera {self._camera_serial} frame is stale ({age:.3f}s old); "
                 "camera may be stalled."
             )
-        return image, None
+        return image, None, timestamp
 
     def close(self) -> None:
         camera, self._camera = getattr(self, "_camera", None), None

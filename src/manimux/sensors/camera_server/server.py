@@ -98,10 +98,15 @@ class CameraServer:
         frames: dict[str, Any] = {}
         timestamps: dict[str, float] = {}
         for name, cam in self.cameras.items():
-            image, _depth = cam.read()
+            read_with_timestamp = getattr(cam, "read_with_timestamp", None)
+            if callable(read_with_timestamp):
+                image, _depth, ts = read_with_timestamp()
+            else:
+                image, _depth = cam.read()
+                ts = getattr(cam, "_latest_frame_timestamp", None) or 0.0
             frames[name] = image
-            # Surface the capture timestamp so the client can detect staleness.
-            ts = getattr(cam, "_latest_frame_timestamp", None) or 0.0
+            # Timestamp must belong to the returned image even if the capture
+            # thread has already advanced to its next frame.
             timestamps[name] = float(ts)
         return {"ok": True, "frames": frames, "timestamps": timestamps}
 

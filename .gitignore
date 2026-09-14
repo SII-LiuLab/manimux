@@ -37,3 +37,6 @@ tests/
 !/tests/unit/test_yam_collection.py
 !/tests/unit/test_tianji_driver.py
 !/tests/unit/test_taccap_camera.py
+
+!/tests/unit/test_umi_dp_tianji.py
+!/tests/unit/test_tianji_diff_ik.py

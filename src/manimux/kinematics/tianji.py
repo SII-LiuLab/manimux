@@ -209,6 +209,38 @@ class TianjiKinematics:
         flange = self.flange(joints)
         return flange if self._tool is None else flange @ self._tool
 
+    def flange_and_jacobian(self, joints: FloatArray) -> tuple[FloatArray, FloatArray]:
+        """Flange pose (m) and spatial Jacobian (m/rad, rad/rad), without the SDK.
+
+        Modified DH uses each joint's *post-link* z axis. The static flange
+        offset contributes to the lever arm; the mounted tool does not.
+        """
+        q = np.asarray(joints, dtype=np.float64).reshape(-1)
+        if q.size != NUM_ARM_JOINTS or not np.isfinite(q).all():
+            raise ValueError("expected seven finite radian joint angles")
+        transform = np.eye(4)
+        frames = []
+        for (alpha, a, d, theta0), angle in zip(self._dh[:7], np.degrees(q), strict=True):
+            transform = transform @ _link_transform(alpha, a, d, theta0 + angle)
+            frames.append(transform)
+        flange = transform @ self._flange_offset
+        jacobian = np.empty((6, 7))
+        for index, frame in enumerate(frames):
+            z = frame[:3, 2]
+            rx, ry, rz = flange[:3, 3] - frame[:3, 3]
+            jacobian[:3, index] = (
+                z[1] * rz - z[2] * ry,
+                z[2] * rx - z[0] * rz,
+                z[0] * ry - z[1] * rx,
+            )
+            jacobian[3:, index] = z
+        return flange, jacobian
+
+    @property
+    def limit_margin_deg(self) -> float:
+        """Configured joint-limit buffer, shared by analytic and differential IK."""
+        return self._limit_margin_deg
+
     def pose(self, configuration: FloatArray) -> FloatArray:
         """7 joints, optionally followed by end-effector inputs -> end-effector transform."""
 

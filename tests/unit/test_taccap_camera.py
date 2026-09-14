@@ -93,6 +93,48 @@ def test_server_builds_cameras_by_type(by_id: Path, monkeypatch: pytest.MonkeyPa
             camera.close()
 
 
+@pytest.mark.parametrize("backend", ["taccap", "realsense"])
+def test_server_preserves_frame_timestamp_when_capture_advances(
+    monkeypatch: pytest.MonkeyPatch, backend: str,
+) -> None:
+    from manimux.sensors.realsense.camera import RealSenseCamera
+    from manimux.sensors.taccap import camera as taccap_module
+
+    camera = object.__new__(TacCapCamera if backend == "taccap" else RealSenseCamera)
+    camera._camera_serial = "test"
+    camera._max_frame_age_sec = 2.0
+    camera._latest_color_image = np.zeros((2, 2, 3), dtype=np.uint8)
+    camera._latest_frame_timestamp = 10.0
+    original = camera._latest_color_image
+    if backend == "realsense":
+        monkeypatch.setitem(sys.modules, "cv2", SimpleNamespace(
+            COLOR_BGR2RGB=4, cvtColor=lambda image, _code: image[..., ::-1].copy(),
+        ))
+        camera._frame_ready = threading.Event()
+        camera._frame_ready.set()
+        camera._read_wait_timeout_sec = 0.1
+        camera._latest_depth_image = None
+        camera._enable_depth = False
+        camera._last_capture_error = None
+        camera._flip = False
+
+    class AdvancingCapture:
+        def __enter__(self) -> AdvancingCapture:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            # Capture completes immediately after the reader releases its lock.
+            camera._latest_color_image = np.ones((2, 2, 3), dtype=np.uint8)
+            camera._latest_frame_timestamp = 11.0
+
+    camera._frame_lock = AdvancingCapture()
+    monkeypatch.setattr(taccap_module.time, "time", lambda: 11.0)
+    snapshot = camera_server.CameraServer({"wrist": camera})._snapshot()
+    np.testing.assert_array_equal(snapshot["frames"]["wrist"], original)
+    assert snapshot["timestamps"]["wrist"] == 10.0
+    assert camera._latest_frame_timestamp == 11.0
+
+
 def test_server_rejects_unknown_types_and_keys(by_id: Path, tmp_path: Path) -> None:
     bad_type = tmp_path / "bad_type.yaml"
     bad_type.write_text(yaml.safe_dump({"sensors": {"cameras": {"c": {"type": "gopro"}}}}))

@@ -37,6 +37,7 @@ Would uninstall 72 packages
 | `abc/.venv` | 2.11.0+cu128 | 只跑 `manimux-abc-server`；runtime 仍从 `yam` 起 |
 | `xr1/.venv` | 2.8.0+cu126 | 只跑 `manimux-xr1-server`（含 flash-attn）；runtime 仍从 `yam` 起 |
 | `lingbot-vla2/.venv` | 2.8.0+cu128 | 只跑 LingBot-VLA2 XPolicy 模型服务；runtime 仍从 `yam` 起 |
+| `umi_dp/.venv` | 2.7.1+cu128 | UMI DP XPolicyLab 模型/训练；用 `XPolicyLab/policy/UMI_DP/install.sh` 创建，硬件 runtime 不导入模型依赖 |
 
 ## 正确的操作方式
 

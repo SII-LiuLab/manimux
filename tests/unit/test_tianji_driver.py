@@ -324,6 +324,105 @@ def test_read_only_session_reads_state_and_never_moves_anything(rig: SimpleNames
     assert sorted(rig.grippers.stopped_transports) == ["/dev/left", "/dev/right"]
 
 
+@pytest.mark.parametrize("control_hz", [100.0, 250.0])
+def test_viewer_controls_reach_tianji_and_smooth_ticks_send_commands(
+    rig: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    control_hz: float,
+) -> None:
+    from manimux.config import load_config
+    from manimux.runtime import edge
+    from manimux.types import ActionChunk, InferenceResponse
+    from manimux.viewer import transport
+
+    controls = iter([
+        {"paused": True}, {"paused": False}, {"paused": False},
+        {"paused": True}, {"paused": False},
+        {"paused": True, "home_requested": True},
+        {"paused": True}, {"paused": False},
+        {"paused": True, "finish_requested": True},
+    ])
+    messages = []
+    monkeypatch.setattr(transport, "ControlClient", lambda: SimpleNamespace(
+        poll=lambda: next(controls), close=lambda: None,
+    ))
+    monkeypatch.setattr(transport, "ViewerPublisher", lambda: SimpleNamespace(
+        publish=lambda message: messages.append(message.to_wire()), close=lambda: None,
+    ))
+
+    class InstantPolicy:
+        is_alive = True
+        pending = None
+
+        def start(self):
+            pass
+
+        def submit_latest(self, request):
+            # Constant FK-independent targets isolate GUI/control scheduling.
+            chunk = ActionChunk(
+                plan_id=f"test-{request.request_seq}", request_seq=request.request_seq,
+                observation_time_ns=request.observation_time_ns,
+                created_time_ns=rig.clock.now_ns(), action_space="joint_position",
+                dt_ns=33_333_333,
+                groups={name: np.tile(values, (20, 1))
+                        for name, values in request.observation.state.groups.items()},
+            )
+            self.pending = InferenceResponse(
+                request.session_id, request.request_seq, rig.clock.now_ns(), 0.0, chunk,
+                observation_time_ns=request.observation_time_ns,
+            )
+
+        def poll(self):
+            result, self.pending = self.pending, None
+            return result
+
+        def close(self):
+            self.is_alive = False
+
+    monkeypatch.setattr(edge, "PolicyWorkerClient", lambda *_: InstantPolicy())
+    config = load_config(REPO / "configs/mock.yaml")
+    config.robot = robot_config(execute=True, vel_ratio=32)
+    config.robot.control_hz = control_hz
+    config.sensors = []
+    config.viewer.enabled = True
+    config.viewer.robot_adapter = "tianji"
+    config.execution.inference_schedule = "single_inflight"
+    config.execution.commit_lead_s = 0
+    config.run.max_steps = 20
+    runtime = edge.EdgeRuntime(config, tmp_path, clock=rig.clock)
+    sends, smoothing, homes = [], [], []
+    original_send = runtime._robot.send_command
+    original_step = runtime._executor.step
+    original_home = runtime._robot.home
+
+    def send(command):
+        sends.append(rig.clock.now_ns())
+        original_send(command)
+
+    def step(*args):
+        smoothing.append(rig.clock.now_ns())
+        return original_step(*args)
+
+    def home():
+        homes.append(rig.clock.now_ns())
+        original_home()
+
+    monkeypatch.setattr(runtime._robot, "send_command", send)
+    monkeypatch.setattr(runtime._robot, "home", home)
+    monkeypatch.setattr(runtime._executor, "step", step)
+    result = runtime.run()
+
+    assert result.terminal_reason == "viewer_finish_requested"
+    assert result.steps == 4
+    assert len(homes) == 1
+    assert len(smoothing) == 4
+    assert len(sends) == len(rig.controller.sent) == 7  # includes paused holds
+    np.testing.assert_array_equal(np.diff(sends), np.full(6, round(1e9 / control_hz)))
+    assert set(smoothing).issubset(sends)
+    assert rig.controller.released
+    assert any(call[0] == "stop_running" for call in rig.controller.calls)
+    assert any(message.get("event") == "episode_finished" for message in messages)
+
+
 def test_state_reads_do_not_depend_on_the_call_rate(rig: SimpleNamespace) -> None:
     robot = build_robot(robot_config(), rig.clock)
     robot.connect()
@@ -468,6 +567,9 @@ def test_control_profile_envelopes_are_consistent() -> None:
     )
     safety, motion = profile.command_safety, profile.motion_limits
     assert safety is not None and motion is not None
+    assert motion.arm.mode == "isotropic"
+    assert motion.arm.max_step_dt_s == 0.016
+    assert motion.arm.max_acceleration is None and safety.max_acceleration == {}
     for group in ("left_arm", "right_arm"):
         lower = np.asarray(safety.position_lower[group])
         upper = np.asarray(safety.position_upper[group])
@@ -476,8 +578,6 @@ def test_control_profile_envelopes_are_consistent() -> None:
         assert np.all(lower[:7] < home) and np.all(home < upper[:7])
         # The executor shapes commands strictly inside the runtime guard.
         assert motion.arm.max_velocity < min(safety.max_velocity[group][:7])
-        assert motion.arm.max_acceleration < min(safety.max_acceleration[group][:7])
         index = motion.gripper.group_indices[group]
         assert motion.gripper.max_velocity < safety.max_velocity[group][index]
-        assert motion.gripper.max_acceleration < safety.max_acceleration[group][index]
     assert safety.position_upper["right_arm"][5] < safety.position_upper["left_arm"][5]

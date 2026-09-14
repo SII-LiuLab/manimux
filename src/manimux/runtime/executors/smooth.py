@@ -45,6 +45,8 @@ class SmoothExecutor:
             max_velocity=config.max_velocity,
             max_acceleration=config.max_acceleration,
             position_limit_abs=config.position_limit_abs,
+            mode=config.mode,
+            max_step_dt_s=config.max_step_dt_s,
         )
         self._gripper = config.gripper
         self._release_guard = config.release_guard
@@ -104,7 +106,11 @@ class SmoothExecutor:
             return command
         for name, velocity in self._previous_velocity.items():
             next_velocity = decelerate_velocity(
-                velocity, self._limits.max_acceleration, self._dt_s
+                velocity, self._limits.max_acceleration, self._dt_s,
+                mode=self._limits.mode,
+                independent_index=(
+                    self._gripper.group_indices.get(name) if self._gripper else None
+                ),
             )
             if self._gripper is not None and name in self._gripper.group_indices:
                 next_velocity[self._gripper.group_indices[name]] = 0.0
@@ -459,6 +465,7 @@ class SmoothExecutor:
                                 limits.max_velocity, approach_velocity
                             ),
                             limits.max_acceleration, limits.position_limit_abs,
+                            limits.mode, limits.max_step_dt_s,
                         )
                     self.gripper_diagnostics.setdefault(name, {}).update({
                         "approach_speed_limited": bool(approach_limited),
@@ -468,6 +475,7 @@ class SmoothExecutor:
                     {name: target[name]}, {name: target_velocity[name]},
                     {name: self._previous[name]}, {name: self._previous_velocity[name]},
                     dt_s=self._dt_s, position_gain=self._alpha / self._dt_s, limits=limits,
+                    gripper_indices=self._gripper.group_indices if self._gripper else None,
                 )
                 output.update(group_output)
                 velocities.update(group_velocity)
@@ -479,11 +487,16 @@ class SmoothExecutor:
             output, velocities = limit_step(
                 target, self._previous, self._previous_velocity,
                 dt_s=self._dt_s, limits=self._limits,
+                gripper_indices=self._gripper.group_indices if self._gripper else None,
             )
         for name in reference.hold_groups:
             velocity = self._previous_velocity[name]
             velocities[name] = decelerate_velocity(
-                velocity, self._limits.max_acceleration, self._dt_s
+                velocity, self._limits.max_acceleration, self._dt_s,
+                mode=self._limits.mode,
+                independent_index=(
+                    self._gripper.group_indices.get(name) if self._gripper else None
+                ),
             )
             output[name] = self._previous[name] + velocities[name] * self._dt_s
         self._shape_grippers(now_ns, reference, output, velocities, state)

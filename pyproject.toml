@@ -18,6 +18,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+tianji-diff-ik = [
+  "osqp>=1,<2",
+]
 collection = [
   "av>=12",
   "pyudev>=0.24; sys_platform == 'linux'",
