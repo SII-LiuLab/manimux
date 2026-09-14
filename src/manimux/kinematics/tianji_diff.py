@@ -81,6 +81,70 @@ def _constraint_matrix(c6, c7):
     )
 
 
+def rotation_vector(matrix):
+    """3x3 rotation -> rotation vector (rad): scipy's Shepperd quaternion route in plain math.
+
+    A per-step scipy Rotation costs about 20 us; this agrees with it to ~1e-13 deg.
+    """
+    (m00, m01, m02), (m10, m11, m12), (m20, m21, m22) = np.asarray(matrix, dtype=float).tolist()
+    trace = m00 + m11 + m22
+    largest = max(trace, m00, m11, m22)
+    if largest == trace:
+        w, x, y, z = 1 + trace, m21 - m12, m02 - m20, m10 - m01
+    elif largest == m00:
+        x, y, z, w = 1 + 2 * m00 - trace, m01 + m10, m02 + m20, m21 - m12
+    elif largest == m11:
+        y, x, z, w = 1 + 2 * m11 - trace, m01 + m10, m12 + m21, m02 - m20
+    else:
+        z, x, y, w = 1 + 2 * m22 - trace, m02 + m20, m12 + m21, m10 - m01
+    norm = math.sqrt(w * w + x * x + y * y + z * z)
+    if w < 0:
+        norm = -norm
+    w, x, y, z = w / norm, x / norm, y / norm, z / norm
+    angle = 2 * math.atan2(math.sqrt(x * x + y * y + z * z), w)
+    if angle > 1e-3:
+        scale = angle / math.sin(angle / 2)
+    else:
+        scale = 2 + angle * angle / 12 + 7 * angle**4 / 2880
+    return np.array([scale * x, scale * y, scale * z])
+
+
+def rotation_matrix(vector):
+    """Rotation vector (rad) -> 3x3 rotation, through the quaternion as scipy does."""
+    x, y, z = (float(value) for value in vector)
+    angle = math.sqrt(x * x + y * y + z * z)
+    if angle > 1e-3:
+        scale = math.sin(angle / 2) / angle
+    else:
+        scale = 0.5 - angle * angle / 48 + angle**4 / 3840
+    w, x, y, z = math.cos(angle / 2), scale * x, scale * y, scale * z
+    return np.array(
+        [
+            [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+            [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+            [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
+        ]
+    )
+
+
+def euler_xyz_deg(matrix):
+    """Extrinsic xyz Euler angles (deg), as scipy's ``as_euler("xyz")``.
+
+    Near gimbal lock scipy picks a particular split between the first and third
+    angle; defer to it there so the residual keeps its original definition.
+    """
+    m = np.asarray(matrix, dtype=float)
+    if 1.0 - abs(m[2, 0]) < 1e-6:
+        return Rotation.from_matrix(m).as_euler("xyz", degrees=True)
+    return np.array(
+        [
+            math.degrees(math.atan2(m[2, 1], m[2, 2])),
+            math.degrees(math.asin(-m[2, 0])),
+            math.degrees(math.atan2(m[1, 0], m[0, 0])),
+        ]
+    )
+
+
 def _interference_row(joints, margin, dt):
     j6, j7 = joints[5:7]
     quadrant = 0 if j6 >= 0 and j7 >= 0 else 1 if j6 < 0 <= j7 else 2 if j6 < 0 else 3
@@ -138,9 +202,15 @@ class TianjiDifferentialIK:
         self._tool_inverse = None if tool is None else np.linalg.inv(tool)
         self.reset()
 
+    # np.allclose(R.T @ R, I, atol=1e-7) with its default rtol, as a precomputed bound.
+    _ORTHONORMAL_TOL = 1e-7 + 1e-5 * np.eye(3)
+
     def reset(self):
         self._problem = None
         self._previous_velocity = np.zeros(7)
+        # Flange pose and Jacobian at the joints the last step produced. A chunk
+        # seeds its next step with exactly those joints, so they are reused once.
+        self._next_frame = None
 
     def _cost(self, joints):
         band = self.config.nullspace_activation_deg
@@ -199,22 +269,41 @@ class TianjiDifferentialIK:
             or dt_s <= 0
         ):
             return failure("invalid_input")
-        if not np.allclose(target[3], [0, 0, 0, 1], atol=1e-8) or not (
-            np.allclose(target[:3, :3].T @ target[:3, :3], np.eye(3), atol=1e-7)
-            and np.isclose(np.linalg.det(target[:3, :3]), 1.0, atol=1e-7)
+        # np.allclose/np.isclose with their default rtol=1e-5, written out: the same
+        # accept/reject decisions without their per-call overhead.
+        bottom, rotation = target[3], target[:3, :3]
+        (m00, m01, m02), (m10, m11, m12), (m20, m21, m22) = rotation.tolist()
+        determinant = (
+            m00 * (m11 * m22 - m12 * m21)
+            - m01 * (m10 * m22 - m12 * m20)
+            + m02 * (m10 * m21 - m11 * m20)
+        )
+        if not (
+            abs(bottom[0]) <= 1e-8
+            and abs(bottom[1]) <= 1e-8
+            and abs(bottom[2]) <= 1e-8
+            and abs(bottom[3] - 1.0) <= 1e-8 + 1e-5
+        ) or not (
+            np.all(np.abs(rotation.T @ rotation - np.eye(3)) <= self._ORTHONORMAL_TOL)
+            and abs(determinant - 1.0) <= 1e-7 + 1e-5
         ):
             return failure("invalid_input", note="target must be a rigid transform")
         if self._tool_inverse is not None:
             target = target @ self._tool_inverse
         dt = min(max(dt_s, 1e-6), self.config.dt_max_s)
         joints = np.degrees(previous)
-        current, jacobian = self.kinematics.flange_and_jacobian(previous)
+        cached = self._next_frame
+        if cached is not None and np.array_equal(cached[0], previous):
+            current, jacobian = cached[1], cached[2]
+        else:
+            current, jacobian = self.kinematics.flange_and_jacobian(previous)
         jacobian = jacobian.copy()
         jacobian[:3] *= 1000 * math.pi / 180  # m/rad -> mm/degree
-        rotation_error = Rotation.from_matrix(target[:3, :3] @ current[:3, :3].T).as_rotvec(
-            degrees=True
-        )
-        desired = np.r_[(target[:3, 3] - current[:3, 3]) * 1000, rotation_error] / dt
+        rotation_error = np.degrees(rotation_vector(target[:3, :3] @ current[:3, :3].T))
+        desired = np.empty(6)
+        desired[:3] = (target[:3, 3] - current[:3, 3]) * 1000
+        desired[3:] = rotation_error
+        desired /= dt
         quadratic = 2 * (jacobian.T @ self.W @ jacobian + self.config.lam * np.eye(7))
         linear = -2 * (jacobian.T @ self.W @ desired)
         if self.config.mu_nullspace > 0:
@@ -228,7 +317,9 @@ class TianjiDifferentialIK:
         if self.config.check_j67:
             c6, c7, bound = _interference_row(joints, self.j67_margin, dt)
             self._a_data[self._a_c6], self._a_data[self._a_c7] = c6, c7
-            full_lower, full_upper = np.r_[lower, -np.inf], np.r_[upper, bound]
+            full_lower, full_upper = np.empty(8), np.empty(8)
+            full_lower[:7], full_lower[7] = lower, -np.inf
+            full_upper[:7], full_upper[7] = upper, bound
         else:
             full_lower, full_upper = lower, upper
         if self._problem is None:
@@ -265,10 +356,13 @@ class TianjiDifferentialIK:
         self._previous_velocity = velocity.copy()
         next_deg = joints + velocity * dt
         next_rad = np.radians(next_deg)
-        actual = self.kinematics.flange(next_rad)
+        # flange_and_jacobian's pose is bit-identical to flange(); keep its Jacobian
+        # for the next step, which starts from exactly these joints.
+        actual, next_jacobian = self.kinematics.flange_and_jacobian(next_rad)
+        self._next_frame = (next_rad, actual, next_jacobian)
         pos_error = float(np.linalg.norm((actual[:3, 3] - target[:3, 3]) * 1000))
-        actual_euler = Rotation.from_matrix(actual[:3, :3]).as_euler("xyz", degrees=True)
-        target_euler = Rotation.from_matrix(target[:3, :3]).as_euler("xyz", degrees=True)
+        actual_euler = euler_xyz_deg(actual[:3, :3])
+        target_euler = euler_xyz_deg(target[:3, :3])
         rot_error = float(np.max(np.abs((actual_euler - target_euler + 180) % 360 - 180)))
         margin = float(np.min(np.minimum(self.upper - next_deg, next_deg - self.lower)))
         lag_exceeded = pos_error > self.config.max_lag_mm or (

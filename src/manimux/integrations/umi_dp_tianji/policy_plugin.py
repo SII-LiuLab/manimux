@@ -14,6 +14,7 @@ from scipy.spatial.transform import Rotation
 from manimux.integrations.openwam_yam.policy_plugin import pose_matrix
 from manimux.integrations.umi_dp_tianji.history import WindowSnapshot
 from manimux.kinematics import build_kinematics
+from manimux.kinematics.tianji_diff import rotation_matrix, rotation_vector
 from manimux.runtime.rtc.request import RtcInferenceRequest
 from manimux.types import ActionChunk
 
@@ -199,7 +200,7 @@ class UmiDpTianjiAdapter:
         self, kin, current, target, aperture, duration_s, *, diff_solver=None, lag=None
     ):
         start = kin.fk(current, aperture)
-        rotation = Rotation.from_matrix(start[:3, :3].T @ target[:3, :3]).as_rotvec()
+        rotation = rotation_vector(start[:3, :3].T @ target[:3, :3])
         # The existing 1.8-degree branch check came from 250 Hz IK. Validate a
         # sampled SE(3) path at that cadence rather than relaxing that detector
         # or applying its per-servo-step threshold to an entire 30/10 Hz knot.
@@ -211,7 +212,7 @@ class UmiDpTianjiAdapter:
             alpha = index / substeps
             waypoint = np.eye(4)
             waypoint[:3, 3] = (1 - alpha) * start[:3, 3] + alpha * target[:3, 3]
-            waypoint[:3, :3] = start[:3, :3] @ Rotation.from_rotvec(alpha * rotation).as_matrix()
+            waypoint[:3, :3] = start[:3, :3] @ rotation_matrix(alpha * rotation)
             if diff_solver is None:
                 ok, solved = kin.ik(waypoint, current, aperture)
             else:

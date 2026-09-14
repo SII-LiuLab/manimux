@@ -153,6 +153,13 @@ tolerance. Source SHA256 hashes and exact dependency version are in its report.
 
 Single-step solver medians were 0.22–0.26 ms. Full two-arm **inline decoding**
 took 65–66 ms for H16 and 260–262 ms for H64, on small reachable synthetic poses.
+On 2026-09-14 the Python around the QP was reduced without changing the step:
+closed-form rotation vector/Euler/Rodrigues instead of per-step scipy `Rotation`,
+the rigid-transform check written out with np.allclose's own tolerances, and the
+post-step flange Jacobian reused as the next step's start. A chained step dropped
+from ~205 us to ~95 us (OSQP itself ~7–8 us); decoding took ~28 ms for H16 and
+~112 ms for H64. Against the previous code, verdicts were unchanged and joint
+differences stayed below 3e-13 rad over 7,684 recorded steps and 12 chunk decodes.
 This aggregate chunk work blocks the control thread, including executor smoothing;
 it exceeds a 250 Hz tick's 4 ms budget. These are different measurements from the
 duration of one IK solve. The new backend is offline integrated, with no claim
