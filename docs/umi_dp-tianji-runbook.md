@@ -92,7 +92,8 @@ The first action origin includes the checkpoint's first offset. Already expired
 source rows are removed before IK and recorded in `source_offset_steps`. Each
 remaining knot's SE(3) segment is checked through the selected IK in at-most-4ms
 substeps. Analytic retains the original branch/limits/FK checks; diff uses its
-rate, position/interference and tracking-lag checks. The first knot uses
+rate, position/interference and tracking-lag checks, where `lag_policy: report`
+records the lag in `diff_ik_lag` instead of rejecting. The first knot uses
 its remaining time to the target; subsequent knots use action_dt. Any invalid
 pose, aperture or IK rejects the entire chunk. Intermediate IK samples are
 validation points; the shared executor interpolates final **joint** knots.

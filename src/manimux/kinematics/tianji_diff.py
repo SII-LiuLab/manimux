@@ -12,6 +12,7 @@ from __future__ import annotations
 import math
 import time
 from dataclasses import dataclass, field
+from typing import Literal
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -38,6 +39,10 @@ class DifferentialIKConfig(BaseModel):
     nullspace_weights: list[float] | None = None
     max_lag_mm: float = Field(default=5.0, gt=0)
     max_lag_deg: float | None = Field(default=None, gt=0)
+    # abort turns a solved step whose target residual exceeds max_lag_* into a
+    # tracking_lag failure; report keeps the bounded step and only flags it, as
+    # CalibWrist real_run's diff_lag_policy. Backend failures reject in both.
+    lag_policy: Literal["abort", "report"] = "abort"
 
     @model_validator(mode="after")
     def validate_weights(self):
@@ -61,6 +66,7 @@ class DifferentialIKResult:
     min_margin_deg: float | None = None
     solve_time_ms: float | None = None
     detail: dict = field(default_factory=dict)
+    lag_exceeded: bool = False  # residual over max_lag_*; still ok under lag_policy report
 
 
 def _upper_csc(matrix):
@@ -265,14 +271,15 @@ class TianjiDifferentialIK:
         target_euler = Rotation.from_matrix(target[:3, :3]).as_euler("xyz", degrees=True)
         rot_error = float(np.max(np.abs((actual_euler - target_euler + 180) % 360 - 180)))
         margin = float(np.min(np.minimum(self.upper - next_deg, next_deg - self.lower)))
+        lag_exceeded = pos_error > self.config.max_lag_mm or (
+            self.config.max_lag_deg is not None and rot_error > self.config.max_lag_deg
+        )
         reason = "ok"
         if margin < self.margin:
             reason = "joint_limit"
         elif self.config.check_j67 and not j67_ok(next_deg):
             reason = "j67_interference"
-        elif pos_error > self.config.max_lag_mm or (
-            self.config.max_lag_deg is not None and rot_error > self.config.max_lag_deg
-        ):
+        elif lag_exceeded and self.config.lag_policy == "abort":
             reason = "tracking_lag"
         return DifferentialIKResult(
             reason == "ok",
@@ -284,4 +291,5 @@ class TianjiDifferentialIK:
             float(np.max(np.abs(next_deg - joints))),
             margin,
             (time.perf_counter() - start) * 1000,
+            lag_exceeded=lag_exceeded,
         )

@@ -99,6 +99,26 @@ def test_optional_orientation_lag_guard(solver):
     assert result.rot_err_deg > solver.config.max_lag_deg
 
 
+def test_report_lag_policy_keeps_the_bounded_step(solver):
+    target = solver.kinematics.fk(START, 0.8)
+    target[:3, 3] += [0.2, -0.1, 0.15]
+    aborted = solver.solve(target, START, 0.004)
+    solver.reset()
+    solver.config.lag_policy = "report"
+    reported = solver.solve(target, START, 0.004)
+    assert not aborted.ok and aborted.reason == "tracking_lag" and aborted.lag_exceeded
+    assert reported.ok and reported.reason == "ok" and reported.lag_exceeded
+    np.testing.assert_array_equal(reported.joints, aborted.joints)
+
+
+def test_report_lag_policy_still_rejects_backend_failures(solver):
+    solver.config.lag_policy = "report"
+    joints = START.copy()
+    joints[5:] = np.radians([54, 54])
+    result = solver.solve(solver.kinematics.fk(joints, 0.8), joints, 0.004)
+    assert not result.ok and result.reason == "qp_infeasible"
+
+
 @pytest.mark.parametrize("kind", ["joints", "target", "dt", "rotation"])
 def test_invalid_input_never_reaches_osqp(solver, kind):
     joints = START.copy()
@@ -231,3 +251,12 @@ def test_real_diff_adapter_chunk_timing_and_atomic_rejection(horizon, offset):
     with pytest.raises(ValueError, match="tracking_lag; rejecting the entire chunk"):
         adapter.decode_action({"actions": actions}, ActionContext(2, 10**9, 10**9))
     assert 2 not in adapter.anchors
+    # The report policy keeps that bounded, lagging chunk and records the lag.
+    config.policy.options["diff_ik"]["lag_policy"] = "report"
+    reporting = UmiDpTianjiAdapter(config.robot, config.policy)
+    reporting.prepare_request(InferenceRequest("test", 3, 10**9, 2 * 10**9, window))
+    chunk = reporting.decode_action({"actions": actions}, ActionContext(3, 10**9, 10**9))
+    lag = chunk.metadata["diff_ik_lag"]
+    assert lag["right"]["lag_exceedances"] > 0
+    assert lag["right"]["worst_lag_mm"] > reporting.diff_solvers["right"].config.max_lag_mm
+    assert lag["left"]["lag_exceedances"] == 0

@@ -12,3 +12,6 @@ j67_margin_deg: null
 # CalibWrist GuardedFlangeSolver defaults: positive flange-position lag required.
 max_lag_mm: 5.0
 max_lag_deg: null
+# CalibWrist real_run's policy-execution default: lag over max_lag_* is recorded,
+# the bounded step is kept. Failed QPs, joint limits and J6/J7 still reject.
+lag_policy: report

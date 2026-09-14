@@ -195,7 +195,9 @@ class UmiDpTianjiAdapter:
             },
         )
 
-    def _solve_knot(self, kin, current, target, aperture, duration_s, *, diff_solver=None):
+    def _solve_knot(
+        self, kin, current, target, aperture, duration_s, *, diff_solver=None, lag=None
+    ):
         start = kin.fk(current, aperture)
         rotation = Rotation.from_matrix(start[:3, :3].T @ target[:3, :3]).as_rotvec()
         # The existing 1.8-degree branch check came from 250 Hz IK. Validate a
@@ -220,6 +222,10 @@ class UmiDpTianjiAdapter:
                         f"(lag_mm={result.pos_err_mm}, lag_deg={result.rot_err_deg}, "
                         f"detail={result.detail})"
                     )
+                if lag is not None:
+                    lag["worst_lag_mm"] = max(lag["worst_lag_mm"], float(result.pos_err_mm))
+                    lag["worst_lag_deg"] = max(lag["worst_lag_deg"], float(result.rot_err_deg))
+                    lag["lag_exceedances"] += int(result.lag_exceeded)
                 ok, solved = result.ok, result.joints
             solved = np.asarray(solved, dtype=float)
             if not ok or solved.shape != (7,) or not np.isfinite(solved).all():
@@ -241,6 +247,7 @@ class UmiDpTianjiAdapter:
         if skip >= self.horizon:
             raise ValueError("UMI response has no future actions")
         groups = {}
+        lag_stats = {}
         for side in ("left", "right"):
             group = f"{side}_arm"
             measured = (
@@ -250,8 +257,12 @@ class UmiDpTianjiAdapter:
             )
             current = state_vector(measured)[:7].copy()
             diff_solver = self.diff_solvers.get(side)
+            lag = None
             if diff_solver is not None:
                 diff_solver.reset()
+                lag = lag_stats[side] = {
+                    "worst_lag_mm": 0.0, "worst_lag_deg": 0.0, "lag_exceedances": 0,
+                }
             rows = []
             for knot_index, step in enumerate(steps[skip:]):
                 target = pose_matrix(step[f"{side}_ee_pose"])
@@ -266,7 +277,7 @@ class UmiDpTianjiAdapter:
                     )
                 current = self._solve_knot(
                     self.kin[side], current, target, float(grip[0]), duration_s,
-                    diff_solver=diff_solver,
+                    diff_solver=diff_solver, lag=lag,
                 )
                 rows.append(np.r_[current, grip])
             groups[group] = np.asarray(rows)
@@ -284,6 +295,9 @@ class UmiDpTianjiAdapter:
                 "measured_observation_time_ns": context.observation_time_ns,
                 "first_action_offset_ns": self.offset_ns,
                 "ik_backend": self.ik_backend,
+                # Per-arm target residual of the diff QP; lag over max_lag_* is only
+                # recorded under lag_policy report.
+                **({"diff_ik_lag": lag_stats} if lag_stats else {}),
             },
         )
 

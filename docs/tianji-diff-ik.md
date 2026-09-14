@@ -53,6 +53,7 @@ policy:
       j67_margin_deg: null
       max_lag_mm: 5.0
       max_lag_deg: null
+      lag_policy: report
 ```
 
 `max_velocity_rad_s` comes from `motion_limits.arm.max_velocity`; `dt_max_s`
@@ -103,7 +104,13 @@ therefore defaults to CalibWrist's 5 mm guard. This residual is measured at the
 **flange**, after the step; it is not a live TCP tracking monitor. Optional
 `max_lag_deg` uses the reference maximum wrapped XYZ Euler-coordinate residual,
 not a geodesic rotation angle. It defaults to null, as in CalibWrist.
-Any solver or lag failure rejects the entire predicted chunk.
+`lag_policy` decides what a residual over these thresholds means. `abort` (the
+library default) turns it into a `tracking_lag` failure. `report`, the default of
+CalibWrist's `real_run` and of `configs/umi_dp/tianji/ik/diff.yaml`, keeps the
+bounded step and only counts it; the adapter records each arm's worst residual
+and exceedance count in the chunk metadata as `diff_ik_lag`. Failed or empty QPs,
+nonfinite solutions, joint margins and J6/J7 interference reject under both
+policies, and any such failure rejects the entire predicted chunk.
 
 Each arm resets both OSQP primal and dual state at the beginning of each
 speculative chunk. The prior measured state seeds the new solve, so rejected
