@@ -34,7 +34,7 @@ from .base import (
     SceneBox,
     SceneView,
     StaticMesh,
-    gripper_closed_steps_at,
+    gripper_closed_steps_by_group_at,
 )
 
 DEFAULT_TIANJI_ROOT = Path(__file__).resolve().parents[2] / "assets" / "tianji"
@@ -153,24 +153,24 @@ class TianjiAdapter(RobotAdapter):
     def split_joint_positions(self, joint_positions: np.ndarray) -> dict[str, np.ndarray]:
         return self._split(joint_positions, sequence=False)
 
-    def gripper_closed_steps(
+    def gripper_closed_steps_by_group(
         self,
         grouped_actions: Mapping[str, np.ndarray],
         *,
         previous_positions: Mapping[str, np.ndarray] | None = None,
-    ) -> np.ndarray:
+    ) -> dict[str, np.ndarray]:
         aperture = None if self.end_effector is None else self.end_effector.spec.aperture_input
         if aperture is None:
-            return super().gripper_closed_steps(grouped_actions)
+            return {}
         index = NUM_ARM_JOINTS + aperture
         with_aperture = {
             name: actions
             for name, actions in grouped_actions.items()
             if np.asarray(actions).shape[-1] > index
         }
-        if not with_aperture:
-            return super().gripper_closed_steps(grouped_actions)
-        return gripper_closed_steps_at(with_aperture, previous_positions, index=index)
+        return gripper_closed_steps_by_group_at(
+            with_aperture, previous_positions, index=index
+        )
 
     def pose(self, group: str, configuration: np.ndarray) -> np.ndarray:
         self.group(group)

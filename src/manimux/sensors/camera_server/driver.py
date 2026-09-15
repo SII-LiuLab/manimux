@@ -6,9 +6,8 @@ from collections.abc import Sequence
 
 from manimux.clock import Clock
 from manimux.config import SensorConfig
-from manimux.types import SensorFrame
-
 from manimux.sensors.camera_server.client import CameraClient
+from manimux.types import SensorFrame
 
 
 class CameraServerSensorDriver:
@@ -53,7 +52,7 @@ class CameraServerSensorDriver:
     def read(self) -> dict[str, SensorFrame]:
         if self._client is None:
             raise RuntimeError("camera-server sensor is not started")
-        images = self._client.get_obs()
+        images = self._client.get_obs(camera_names=list(self._camera_names))
         missing = [name for name in self._camera_names if name not in images]
         if missing:
             raise RuntimeError(f"camera server response is missing cameras: {missing}")

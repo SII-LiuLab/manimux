@@ -32,9 +32,7 @@ def _load_config(path: Path) -> dict[str, Any]:
 
 def _validate(config: dict[str, Any]) -> dict[str, Any]:
     if config.get("policy_name") != "SAPolicy":
-        raise ValueError(
-            f"policy_name must be 'SAPolicy', got {config.get('policy_name')!r}"
-        )
+        raise ValueError(f"policy_name must be 'SAPolicy', got {config.get('policy_name')!r}")
     if config.get("protocol", "ws") != "ws":
         raise ValueError("SAPolicy ManiMux path requires protocol: ws")
     dry_run = bool(config.get("dry_run", False))
@@ -64,13 +62,13 @@ def _validate(config: dict[str, Any]) -> dict[str, Any]:
         "cfg_file": str(cfg_file),
         "sapolicy_root": str(sapolicy_root),
         "action_type": config.get("action_type", "ee"),
-        "output_format": config.get("output_format", "packed_ee_wire"),
+        "output_format": config.get("output_format", "action_dict"),
         "action_horizon": horizon,
         "use_ema": bool(config.get("use_ema", True)),
         "dry_run": dry_run,
         "xpolicylab_root": str(XPOLICY_ROOT),
         "wire_action_dim": 16,
-        "action_space": "absolute_ee_wire",
+        "action_space": "absolute_ee",
     }
 
 
@@ -82,6 +80,27 @@ def main() -> int:
 
     config_path = args.config.expanduser().resolve()
     config = _load_config(config_path)
+    _prepare_imports()
+    from XPolicyLab.policy.SAPolicy import DEFAULT_SAPOLICY_ROOT
+    from XPolicyLab.policy.SAPolicy.assets import resolve_assets
+
+    config.setdefault("sapolicy_root", str(DEFAULT_SAPOLICY_ROOT))
+    # ManiMux deployment paths are workspace-relative; standalone XPolicyLab
+    # eval uses its normal policy-directory checkpoint resolution instead.
+    for key in (
+        "model_path",
+        "cfg_file",
+        "sapolicy_root",
+        "workspace",
+        "backbone_path",
+        "normalizer_path",
+    ):
+        if config.get(key):
+            path = Path(str(config[key])).expanduser()
+            config[key] = str((REPO_ROOT / path).resolve() if not path.is_absolute() else path)
+    if not config.get("dry_run", False):
+        config = resolve_assets(config)
+        config.pop("resolved_cfg", None)
     contract = _validate(config)
     print("[sapolicy-yam-server] resolved setup", flush=True)
     print(json.dumps(contract, indent=2), flush=True)
@@ -89,7 +108,6 @@ def main() -> int:
     if args.check:
         return 0
 
-    _prepare_imports()
     import setup_policy_server
 
     setup_policy_server.main(config)

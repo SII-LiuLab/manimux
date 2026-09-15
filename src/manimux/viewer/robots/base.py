@@ -99,14 +99,14 @@ def aperture_closing_flags(
     return flags
 
 
-def gripper_closed_steps_at(
+def gripper_closed_steps_by_group_at(
     grouped_actions: Mapping[str, np.ndarray],
     previous_positions: Mapping[str, np.ndarray] | None,
     index: int,
-) -> np.ndarray:
-    """OR the closing-or-closed flags of every group's aperture column ``index``."""
+) -> dict[str, np.ndarray]:
+    """Return each group's closing-or-closed flags for aperture column ``index``."""
 
-    closing_or_closed: list[np.ndarray] = []
+    closing_or_closed: dict[str, np.ndarray] = {}
     previous_positions = previous_positions or {}
     for group_name, actions in grouped_actions.items():
         values = np.asarray(actions, dtype=np.float64)[:, index]
@@ -115,10 +115,10 @@ def gripper_closed_steps_at(
         if previous is not None:
             flat = np.asarray(previous, dtype=np.float64).reshape(-1)
             previous_value = float(flat[index]) if flat.size > index else None
-        closing_or_closed.append(aperture_closing_flags(values, previous_value=previous_value))
-    if not closing_or_closed:
-        return np.empty(0, dtype=np.bool_)
-    return np.asarray(np.logical_or.reduce(closing_or_closed), dtype=np.bool_)
+        closing_or_closed[group_name] = aperture_closing_flags(
+            values, previous_value=previous_value
+        )
+    return closing_or_closed
 
 
 class RobotAdapter(ABC):
@@ -166,19 +166,31 @@ class RobotAdapter(ABC):
 
         return source_name.removesuffix("_rgb").removesuffix("_camera")
 
+    def gripper_closed_steps_by_group(
+        self,
+        grouped_actions: Mapping[str, np.ndarray],
+        *,
+        previous_positions: Mapping[str, np.ndarray] | None = None,
+    ) -> dict[str, np.ndarray]:
+        """Return closing-or-closed flags independently for each robot group."""
+
+        del grouped_actions, previous_positions
+        return {}
+
     def gripper_closed_steps(
         self,
         grouped_actions: Mapping[str, np.ndarray],
         *,
         previous_positions: Mapping[str, np.ndarray] | None = None,
     ) -> np.ndarray:
-        """Return closing-or-closed flags when the embodiment exposes a gripper."""
+        """Aggregate per-group flags for callers of the original viewer interface."""
 
-        del previous_positions
-        if not grouped_actions:
+        flags = self.gripper_closed_steps_by_group(
+            grouped_actions, previous_positions=previous_positions
+        )
+        if not flags:
             return np.empty(0, dtype=np.bool_)
-        horizon = len(next(iter(grouped_actions.values())))
-        return np.zeros(horizon, dtype=np.bool_)
+        return np.logical_or.reduce(list(flags.values()))
 
     def group(self, name: str) -> RobotGroup:
         for group in self.groups:

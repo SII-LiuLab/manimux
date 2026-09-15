@@ -1,116 +1,146 @@
-# SAPolicy + YAM 接入手册
+# SAPolicy + YAM
 
-## 2026-09-10 真机基线
+## 当前部署
 
-当前瓶子任务使用 `server/teleop50-raw.yaml` 配合
-`infra/manimux-braking-h25.yaml`，不是下文早期 ABC 权重示例：
+MV51 RAW 通过 `XPolicyLab/policy/SAPolicy` 和共享 `xpolicylab_ws` 接入。
+模型源码、依赖安装、数据与训练入口均在该 policy 目录中；ManiMux 负责相机、
+观测映射、YAM FK/IK、调度、执行与记录。完整安装和资源准备见
+[SAPolicy README](../XPolicyLab/policy/SAPolicy/README.md)。
+
+支持 `yam_dual / ee`。模型返回标准动作字典：双臂绝对末端位姿采用
+`[x,y,z,qw,qx,qy,qz]`，夹爪连续开度 0 闭合、1 张开。YAM 适配器转换为
+两组各 7 维的关节目标。旧 `packed_ee_wire` 的 xyzw 格式仍可显式使用，
+与标准接口共用同一推理和执行语义。
+
+| 参数 | MV51 RAW 设置 |
+| --- | --- |
+| checkpoint | `ft_teleopMV51_from_abc_notcpkv_rot5_bs1024_raw.ckpt` |
+| 权重 | RAW，`use_ema: false` |
+| 观测历史 | 1 帧，外部视角 + 左右腕 |
+| action horizon / sampler steps | 50 / 10 |
+| 普通 chunk 执行前缀 | 前 25 个源时间步中仍有效的部分 |
+| RTC | horizon 50；执行下限 25；初始 delay 4；延迟窗口 10；beta 5 |
+| smoother | 共享 `SmoothExecutor`，`tracking_mode: legacy`，8 Hz 低通 |
+| 模型动作间隔 / 控制频率 | 1/30 s / 100 Hz |
+| 关节速度 / 加速度限制 | 均关闭（显式 `null`） |
+| 抓取 / 释放等待状态机 | 当前低通与 RTC 配置均不启用 |
+| 夹爪速度 / 加速度 / 单独闭合限速 | 均关闭（显式 `null`） |
+| TCP 参考点 | 训练 MJCF 的 grasp_site，额外 offset = 0 |
+| 图像 | RGB；640×480 → 224×168，模型中心裁剪 210×154 |
+
+同一执行模式下的三个 infra 配置只改变外部相机、视角标识和记录目录。模型文件 SHA-256 在
+启动时核验，runtime 用该摘要匹配后端身份；不再把固定机器的绝对权重路径当作身份。
+旧 teleop50 / ABC 配置保留为历史兼容路径，不作为 MV51 的启动入口。
+
+MV51 普通和 RTC 共六个配置显式关闭软件速率限制；直接删除这些字段会恢复默认限速。
+位置边界独立保留。低通 smoother 使用连续夹爪，不启用原 braking 的抓取/释放等待。
+共享 YAM 配置仍包含
+夹爪单独闭合限速，因此这里明确使用 MV51 的完整无速率限制设置。
+修改后须重新启动 `manimux serve` 才会加载新值。
+
+## 安装与模型服务
+
+从 ManiMux 根目录执行。先按照 policy README 用原始权重、DINOv2 权重和
+匹配 normalizer 创建 `checkpoints/finetuned/sapolicy/teleopMV51/` 资源包。
+模型权重和本机记录不进入 Git。
+
+```bash
+bash XPolicyLab/policy/SAPolicy/install.sh
+XPolicyLab/policy/SAPolicy/.venv/bin/python scripts/servers/sapolicy_yam_server.py \
+  --config configs/sapolicy/yam/server/teleopMV51/raw.yaml --check
+XPolicyLab/policy/SAPolicy/.venv/bin/python scripts/servers/sapolicy_yam_server.py \
+  --config configs/sapolicy/yam/server/teleopMV51/raw.yaml
+```
+
+`--check` 只验证配置和资源。共享模型服务默认监听 `ws://127.0.0.1:8510`，
+不连接真机。服务内部使用 policy 目录中的 resolved 配方，不依赖外部源码或
+某次实验生成的 YAML。
+
+## 相机与 GUI
+
+已有相机服务时直接复用；以下命令用于服务尚未启动的情况。
+
+```bash
+envs/yam/.venv/bin/manimux-camera-server --config configs/cameras.yaml
+envs/yam/.venv/bin/manimux-camera-server \
+  --config configs/sapolicy/yam/cameras-gemini.yaml \
+  --rep-endpoint tcp://127.0.0.1:5575 --pub-endpoint tcp://127.0.0.1:5576
+envs/yam/.venv/bin/manimux-viewer --robot yam --host 0.0.0.0 --port 8086
+```
+
+| 视角配置 | 外部相机 | 腕部相机 |
+| --- | --- | --- |
+| `top.yaml` | `front_camera`，RealSense Top | `left_camera`、`right_camera` |
+| `gemini305.yaml` | Gemini305，序列号 `CV278640000Z` | 同上 |
+| `gemini335.yaml` | Gemini335，序列号 `CP0N763000LK` | 同上 |
+
+Gemini 按设备序列号定位 UVC RGB 节点。每轮只请求和检查选中的三路相机。
+GUI 默认 `camera_mode: policy`，跟随 runtime 上报的 `policy.options.camera_map`，
+主画面标注模型输入名，左右小画面使用简洁的 `left side` / `right side` 标签；
+模型输入与物理相机的完整对应关系显示在右侧表格中。
+模型配置声明输入视角；部署配置绑定本机相机；Viewer 自动展示，不需要重复绑定。
+输入按映射顺序排列，第一个是主画面，Top 叠加预览跟随主画面。
+超过三路的输入显示在“更多输入相机”区域。
+未收到模型输入配置时显示默认 `top / left / right` 预览，并注明尚未获取配置。
+新一轮、新 runtime、失联和视角变化会清理旧画面；缺失的选中视角显示“等待图像”。
+
+调试时仍可用 `--config configs/viewer/yam-top.yaml`、`yam-gemini305.yaml` 或
+`yam-gemini335.yaml`（后两者同在 `configs/viewer/`）进入 `camera_mode: manual`。
+这只覆盖预览；界面同时列出模型输入，预览选择不改变送入模型的相机。
+若要恢复自动跟随，省略 Viewer 的 `--config` 或显式设置 `camera_mode: policy`。
+记录仍保存物理相机名和 `view_profile`。
+
+## Rollout
 
 ```bash
 envs/yam/.venv/bin/manimux serve \
-  --config configs/sapolicy/yam/infra/manimux-braking-h25.yaml
+  --config configs/sapolicy/yam/infra/teleopMV51/top.yaml
+# 使用 RTC：关闭上一 runtime 后选择此配置
+envs/yam/.venv/bin/manimux serve \
+  --config configs/sapolicy/yam/infra/teleopMV51/top-rtc.yaml
 ```
 
-已有模型服务、相机和 Viewer 时只使用现有服务流程；GUI Prepare 后由操作者点
-Start。模型 RAW 预测 50 步，执行前 25 个源时间步内仍有效的部分。关节限速
-0.6 rad/s、1.5 rad/s²；夹爪连续控制限速 1/s、12/s²。双臂并行 IK，失败臂减速
-保持，另一臂继续。抓取时锁定开始闭合的位姿，到位后闭合，开度稳定且取得新观测后
-才继续移动；释放时锁定末端目标，到位后完成张爪，再等待释放后的新观测。
-正常 Finish 时双臂同时 Home，时长 5 秒。
+打开 `http://localhost:8086`，点击 **Prepare normal rollout**，摆好场景后
+点击 **Start rollout**。**Pause / Hold** 暂停；**Finish & Home** 保存本轮并
+按当前配置让双臂同时 Home（5 秒）。切换视角前结束本轮并关闭该 runtime，
+再用 `gemini305.yaml` 或 `gemini335.yaml` 启动下一轮。默认模式下 GUI 自动跟随，
+无需随视角重启；相机与模型服务可复用。
+RTC 对应 `gemini305-rtc.yaml` 和 `gemini335-rtc.yaml`；使用同一模型服务。
+后端实际实现并声明 `rtc` 能力后 runtime 才能启动，身份检查保持启用。
 
-操作者最新反馈为“抓的不是很准，但行为没问题”。这是当前可复现的行为基线，
-抓取精度仍待单独排查。执行细节见[减速跟踪](braking-execution.md)和
-[独立 IK 与释放控制](independent-ik-execution.md)。
+记录位于 `data/sapolicy/teleopMV51/<view>/session-*/rollout-*`，RTC 的 view 后缀为 `-rtc`。
+`result.success` 只表示运行流程完成；投瓶是否成功由实际观察或人工评价确定。
+当前执行采用进程 IK、双臂成对提交和低通平滑。原有双臂独立提交依赖 braking，
+因此不用于这两套配置。RTC 对旧关节轨迹先做同坐标系 FK，再在 SA 中转换为相对
+动作并归一化，由实际 DiT 采样器做 VJP 引导。普通 chunk 在交接处 blend 4 步；
+RTC 首段也 blend 4 步，已有条件的后续 chunk 不叠加 blend。
+RTC 的 25 步是调度下限，不是固定裁掉后半段；根据实测推理和解码延迟调整。
+历史 braking 记录不能当作新 smoother/RTC 的真机验证。
 
-清理前的代码以文件形式保存在
-`/home/ubuntu/sa/diagnostics/cleanup_20260910/before-cleanup-manimux.tar`，
-配套 XPolicyLab 备份为同目录的 `before-cleanup-xpolicylab.tar`。
-UMI／Cartesian／协同执行、
-direct/debounced 夹爪试验和重复配置已从当前版本移除；完整 direct 执行器及
-`manimux-direct-async.yaml` 留作历史对照。恢复某个试验时先将备份解压到独立目录，
-避免覆盖当前真机工作目录。
-
-按操作者要求，本轮修改不做 commit 或 push，保留为本地工作区改动。
-权重、训练 YAML、
-normalizer、DINO 权重和 SpatialAlign Python 源码的 SHA-256 记录在
-`configs/sapolicy/yam/server/teleop50-raw.assets.json`，这些大文件不进入 Git。
-XPolicyLab 的 SA 预处理修复仍是子仓库中的本地改动；其他模型的待提交内容
-保持原样。离线回归命令：
+## 离线验证
 
 ```bash
-bash scripts/validation/test_sapolicy_rollout.sh
+envs/yam/.venv/bin/python -m pytest -o addopts='' -q \
+  XPolicyLab/policy/SAPolicy/tests tests/unit/test_sapolicy_xpl_model.py \
+  tests/unit/test_sapolicy_xpl_transport.py tests/unit/test_sapolicy_decode_timing.py
+XPolicyLab/policy/SAPolicy/.venv/bin/python -m pytest -o addopts='' -q \
+  XPolicyLab/policy/SAPolicy/tests
+XPolicyLab/policy/SAPolicy/.venv/bin/python -m XPolicyLab.policy.SAPolicy.validate_checkpoint \
+  --checkpoint "$PWD/checkpoints/finetuned/sapolicy/teleopMV51" --rtc \
+  --output data/sapolicy/checkpoint-validation.json
+envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
+  --config configs/sapolicy/yam/infra/teleopMV51/top-rtc.yaml
 ```
 
-该命令只运行单元测试和 mock runtime，不连接真机、不加载模型权重。
+最后一条需要模型服务，只发送合成图像和配置中的关节状态，不打开相机或控制
+机器人。标准 debug、编码图像、batch、原生数据处理与训练入口见 policy README。
 
-## 当前结论
+2026-09-13 验证覆盖全新环境安装、真实 GPU forward、标准动作/旧格式数值
+一致性、共享服务器、YAM 离线 IK、batch 与 reset、原生 ABC 读取以及合成数据上
+一次 GPU 训练步骤和 checkpoint 保存。标准接口迁移后已进行一次 Top 真机 rollout，
+由操作者结束并保存；该轮仍使用旧限速，未标注任务成功率。
 
-SAPolicy 经 **XPolicyLab WebSocket** 接入 ManiMux：
-
-- `XPolicyLab/policy/SAPolicy`：薄封装，推理走本机 `~/sa/SpatialAlignPolicy`；
-- ManiMux `worker: xpolicylab_ws`：通用 WS 传输；
-- ManiMux `adapter: sapolicy_yam`：相机/内参、YAM FK/IK，以及绝对 EE wire → `joint_position ActionChunk`。
-
-## 数据流
-
-```text
-YAM joints + named RGB frames
-  -> sapolicy_yam: FK + K → additional_info.sapolicy
-  -> xpolicylab_ws → XPolicyLab/policy/SAPolicy (SpatialAlign infer)
-  -> packed_ee_wire (H,16) absolute EE
-  -> sapolicy_yam: measured-state-seeded IK (fail → hold; Timeline 裁过期步)
-  -> canonical left_arm/right_arm joint_position ActionChunk
-  -> ManiMux Timeline / executor / Safety / Recorder / YAM driver
-```
-
-SpatialAlign 代码与依赖保留在独立仓库/环境；ManiMux 不 import torch。
-
-## 启动
-
-```bash
-# SpatialAlign venv（加载 3cam_tcp.ckpt）
-cd /home/ubuntu/sa/SpatialAlignPolicy && source .venv/bin/activate
-pip install -e /home/ubuntu/manimux/XPolicyLab
-python /home/ubuntu/manimux/scripts/servers/sapolicy_yam_server.py \
-  --config /home/ubuntu/manimux/configs/sapolicy/yam/server/abc-bottles.yaml
-
-# 相机必须 640x480；模型内部再裁到训练分辨率
-envs/yam/.venv/bin/manimux-camera-server --config configs/sapolicy/yam/cameras.yaml
-envs/yam/.venv/bin/manimux-viewer --robot yam --host 0.0.0.0 --port 8086
-envs/yam/.venv/bin/manimux run --config configs/sapolicy/yam/infra/manimux-xpl.yaml
-```
-
-权重默认 `3cam_tcp.ckpt`（仓库根目录）。`cfg_file` 必须与该 checkpoint 的训练架构一致。
-
-## 契约
-
-| 项目 | 当前约束 |
-|---|---|
-| embodiment | 双臂 YAM，每侧 6 arm joints + 1 gripper |
-| observation | 命名 RGB + 标定 `3x3 K` |
-| DiT 原生动作 | 相对 `[pose18 \| grip2]`：`pos3+rot6d` ×2 + grip ×2 = 20D |
-| wire → ManiMux | 绝对 `pos3+quat_xyzw+grip` ×2 = 16D |
-| ManiMux action | 两组绝对关节，每组 7 维 |
-| depth | 不支持 |
-| IK | 失败 hold 上一步；过期步由 Timeline 裁切 |
-
-Wire endpose 是 YAM `grasp_site` / ABC TCP，不再做 RoboTwin 的 0.12 m 前向偏移。
-
-## 本机 mock（无真机）
-
-无权重联调用 `server/mock.yaml`（`dry_run: true`，回放当前 EE）。
-
-```bash
-# 缺 mink/i2rt 时脚本会把 IK 退化成 hold-seed
-python scripts/validation/sapolicy_yam_mock_run.py
-
-# 已有 envs/yam 时也可拆成两进程
-python scripts/servers/sapolicy_yam_server.py --config configs/sapolicy/yam/server/mock.yaml
-envs/yam/.venv/bin/manimux run --config configs/sapolicy/yam/infra/mock.yaml
-```
-
-## 分层验证
-
-1. 离线：wire / IK 契约与 adapter 单测
-2. 本机 mock：`scripts/validation/sapolicy_yam_mock_run.py`
-3. GPU：server `--check` 后真实 forward（非 dry_run）
-4. 只读 preflight → 短真机
+随后完成 smoother / RTC 离线验证：真实权重三个固定种子的重叠区误差均下降，
+零权重 RTC 与普通采样逐值一致，reset 和条件清理通过；共享 debug 普通图像、
+编码图像 batch，以及三个视角的 RTC → YAM IK 均通过。合成观测下 RTC forward
+约 172–183 ms，热请求加双臂 IK 约 310 ms。新 smoother / RTC 尚未进行真机 rollout。

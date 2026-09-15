@@ -9,7 +9,7 @@ import numpy as np
 
 from manimux.kinematics.yam import YamKinematics
 
-from .base import RobotAdapter, RobotGroup, SceneBox, gripper_closed_steps_at
+from .base import RobotAdapter, RobotGroup, SceneBox, gripper_closed_steps_by_group_at
 
 DEFAULT_I2RT_ROOT = Path(__file__).resolve().parents[2] / "assets"
 
@@ -80,13 +80,13 @@ class YamAdapter(RobotAdapter):
     def split_joint_positions(self, joint_positions: np.ndarray) -> dict[str, np.ndarray]:
         return self._split(joint_positions, sequence=False)
 
-    def gripper_closed_steps(
+    def gripper_closed_steps_by_group(
         self,
         grouped_actions: Mapping[str, np.ndarray],
         *,
         previous_positions: Mapping[str, np.ndarray] | None = None,
-    ) -> np.ndarray:
-        return gripper_closed_steps_at(grouped_actions, previous_positions, index=6)
+    ) -> dict[str, np.ndarray]:
+        return gripper_closed_steps_by_group_at(grouped_actions, previous_positions, index=6)
 
     def pose(self, group: str, configuration: np.ndarray) -> np.ndarray:
         self.group(group)

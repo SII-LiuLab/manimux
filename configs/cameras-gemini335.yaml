@@ -1,0 +1,21 @@
+sensors:
+  cameras:
+    left_camera:
+      device_id: "260322276964"
+      width: 640
+      height: 480
+      fps: 30
+      enable_depth: false
+    gemini335:
+      type: orbbec
+      device_id: "CP0N763000LK"
+      width: 640
+      height: 480
+      fps: 30
+      enable_depth: false
+    right_camera:
+      device_id: "260322274672"
+      width: 640
+      height: 480
+      fps: 30
+      enable_depth: false

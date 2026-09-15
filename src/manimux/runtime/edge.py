@@ -231,6 +231,8 @@ class EdgeRuntime:
                 "policy_label": self._config.viewer.policy_label,
                 "policy_worker": self._config.policy.worker,
                 "policy_adapter": self._config.policy.adapter,
+                "view_profile": self._config.policy.options.get("view_profile"),
+                "camera_map": self._config.policy.options.get("camera_map", {}),
                 "action_dt_s": self._config.policy.effective_action_dt_s,
                 "horizon_steps": self._config.policy.horizon_steps,
                 "max_chunk_steps": self._config.execution.max_chunk_steps,
@@ -293,6 +295,7 @@ class EdgeRuntime:
                 "executor": self._config.execution.executor,
                 "policy_label": self._config.viewer.policy_label,
                 "experiment_mode": self._config.run.experiment_mode,
+                "camera_map": self._config.policy.options.get("camera_map", {}),
                 "layout_id": self._config.run.layout_id,
                 "launch_mode": self._launch_mode,
             }
@@ -348,6 +351,8 @@ class EdgeRuntime:
                     or self._config.execution.inference_schedule == "serial"
                     or getattr(self._strategy, "discard_plans_while_paused", False)
                 ):
+                    # RTC conditions must not refer to the timeline discarded
+                    # by Pause/Hold while a decoder response is still pending.
                     if self._state != RuntimeState.PAUSED:
                         self._strategy.reset()
                     self._timeline = self._build_timeline()

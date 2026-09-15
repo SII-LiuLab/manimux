@@ -336,6 +336,9 @@ def _viewer():
     for name in ("new_rollout_folder", "policy_control_folder", "recovery_folder",
                  "evaluation_folder", "overlay_folder", "run_folder"):
         setattr(viewer, name, SimpleNamespace(visible=False))
+    viewer.camera_view = SimpleNamespace(
+        set_policy_map=lambda *_args, **_kwargs: None, clear_images=lambda: None,
+    )
     viewer.current_episode_dir = None
     viewer.episode_finalized = False
     viewer._set_evaluation_enabled = lambda _: None

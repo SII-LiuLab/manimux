@@ -1,5 +1,12 @@
 # Utility scripts
 
+Unified training entry: `python scripts/training/train.py --list`.
+Use `--recipe <name>` or `--config <job.json>` to plan preparation + training;
+add `--execute` only on the training machine to run it. See
+[training entrypoints](../docs/training-entrypoints.md) for supported models,
+data preparation chains and one-command examples. Existing cluster scripts
+remain available for the recorded experiments.
+
 The scripts are grouped by responsibility:
 
 - `servers/`: launch model-side policy services.

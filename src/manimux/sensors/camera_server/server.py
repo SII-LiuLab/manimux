@@ -49,7 +49,7 @@ from manimux.sensors.taccap.camera import V4L_BY_ID
 
 logger = logging.getLogger("camera_server")
 
-CAMERA_TYPES = ("realsense", "taccap")
+CAMERA_TYPES = ("realsense", "orbbec", "taccap")
 TACCAP_KEYS = frozenset(
     {"type", "camera_serial", "width", "height", "fps", "max_frame_age_sec", "startup_timeout_sec"}
 )
@@ -93,11 +93,18 @@ class CameraServer:
     # Frame sourcing
     # ------------------------------------------------------------------
 
-    def _snapshot(self) -> dict[str, Any]:
+    def _snapshot(self, camera_names: list[str] | None = None) -> dict[str, Any]:
         """Snapshot the latest color frame from every camera (RGB uint8)."""
         frames: dict[str, Any] = {}
         timestamps: dict[str, float] = {}
-        for name, cam in self.cameras.items():
+        names = list(self.cameras) if camera_names is None else camera_names
+        if not isinstance(names, list) or not names or not all(isinstance(n, str) for n in names):
+            raise ValueError("camera_names must be a nonempty list of names")
+        missing = set(names) - self.cameras.keys()
+        if missing:
+            raise ValueError(f"Unknown cameras: {sorted(missing)}")
+        for name in names:
+            cam = self.cameras[name]
             read_with_timestamp = getattr(cam, "read_with_timestamp", None)
             if callable(read_with_timestamp):
                 image, _depth, ts = read_with_timestamp()
@@ -126,7 +133,7 @@ class CameraServer:
 
         try:
             if cmd == "obs":
-                resp = self._snapshot()
+                resp = self._snapshot(req.get("camera_names"))
             elif cmd == "ping":
                 resp = {"ok": True, "pong": True}
             else:
@@ -270,7 +277,7 @@ def _build_cameras_from_config(
             if kinds[name] == "taccap":
                 cameras[name] = _open_taccap(name, spec, by_id_root)
             else:
-                cameras[name] = _open_realsense(name, spec)
+                cameras[name] = _open_rgbd(name, spec)
     except Exception:
         for camera in cameras.values():
             camera.close()
@@ -295,8 +302,15 @@ def _open_taccap(name: str, spec: dict[str, Any], by_id_root: Path) -> Any:
     )
 
 
-def _open_realsense(name: str, spec: dict[str, Any]) -> Any:
-    from manimux.sensors.realsense import RealSenseCamera
+def _open_rgbd(name: str, spec: dict[str, Any]) -> Any:
+    if spec.get("type", "realsense") == "orbbec":
+        from manimux.sensors.orbbec import OrbbecCamera
+
+        camera_class = OrbbecCamera
+    else:
+        from manimux.sensors.realsense import RealSenseCamera
+
+        camera_class = RealSenseCamera
 
     device_id = spec["device_id"]
     width = int(spec.get("width", 640))
@@ -318,7 +332,7 @@ def _open_realsense(name: str, spec: dict[str, Any]) -> Any:
         flip,
         enable_depth,
     )
-    return RealSenseCamera(
+    return camera_class(
         device_id,
         flip=flip,
         width=width,
@@ -336,7 +350,7 @@ def main(argv: list[str] | None = None) -> int:
         required=True,
         type=Path,
         help="Path to a cameras YAML whose sensors.cameras block lists the devices "
-        "(type: realsense by default, or taccap).",
+        "(type: realsense by default, or orbbec/taccap).",
     )
     parser.add_argument("--rep-endpoint", default=DEFAULT_REP_ENDPOINT)
     parser.add_argument(

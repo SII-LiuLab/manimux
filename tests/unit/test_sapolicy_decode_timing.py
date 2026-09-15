@@ -224,3 +224,29 @@ def test_retired_eef_execution_mode_is_rejected_before_robot_connection():
     config.policy.options["action_space"] = "eef_pose"
     with pytest.raises(ValueError, match="EEF targets require IK"):
         SAPolicyYamAdapter(config.robot, config.policy)
+
+
+def test_standard_ee_and_compatibility_wire_decode_identically(monkeypatch):
+    adapter, fake = _build_adapter(monkeypatch)
+    now = 1_000_000_000
+    wire = _wire_actions(adapter)
+    standard = []
+    for row in wire:
+        action = {}
+        for side, offset in (("left", 0), ("right", 8)):
+            action[f"{side}_ee_pose"] = np.concatenate([
+                row[offset:offset+3], row[offset+6:offset+7], row[offset+3:offset+6]])
+            action[f"{side}_ee_joint_state"] = row[offset+7:offset+8]
+        standard.append(action)
+    context = ActionContext(1, now, now, execution_time_ns=now+3*adapter._action_dt_ns,
+                            measured_state=_snapshot(now).state, max_source_steps=12,
+                            independent_groups=True, decode_budget_ms=100)
+    original = adapter.decode_action(wire, context)
+    targets = [pose.copy() for pose, _ in fake.ik_calls]
+    fake.ik_calls.clear()
+    updated = adapter.decode_action({"actions": standard}, context)
+    assert original.source_offset_steps == updated.source_offset_steps == 3
+    for group in original.groups:
+        np.testing.assert_array_equal(original.groups[group], updated.groups[group])
+    for original_target, (new_target, _) in zip(targets, fake.ik_calls, strict=True):
+        np.testing.assert_array_equal(original_target, new_target)

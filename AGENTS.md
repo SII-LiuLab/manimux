@@ -5,6 +5,18 @@ scheduling, embodiment control, collection and experiment interfaces separate.
 These instructions apply throughout this checkout; also read the instructions in any
 submodule or nested directory before editing it.
 
+## Task skills
+
+Read only the skill relevant to the task; paths inside skills are relative to this
+repository root. They describe existing code and workflows, not permission to run hardware.
+
+| Task | Skill |
+|---|---|
+| Develop a driver, camera, adapter, runtime, collection or Viewer feature | [Development](.agents/skills/manimux-development/SKILL.md) |
+| Bind an installation to local robots, cameras and SDKs | [Station setup](.agents/skills/manimux-station-setup/SKILL.md) |
+| Select configs, give startup commands or run an experiment | [Experiment](.agents/skills/manimux-experiment/SKILL.md) |
+| Analyze recorded rollouts, chunks, tracking or video | [Result analysis](.agents/skills/manimux-result-analysis/SKILL.md) |
+
 ## Model integration: XPolicyLab only
 
 **Every new learned-policy integration or model reproduction must be implemented inside

@@ -1,0 +1,23 @@
+{
+  "policy": "ACT",
+  "params": {
+    "bench": "RoboDojo",
+    "run": "stack_bowls",
+    "robot": "arx_x5",
+    "action": "joint",
+    "seed": "0",
+    "gpus": "0",
+    "python": "/path/to/existing/environment/bin/python"
+  },
+  "env": {},
+  "prepare": [
+    {
+      "entry": "process_data.sh",
+      "args": ["${bench}", "${run}", "${robot}", "${action}"]
+    }
+  ],
+  "train": {
+    "entry": "train.sh",
+    "args": ["${bench}", "${run}", "${robot}", "${action}", "${seed}", "${gpus}"]
+  }
+}

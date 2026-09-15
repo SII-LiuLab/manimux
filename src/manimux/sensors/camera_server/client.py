@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import math
 import pickle
 import time
 from typing import Any
@@ -54,10 +55,13 @@ class CameraClient:
         sock.connect(self.endpoint)
         self._sock = sock
 
-    def _request(self, cmd: str) -> dict[str, Any]:
+    def _request(self, cmd: str, camera_names: list[str] | None = None) -> dict[str, Any]:
         assert self._sock is not None
         try:
-            self._sock.send(pickle.dumps({"cmd": cmd}))
+            request = {"cmd": cmd}
+            if camera_names is not None:
+                request["camera_names"] = camera_names
+            self._sock.send(pickle.dumps(request))
             raw = self._sock.recv()
         except zmq.Again as exc:
             # REQ socket is now in a bad state; reset before raising.
@@ -78,13 +82,24 @@ class CameraClient:
     def ping(self) -> bool:
         return bool(self._request("ping").get("pong"))
 
-    def get_obs(self) -> dict[str, np.ndarray]:
+    def get_obs(self, camera_names: list[str] | None = None) -> dict[str, np.ndarray]:
         """Return ``{cam_name: np.ndarray (H,W,3) uint8 RGB}`` with the latest frames."""
-        resp = self._request("obs")
+        resp = self._request("obs", camera_names)
         frames: dict[str, np.ndarray] = resp["frames"]
+        if camera_names is not None:
+            missing = set(camera_names) - frames.keys()
+            if missing:
+                raise CameraClientError(f"Missing selected cameras: {sorted(missing)}")
+            frames = {name: frames[name] for name in camera_names}
         if self.max_frame_age_sec is not None:
             now = time.time()
-            for name, ts in (resp.get("timestamps") or {}).items():
+            for name in frames:
+                ts = (resp.get("timestamps") or {}).get(name, 0.0)
+                if camera_names is not None and (
+                    not isinstance(ts, (float, int)) or not math.isfinite(ts)
+                    or ts <= 0 or ts > now + 0.05
+                ):
+                    raise CameraClientError(f"Invalid capture timestamp for {name}: {ts!r}")
                 if ts and (now - ts) > self.max_frame_age_sec:
                     raise CameraClientError(
                         f"Stale frame from {name}: {now - ts:.3f}s old "

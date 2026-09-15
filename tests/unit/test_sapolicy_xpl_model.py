@@ -99,7 +99,7 @@ def test_relative_actions_to_wire_identity_prefix() -> None:
     np.testing.assert_allclose(wire[:, 15], 0.75)
 
 
-def test_pack_state_uses_grouped_pose18_grip2() -> None:
+def test_pack_state_uses_training_interleaved_pose9_grip1() -> None:
     model = Model({"dry_run": True, "camera_names": ["agentview"]})
     left = np.array([0.1, 0.2, 0.3, 0.0, 0.0, 0.0, 1.0], dtype=np.float64)
     right = np.array([-0.1, -0.2, 0.4, 0.0, 0.0, 0.0, 1.0], dtype=np.float64)
@@ -107,6 +107,7 @@ def test_pack_state_uses_grouped_pose18_grip2() -> None:
     assert state.shape == (20,)
     np.testing.assert_allclose(state[0:3], left[:3])
     np.testing.assert_allclose(state[3:9], [1.0, 0.0, 0.0, 0.0, 1.0, 0.0])
-    np.testing.assert_allclose(state[9:12], right[:3])
-    np.testing.assert_allclose(state[12:18], [1.0, 0.0, 0.0, 0.0, 1.0, 0.0])
-    np.testing.assert_allclose(state[18:20], [0.25, 0.75])
+    np.testing.assert_allclose(state[9], 0.25)
+    np.testing.assert_allclose(state[10:13], right[:3])
+    np.testing.assert_allclose(state[13:19], [1.0, 0.0, 0.0, 0.0, 1.0, 0.0])
+    np.testing.assert_allclose(state[19], 0.75)
