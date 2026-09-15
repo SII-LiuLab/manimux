@@ -323,6 +323,10 @@ class ExecutionConfig(StrictModel):
     max_chunk_steps: int | None = Field(default=None, ge=2)
     independent_group_decoding: bool = False
     decode_budget_ms: float = Field(default=40.0, gt=0, le=200)
+    # Process decoding only: expected submit-to-commit decode time. The arm keeps
+    # following the active plan meanwhile, so IK is seeded from that plan's
+    # reference this far ahead instead of the submission-time measurement.
+    expected_decode_s: float = Field(default=0.0, ge=0, le=0.5)
     smooth: SmoothConfig = SmoothConfig()
     mpc: MPCConfig = MPCConfig()
     command_safety: CommandSafetyConfig = CommandSafetyConfig()
@@ -525,6 +529,8 @@ class ManiMuxConfig(StrictModel):
             raise ValueError("execution.chunk_steps must not exceed policy.horizon_steps")
         if self.execution.independent_group_decoding and self.policy.action_decoding != "process":
             raise ValueError("independent group decoding requires process action decoding")
+        if self.execution.expected_decode_s > 0 and self.policy.action_decoding != "process":
+            raise ValueError("execution.expected_decode_s requires process action decoding")
         if (
             self.execution.max_chunk_steps is not None
             and self.execution.max_chunk_steps > self.policy.horizon_steps

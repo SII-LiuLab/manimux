@@ -213,6 +213,32 @@ def test_adapter_accepts_the_ws_client_unwrapped_action_list(adapter):
     assert chunk.horizon_steps == model.horizon
 
 
+def test_adapter_decodes_each_arm_from_measured_state_without_anchors(adapter):
+    # A decoder process never sees the parent's prepare_request anchors.
+    model, _, _ = adapter
+    assert model.supports_context_only_decode
+    raw = actions_for(request_for(model), model.horizon)
+    model.anchors.clear()
+    measured = RobotState(
+        {name: np.array([0, 0, 0, 0, 0, 0, 0.3, 0.8]) for name in ("left_arm", "right_arm")},
+        10**9,
+        3,
+    )
+    context = ActionContext(1, 10**9, 10**9, measured_state=measured)
+    whole = model.decode_action(raw, context)
+    # FakeKin carries the seed's seventh joint: the measured state, not the anchor.
+    np.testing.assert_array_equal(whole.groups["left_arm"][:, 6], 0.3)
+    assert model.decode_partitions == ("left_arm", "right_arm")
+    for name in model.decode_partitions:
+        part = model.decode_action_partition(raw, context, name)
+        assert set(part.groups) == {name}
+        np.testing.assert_array_equal(part.groups[name], whole.groups[name])
+        assert part.source_offset_steps == whole.source_offset_steps
+        assert part.observation_time_ns == whole.observation_time_ns
+    with pytest.raises(ValueError, match="unknown UMI decode partition"):
+        model.decode_action_partition(raw, context, "left_gripper")
+
+
 @pytest.mark.parametrize("failure", ["horizon", "quaternion", "gripper", "missing_history"])
 def test_adapter_rejects_contract_errors(adapter, failure):
     model, _, _ = adapter

@@ -144,10 +144,11 @@ selects two distinct measured snapshots around the checkpoint interval, within
 missing history defer submissions. There is no inference-request-based history,
 extra hardware polling thread, or change to control_hz/the main loop.
 
-Current runtime configuration rules restrict serial scheduling, process action
-decoding and max_chunk_steps to the built-in `manimux` name. This history plugin
-therefore supports single-inflight scheduling and RTC, with inline decoding;
-it does not bypass those restrictions. The wrapper revalidates the delegated
+Serial scheduling and max_chunk_steps remain restricted to the built-in
+`manimux` runtime name, so this history plugin does not use them. Process action
+decoding checks the constructed strategy instead, which this wrapper delegates:
+the `manimux` delegate may use `policy.action_decoding: process`, while the RTC
+delegate keeps inline decoding. The wrapper revalidates the delegated
 strategy's full configuration, including RTC delay/horizon constraints.
 
 ## Action conversion and execution differences
@@ -239,13 +240,32 @@ On the integration machine, reachable synthetic two-arm chunks took about
 19–23ms for H16 and 77–79ms for H64 (three trials, no hardware connection).
 These are analytic-backend timings. The diff backend took 65–66ms for H16 and
 260–262ms for H64; its individual QP steps had medians of 0.22–0.26ms.
-Whole-chunk work exceeds the 4ms budget of a 250Hz tick because decoding is
-currently inline and blocks executor smoothing until it finishes.
-The model/interface integration is validated offline; the whole 250Hz control
-chain is **not ready for a real-motion timing claim**. Reusing the generic process
-decoder with measured history and RTC needs a separate design review. These
-measurements do not justify relaxing IK checks or lowering the unified control
-frequency.
+Whole-chunk work exceeds the 4ms budget of a 250Hz tick. Inline decoding blocks
+the control loop until it finishes: the 2026-09-14 H64 diff rollout froze for
+111–137ms at each of its 18 plan commits, with no commands sent meanwhile.
+
+`policy.action_decoding: process` (manimux delegate only) moves decoding into
+one spawned process per arm. Each child builds its own kinematics and QP solver
+and warms them up before robot connection. The control loop keeps executing the
+previous plan and commits the new one after both arms finish. Offline, per-arm
+diff H64 decodes of that rollout took 53ms (left) and 58ms (right) median, versus
+115ms serially; on hardware, submit to result took 64ms median and 76ms maximum.
+
+Seeding IK from the measured state at submission failed on hardware: both
+2026-09-14 process rollouts were stopped by the 5-degree tracking guard about
+125ms after a plan commit. In 17 of 17 moving commits the new plan's first row
+lay behind the arm (median 1.97 degrees), so the command reversed at up to
+~40 deg/s without an acceleration limit. `pass-ball-h64.yaml` therefore sets
+`execution.expected_decode_s: 0.065`, seeding from the previous plan's reference
+at the expected commit (see [process decoding](parallel-ik-execution.md)). On
+those recordings that seed lay ahead of the arm in 16 of 17 commits (median
+2.29 degrees); this replay does not rerun IK, and the fix is unverified on
+hardware. A failure
+in either arm still rejects the whole chunk, so the previous plan continues; a
+decoder exceeding the request deadline still faults the runtime. Hardware timing
+with process decoding has not been verified. RTC with the process decoder needs a
+separate design review. These measurements do not justify relaxing IK checks or
+lowering the unified control frequency.
 
 See the UMI_DP README for real recorded-window forward/parity and shared-server
 commands. Runtime tests cover capture identity, wrong-time history rejection,

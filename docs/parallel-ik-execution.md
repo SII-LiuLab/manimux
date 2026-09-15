@@ -43,6 +43,17 @@ joint smoothing. It also does not implement calibrated camera/actuator latency
 compensation. Faster preparation changes which source rows remain available,
 so identical closed-loop hardware motion is not guaranteed by identical IK output.
 
+By default the measured state at submission seeds IK. The arm keeps following
+the previous plan while decoding runs, so on a fast arm that seed lies behind
+the arm when the new plan is committed. `execution.expected_decode_s` (process
+decoding only, default 0) sets the expected submit-to-commit time. The seed is
+then the active plan's reference at `now + commit_lead_s + expected_decode_s`
+(or at its end if it finishes earlier), and the adapter's execution time moves
+by the same amount, skipping rows before it. Without an active reference the
+measurement remains the seed. If decoding finishes earlier than expected, the new
+plan can start up to that difference early. `decode_submitted` records
+`seed_source`, `seed_time_ns` and `expected_start_ns`.
+
 Process decoding stops requesting inference while paused, clears its active
 trajectory and invalidates outstanding responses. Resume needs a fresh observation;
 home similarly invalidates results from before the home operation. Pausing does
@@ -51,7 +62,8 @@ closes the robot and decoder processes; their cleanup has bounded waits.
 
 ## Adapter contract
 
-This mode currently requires the default `manimux` runtime strategy. An adapter
+This mode currently requires a strategy named `manimux`: the built-in default,
+or a plugin that delegates to it, such as the UMI measured-history plugin. An adapter
 must declare `supports_context_only_decode = True`: its decode result must be
 fully determined by raw action plus `ActionContext`, without observation-side
 mutable caches. Optional `decode_partitions` and `decode_action_partition`

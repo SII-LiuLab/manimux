@@ -25,6 +25,8 @@ CAMERA_MAP = {
     "cam_left_wrist_prev": "left_wrist_prev",
     "cam_right_wrist_prev": "right_wrist_prev",
 }
+# A bent, in-limit pose for both arms; decoder warmup ignores the solve result.
+WARMUP_JOINTS = np.radians([50.0, -40.0, -30.0, -100.0, -65.0, 0.0, 40.0])
 
 
 @dataclass(slots=True)
@@ -234,54 +236,84 @@ class UmiDpTianjiAdapter:
             current = solved.copy()
         return current
 
+    # A decoder process builds its own kinematics and diff-IK solvers. The
+    # measured state fully seeds IK, so the anchors prepare_request stores in
+    # the parent process are only a fallback when a caller omits that state.
+    supports_context_only_decode = True
+    decode_partitions = ("left_arm", "right_arm")
+
+    def warmup_decode(self, partition):
+        # Load libKine and build the OSQP problem before the first real chunk.
+        sides = ("left", "right") if partition is None else (partition.removesuffix("_arm"),)
+        for side in sides:
+            target = self.kin[side].fk(WARMUP_JOINTS, 0.5)
+            target[:3, 3] += (0.001, 0.0, 0.0)
+            solver = self.diff_solvers.get(side)
+            if solver is None:
+                self.kin[side].ik(target, WARMUP_JOINTS.copy(), 0.5)
+            else:
+                solver.reset()
+                solver.solve(target, WARMUP_JOINTS.copy(), self.validation_dt)
+                solver.reset()
+
     def decode_action(self, raw, context):
+        return self._decode(raw, context, ("left", "right"))
+
+    def decode_action_partition(self, raw, context, partition):
+        if partition not in self.decode_partitions:
+            raise ValueError(f"unknown UMI decode partition {partition!r}")
+        return self._decode(raw, context, (partition.removesuffix("_arm"),))
+
+    def _decode_side(self, side, steps, measured, first_duration_s):
+        current = state_vector(measured)[:7].copy()
+        diff_solver = self.diff_solvers.get(side)
+        lag = None
+        if diff_solver is not None:
+            diff_solver.reset()
+            lag = {"worst_lag_mm": 0.0, "worst_lag_deg": 0.0, "lag_exceedances": 0}
+        rows = []
+        for knot_index, step in enumerate(steps):
+            target = pose_matrix(step[f"{side}_ee_pose"])
+            grip = np.asarray(step[f"{side}_ee_joint_state"], dtype=float)
+            if grip.shape != (1,) or not np.isfinite(grip).all() or not 0 <= grip[0] <= 1:
+                raise ValueError("UMI gripper action must lie in [0, 1]")
+            duration_s = first_duration_s if knot_index == 0 else self.dt_ns / 1e9
+            current = self._solve_knot(
+                self.kin[side], current, target, float(grip[0]), duration_s,
+                diff_solver=diff_solver, lag=lag,
+            )
+            rows.append(np.r_[current, grip])
+        return np.asarray(rows), lag
+
+    def _decode(self, raw, context, sides):
         # The WebSocket client unwraps a plain response to its action list.
         steps = raw.get("actions") if isinstance(raw, Mapping) else raw
         if not isinstance(steps, Sequence) or len(steps) != self.horizon:
             raise ValueError("UMI action horizon differs from the checkpoint")
         anchors = self.anchors.pop(context.request_seq, None)
-        if anchors is None:
+        if anchors is None and context.measured_state is None:
             raise ValueError("UMI action has no matching observation")
         action_origin = context.observation_time_ns + self.offset_ns
         execution_ns = context.execution_time_ns or context.created_time_ns
         skip = max(0, (execution_ns - action_origin) // self.dt_ns)
         if skip >= self.horizon:
             raise ValueError("UMI response has no future actions")
+        first_duration_s = max(
+            self.validation_dt,
+            min(self.dt_ns / 1e9, (action_origin + skip * self.dt_ns - execution_ns) / 1e9),
+        )
         groups = {}
         lag_stats = {}
-        for side in ("left", "right"):
+        for side in sides:
             group = f"{side}_arm"
             measured = (
                 anchors[group]
                 if context.measured_state is None
                 else context.measured_state.groups[group]
             )
-            current = state_vector(measured)[:7].copy()
-            diff_solver = self.diff_solvers.get(side)
-            lag = None
-            if diff_solver is not None:
-                diff_solver.reset()
-                lag = lag_stats[side] = {
-                    "worst_lag_mm": 0.0, "worst_lag_deg": 0.0, "lag_exceedances": 0,
-                }
-            rows = []
-            for knot_index, step in enumerate(steps[skip:]):
-                target = pose_matrix(step[f"{side}_ee_pose"])
-                grip = np.asarray(step[f"{side}_ee_joint_state"], dtype=float)
-                if grip.shape != (1,) or not np.isfinite(grip).all() or not 0 <= grip[0] <= 1:
-                    raise ValueError("UMI gripper action must lie in [0, 1]")
-                duration_s = self.dt_ns / 1e9
-                if knot_index == 0:
-                    duration_s = max(
-                        self.validation_dt,
-                        min(duration_s, (action_origin + skip * self.dt_ns - execution_ns) / 1e9),
-                    )
-                current = self._solve_knot(
-                    self.kin[side], current, target, float(grip[0]), duration_s,
-                    diff_solver=diff_solver, lag=lag,
-                )
-                rows.append(np.r_[current, grip])
-            groups[group] = np.asarray(rows)
+            groups[group], lag = self._decode_side(side, steps[skip:], measured, first_duration_s)
+            if lag is not None:
+                lag_stats[side] = lag
         return ActionChunk(
             plan_id=f"umi-dp-{uuid.uuid4().hex}",
             request_seq=context.request_seq,

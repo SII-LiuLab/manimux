@@ -110,16 +110,18 @@ class EdgeRuntime:
             self._adapter, "supports_independent_group_decode", False
         ):
             raise ValueError("adapter does not support independent group decoding")
+        self._strategy = strategy or DefaultChunkStrategy(config)
         self._decoder = None
         if config.policy.action_decoding == "process":
-            if config.execution.runtime != "manimux":
-                raise ValueError("process action decoding currently requires runtime=manimux")
+            # A plugin may wrap the default strategy (the UMI history plugin
+            # does); the constructed strategy decides, not the plugin path.
+            if self._strategy.name != "manimux":
+                raise ValueError("process action decoding currently requires the manimux strategy")
             self._decoder = ActionDecoderClient(config.robot, config.policy, self._adapter)
         self._session_id = f"session-{uuid.uuid4().hex}"
         self._worker = PolicyWorkerClient(config.policy, self._session_id)
         self._timeline = self._build_timeline()
         self._executor = self._build_executor()
-        self._strategy = strategy or DefaultChunkStrategy(config)
         self._launch_mode = launch_mode
         position_limit_abs = None
         if config.execution.executor == "smooth":
@@ -172,6 +174,24 @@ class EdgeRuntime:
             monotonic_ns=now_ns,
             plan_id=self._timeline.active_plan_id,
         )
+
+    def _decode_seed(self, state: RobotState, now_ns: int) -> tuple[int, RobotState, str]:
+        """Expected plan start and IK seed for a process decode.
+
+        The arm keeps following the active plan while decoding runs, so a seed
+        measured at submission starts the new plan behind the arm. With
+        expected_decode_s the seed is the active reference at the expected start,
+        or at its end if it finishes first. Without an active reference the arm
+        holds still and the measurement remains the seed.
+        """
+        execution = self._config.execution
+        start_ns = now_ns + int((execution.commit_lead_s + execution.expected_decode_s) * 1e9)
+        remaining_ns = self._timeline.remaining_ns(now_ns)
+        if execution.expected_decode_s > 0 and remaining_ns > 0:
+            reference = self._timeline.sample(min(start_ns, now_ns + remaining_ns))
+            if reference is not None:
+                return start_ns, RobotState(reference, start_ns, state.sequence), "active_reference"
+        return start_ns, state, "measured_state"
 
     def _validate_policy_capabilities(self) -> None:
         capabilities = getattr(self._worker, "capabilities", PolicyCapabilities())
@@ -361,15 +381,17 @@ class EdgeRuntime:
                         if self._clock.now_ns() > last_request_deadline_ns:
                             response = replace(response, error="deadline_exceeded_before_decode")
                         else:
+                            start_ns, seed, seed_source = self._decode_seed(
+                                state, self._clock.now_ns()
+                            )
                             self._decoder.submit(
                                 response,
                                 ActionContext(
                                     request_seq=response.request_seq,
                                     observation_time_ns=response.observation_time_ns,
                                     created_time_ns=response.finished_time_ns,
-                                    execution_time_ns=self._clock.now_ns()
-                                    + int(self._config.execution.commit_lead_s * 1e9),
-                                    measured_state=state,
+                                    execution_time_ns=start_ns,
+                                    measured_state=seed,
                                     max_source_steps=self._config.execution.max_chunk_steps,
                                     independent_groups=self._config.execution.independent_group_decoding,
                                     decode_budget_ms=(
@@ -383,7 +405,9 @@ class EdgeRuntime:
                             recorder.event(
                                 "decode_submitted",
                                 request_seq=response.request_seq,
-                                seed_time_ns=state.monotonic_ns,
+                                seed_time_ns=seed.monotonic_ns,
+                                seed_source=seed_source,
+                                expected_start_ns=start_ns,
                             )
                             # Keep inference+decode in flight until both arms finish.
                             response = None
