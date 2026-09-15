@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import time
+import uuid
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Protocol
 
 from manimux.config import ManiMuxConfig
+from manimux.robots.tianji.recovery import TianjiRecovery
 from manimux.runtime import RunResult, build_runtime
 from manimux.viewer.protocol import RuntimeEvent
 from manimux.viewer.transport import ControlClient, ViewerPublisher
@@ -61,6 +63,8 @@ class RuntimeSessionService:
         self._announcement_interval_s = announcement_interval_s
         self._last_episode_dir: Path | None = None
         self._last_error = ""
+        self._last_failure_id = ""
+        self._recovery = TianjiRecovery(config)
 
     def _ready_metadata(self) -> dict[str, object]:
         return {
@@ -75,6 +79,8 @@ class RuntimeSessionService:
                 "" if self._last_episode_dir is None else str(self._last_episode_dir.resolve())
             ),
             "last_error": self._last_error,
+            "last_failure_id": self._last_failure_id,
+            "recovery": self._recovery.metadata(),
         }
 
     def _publish_once(self, event: str, metadata: dict[str, object]) -> None:
@@ -97,6 +103,11 @@ class RuntimeSessionService:
         last_announcement = float("-inf")
         try:
             while True:
+                state = control.poll()
+                recovery_control = state if state.get("recovery_service_id") == str(
+                    self._run_dir.resolve()
+                ) else {}
+                self._recovery.update(recovery_control)
                 now = time.monotonic()
                 if now - last_announcement >= self._announcement_interval_s:
                     publisher.publish(
@@ -108,21 +119,30 @@ class RuntimeSessionService:
                         )
                     )
                     last_announcement = now
-                state = control.poll()
-                if bool(state.get("new_rollout_requested", False)):
+                if (
+                    bool(state.get("new_rollout_requested", False))
+                    and not self._recovery.busy
+                    and not state.get("recovery_lease", False)
+                    and not state.get("recovery_request", "")
+                ):
                     return state
                 time.sleep(self._poll_interval_s)
         finally:
-            control.close()
-            publisher.close()
+            try:
+                self._recovery.close()
+            finally:
+                control.close()
+                publisher.close()
 
     def serve(self, *, max_rollout_attempts: int | None = None) -> None:
         attempts = 0
         print(f"runtime service ready; run_dir={self._run_dir.resolve()}")
         print(
             "Viewer flow: Prepare normal/experiment rollout -> Start rollout -> "
-            "Finish & Home"
+            "Finish & Home / Finish without homing"
         )
+        if self._recovery.available:
+            print("Manual recovery is always visible: stop a rollout, drag A/B/AB, or Return Home")
         print(
             "Normal rollouts require no reward; experiment rollouts require a human "
             "label before the next rollout"
@@ -131,6 +151,7 @@ class RuntimeSessionService:
             request = self._wait_for_rollout_request()
             attempts += 1
             self._last_error = ""
+            self._last_failure_id = ""
             rollout_config = self._config.model_copy(deep=True)
             task_command = str(request.get("task_command", "")).strip()
             if task_command:
@@ -147,6 +168,7 @@ class RuntimeSessionService:
                 raise
             except Exception as exc:  # noqa: BLE001 - keep the session alive after one failed episode
                 self._last_error = f"{type(exc).__name__}: {exc}"
+                self._last_failure_id = uuid.uuid4().hex
                 print(f"rollout attempt failed; service remains available: {self._last_error}")
                 self._publish_once(
                     "episode_failed",

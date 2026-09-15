@@ -31,6 +31,8 @@ FloatArray = NDArray[np.float64]
 STATE_DISABLED = 0
 STATE_POSITION = 1
 STATE_ERROR = 100
+ERROR_CLEAR_ATTEMPTS = 5
+ERROR_CLEAR_WAIT_S = 0.3
 
 ARM_INDEX = {"A": 0, "B": 1}
 
@@ -179,6 +181,54 @@ class MarvinSession:
             )
         return feedback[0], feedback[1]
 
+    def clear_errors(self, arms: Sequence[str]) -> None:
+        """Explicit recovery only: clear latched faults and confirm fresh feedback.
+
+        Like teleop's ``ensure_clear``, allow bounded retries after releasing
+        E-stop. Check both arms before enabling either; never clear an arm
+        outside the configured execution scope.
+        """
+
+        robot = self._require()
+        previous_serials: tuple[int, int] | None = None
+        for attempt in range(ERROR_CLEAR_ATTEMPTS + 1):
+            feedback = self.read()
+            faults = {
+                arm: feedback[index]
+                for arm, index in ARM_INDEX.items()
+                if feedback[index].err_code or feedback[index].cur_state == STATE_ERROR
+            }
+            details = "; ".join(
+                f"arm {arm} state {state.cur_state} {describe_error(state.err_code)}"
+                for arm, state in faults.items()
+            )
+            if any(arm not in arms for arm in faults):
+                raise RuntimeError(
+                    f"Tianji recovery: fault outside active_arms; cannot clear it: {details}"
+                )
+            serials = (feedback[0].frame_serial, feedback[1].frame_serial)
+            fresh = previous_serials is None or all(
+                current != previous
+                for current, previous in zip(serials, previous_serials, strict=True)
+            )
+            if not faults and fresh:
+                return
+            if attempt == ERROR_CLEAR_ATTEMPTS:
+                raise RuntimeError(
+                    "Tianji recovery: controller did not confirm errors cleared; "
+                    "release the physical E-stop and resolve remaining faults before "
+                    f"retrying Return Home. {details or 'Feedback frames did not advance'}"
+                )
+            if faults:
+                log.warning(
+                    "Tianji recovery: clearing errors (attempt %d): %s", attempt + 1, details
+                )
+                previous_serials = serials
+                with self._lock:
+                    for arm in faults:
+                        robot.clear_error(arm)
+            time.sleep(ERROR_CLEAR_WAIT_S)
+
     def prepare_position_mode(self, arm: str, vel_ratio: int, acc_ratio: int) -> None:
         """``ArmDriver.prepare`` for position mode."""
 
@@ -203,9 +253,10 @@ class MarvinSession:
             robot.send_cmd()
         time.sleep(1.0)  # servo response time; do not shorten
         feedback = self.read()[index]
-        if feedback.cur_state != STATE_POSITION:
+        if feedback.cur_state != STATE_POSITION or feedback.err_code:
             raise RuntimeError(
-                f"arm {arm} mode switch failed: expected {STATE_POSITION}, got {feedback.cur_state}"
+                f"arm {arm} mode switch failed: expected {STATE_POSITION}, "
+                f"got {feedback.cur_state}, {describe_error(feedback.err_code)}"
             )
         self._check_vel_ratio(arm, vel_ratio, "after set_state")
 

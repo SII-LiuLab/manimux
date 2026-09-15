@@ -14,6 +14,7 @@ class ViewerControl:
     paused: bool
     home_requested: bool = False
     finish_requested: bool = False
+    finish_home: bool | None = None
 
 
 class ViewerBridge:
@@ -87,6 +88,9 @@ class ViewerBridge:
             paused=bool(state.get("paused", True)),
             home_requested=bool(state.get("home_requested", False)),
             finish_requested=bool(state.get("finish_requested", False)),
+            finish_home=(
+                state.get("finish_home") if isinstance(state.get("finish_home"), bool) else None
+            ),
         )
 
     def set_state_metadata(self, metadata: dict[str, object]) -> None:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -27,6 +28,7 @@ from manimux.viewer.robots.yam import DEFAULT_I2RT_ROOT, YamAdapter
 @pytest.mark.parametrize("experiment_mode", [False, True])
 def test_prepare_button_atomically_selects_rollout_mode(experiment_mode: bool) -> None:
     viewer = PolicyViewer.__new__(PolicyViewer)
+    viewer.lock = threading.RLock()
     viewer.experiment_mode = not experiment_mode
     viewer.evaluation_saved = True
     viewer.service_ready = True

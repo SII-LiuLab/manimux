@@ -462,6 +462,7 @@ class ViewerConfig(StrictModel):
     robot_adapter: str = ""
     policy_label: str = ""
     camera_hz: float = Field(default=5.0, ge=0)
+    tianji_teleop_root: Path | None = None
 
 
 class RecordingConfig(StrictModel):

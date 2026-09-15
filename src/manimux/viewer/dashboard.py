@@ -8,6 +8,7 @@ import io
 import signal
 import threading
 import time
+import uuid
 from collections import deque
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -181,6 +182,8 @@ class PolicyViewer:
         self.rollout_started = False
         self.finish_requested = False
         self.home_requested = False
+        self.finish_home: bool | None = None
+        self._clear_recovery()
         self.new_rollout_requested = False
         self.preparing_rollout = False
         self.service_ready = False
@@ -216,6 +219,11 @@ class PolicyViewer:
         self._build_gui()
         self.receiver = ViewerReceiver(bridge_endpoint, self.on_message)
         self.control_server = ControlServer(control_endpoint, self.control_state)
+
+        @self.server.on_client_disconnect
+        def _disconnect(_client: Any) -> None:
+            if not self.server.get_clients() and self.recovery_lease:
+                self._request_recovery("stop")
 
     @staticmethod
     def _root(group: RobotGroup) -> str:
@@ -301,6 +309,8 @@ class PolicyViewer:
         )
         self.status = self.server.gui.add_markdown("🟠 **Waiting for policy executor**")
         self.instruction = self.server.gui.add_markdown(_instruction_markdown(""))
+        if self.robot.name == "tianji":
+            self._build_recovery_gui()
         self.top_overlay = TopViewOverlay(
             self.server.gui, self.reference_root
         )
@@ -336,13 +346,12 @@ class PolicyViewer:
             self.finish_btn = self.server.gui.add_button(
                 "Finish & Home", color="red", disabled=True
             )
-        self.recovery_folder = self.server.gui.add_folder(
-            "Advanced recovery", expand_by_default=False
-        )
-        with self.recovery_folder:
-            self.home_btn = self.server.gui.add_button(
-                "Return Home (keep rollout open)", color="gray", disabled=True
-            )
+            if self.robot.name == "tianji":
+                self.finish_no_home_btn = self.server.gui.add_button(
+                    "Finish without homing", color="gray", disabled=True
+                )
+        if self.robot.name != "tianji":
+            self._build_recovery_gui()
         self.run_folder = self.server.gui.add_folder("Live run", expand_by_default=True)
         with self.run_folder:
             self.robot_name = self.server.gui.add_text("Robot", self.robot.label, disabled=True)
@@ -425,10 +434,13 @@ class PolicyViewer:
 
         @self.start_btn.on_click
         def _start(_event: Any) -> None:
-            self.paused = False
-            self.rollout_started = True
-            self._set_policy_controls_enabled(True)
-            self.status.content = "🟢 **Connected · RUNNING**"
+            with self.lock:
+                if self.start_btn.disabled:
+                    return
+                self.paused = False
+                self.rollout_started = True
+                self._set_policy_controls_enabled(True)
+                self.status.content = "🟢 **Connected · RUNNING**"
 
         @self.prepare_normal_btn.on_click
         def _prepare_normal(_event: Any) -> None:
@@ -440,21 +452,41 @@ class PolicyViewer:
 
         @self.pause_btn.on_click
         def _pause(_event: Any) -> None:
-            self.paused = True
-            self._set_policy_controls_enabled(True)
-            self.status.content = "🟡 **Connected · PAUSED**"
+            with self.lock:
+                if self.pause_btn.disabled:
+                    return
+                self.paused = True
+                self._set_policy_controls_enabled(True)
+                self.status.content = "🟡 **Connected · PAUSED**"
 
         @self.home_btn.on_click
         def _home(_event: Any) -> None:
-            self.paused = True
-            self.home_requested = True
-            self.status.content = "🟡 **Returning home · PAUSED**"
+            with self.lock:
+                if self.home_btn.disabled:
+                    return
+                if not self.episode_active and hasattr(self, "drag_btn"):
+                    self._request_recovery("home")
+                    return
+                self.paused = True
+                self.home_requested = True
+                self.status.content = "🟡 **Returning home · PAUSED**"
 
         @self.finish_btn.on_click
         def _finish(_event: Any) -> None:
-            self.finish_requested = True
-            self._set_policy_controls_enabled(False)
-            self.status.content = "🟠 **Finishing rollout and saving episode**"
+            self._finish_rollout(home=True)
+
+        if hasattr(self, "drag_btn"):
+            @self.finish_no_home_btn.on_click
+            def _finish_no_home(_event: Any) -> None:
+                self._finish_rollout(home=False)
+
+            @self.drag_btn.on_click
+            def _drag(_event: Any) -> None:
+                self._request_recovery(f"drag:{self.drag_arm.value}")
+
+            @self.stop_drag_btn.on_click
+            def _stop_drag(_event: Any) -> None:
+                self._request_recovery("stop")
 
         @self.clear_btn.on_click
         def _clear(_event: Any) -> None:
@@ -486,6 +518,212 @@ class PolicyViewer:
         def _show_plan(_event: Any) -> None:
             self._refresh_plan_visibility()
 
+    def _build_recovery_gui(self) -> None:
+        self.recovery_folder = self.server.gui.add_folder(
+            "Manual recovery" if self.robot.name == "tianji" else "Advanced recovery",
+            expand_by_default=self.robot.name == "tianji",
+        )
+        with self.recovery_folder:
+            if self.robot.name == "tianji":
+                self.recovery_status = self.server.gui.add_markdown(
+                    "⚪ Waiting for a Tianji runtime service."
+                )
+                self.drag_arm = self.server.gui.add_dropdown(
+                    "Drag arms", ("A", "B", "AB"), initial_value="AB", disabled=True
+                )
+                self.drag_btn = self.server.gui.add_button(
+                    "Start drag", color="blue", disabled=True
+                )
+                self.stop_drag_btn = self.server.gui.add_button(
+                    "Exit drag", color="gray", disabled=True
+                )
+            self.home_btn = self.server.gui.add_button(
+                "Return Home (keep rollout open)", color="gray", disabled=True
+            )
+            if self.robot.name == "tianji":
+                self.recovery_details_folder = self.server.gui.add_folder(
+                    "Last error", expand_by_default=False, visible=False
+                )
+                with self.recovery_details_folder:
+                    self.recovery_details = self.server.gui.add_markdown("")
+
+    def _finish_rollout(self, *, home: bool) -> None:
+        with self.lock:
+            if not self.episode_active or self.finish_btn.disabled:
+                return
+            self.paused = True
+            self.finish_requested = True
+            self.finish_home = home if self.robot.name == "tianji" else None
+            self.service_ready = False
+            self._set_policy_controls_enabled(False)
+            self._update_recovery_controls()
+            self.status.content = "🟠 **Finishing rollout and saving episode**"
+
+    def _clear_recovery(self) -> None:
+        self.recovery_available = False
+        self.recovery_busy = False
+        self.recovery_state = "idle"
+        self.recovery_request = ""
+        self.recovery_request_id = ""
+        self.recovery_lease = False
+        self.recovery_error = ""
+        self.recovery_arm = ""
+        self.last_rollout_error = ""
+        self.last_failure_id = ""
+
+    def _can_stop_and_drag(self) -> bool:
+        return (
+            self.episode_active and self.launch_mode == "serve"
+            and self.recovery_available and not self.observe_only
+            and not self.finish_btn.disabled
+        )
+
+    def _recovery_pending(self) -> bool:
+        return bool(
+            getattr(self, "recovery_request", "") or getattr(self, "recovery_busy", False)
+        )
+
+    def _request_recovery(self, action: str) -> None:
+        with self.lock:
+            if action == "stop":
+                # Cancel a queued drag even while runtime cleanup is in flight
+                # or the service heartbeat has disappeared.
+                if not self._recovery_pending() and not self.recovery_lease:
+                    return
+            else:
+                if not self.recovery_available or self._recovery_pending():
+                    return
+                if self.episode_active:
+                    if not action.startswith("drag:") or not self._can_stop_and_drag():
+                        return
+                    self._finish_rollout(home=False)
+                elif not self.service_ready or self.preparing_rollout:
+                    return
+            self.recovery_request = action
+            self.recovery_request_id = uuid.uuid4().hex
+            self.recovery_lease = action.startswith("drag:")
+            self.recovery_status.content = (
+                "🟠 **Waiting for recovery control**"
+                if action != "stop" else "🟠 **Exiting drag**"
+            )
+            self._update_prepare_enabled()
+            self._update_recovery_controls()
+
+    def _update_recovery_controls(self) -> None:
+        if not hasattr(self, "drag_btn"):
+            return
+        idle = self.service_ready and not self.episode_active and not self.preparing_rollout
+        allowed = idle and self.recovery_available and not self._recovery_pending()
+        can_drag = allowed or (self._can_stop_and_drag() and not self._recovery_pending())
+        self.drag_arm.disabled = not can_drag
+        self.drag_btn.disabled = not can_drag
+        self.drag_btn.label = "Stop rollout & drag" if self.episode_active else "Start drag"
+        self.stop_drag_btn.disabled = not (
+            self.recovery_lease or self.recovery_state in {"starting", "active"}
+        )
+        self.stop_drag_btn.label = "Cancel drag" if (
+            self.recovery_lease and self.recovery_state == "idle"
+        ) else "Exit drag"
+        if not self.episode_active:
+            self.home_btn.disabled = not allowed
+        self._render_recovery_status()
+
+    def _render_recovery_status(self) -> None:
+        error = self.recovery_error
+        arm = self.recovery_arm
+        if self.recovery_request == "stop":
+            text = "🟠 **Exiting / cancelling drag**"
+        elif self.recovery_lease and self.episode_active:
+            text = "🟠 **Stopping rollout without homing · waiting to enter drag**"
+        elif self.recovery_request:
+            text = "🟠 **Waiting for recovery control**"
+        elif self.recovery_state == "active":
+            text = f"🟢 **Drag {arm} · UMI** · adjust by hand, then Exit drag."
+        elif self.recovery_state == "starting":
+            text = f"🟠 **Starting drag {arm} · checking controller and UMI parameters**"
+        elif self.recovery_state == "stopping":
+            text = "🟠 **Exiting drag · waiting for servo-off**"
+        elif self.recovery_state == "homing":
+            text = "🟡 **Returning home**"
+        elif error:
+            text = "🔴 **Recovery failed** · check Last error before retrying."
+        elif self.preparing_rollout:
+            text = "🟠 **Preparing robot** · recovery is available after preparation stops."
+        elif self.episode_active:
+            text = (
+                "🟡 Stop rollout & drag ends this rollout without homing, then enters UMI drag."
+                if self._can_stop_and_drag()
+                else "🟠 Waiting for the rollout to release the robot."
+            )
+        elif not self.service_ready:
+            text = "⚪ Waiting for the runtime service to release the robot."
+        elif not self.recovery_available:
+            text = "⚪ Recovery requires an executing Tianji runtime service."
+        elif "emergency stop" in self.last_rollout_error.lower():
+            text = (
+                "🔴 **Rollout stopped by E-stop** · release the physical E-stop, "
+                "then Start drag or Return Home. Latched errors are checked and cleared first."
+            )
+        elif self.last_rollout_error:
+            text = "🟡 **Rollout interrupted** · drag A / B / AB or Return Home when ready."
+        else:
+            text = "⚪ Drag A / B / AB with UMI, or Return Home directly."
+        self.recovery_status.content = text
+        if hasattr(self, "recovery_details"):
+            detail = error or self.last_rollout_error
+            self.recovery_details_folder.visible = bool(detail)
+            self.recovery_details.content = detail
+
+    def _update_recovery(self, metadata: dict[str, Any]) -> None:
+        if not hasattr(self, "drag_btn"):
+            return
+        recovery = metadata.get("recovery") or {}
+        self.recovery_available = bool(recovery.get("available", False))
+        self.recovery_busy = bool(recovery.get("busy", False))
+        self.recovery_state = str(recovery.get("state", "idle"))
+        if recovery.get("ack") == self.recovery_request_id:
+            self.recovery_request = ""
+        if not self._recovery_pending():
+            self.recovery_lease = False
+        self.recovery_error = str(recovery.get("error", ""))
+        self.recovery_arm = str(recovery.get("arm", ""))
+        self._update_recovery_controls()
+
+    def _accept_rollout_failure(self, metadata: dict[str, Any]) -> bool:
+        """Recover from the durable idle heartbeat if the failure event was lost."""
+        error = str(metadata.get("last_error") or metadata.get("error") or "")
+        failure_id = str(metadata.get("last_failure_id") or error)
+        if not error or failure_id == getattr(self, "last_failure_id", ""):
+            return False
+        self.last_failure_id = failure_id
+        self.last_rollout_error = error
+        self.episode_active = False
+        self.episode_finalized = False
+        self.preparing_rollout = False
+        self.service_ready = True
+        self.paused = True
+        self.rollout_started = False
+        self.home_requested = False
+        self.finish_requested = False
+        self.finish_home = None
+        self.new_rollout_requested = False
+        self.evaluation_saved = True
+        self._set_policy_controls_enabled(False)
+        self._set_evaluation_enabled(False)
+        self.executor_info.value = "rollout interrupted"
+        self.evaluation_status.content = "⚪ Interrupted rollout; recovery is available."
+        return True
+
+    def _idle_status(self, last_error: str) -> None:
+        if self._recovery_pending():
+            self.status.content = "🟡 **Manual recovery · rollout controls locked**"
+        elif "emergency stop" in last_error.lower():
+            self.status.content = "🔴 **Emergency stop · manual recovery available**"
+        elif last_error:
+            self.status.content = "🔴 **Rollout interrupted · service idle**"
+        elif self.evaluation_saved:
+            self.status.content = "🟡 **Runtime service ready · prepare a rollout**"
+
     def _set_instruction(self, instruction: str) -> None:
         self.instruction.content = _instruction_markdown(instruction)
         self.task.value = _prefill_task(self.task.value, instruction)
@@ -495,10 +733,15 @@ class PolicyViewer:
 
         self.new_rollout_folder.visible = stage in {"waiting", "setup", "preparing"}
         self.policy_control_folder.visible = stage == "control"
-        self.recovery_folder.visible = stage == "control"
+        self.recovery_folder.visible = stage == "control" or hasattr(self, "drag_btn")
         self.evaluation_folder.visible = stage == "evaluation"
         self.overlay_folder.visible = stage == "control"
         self.run_folder.visible = stage not in {"waiting"}
+        if hasattr(self, "drag_btn"):
+            self.home_btn.label = (
+                "Return Home (keep rollout open)" if stage == "control" else "Return Home"
+            )
+            self._update_recovery_controls()
 
     def _set_evaluation_enabled(self, enabled: bool) -> None:
         for handle in (
@@ -520,24 +763,27 @@ class PolicyViewer:
         )
 
     def _set_setup_controls_enabled(self, enabled: bool) -> None:
-        allowed = enabled and self.evaluation_saved
+        allowed = enabled and self.evaluation_saved and not self._recovery_pending()
         self.prepare_normal_btn.disabled = not allowed
         self.prepare_experiment_btn.disabled = not allowed
         self.layout_id.disabled = not allowed
         self.task.disabled = not allowed
 
     def _prepare_rollout(self, *, experiment_mode: bool) -> None:
-        self._set_experiment_mode(experiment_mode)
-        self.new_rollout_requested = True
-        self.preparing_rollout = True
-        self.service_ready = False
-        self.paused = True
-        self._set_setup_controls_enabled(False)
-        self.prepare_normal_btn.visible = False
-        self.prepare_experiment_btn.visible = False
-        self._set_stage("preparing")
-        kind = "experiment" if experiment_mode else "normal"
-        self.status.content = f"🟠 **Preparing a new {kind} rollout**"
+        with self.lock:
+            if self._recovery_pending() or not self.service_ready or not self.evaluation_saved:
+                return
+            self._set_experiment_mode(experiment_mode)
+            self.new_rollout_requested = True
+            self.preparing_rollout = True
+            self.service_ready = False
+            self.paused = True
+            self._set_setup_controls_enabled(False)
+            self.prepare_normal_btn.visible = False
+            self.prepare_experiment_btn.visible = False
+            self._set_stage("preparing")
+            kind = "experiment" if experiment_mode else "normal"
+            self.status.content = f"🟠 **Preparing a new {kind} rollout**"
 
     def _set_policy_controls_enabled(self, enabled: bool) -> None:
         allowed = enabled and not self.observe_only
@@ -546,6 +792,9 @@ class PolicyViewer:
         self.pause_btn.disabled = not allowed or self.paused
         self.home_btn.disabled = not allowed or not self.paused
         self.finish_btn.disabled = not allowed
+        if hasattr(self, "finish_no_home_btn"):
+            self.finish_no_home_btn.disabled = not allowed
+        self._update_recovery_controls()
 
     def _update_prepare_enabled(self) -> None:
         self._set_setup_controls_enabled(self.service_ready)
@@ -574,6 +823,7 @@ class PolicyViewer:
         self.paused = True
         self.rollout_started = False
         self.home_requested = False
+        self._clear_recovery()
         self.finish_requested = False
         self.new_rollout_requested = False
         self.preparing_rollout = False
@@ -600,6 +850,8 @@ class PolicyViewer:
         self.preparing_rollout = False
         self.service_ready = False
         self.episode_active = False
+        self.recovery_lease = False
+        self._update_recovery_controls()
         self._set_policy_controls_enabled(False)
         self._set_setup_controls_enabled(False)
         self._set_stage("waiting")
@@ -634,19 +886,26 @@ class PolicyViewer:
         self._set_stage("setup" if self.service_ready else "complete")
 
     def control_state(self) -> dict[str, Any]:
-        state = {
-            "paused": self.paused,
-            "home_requested": self.home_requested,
-            "finish_requested": self.finish_requested,
-            "new_rollout_requested": self.new_rollout_requested,
-            "task_command": self.task.value.strip(),
-            "experiment_mode": self.experiment_mode,
-            "layout_id": self.layout_id.value.strip(),
-        }
-        self.home_requested = False
-        self.finish_requested = False
-        self.new_rollout_requested = False
-        return state
+        with self.lock:
+            state = {
+                "paused": self.paused,
+                "home_requested": self.home_requested,
+                "finish_requested": self.finish_requested,
+                "finish_home": getattr(self, "finish_home", None),
+                "recovery_request": getattr(self, "recovery_request", ""),
+                "recovery_request_id": getattr(self, "recovery_request_id", ""),
+                "recovery_service_id": getattr(self, "service_id", ""),
+                "recovery_lease": getattr(self, "recovery_lease", False),
+                "new_rollout_requested": self.new_rollout_requested,
+                "task_command": self.task.value.strip(),
+                "experiment_mode": self.experiment_mode,
+                "layout_id": self.layout_id.value.strip(),
+            }
+            self.home_requested = False
+            self.finish_requested = False
+            self.finish_home = None
+            self.new_rollout_requested = False
+            return state
 
     @staticmethod
     def _image(payload: str) -> UInt8Array:
@@ -892,6 +1151,8 @@ class PolicyViewer:
             self.rollout_started = False
             self.service_ready = False
             self.preparing_rollout = False
+            self.last_rollout_error = ""
+            self.recovery_available = bool(metadata.get("recovery_available", False))
             self._set_experiment_mode(bool(metadata.get("experiment_mode", False)))
             self.rollout_setup_status.content = (
                 "🟢 **Experiment rollout ready** · press Start rollout below; "
@@ -922,6 +1183,7 @@ class PolicyViewer:
             self.executor_info.value = f"chunk #{message.get('chunk_id')} pending{suffix}"
         elif event == "episode_finished":
             self.episode_active = False
+            self.service_ready = False
             self.executor_info.value = str(metadata.get("reason", "finished"))
             episode_dir = str(metadata.get("episode_dir", ""))
             if episode_dir:
@@ -969,10 +1231,12 @@ class PolicyViewer:
             self.runtime_name.value = str(metadata.get("runtime", "waiting"))
             self._set_instruction(str(metadata.get("task", self.task.value)))
             last_error = str(metadata.get("last_error", ""))
-            if self.preparing_rollout and not last_error:
+            new_failure = self._accept_rollout_failure(metadata)
+            if self.preparing_rollout and not new_failure:
                 return
             self.preparing_rollout = False
             self.service_ready = True
+            self._update_recovery(metadata)
             self.prepare_normal_btn.visible = True
             self.prepare_experiment_btn.visible = True
             if first_service_announcement:
@@ -986,24 +1250,19 @@ class PolicyViewer:
                 self.episode_path.value = str(metadata.get("last_episode_dir", "")) or "ready"
             self._update_prepare_enabled()
             self._set_stage("setup" if self.evaluation_saved else "evaluation")
-            if last_error:
-                self.status.content = (
-                    f"🔴 **Last rollout failed · service idle**  \\n`{last_error}`"
-                )
-            elif self.evaluation_saved:
-                self.status.content = "🟡 **Runtime service ready · prepare a rollout**"
+            self._idle_status(last_error)
         elif event == "episode_failed":
-            self.episode_active = False
-            self.preparing_rollout = False
-            self.service_ready = True
-            self.evaluation_saved = True
+            if metadata.get("run_dir") and metadata["run_dir"] != self.service_id:
+                return
+            if not self._accept_rollout_failure(metadata):
+                return
+            self._update_recovery(metadata)
             self.prepare_normal_btn.visible = True
             self.prepare_experiment_btn.visible = True
             self._set_policy_controls_enabled(False)
             self._update_prepare_enabled()
             self._set_stage("setup")
-            error = str(metadata.get("error", "unknown startup error"))
-            self.status.content = f"🔴 **Rollout failed before execution**  \\n`{error}`"
+            self._idle_status(self.last_rollout_error)
 
     def _update_group(self, group: RobotGroup, configuration: FloatArray) -> None:
         robot_handle = self.robot_handles.get(group.name)

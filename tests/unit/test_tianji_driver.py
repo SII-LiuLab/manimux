@@ -15,6 +15,7 @@ import yaml
 from manimux.config import ControlProfileConfig, RobotConfig
 from manimux.kinematics.tianji import DH_TABLE_M6_40, JOINT_LIMITS_DEG, TianjiKinematics
 from manimux.robots import build_robot
+from manimux.robots.tianji import driver as driver_module
 from manimux.robots.tianji import marvin as marvin_module
 from manimux.robots.tianji import sdk
 from manimux.types import RobotCommand
@@ -33,6 +34,8 @@ class FakeController:
         self.joints = {index: value.copy() for index, value in HOME.items()}
         self.cur_state = [0, 0]
         self.err_code = [0, 0]
+        self.clear_attempts = [0, 0]
+        self.clear_after = [1, 1]
         self.vel_ratio = [0, 0]
         self.acc_ratio = [0, 0]
         self.serial = 0
@@ -89,6 +92,16 @@ class FakeController:
 
             def clear_set(self) -> None:
                 controller.pending = {}
+
+            def clear_error(self, arm: str) -> bool:
+                index = ARM_INDEX[arm]
+                controller.calls.append(("clear_error", arm))
+                controller.clear_attempts[index] += 1
+                if controller.clear_attempts[index] >= controller.clear_after[index]:
+                    controller.err_code[index] = 0
+                    controller.cur_state[index] = 0
+                # SDK success is not proof that a physical E-stop was released.
+                return True
 
             def set_vel_acc(self, arm: str, velRatio: int, AccRatio: int) -> None:  # noqa: N803
                 controller.vel_ratio[ARM_INDEX[arm]] = velRatio
@@ -149,6 +162,7 @@ class FakeGrippers:
         self.stopped_transports: list[str] = []
         self.serials = {"/dev/left": "SN-L", "/dev/right": "SN-R"}
         self.reads = 0
+        self.follow = False
 
     def module(self) -> SimpleNamespace:
         world = self
@@ -201,6 +215,8 @@ class FakeGrippers:
 
             def set_target(self, value: float) -> None:
                 world.targets.append((self.gripper.device, value))
+                if world.follow:
+                    world.positions[self.gripper.device] = value
 
             def observation(self) -> SimpleNamespace:
                 return SimpleNamespace(
@@ -325,9 +341,11 @@ def test_read_only_session_reads_state_and_never_moves_anything(rig: SimpleNames
 
 
 @pytest.mark.parametrize("control_hz", [100.0, 250.0])
+@pytest.mark.parametrize("finish_home", [None, False, True])
 def test_viewer_controls_reach_tianji_and_smooth_ticks_send_commands(
     rig: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
     control_hz: float,
+    finish_home: bool | None,
 ) -> None:
     from manimux.config import load_config
     from manimux.runtime import edge
@@ -339,7 +357,7 @@ def test_viewer_controls_reach_tianji_and_smooth_ticks_send_commands(
         {"paused": True}, {"paused": False},
         {"paused": True, "home_requested": True},
         {"paused": True}, {"paused": False},
-        {"paused": True, "finish_requested": True},
+        {"paused": True, "finish_requested": True, "finish_home": finish_home},
     ])
     messages = []
     monkeypatch.setattr(transport, "ControlClient", lambda: SimpleNamespace(
@@ -381,6 +399,8 @@ def test_viewer_controls_reach_tianji_and_smooth_ticks_send_commands(
     monkeypatch.setattr(edge, "PolicyWorkerClient", lambda *_: InstantPolicy())
     config = load_config(REPO / "configs/mock.yaml")
     config.robot = robot_config(execute=True, vel_ratio=32)
+    # Explicit Finish without homing must override even home_on_close=true.
+    config.robot.options["home_on_close"] = finish_home is False
     config.robot.control_hz = control_hz
     config.sensors = []
     config.viewer.enabled = True
@@ -413,7 +433,7 @@ def test_viewer_controls_reach_tianji_and_smooth_ticks_send_commands(
 
     assert result.terminal_reason == "viewer_finish_requested"
     assert result.steps == 4
-    assert len(homes) == 1
+    assert len(homes) == (2 if finish_home is True else 1)
     assert len(smoothing) == 4
     assert len(sends) == len(rig.controller.sent) == 7  # includes paused holds
     np.testing.assert_array_equal(np.diff(sends), np.full(6, round(1e9 / control_hz)))
@@ -448,6 +468,136 @@ def test_controller_faults_raise(rig: SimpleNamespace) -> None:
     with pytest.raises(RuntimeError, match="emergency stop"):
         robot.get_state()
     robot.close()
+
+
+def test_normal_connect_does_not_clear_estop(rig: SimpleNamespace) -> None:
+    rig.controller.cur_state = [100, 100]
+    rig.controller.err_code = [13, 13]
+    robot = driver_module.build_robot(robot_config(execute=True, vel_ratio=32), rig.clock)
+    with pytest.raises(RuntimeError, match="clear it first"):
+        robot.connect()
+    assert rig.controller.clear_attempts == [0, 0]
+    assert not any(call[:1] == ("set_vel_acc",) for call in rig.controller.calls)
+    assert rig.controller.sent == []
+    assert rig.controller.released
+
+
+@pytest.mark.parametrize("state, error", [(100, 13), (0, 13), (100, 0), (100, 2)])
+def test_recovery_clears_both_arms_before_enabling(
+    rig: SimpleNamespace,
+    state: int,
+    error: int,
+) -> None:
+    rig.controller.cur_state = [state, state]
+    rig.controller.err_code = [error, error]
+    rig.controller.clear_after = [1, 3]
+    robot = driver_module.build_robot(robot_config(execute=True, vel_ratio=32), rig.clock)
+    try:
+        robot.connect(recover_errors=True)
+        assert rig.controller.clear_attempts == [1, 3]
+        assert rig.controller.err_code == [0, 0]
+        assert rig.controller.cur_state == [1, 1]
+        calls = rig.controller.calls
+        last_clear = max(i for i, call in enumerate(calls) if call[0] == "clear_error")
+        first_enable = next(i for i, call in enumerate(calls) if call[0] == "set_vel_acc")
+        assert last_clear < first_enable
+        robot.get_state()
+    finally:
+        robot.close()
+
+
+def test_recovery_with_persistent_estop_never_enables_arms_or_grippers(
+    rig: SimpleNamespace,
+) -> None:
+    rig.controller.cur_state = [100, 100]
+    rig.controller.err_code = [13, 13]
+    rig.controller.clear_after = [1, 100]
+    robot = driver_module.build_robot(
+        robot_config(execute=True, vel_ratio=32, gripper_control=True), rig.clock
+    )
+    with pytest.raises(RuntimeError, match="release the physical E-stop.*arm B.*err_code 13"):
+        robot.connect(recover_errors=True)
+    assert rig.controller.clear_attempts == [1, marvin_module.ERROR_CLEAR_ATTEMPTS]
+    assert not any(call[0] in {"set_vel_acc", "set_state"} for call in rig.controller.calls)
+    assert rig.grippers.enabled == set()
+    assert rig.controller.sent == []
+    assert rig.controller.released
+
+
+def test_recovery_requires_fresh_feedback_after_clearing(
+    rig: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rig.controller.err_code = [13, 13]
+    original_read = marvin_module.MarvinSession.read
+
+    def read(session):
+        if any(rig.controller.clear_attempts):
+            rig.controller.freeze_serial = True
+        return original_read(session)
+
+    monkeypatch.setattr(marvin_module.MarvinSession, "read", read)
+    robot = driver_module.build_robot(robot_config(execute=True, vel_ratio=32), rig.clock)
+    with pytest.raises(RuntimeError, match="Feedback frames did not advance"):
+        robot.connect(recover_errors=True)
+    assert not any(call[0] == "set_state" for call in rig.controller.calls)
+    assert rig.controller.sent == []
+    assert rig.controller.released
+
+
+def test_recovery_does_not_clear_faults_outside_active_arms(rig: SimpleNamespace) -> None:
+    rig.controller.err_code = [13, 13]
+    robot = driver_module.build_robot(
+        robot_config(execute=True, vel_ratio=32, active_arms=["left_arm"]), rig.clock
+    )
+    with pytest.raises(RuntimeError, match="fault outside active_arms.*arm B"):
+        robot.connect(recover_errors=True)
+    assert rig.controller.clear_attempts == [0, 0]
+    assert not any(call[0] == "set_state" for call in rig.controller.calls)
+    assert rig.controller.released
+
+
+def test_read_only_connect_cannot_request_recovery(rig: SimpleNamespace) -> None:
+    robot = driver_module.build_robot(robot_config(), rig.clock)
+    with pytest.raises(ValueError, match="requires execute=true"):
+        robot.connect(recover_errors=True)
+    assert rig.loaded == []
+    assert rig.controller.calls == []
+
+
+def test_recovery_does_not_clear_healthy_arms(rig: SimpleNamespace) -> None:
+    rig.controller.err_code[0] = 13
+    robot = driver_module.build_robot(
+        robot_config(execute=True, vel_ratio=32, active_arms=["left_arm"]), rig.clock
+    )
+    try:
+        robot.connect(recover_errors=True)
+        assert rig.controller.clear_attempts == [1, 0]
+        assert not any(call[1:2] == ("B",) for call in rig.controller.calls)
+    finally:
+        robot.close()
+
+
+def test_recovery_mode_switch_fault_disables_partially_enabled_arm(
+    rig: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_read = marvin_module.MarvinSession.read
+
+    def read(session):
+        if rig.controller.cur_state[0] == 1:
+            rig.controller.err_code[0] = 13
+        return original_read(session)
+
+    monkeypatch.setattr(marvin_module.MarvinSession, "read", read)
+    robot = driver_module.build_robot(robot_config(execute=True, vel_ratio=32), rig.clock)
+    with pytest.raises(RuntimeError, match="mode switch failed.*err_code 13"):
+        robot.connect(recover_errors=True)
+    assert ("set_state", "A", 0) in rig.controller.calls
+    assert ("set_state", "B", 1) not in rig.controller.calls
+    assert rig.controller.clear_attempts == [0, 0]
+    assert rig.controller.sent == []
+    assert rig.controller.released
 
 
 def test_fk_mismatch_is_refused_at_connect(rig: SimpleNamespace) -> None:
@@ -541,7 +691,252 @@ def test_home_passes_through_waypoints(rig: SimpleNamespace) -> None:
     assert all(set(batch) == {"B"} for batch in rig.controller.sent)
     assert any(np.allclose(joints, waypoint) for joints in right)
     np.testing.assert_allclose(right[-1], HOME[1])
+    assert rig.grippers.targets == []
     robot.close()
+
+
+@pytest.fixture
+def home_rig(rig: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
+    def sleep(seconds: float) -> None:
+        rig.clock.now += round(seconds * 1e9)
+
+    monkeypatch.setattr(
+        driver_module, "time",
+        SimpleNamespace(monotonic=lambda: rig.clock.now_ns() / 1e9, sleep=sleep),
+    )
+    rig.grippers.positions = {"/dev/left": 0.0, "/dev/right": 0.1}
+    rig.grippers.follow = True
+    return rig
+
+
+def test_return_home_recovers_estop_and_starts_at_measured_pose(
+    home_rig: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from manimux.config import load_config
+    from manimux.robots.tianji import recovery
+
+    rig = home_rig
+    rig.controller.joints[0][0] -= 4.0
+    rig.controller.joints[1][0] += 3.0
+    start = {arm: rig.controller.joints[index].copy() for arm, index in ARM_INDEX.items()}
+    rig.controller.err_code = [13, 13]
+    rig.controller.cur_state = [100, 100]
+    config = load_config("configs/mock.yaml")
+    config.robot = robot_config(execute=True, vel_ratio=32, gripper_control=True)
+    config.viewer.robot_adapter = "tianji"
+    monkeypatch.setattr(recovery, "SystemClock", lambda: rig.clock)
+    controller = recovery.TianjiRecovery(config)
+    controller.update({"recovery_request_id": "1", "recovery_request": "home"})
+    controller._home_thread.join(2)
+    controller.update({})
+    assert not controller.busy
+    assert controller.metadata()["error"] == ""
+    assert rig.controller.clear_attempts == [1, 1]
+    for arm, index in ARM_INDEX.items():
+        np.testing.assert_allclose(rig.controller.sent[0][arm], start[arm])
+        np.testing.assert_allclose(rig.controller.joints[index], HOME[index])
+    assert all(value == pytest.approx(1.0) for value in rig.grippers.positions.values())
+    assert rig.controller.cur_state == [0, 0]
+    assert rig.controller.released
+    assert rig.grippers.enabled == set()
+
+
+@pytest.mark.parametrize("fault", ["estop", "disabled", "stale", "state_error"])
+def test_home_aborts_on_new_fault_without_clearing_or_sending_more_targets(
+    home_rig: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    fault: str,
+) -> None:
+    rig = home_rig
+    rig.controller.joints[0][0] -= 4.0
+    robot = driver_module.build_robot(robot_config(execute=True, vel_ratio=32), rig.clock)
+    robot.connect(recover_errors=True)
+    session = robot._require_session()
+    send = session.send_joints
+
+    def send_then_fault(targets):
+        send(targets)
+        if fault == "estop":
+            rig.controller.err_code[0] = 13
+        elif fault == "disabled":
+            rig.controller.cur_state[0] = 0
+        elif fault == "state_error":
+            rig.controller.cur_state[0] = 100
+        else:
+            rig.controller.freeze_serial = True
+            rig.clock.now += 200_000_000
+
+    monkeypatch.setattr(session, "send_joints", send_then_fault)
+    try:
+        with pytest.raises(RuntimeError, match="emergency stop|did not advance|robot error"):
+            robot.home()
+        assert len(rig.controller.sent) == 1
+        assert rig.controller.clear_attempts == [0, 0]
+        assert ("stop_running", "A") in rig.controller.calls
+        assert ("stop_running", "B") in rig.controller.calls
+    finally:
+        robot.close()
+
+
+@pytest.mark.parametrize("stop_first", [False, True])
+@pytest.mark.parametrize("already_home", [False, True])
+def test_home_opens_grippers_only_after_both_arms_arrive(
+    home_rig: SimpleNamespace, monkeypatch: pytest.MonkeyPatch,
+    stop_first: bool, already_home: bool,
+) -> None:
+    rig = home_rig
+    if not already_home:
+        rig.controller.joints[0][0] -= 4.0
+        rig.controller.joints[1][0] += 4.0
+    robot = build_robot(
+        robot_config(execute=True, vel_ratio=32, gripper_control=True), rig.clock
+    )
+    robot.connect()
+    try:
+        if stop_first:
+            robot.stop()
+            assert rig.grippers.enabled == set()
+        grippers = robot._grippers
+        assert grippers is not None
+        original_target = grippers.set_target
+        original_send = robot._session.send_joints
+        final_sends = 0
+
+        def send(joints):
+            nonlocal final_sends
+            original_send(joints)
+            if not already_home and all(
+                np.array_equal(joints[arm], HOME[index]) for arm, index in ARM_INDEX.items()
+            ):
+                final_sends += 1
+                # The controller accepts the final target, but arm B takes
+                # several feedback cycles to arrive. Never release during lag.
+                if final_sends < 4:
+                    rig.controller.joints[1][0] += 1.0
+
+        def target(arm, aperture):
+            for index in (0, 1):
+                np.testing.assert_allclose(rig.controller.joints[index], HOME[index])
+            assert aperture == 1.0
+            device = "/dev/left" if arm == "A" else "/dev/right"
+            before = rig.grippers.positions[device]
+            value = original_target(arm, aperture)
+            assert 0.0 <= value - before <= 0.036 + 1e-12
+            return value
+
+        monkeypatch.setattr(robot._session, "send_joints", send)
+        monkeypatch.setattr(grippers, "set_target", target)
+        robot.home()
+        assert rig.grippers.enabled == {"/dev/left", "/dev/right"}
+        assert all(value >= 0.98 for value in rig.grippers.positions.values())
+        assert len(rig.grippers.targets) > 2  # opening requires repeated limited targets
+        if not already_home:
+            assert final_sends >= 4
+    finally:
+        robot.close()
+    assert rig.grippers.enabled == set()
+
+
+def test_home_does_not_open_grippers_if_joints_fail_to_arrive(home_rig: SimpleNamespace) -> None:
+    rig = home_rig
+    rig.controller.joints[1][0] += 1.0  # below tracking limit, outside home tolerance
+    rig.controller.follow = False
+    robot = build_robot(
+        robot_config(execute=True, vel_ratio=32, gripper_control=True), rig.clock
+    )
+    robot.connect()
+    try:
+        with pytest.raises(RuntimeError, match="joints did not reach home"):
+            robot.home()
+        assert rig.grippers.targets == []
+        assert rig.grippers.enabled == set()
+        assert ("stop_running", "B") in rig.controller.calls
+    finally:
+        robot.close()
+
+
+def test_home_waits_for_both_grippers_and_times_out_if_one_is_stuck(
+    home_rig: SimpleNamespace, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rig = home_rig
+    robot = build_robot(
+        robot_config(execute=True, vel_ratio=32, gripper_control=True), rig.clock
+    )
+    robot.connect()
+    original_target = robot._grippers.set_target
+
+    def target(arm, aperture):
+        value = original_target(arm, aperture)
+        if arm == "B":
+            rig.grippers.positions["/dev/right"] = 0.1
+        return value
+
+    monkeypatch.setattr(robot._grippers, "set_target", target)
+    try:
+        with pytest.raises(RuntimeError, match="grippers did not open"):
+            robot.home()
+        assert rig.grippers.positions["/dev/left"] >= 0.98
+        assert rig.grippers.positions["/dev/right"] == 0.1
+        assert rig.grippers.enabled == set()
+        assert ("stop_running", "A") in rig.controller.calls
+    finally:
+        robot.close()
+
+
+@pytest.mark.parametrize("fault", ["torque", "stale", "controller"])
+def test_home_opening_stops_on_fault(
+    home_rig: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, fault: str,
+) -> None:
+    rig = home_rig
+    robot = build_robot(
+        robot_config(execute=True, vel_ratio=32, gripper_control=True), rig.clock
+    )
+    robot.connect()
+    original_target = robot._grippers.set_target
+
+    def target(arm, aperture):
+        value = original_target(arm, aperture)
+        if arm == "B":
+            if fault == "torque":
+                rig.grippers.torque = 2.0
+            elif fault == "controller":
+                rig.controller.err_code[0] = 13
+            else:
+                loop = robot._grippers._loops["A"]
+                observation = loop.observation()
+                observation.age_ms = 1000.0
+                monkeypatch.setattr(loop, "observation", lambda: observation)
+        return value
+
+    monkeypatch.setattr(robot._grippers, "set_target", target)
+    try:
+        with pytest.raises(RuntimeError, match="gripper protection|stale|emergency stop"):
+            robot.home()
+        assert len(rig.grippers.targets) == 2
+        assert rig.grippers.enabled == set()
+        assert ("stop_running", "B") in rig.controller.calls
+    finally:
+        robot.close()
+
+
+def test_home_does_not_restart_grippers_after_a_latched_fault(home_rig: SimpleNamespace) -> None:
+    rig = home_rig
+    robot = build_robot(
+        robot_config(execute=True, vel_ratio=32, gripper_control=True), rig.clock
+    )
+    robot.connect()
+    try:
+        rig.grippers.torque = 2.0
+        with pytest.raises(RuntimeError, match="gripper protection"):
+            robot.send_command(command(robot.get_state().groups))
+        rig.grippers.torque = 0.0
+        with pytest.raises(RuntimeError, match="gripper protection"):
+            robot.home()
+        assert rig.grippers.enabled == set()
+        assert rig.grippers.targets == []
+    finally:
+        robot.close()
 
 
 def test_bare_arms_skip_the_gripper_sdk(rig: SimpleNamespace) -> None:

@@ -22,7 +22,8 @@ Body-specific responsibilities:
   the gripper motors stay unpowered. ``gripper_control`` needs ``execute`` with
   both arms active.
 * ``home()`` moves the active arms through ``home_waypoints_deg`` to
-  ``home_joints_deg`` on tianji-control's cosine-eased joint move.
+  ``home_joints_deg`` on tianji-control's cosine-eased joint move, waits for
+  joint arrival, then opens both grippers when ``gripper_control`` is enabled.
 """
 
 from __future__ import annotations
@@ -45,6 +46,7 @@ from . import sdk
 from .gripper import GripperSettings, TianjiGrippers
 from .marvin import (
     ARM_INDEX,
+    STATE_ERROR,
     STATE_POSITION,
     ArmFeedback,
     FloatArray,
@@ -66,6 +68,10 @@ DEFAULT_HOME_JOINTS_DEG = {
     "right_arm": (-90.0, -90.0, 90.0, -90.0, 0.0, 0.0, 0.0),
 }
 HOME_RATE_HZ = 250.0
+HOME_JOINT_TOLERANCE_DEG = 0.5
+HOME_SETTLE_TIMEOUT_S = 5.0
+HOME_GRIPPER_OPEN_TOLERANCE = 0.02
+HOME_GRIPPER_OPEN_TIMEOUT_S = 5.0
 FK_TOLERANCE_MM = 0.01
 FK_TOLERANCE_DEG = 0.01
 
@@ -231,7 +237,11 @@ class TianjiDualArmDriver:
 
     # ---------- lifecycle ----------
 
-    def connect(self) -> None:
+    def connect(self, *, recover_errors: bool = False) -> None:
+        """Connect; only an explicit manual home may request controller recovery."""
+
+        if recover_errors and not self._execute:
+            raise ValueError("Tianji error recovery requires execute=true")
         if self._session is not None:
             return
         # xense.taccap must be imported before the Marvin bindings.
@@ -248,6 +258,8 @@ class TianjiDualArmDriver:
             self._session = session
             self._models = models
             self._check_kinematics(session.read())
+            if recover_errors:
+                session.clear_errors([ARM_OF_GROUP[name] for name in self._active])
             if taccap is not None:
                 grippers = TianjiGrippers(
                     taccap,
@@ -260,10 +272,11 @@ class TianjiDualArmDriver:
             if self._execute:
                 assert self._vel_ratio is not None and self._acc_ratio is not None
                 for name in self._active:
+                    # A mode request can engage the servo even if readback fails.
+                    self._prepared.append(name)
                     session.prepare_position_mode(
                         ARM_OF_GROUP[name], self._vel_ratio, self._acc_ratio
                     )
-                    self._prepared.append(name)
             log.info(
                 "Tianji connected to %s (controller version %s, %s, active %s)",
                 self._ip,
@@ -322,7 +335,7 @@ class TianjiDualArmDriver:
             raise RuntimeError(
                 f"robot feedback did not advance for {(now - self._last_serials_ns) / 1e9:.3f} s"
             )
-        if any(arm.err_code for arm in feedback):
+        if any(arm.err_code or arm.cur_state == STATE_ERROR for arm in feedback):
             raise RuntimeError(
                 "robot error: "
                 + "; ".join(
@@ -402,8 +415,65 @@ class TianjiDualArmDriver:
             for index in range(depth)
         ]
         stages.append({name: self._home[name] for name in self._active})
-        for stage in stages:
-            self._move_joints(stage)
+        try:
+            if self._grippers is not None and self._gripper_control:
+                # Finish & Home calls stop() first. Restart at the measured
+                # aperture (the SDK's startup target), without opening yet.
+                self._grippers.start()
+            for stage in stages:
+                self._move_joints(stage)
+            with finish_move_before_interrupt("Tianji home arrival and gripper opening", log):
+                self._wait_for_home_joints()
+                if self._grippers is not None and self._gripper_control:
+                    self._open_home_grippers()
+        except BaseException:
+            self.stop()
+            raise
+
+    def _wait_for_home_joints(self) -> None:
+        """The last joint command is not proof that the arms have arrived."""
+
+        session = self._require_session()
+        deadline = time.monotonic() + HOME_SETTLE_TIMEOUT_S
+        while True:
+            state = self.get_state()
+            if self._grippers is not None:
+                fault = self._grippers.check()
+                if fault:
+                    raise RuntimeError(f"gripper protection: {fault}")
+            if all(
+                np.max(np.abs(np.degrees(state.groups[name][:NUM_ARM_JOINTS]) - self._home[name]))
+                <= HOME_JOINT_TOLERANCE_DEG
+                for name in self._active
+            ):
+                return
+            if time.monotonic() >= deadline:
+                raise RuntimeError("Tianji home: joints did not reach home before timeout")
+            session.send_joints({ARM_OF_GROUP[name]: self._home[name] for name in self._active})
+            time.sleep(1.0 / HOME_RATE_HZ)
+
+    def _open_home_grippers(self) -> None:
+        """Hold home and refresh force-limited targets until both jaws are open."""
+
+        deadline = time.monotonic() + HOME_GRIPPER_OPEN_TIMEOUT_S
+        while True:
+            state = self.get_state()
+            targets = {
+                name: np.r_[np.radians(self._home[name]), 1.0] for name in GROUP_ORDER
+            }
+            # set_target() advances at most grip_margin beyond the measured
+            # aperture, so a single open command cannot open a closed gripper.
+            self.send_command(
+                RobotCommand(groups=targets, monotonic_ns=state.monotonic_ns, plan_id=None)
+            )
+            if all(
+                state.groups[name][NUM_ARM_JOINTS] >= 1.0 - HOME_GRIPPER_OPEN_TOLERANCE
+                for name in GROUP_ORDER
+            ):
+                return
+            if time.monotonic() >= deadline:
+                raise RuntimeError("Tianji home: grippers did not open before timeout")
+            time.sleep(1.0 / self._gripper_settings.hz)
 
     def _move_joints(self, targets: Mapping[str, FloatArray]) -> None:
         """tianji-control ``move_to_joints``: one cosine-eased time base for every axis."""
@@ -413,8 +483,8 @@ class TianjiDualArmDriver:
             model = self._models[name]
             if np.any(target < model.lim_n) or np.any(target > model.lim_p):
                 raise ValueError(f"home target for {name} is outside the controller limits")
-        feedback = session.read()
-        start = {name: feedback[ARM_INDEX[ARM_OF_GROUP[name]]].joints_deg for name in targets}
+        self.get_state()
+        start = {name: self._measured_deg[name].copy() for name in targets}
         delta = {name: targets[name] - start[name] for name in targets}
         distance = max(float(np.max(np.abs(value))) for value in delta.values())
         if distance <= 1e-3:
@@ -425,6 +495,9 @@ class TianjiDualArmDriver:
         with finish_move_before_interrupt("Tianji home", log) as interrupted:
             tick = 0
             while True:
+                # An E-stop or controller fault during home must abort, never
+                # trigger another clear/re-enable cycle or send a stale target.
+                self.get_state()
                 elapsed = tick * period
                 if elapsed >= duration:
                     fraction = 1.0

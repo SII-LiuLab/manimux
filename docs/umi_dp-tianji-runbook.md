@@ -53,6 +53,78 @@ session, using the existing Tianji camera config and the paired runtime config.
 The common Tianji profile remains `execute: false`, `gripper_control: false` by
 default. No devices are accessed by model validation or binding.
 
+## Viewer: manual drag and direct homing
+
+Use `manimux serve --config <runtime-config>` with the Tianji viewer. The
+**Manual recovery** panel is always visible below the task heading, independent
+of preparation, execution, interruption or evaluation:
+
+- **Finish & Home** saves the current rollout and returns home directly.
+- **Finish without homing** saves and releases the robot at its current pose,
+  overriding `robot.options.home_on_close` for that finish request.
+- During an active rollout, select **Drag arms: A / B / AB** and click
+  **Stop rollout & drag**. This ends the rollout without homing, waits for
+  runtime cleanup to release the controller, then enters the selected drag.
+  **Cancel drag** cancels that pending transition; the rollout still stops.
+- Once cleanup finishes, select **Drag arms: A / B / AB** and **Start drag**.
+  A is the left arm, B the right. Use **Exit drag** to leave drag mode and
+  disable the selected arms. Then **Return Home** homes without creating a
+  rollout; it can also be used directly without dragging first.
+
+After a physical emergency stop, release the E-stop before clicking **Start
+drag** or **Return Home**. The drag worker uses teleop's `ensure_clear` to clear
+latched errors and verify all selected arms before enabling torque mode. If any error remains,
+neither arm enters drag. Direct **Return Home** also checks and clears latched
+controller errors before enabling position mode or gripper control. It retries
+at most five times, 0.3 seconds apart, and requires fresh, error-free feedback
+from both arms before proceeding. It only clears arms in `active_arms`; a fault
+on another arm blocks homing and is reported without clearing that arm. If
+clearing fails, no homing targets are sent and **Last error** shows the remaining
+controller state/error. Normal rollout connection does not automatically clear
+faults, and an E-stop during homing aborts the move without retrying recovery.
+The panel reports the interrupted rollout and keeps
+the underlying error in **Last error**, including when startup failed before
+an episode could begin. Recovery state is restored from periodic service
+heartbeats even if the one-time failure event was lost. A service disconnect
+keeps the recovery panel visible but disables motion until it returns.
+
+Recovery requires `robot.options.execute: true`. Drag respects `active_arms`;
+homing reuses the configured Tianji driver, home waypoints and speed. New
+rollouts and homing remain locked during drag and its cleanup. Closing the last
+viewer browser tab or losing the viewer connection requests drag exit. A
+one-shot `manimux run` exits its runtime and does not offer idle recovery; use
+`serve` for this workflow. Automatic completion still follows `home_on_close`.
+
+With `gripper_control: true`, every home operation first completes the joint
+move and waits until both arms are within 0.5 degrees of home, then opens both
+grippers to at least 0.98 normalized aperture while holding the home joints.
+Opening uses the existing force-limited targets and must finish before home
+returns or cleanup disables the motors. Joint settling and gripper opening
+each have a 5-second timeout; faults or timeouts stop the operation and report
+an error. With gripper control disabled, homing only moves the arms.
+
+The drag worker runs in `project/teleop/.venv`, using teleop's `ArmDriver`,
+`RobotConnection` and `load_tool_config` with **`--tool umi`**. It matches
+`set-state <A|B> drag --tool umi`: joint drag at 250 Hz, K=1, D=0.3,
+15 deg/s reference tracking, and separate A/B tool calibration. AB uses one
+connection and batched joint commands. It does not start teleoperation sensors
+or a policy. It never enters drag with an uncleared controller fault.
+
+By default, teleop is the sibling checkout next to ManiMux. For another layout,
+set the path in the **runtime** config (not the model-server config):
+
+```yaml
+viewer:
+  enabled: true
+  robot_adapter: tianji
+  tianji_teleop_root: /path/to/project/teleop
+```
+
+The worker always uses the runtime's configured robot IP and teleop's current
+`configs/tool/umi.yaml`; it does not copy calibration values into ManiMux.
+The UI reports startup, active drag, exit and errors separately. Failure to
+confirm drag cleanup keeps subsequent motion blocked.
+
 ## Measured observation history
 
 `TimestampedCameraSensor` consumes `CameraSubscriber.try_recv_bundle()`, retains

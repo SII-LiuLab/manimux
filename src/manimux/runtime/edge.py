@@ -239,6 +239,7 @@ class EdgeRuntime:
         completed = False
         terminal_reason = "completed"
         abort_reason = "runtime_exception"
+        home_on_close = bool(self._config.robot.options.get("home_on_close", False))
         try:
             for sensor in self._sensors:
                 sensor.start()
@@ -275,6 +276,11 @@ class EdgeRuntime:
                 "layout_id": self._config.run.layout_id,
                 "launch_mode": self._launch_mode,
             }
+            viewer_episode_metadata["recovery_available"] = (
+                self._launch_mode == "serve"
+                and self._config.robot.driver == "tianji_dual"
+                and self._config.robot.options.get("execute") is True
+            )
             self._viewer.set_state_metadata(viewer_episode_metadata)
             self._viewer.publish_event(
                 "episode_started",
@@ -298,8 +304,10 @@ class EdgeRuntime:
 
                 viewer_control = self._viewer.poll_control()
                 if viewer_control.finish_requested:
+                    if viewer_control.finish_home is not None:
+                        home_on_close = viewer_control.finish_home
                     terminal_reason = "viewer_finish_requested"
-                    recorder.event("viewer_finish_requested", step=steps)
+                    recorder.event("viewer_finish_requested", step=steps, home=home_on_close)
                     break
                 if viewer_control.home_requested:
                     self._robot.home()
@@ -845,7 +853,7 @@ class EdgeRuntime:
                 robot_connected
                 and stopped_cleanly
                 and not faulted
-                and bool(self._config.robot.options.get("home_on_close", False))
+                and home_on_close
             ):
                 try:
                     self._robot.home()

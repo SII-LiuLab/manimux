@@ -44,3 +44,4 @@ tests/
 
 !/tests/unit/test_umi_dp_tianji.py
 !/tests/unit/test_tianji_diff_ik.py
+!/tests/unit/test_tianji_recovery.py

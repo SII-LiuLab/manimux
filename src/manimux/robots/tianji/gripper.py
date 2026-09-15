@@ -71,6 +71,16 @@ class TianjiGrippers:
         self._reader_thread: threading.Thread | None = None
 
     def start(self) -> None:
+        """Start or resume control, preserving any latched protection fault."""
+
+        if self.control:
+            fault = self.check()
+            if fault:
+                raise RuntimeError(f"gripper protection: {fault}")
+            if all(arm in self._loops for arm in ARMS):
+                return
+            if self._loops:
+                raise RuntimeError("gripper control is only partially started")
         endpoints = self._resolve(list(self._taccap.scan_grippers()))
         if self.control:
             self._start_control(endpoints)

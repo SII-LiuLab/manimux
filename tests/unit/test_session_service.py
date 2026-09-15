@@ -231,3 +231,36 @@ def test_session_service_survives_one_failed_rollout_attempt(tmp_path: Path) -> 
 
     assert factory_calls == 2
     assert any(message["event"] == "episode_failed" for message in messages)
+
+
+def test_repeated_failures_have_distinct_ids_republished_in_idle_heartbeats(tmp_path: Path) -> None:
+    config = load_config("configs/mock.yaml")
+    config.viewer.enabled = True
+    messages: list[dict[str, Any]] = []
+    attempts = 0
+
+    def runtime_factory(_config, _run_dir):
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            return _FailingRuntime()
+        return _FakeRuntime(RunResult(tmp_path, 1, 1, 0, True, "completed"))
+
+    service = RuntimeSessionService(
+        config, tmp_path,
+        runtime_factory=runtime_factory,
+        control_factory=lambda: _FakeControl([{"new_rollout_requested": True}]),
+        publisher_factory=lambda: _FakePublisher(messages),
+        poll_interval_s=0,
+    )
+    service.serve(max_rollout_attempts=3)
+
+    failures = [message["metadata"] for message in messages if message["event"] == "episode_failed"]
+    heartbeats = [message["metadata"] for message in messages
+                  if message["event"] == "runtime_service_ready"]
+    assert len(failures) == 2
+    assert failures[0]["last_error"] == failures[1]["last_error"]
+    assert failures[0]["last_failure_id"] != failures[1]["last_failure_id"]
+    for failure, heartbeat in zip(failures, heartbeats[1:], strict=True):
+        assert heartbeat["last_error"] == failure["last_error"]
+        assert heartbeat["last_failure_id"] == failure["last_failure_id"]
