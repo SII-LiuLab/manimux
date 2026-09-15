@@ -320,6 +320,30 @@ timing, tracking and task success still require hardware validation, including
 for the RTC template, which also uses process decoding. These measurements do
 not justify relaxing IK checks or lowering the unified control frequency.
 
+Run the real model on a temporary evaluation port, then evaluate RTC against
+the same model, IK, control profile and executor using a simulated plant:
+
+```bash
+# Uses the paired config's server URL; --server may select a temporary server.
+.venv/bin/python -m scripts.validation.umi_dp_tianji_rtc_eval \
+  --config data/experiments/pass-ball-rtc.yaml --strategy rtc \
+  --seconds 20 --output data/rtc-evaluation/rtc
+.venv/bin/python -m scripts.validation.umi_dp_tianji_rtc_eval \
+  --config data/experiments/pass-ball-rtc.yaml --strategy manimux \
+  --seconds 20 --output data/rtc-evaluation/manimux
+```
+
+This harness always substitutes simulated robot/camera drivers before runtime
+construction, and keeps backend identity and sampling capability checks. It
+defaults to fixed synthetic RGB and a reachable joint pose. `--fixture input.npz`
+can supply RGB uint8 `left_wrist`/`right_wrist` arrays and 8D radian/aperture
+`left_arm`/`right_arm` states. Images remain fixed while simulated capture times
+advance: this is a scheduling test with real inference, not visual task success.
+Each new output directory contains events, plan/tick Zarr data and `summary.json`.
+The summary reports conditioned accepted chunks, rejection reasons, complete
+observation-to-commit latency, decode latency, tick intervals and joint tracking.
+See [RTC evaluation results](tianji-rtc-evaluation.md) for measured evidence.
+
 See the UMI_DP README for real recorded-window forward/parity and shared-server
 commands. Runtime tests cover capture identity, wrong-time history rejection,
 clock jumps, RTC first offsets and tail masks, FK mapping and whole-chunk
