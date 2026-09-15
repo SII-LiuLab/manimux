@@ -52,8 +52,8 @@ HOME_JOINTS_DEG = {
     "right": (-90.0, -90.0, 90.0, -90.0, 0.0, 0.0, 0.0),
 }
 
-# Work table in front of the stand, top surface at 0.65 m. Footprint estimated.
-TABLE = SceneBox("table", (0.8, 1.2, 0.04), (0.65, 0.0, 0.63))
+# Display the tabletop at 0.70 m above ground (z=0). Footprint/thickness estimated.
+TABLE = SceneBox("table", (0.8, 1.2, 0.04), (0.65, 0.0, 0.68))
 
 
 class TianjiAdapter(RobotAdapter):
