@@ -188,7 +188,7 @@ def test_default_runtime_is_unchanged() -> None:
 
 
 def test_rtc_runtime_is_selected_by_config(tmp_path: Path) -> None:
-    config = load_config("configs/abc/yam/infra/manimux.yaml")
+    config = load_config("configs/mock.yaml")
     config.execution.runtime = "rtc"
     runtime = build_runtime(config, tmp_path)
 
@@ -320,7 +320,7 @@ def test_runtime_package_binds_to_factories_not_to_a_policy_or_a_body() -> None:
 
 
 def test_execution_horizon_respects_the_feasibility_window(tmp_path: Path) -> None:
-    config = load_config("configs/abc/yam/infra/manimux.yaml")
+    config = load_config("configs/mock.yaml")
     config.execution.runtime = "rtc"
     config.execution.rtc.min_execute_steps = 15
     runtime = build_runtime(config, tmp_path)

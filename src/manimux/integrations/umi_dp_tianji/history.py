@@ -194,6 +194,14 @@ class HistoryStrategy:
                 group_order=self.group_order,
                 horizon=self.horizon,
             )
+            weights = getattr(submission.request, "condition_weights", None)
+            if weights is not None and not np.any(weights > 0):
+                submission.request.action_condition = None
+                submission.request.condition_weights = None
+                self.delegate.clear_condition(submission.request.request_seq)
+                submission.event_fields.update(
+                    conditioned=False, forecast_delay=0, condition_reason="no_committed_overlap"
+                )
         return submission
 
 

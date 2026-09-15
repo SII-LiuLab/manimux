@@ -62,8 +62,8 @@ closes the robot and decoder processes; their cleanup has bounded waits.
 
 ## Adapter contract
 
-This mode currently requires a strategy named `manimux`: the built-in default,
-or a plugin that delegates to it, such as the UMI measured-history plugin. An adapter
+This mode requires a strategy named `manimux` or `rtc`: a built-in strategy, or
+a plugin that delegates to one, such as the UMI measured-history plugin. An adapter
 must declare `supports_context_only_decode = True`: its decode result must be
 fully determined by raw action plus `ActionContext`, without observation-side
 mutable caches. Optional `decode_partitions` and `decode_action_partition`

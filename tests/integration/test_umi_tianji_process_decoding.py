@@ -136,10 +136,11 @@ def test_delegating_plugin_pause_discards_pending_decode(tmp_path, home):
     assert accepted and all(e["request_seq"] > 1 for e in accepted)
 
 
-def test_process_decoding_rejects_a_plugin_delegating_to_rtc(tmp_path):
+def test_process_decoding_rejects_a_plugin_delegating_to_an_unsupported_strategy(tmp_path):
+    # manimux and rtc delegates may use process decoding (see test_tianji_rtc_process.py).
     config = plugin_config()
-    strategy = DelegatingStrategy(SimpleNamespace(name="rtc"))
-    with pytest.raises(ValueError, match="requires the manimux strategy"):
+    strategy = DelegatingStrategy(SimpleNamespace(name="paint"))
+    with pytest.raises(ValueError, match="requires the manimux or rtc strategy"):
         EdgeRuntime(config, tmp_path, strategy=strategy)
 
 

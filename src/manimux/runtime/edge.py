@@ -115,8 +115,8 @@ class EdgeRuntime:
         if config.policy.action_decoding == "process":
             # A plugin may wrap the default strategy (the UMI history plugin
             # does); the constructed strategy decides, not the plugin path.
-            if self._strategy.name != "manimux":
-                raise ValueError("process action decoding currently requires the manimux strategy")
+            if self._strategy.name not in {"manimux", "rtc"}:
+                raise ValueError("process action decoding requires the manimux or rtc strategy")
             self._decoder = ActionDecoderClient(config.robot, config.policy, self._adapter)
         self._session_id = f"session-{uuid.uuid4().hex}"
         self._worker = PolicyWorkerClient(config.policy, self._session_id)
@@ -348,6 +348,8 @@ class EdgeRuntime:
                     or self._config.execution.inference_schedule == "serial"
                     or getattr(self._strategy, "discard_plans_while_paused", False)
                 ):
+                    if self._state != RuntimeState.PAUSED:
+                        self._strategy.reset()
                     self._timeline = self._build_timeline()
                     discard_responses_through = max(discard_responses_through, request_seq)
                 self._state = (
@@ -458,7 +460,7 @@ class EdgeRuntime:
                                             + int(
                                                 self._config.execution.commit_lead_s * 1_000_000_000
                                             )
-                                            if self._strategy.name == "manimux"
+                                            if self._strategy.name in {"manimux", "rtc"}
                                             else None
                                         ),
                                         measured_state=state,

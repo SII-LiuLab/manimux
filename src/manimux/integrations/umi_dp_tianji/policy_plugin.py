@@ -48,6 +48,9 @@ def state_vector(value):
 
 
 class UmiDpTianjiAdapter:
+    supports_context_only_decode = True
+    decode_partitions = ("left_arm", "right_arm")
+
     def __init__(self, robot, policy):
         self.validate(robot, policy)
         self.policy = policy
@@ -235,12 +238,6 @@ class UmiDpTianjiAdapter:
                 raise ValueError("Tianji IK failed; rejecting the entire chunk")
             current = solved.copy()
         return current
-
-    # A decoder process builds its own kinematics and diff-IK solvers. The
-    # measured state fully seeds IK, so the anchors prepare_request stores in
-    # the parent process are only a fallback when a caller omits that state.
-    supports_context_only_decode = True
-    decode_partitions = ("left_arm", "right_arm")
 
     def warmup_decode(self, partition):
         # Load libKine and build the OSQP problem before the first real chunk.

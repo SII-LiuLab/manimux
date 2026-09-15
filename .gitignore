@@ -45,6 +45,8 @@ tests/
 !/tests/unit/test_umi_dp_tianji.py
 !/tests/unit/test_tianji_diff_ik.py
 !/tests/unit/test_tianji_recovery.py
+!/tests/unit/test_tianji_rtc.py
 !/tests/integration/
 /tests/integration/*
 !/tests/integration/test_umi_tianji_process_decoding.py
+!/tests/integration/test_tianji_rtc_process.py

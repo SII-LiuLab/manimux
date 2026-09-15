@@ -18,6 +18,7 @@ sensors:
 policy:
   worker: xpolicylab_ws
   adapter: manimux.integrations.umi_dp_tianji.policy_plugin:build_adapter
+  action_decoding: process
   horizon_steps: 16
   timeout_s: 30.0
   startup_timeout_s: 120.0
@@ -63,6 +64,7 @@ policy:
 execution:
   runtime: manimux.integrations.umi_dp_tianji.history:build_strategy
   executor: smooth
+  commit_lead_s: 0.0
   max_plan_age_s: 2.0
   blend_steps: 2
   smooth:
@@ -73,7 +75,7 @@ execution:
       open_threshold: 0.75
       closed_value: 0.2
   rtc:
-    initial_delay_steps: 2
+    initial_delay_steps: 4  # action steps; remeasure the full model+decode latency
     min_execute_steps: null
     beta: 5.0
 viewer:

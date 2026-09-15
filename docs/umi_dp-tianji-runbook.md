@@ -147,9 +147,11 @@ extra hardware polling thread, or change to control_hz/the main loop.
 Serial scheduling and max_chunk_steps remain restricted to the built-in
 `manimux` runtime name, so this history plugin does not use them. Process action
 decoding checks the constructed strategy instead, which this wrapper delegates:
-the `manimux` delegate may use `policy.action_decoding: process`, while the RTC
-delegate keeps inline decoding. The wrapper revalidates the delegated
-strategy's full configuration, including RTC delay/horizon constraints.
+either its `manimux` or `rtc` delegate may use `policy.action_decoding: process`.
+The RTC template selects process decoding; the ordinary template retains inline
+decoding unless explicitly selected. The wrapper revalidates the delegated
+strategy's full configuration, including RTC delay/horizon constraints. Runtime
+construction preserves the wrapper's observation and condition-alignment hooks.
 
 ## Action conversion and execution differences
 
@@ -179,8 +181,56 @@ the new observation's `first_offset + j*dt` targets, masks rows beyond the valid
 committed plan, and the embodiment converts weighted conditions through FK. The
 model rebases these absolute poses into the new TCP reference and guides the real
 DDIM sampler with PiGDM or soft inpainting. No joint-space tensor is passed to
-UMI's 20D normalizer. Guidance cost and inline IK must fit the deployed timing
-budget; a finite offline result alone does not prove that budget is met.
+UMI's 20D normalizer. RTC preserves the original source horizon and consumed
+indices across both adapter and commit-time trimming. Conditions with no valid
+committed overlap are explicitly unconditioned and retain the normal blend.
+Guidance, transport and process decoding must fit the deployed timing budget;
+a finite offline result alone does not prove that budget is met.
+
+Process decoding starts one child per arm and warms its own kinematics/solver
+before robot connection. Both receive the same measured decode-time seed and
+source clock. Inference and decoding occupy one in-flight slot; the old plan
+continues until both valid partitions can be committed together. A failed arm
+rejects the whole chunk. A decoder deadline failure faults and cleans up the
+runtime. Independent partial-arm holds are unsupported for RTC.
+
+Pause and homing discard the timeline and reset RTC/history state. In-flight
+results are drained and rejected using their original request sequence; the
+first request after resume uses fresh history and has no old-plan condition.
+The measured IK seed can age while the robot follows the old plan, so validate
+takeover tracking with the configured executor and motion limits on hardware.
+
+## RTC deployment
+
+Bind the actual checkpoint and explicitly select the existing IK backend:
+
+```bash
+envs/umi_dp/.venv/bin/python scripts/servers/umi_dp_tianji_server.py \
+  --checkpoint /path/to/trusted/pass_ball.ckpt \
+  --runtime-template configs/umi_dp/tianji/infra/pass_ball/rtc.yaml \
+  --ik-backend diff \
+  --bind-runtime-config data/experiments/pass-ball-rtc.yaml
+```
+
+For a station with a reviewed custom profile or diff-IK options, create a new
+runtime template from that station's bound configuration. Set
+`policy.options.history_strategy: rtc`, `policy.action_decoding: process`, and
+keep `execution.runtime: manimux.integrations.umi_dp_tianji.history:build_strategy`.
+Remove `execution.inference_schedule` and `execution.refill_threshold_s`; RTC
+rejects these unused fields. Preserve the selected profile, IK limits, gripper
+semantics and executor settings. Rebind the copied template to produce a new
+paired configuration; do not change artifact identities by hand.
+
+`execution.rtc.initial_delay_steps` is an initial estimate in **model action
+steps**, not 250 Hz ticks. The template uses 4, `min_execute_steps: null` (half
+the source horizon, bounded by feasibility) and PiGDM `beta: 5.0`. Runtime
+forecasting takes the maximum of the recent delay buffer and rounds fractional
+steps upward. It includes observation age, request preparation, transport,
+model inference, both decoders and commit lead. Check `rtc_delay_ms`,
+`measured_delay`, `forecast_delay` and `rtc_delay_infeasible`; the feasibility
+window is `d <= executed <= H-d`, requiring `2*d <= H`. Calibrate the initial
+estimate against the deployed latency distribution. At 30 Hz, 7 steps cover
+approximately 233 ms. The first chunk is unconditioned.
 
 Both pass-ball infra templates enable the shared executor's `close_latch` mode:
 
@@ -226,6 +276,8 @@ continuous mode uses that value as its lower aperture bound.
 .venv/bin/python -m pytest tests/unit/test_umi_dp_tianji.py -q
 .venv/bin/python -m pytest tests/unit/test_executors.py tests/unit/test_config.py \
   tests/integration/test_mock_run.py -k 'close_latch or umi_pass_ball' -q
+.venv/bin/python -m pytest tests/unit/test_tianji_rtc.py \
+  tests/unit/test_rtc_runtime.py tests/integration/test_tianji_rtc_process.py -q
 bash -n XPolicyLab/policy/UMI_DP/*.sh
 python -m compileall -q XPolicyLab/policy/UMI_DP
 ```
@@ -244,7 +296,7 @@ Whole-chunk work exceeds the 4ms budget of a 250Hz tick. Inline decoding blocks
 the control loop until it finishes: the 2026-09-14 H64 diff rollout froze for
 111–137ms at each of its 18 plan commits, with no commands sent meanwhile.
 
-`policy.action_decoding: process` (manimux delegate only) moves decoding into
+`policy.action_decoding: process` (manimux or rtc delegate) moves decoding into
 one spawned process per arm. Each child builds its own kinematics and QP solver
 and warms them up before robot connection. The control loop keeps executing the
 previous plan and commits the new one after both arms finish. Offline, per-arm
@@ -262,10 +314,11 @@ those recordings that seed lay ahead of the arm in 16 of 17 commits (median
 2.29 degrees); this replay does not rerun IK, and the fix is unverified on
 hardware. A failure
 in either arm still rejects the whole chunk, so the previous plan continues; a
-decoder exceeding the request deadline still faults the runtime. Hardware timing
-with process decoding has not been verified. RTC with the process decoder needs a
-separate design review. These measurements do not justify relaxing IK checks or
-lowering the unified control frequency.
+decoder exceeding the request deadline still faults the runtime. Process
+isolation alone does not establish a hard real-time bound; real-robot command
+timing, tracking and task success still require hardware validation, including
+for the RTC template, which also uses process decoding. These measurements do
+not justify relaxing IK checks or lowering the unified control frequency.
 
 See the UMI_DP README for real recorded-window forward/parity and shared-server
 commands. Runtime tests cover capture identity, wrong-time history rejection,

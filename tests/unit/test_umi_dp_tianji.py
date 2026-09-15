@@ -213,6 +213,23 @@ def test_adapter_accepts_the_ws_client_unwrapped_action_list(adapter):
     assert chunk.horizon_steps == model.horizon
 
 
+def test_partition_decode_uses_measured_context_without_parent_anchors(adapter):
+    model, _, _ = adapter
+    request = request_for(model)
+    raw = actions_for(request, model.horizon)
+    context = ActionContext(1, 10**9, 10**9, measured_state=request.observation.state)
+    serial = model.decode_action(raw, context)
+    assert not model.anchors
+    for partition in model.decode_partitions:
+        decoded = model.decode_action_partition(raw, context, partition)
+        assert set(decoded.groups) == {partition}
+        np.testing.assert_allclose(decoded.groups[partition], serial.groups[partition])
+        assert decoded.observation_time_ns == serial.observation_time_ns
+        assert decoded.source_offset_steps == serial.source_offset_steps
+    with pytest.raises(ValueError, match="partition"):
+        model.decode_action_partition(raw, context, "unknown")
+
+
 def test_adapter_decodes_each_arm_from_measured_state_without_anchors(adapter):
     # A decoder process never sees the parent's prepare_request anchors.
     model, _, _ = adapter

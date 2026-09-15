@@ -27,6 +27,8 @@ from manimux.types import (
 class RtcInferenceStrategy:
     """Pi-guided RTC request scheduling and chunk conditioning."""
 
+    discard_plans_while_paused = True
+
     def __init__(self, config: ManiMuxConfig) -> None:
         self._config = config
         rtc = config.execution.rtc
@@ -40,6 +42,7 @@ class RtcInferenceStrategy:
         self._active_offset: int
         self._conditioned_requests: set[int]
         self._request_started_ns: dict[int, int]
+        self._request_observation_ns: dict[int, int]
         self._request_forecast: dict[int, int]
         self._infeasible_reported: bool
         self._infeasible_pending: tuple[int, int] | None
@@ -68,6 +71,7 @@ class RtcInferenceStrategy:
         self._active_offset = 0
         self._conditioned_requests = set()
         self._request_started_ns = {}
+        self._request_observation_ns = {}
         self._request_forecast = {}
         self._infeasible_reported = False
         self._infeasible_pending = None
@@ -134,6 +138,7 @@ class RtcInferenceStrategy:
         if condition is not None:
             self._conditioned_requests.add(request_seq)
         self._request_started_ns[request_seq] = now_ns
+        self._request_observation_ns[request_seq] = snapshot.state.monotonic_ns
         self._request_forecast[request_seq] = forecast_used
         return InferenceSubmission(
             request=request,
@@ -158,6 +163,11 @@ class RtcInferenceStrategy:
             anchor_source="last_command",
         )
 
+    def clear_condition(self, request_seq: int) -> None:
+        """A history adapter can discover that no committed overlap remains."""
+        self._conditioned_requests.discard(request_seq)
+        self._request_forecast[request_seq] = 0
+
     def prepare_chunk(
         self,
         *,
@@ -166,6 +176,11 @@ class RtcInferenceStrategy:
         now_ns: int,
     ) -> ActionChunk:
         del response, now_ns
+        source_horizon = chunk.source_offset_steps + chunk.horizon_steps
+        if source_horizon != self._config.policy.horizon_steps:
+            raise ValueError("RTC decoded suffix must retain the configured source horizon")
+        if chunk.hold_from_step:
+            raise ValueError("RTC requires a complete joint plan for both arms")
         return chunk
 
     def on_plan_accepted(
@@ -176,13 +191,21 @@ class RtcInferenceStrategy:
         response: InferenceResponse,
         now_ns: int,
     ) -> dict[str, object]:
-        self._active_rows = np.concatenate(
+        rows = np.concatenate(
             [chunk.groups[name] for name in self._group_order], axis=1
         )
-        self._active_offset = result.trimmed_steps
+        # Restore source indices only. The discarded prefix is never executable
+        # or conditioned: executed always starts beyond these zero-weight rows.
+        self._active_rows = np.pad(rows, ((chunk.source_offset_steps, 0), (0, 0)))
+        self._active_offset = chunk.source_offset_steps + result.trimmed_steps
         started_ns = self._request_started_ns.pop(response.request_seq, now_ns)
+        observation_ns = self._request_observation_ns.pop(response.request_seq, started_ns)
         forecast_used = self._request_forecast.pop(response.request_seq, 0)
-        measured_delay = max(0, round((now_ns - started_ns) / chunk.dt_ns))
+        executable_ns = now_ns + round(self._config.execution.commit_lead_s * 1e9)
+        # Include observation age, request preparation, transport, model, both
+        # decoder processes and commit lead; never round a partial step down.
+        delay_ns = max(0, executable_ns - min(started_ns, observation_ns))
+        measured_delay = (delay_ns + chunk.dt_ns - 1) // chunk.dt_ns
         self._delay_forecast.append(measured_delay)
         self._latency.append(
             (
@@ -197,11 +220,16 @@ class RtcInferenceStrategy:
             "forecast_delay": forecast_used,
             "server_ms": round(response.inference_ms, 1),
             "trimmed_steps": result.trimmed_steps,
+            "rtc_source_horizon": len(self._active_rows),
+            "rtc_executed_steps_at_commit": self._active_offset,
+            "request_to_commit_ms": (now_ns - started_ns) / 1e6,
+            "rtc_delay_ms": delay_ns / 1e6,
         }
 
     def on_response_rejected(self, response: InferenceResponse) -> None:
         self._conditioned_requests.discard(response.request_seq)
         self._request_started_ns.pop(response.request_seq, None)
+        self._request_observation_ns.pop(response.request_seq, None)
         self._request_forecast.pop(response.request_seq, None)
 
     def take_runtime_events(self, *, step: int) -> list[tuple[str, dict[str, object]]]:
