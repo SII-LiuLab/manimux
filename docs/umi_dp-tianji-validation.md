@@ -86,9 +86,13 @@ failure coverage, shared-profile binding and full-chunk timing. The default
 analytic backend remains unchanged; differential IK does not resolve the inline
 decoding scheduling limitation.
 
-The provided continuous gripper profile differs from CalibWrist's close latch;
-shared joint interpolation differs from per-servo SE(3) interpolation. These are
-explicit execution differences, not model-parity failures. Real hardware timing,
+At the time of this validation the provided gripper profile was continuous.
+The subsequent `close_latch` addition is described in the runbook; this report's
+checkpoint/server evidence does not validate its hardware behavior. ManiMux
+applies the latch after timeline sampling, whereas CalibWrist applies it before
+interpolation. Shared joint interpolation also differs from per-servo SE(3)
+interpolation. These are explicit execution differences, not model-parity failures.
+Real hardware timing,
 task success, full training, installation into a clean model venv, simulator
 rollout and the non-default soft-inpaint mode's real-weight forward remain
 unverified. See the runbook for these boundaries.

@@ -68,7 +68,10 @@ execution:
   smooth:
     cutoff_hz: 8.0
     gripper:
-      mode: continuous
+      mode: close_latch
+      close_threshold: 0.6
+      open_threshold: 0.75
+      closed_value: 0.2
   rtc:
     initial_delay_steps: 2
     min_execute_steps: null

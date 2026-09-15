@@ -726,7 +726,10 @@ class EdgeRuntime:
                     command = self._executor.step(now_ns, state, reference)
                     if (
                         isinstance(self._executor, SmoothExecutor)
-                        and self._config.execution.smooth.release_guard is not None
+                        and (
+                            self._config.execution.smooth.release_guard is not None
+                            or self._executor.uses_close_latch
+                        )
                     ):
                         recorder.event(
                             "gripper_decision", step=steps, monotonic_ns=now_ns,
@@ -739,11 +742,16 @@ class EdgeRuntime:
                     # Keep the last command fixed while waiting for the next chunk.
                     # Reset executor velocity history to the held command, so a new
                     # chunk does not resume with velocity left over before the wait.
-                    self._executor.reset(RobotState(
+                    held_state = RobotState(
                         groups=copy_group_vector(last_command),
                         monotonic_ns=now_ns, sequence=state.sequence,
-                    ))
-                    command = self._hold_command(now_ns, last_command)
+                    )
+                    if isinstance(self._executor, SmoothExecutor):
+                        command = self._executor.hold(now_ns, held_state)
+                        command.plan_id = self._timeline.active_plan_id
+                    else:
+                        self._executor.reset(held_state)
+                        command = self._hold_command(now_ns, last_command)
                 elif (
                     self._state == RuntimeState.RUNNING
                     and isinstance(self._executor, SmoothExecutor)
@@ -756,9 +764,18 @@ class EdgeRuntime:
                             plan_id=None, groups=self._executor.gripper_diagnostics,
                         )
                 else:
-                    self._executor.reset(state)
-                    self._safety.reset(state)
-                    command = self._hold_command(now_ns, state.groups)
+                    if (self._state == RuntimeState.RUNNING
+                            and isinstance(self._executor, SmoothExecutor)):
+                        command = self._executor.hold(now_ns, state)
+                        command.plan_id = self._timeline.active_plan_id
+                    else:
+                        self._executor.reset(state)
+                        command = self._hold_command(now_ns, state.groups)
+                    # Arm holds retain their measured anchor; a latched gripper
+                    # retains its already-sent command, which can differ at contact.
+                    self._safety.reset(RobotState(
+                        copy_group_vector(command.groups), now_ns, state.sequence,
+                    ))
                 self._safety.validate_command(command)
                 self._robot.send_command(command)
                 previous_command = copy_group_vector(last_command)

@@ -169,6 +169,36 @@ def test_motion_mode_defaults_and_explicit_selection(tmp_path):
         load_config(path)
 
 
+@pytest.mark.parametrize("variant", ["default", "rtc"])
+def test_umi_pass_ball_enables_close_latch_with_shared_motion_limits(variant):
+    config = load_config(f"configs/umi_dp/tianji/infra/pass_ball/{variant}.yaml")
+    gripper = config.execution.smooth.gripper
+    assert gripper.mode == "close_latch"
+    assert (gripper.close_threshold, gripper.open_threshold, gripper.closed_value) == (
+        0.6, 0.75, 0.2,
+    )
+    assert (gripper.min_closed_s, gripper.open_confirm_s) == (0.0, 0.0)
+    assert gripper.group_indices == {"left_arm": 7, "right_arm": 7}
+    assert (gripper.max_velocity, gripper.max_acceleration, gripper.max_closing_velocity) == (
+        3, 12, 1,
+    )
+    assert config.robot.options["execute"] is False
+    assert config.robot.options["gripper_control"] is False
+
+
+@pytest.mark.parametrize("override", [
+    {"closed_value": 0.6}, {"closed_value": 0.7}, {"open_value": 0.7},
+    {"close_threshold": 0.75}, {"open_threshold": float("nan")},
+])
+def test_close_latch_rejects_inconsistent_thresholds(override):
+    from manimux.config import GripperHysteresisConfig
+
+    fields = dict(mode="close_latch", group_indices={"arm": 1},
+                  close_threshold=0.6, open_threshold=0.75, closed_value=0.2)
+    with pytest.raises(ValidationError):
+        GripperHysteresisConfig(**(fields | override))
+
+
 def test_safety_optional_acceleration_validates_every_supplied_group():
     from manimux.config import CommandSafetyConfig
 

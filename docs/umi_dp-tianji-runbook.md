@@ -181,17 +181,50 @@ DDIM sampler with PiGDM or soft inpainting. No joint-space tensor is passed to
 UMI's 20D normalizer. Guidance cost and inline IK must fit the deployed timing
 budget; a finite offline result alone does not prove that budget is met.
 
-The provided profile uses continuous gripper targets. CalibWrist's current
-adapter latches closed below .6, commands .2 while latched, reopens at .75, and
-otherwise retains raw aperture. That differs from this continuous profile and
-from ManiMux's built-in fixed-open-value hysteresis. The model preserves raw
-aperture predictions; gripper latch parity is not claimed. The shared motion
-profile controls rate shaping and command guards independently of this choice.
+Both pass-ball infra templates enable the shared executor's `close_latch` mode:
+
+```yaml
+execution:
+  smooth:
+    gripper:
+      mode: close_latch
+      close_threshold: 0.6
+      open_threshold: 0.75
+      closed_value: 0.2
+```
+
+Each arm starts logically unlatched. A reference aperture strictly below .6
+latches a .2 close target; while latched, values below .75 keep that target.
+A value at least .75 releases the latch and follows the reference aperture,
+without snapping to a fixed open value. For example, `.60, .59, .74, .75`
+produces targets `.60, .20, .20, .75`. The optional `min_closed_s` and
+`open_confirm_s` both default to zero, so reopening has no additional delay.
+`closed_value` is a target, not a mechanical lower bound: starting below .2
+still approaches the target under the configured motion limits.
+
+Latch state advances only on the current executed reference, independently per
+arm. Future horizon rows, discarded candidates and held-arm references cannot
+change it. Plan replacement and inference gaps preserve the latch; gaps also
+hold the last gripper command instead of replacing it with contact feedback.
+Explicit Pause, Home and executor reset clear the logical latch. Active control
+ticks record `gripper_decision` events with `latched_closed`, `desired_aperture`,
+`target_aperture` and `command_aperture`.
+
+The threshold rule matches CalibWrist's current close latch. Its placement
+differs: ManiMux applies it to the current timeline sample after interpolation
+and blending, whereas CalibWrist maps action knots before interpolation. Exact
+transition timing and command-trajectory parity are therefore not claimed.
+The model and stored policy actions preserve raw aperture predictions. Shared
+motion limits, driver grip margin and runtime timing remain separate settings.
+To restore continuous targets, set `mode: continuous` and `closed_value: 0.0`;
+continuous mode uses that value as its lower aperture bound.
 
 ## Validation
 
 ```bash
 .venv/bin/python -m pytest tests/unit/test_umi_dp_tianji.py -q
+.venv/bin/python -m pytest tests/unit/test_executors.py tests/unit/test_config.py \
+  tests/integration/test_mock_run.py -k 'close_latch or umi_pass_ball' -q
 bash -n XPolicyLab/policy/UMI_DP/*.sh
 python -m compileall -q XPolicyLab/policy/UMI_DP
 ```

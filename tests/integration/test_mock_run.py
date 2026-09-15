@@ -491,6 +491,106 @@ def test_decode_latency_is_included_in_commit_expiry(tmp_path: Path) -> None:
     assert any(e.get("reason") == "no_future_horizon" for e in events)
 
 
+@pytest.mark.parametrize("schedule,tracking", [
+    ("single_inflight", "legacy"), ("single_inflight", "braking"), ("serial", "legacy"),
+    ("rtc", "legacy"),
+])
+def test_close_latch_runtime_preserves_squeeze_through_inference_gaps(tmp_path, schedule, tracking):
+    from manimux.config import CommandSafetyConfig, ExecutionConfig, GripperHysteresisConfig
+    from manimux.robots.mock import MockDualArmDriver
+
+    class Clock:
+        now = 0
+
+        def now_ns(self):
+            return self.now
+
+        def sleep_until_ns(self, target_ns):
+            self.now = max(self.now, target_ns)
+
+    clock = Clock()
+
+    class ContactRobot(MockDualArmDriver):
+        def get_state(self):
+            state = super().get_state()
+            for name, values in state.groups.items():
+                values[-1] = max(0.35, values[-1])
+                self._groups[name][-1] = values[-1]
+            return state
+
+    class Worker(_HomeTestWorker):
+        capabilities = PolicyCapabilities(sampling_modes=frozenset({"default", "rtc"}))
+
+        def poll(self):
+            request = self.request
+            if request is None or clock.now < request.observation_time_ns + 350_000_000:
+                return None
+            self.request = None
+            aperture = {1: 0.59, 2: 0.65}.get(request.request_seq, 0.8)
+            # Right arm stays open and never inherits the left arm's latch.
+            groups = {"left_arm": np.tile([0.0, aperture], (20, 1)),
+                      "right_arm": np.tile([0.0, 0.65], (20, 1))}
+            chunk = ActionChunk(
+                f"latch-{request.request_seq}", request.request_seq,
+                request.observation_time_ns, clock.now, "joint_position", 50_000_000, groups,
+            )
+            return InferenceResponse(
+                session_id=request.session_id, request_seq=request.request_seq,
+                observation_time_ns=request.observation_time_ns,
+                finished_time_ns=clock.now, inference_ms=350.0, raw_action=chunk,
+            )
+
+    config = load_config("configs/mock.yaml")
+    config.run.max_steps = 400
+    config.sensors = []
+    config.robot.group_dims = {"left_arm": 2, "right_arm": 2}
+    execution = dict(commit_lead_s=0, blend_steps=0)
+    if schedule == "rtc":
+        execution.update(runtime="rtc", rtc={"min_execute_steps": 13})
+    else:
+        execution["inference_schedule"] = schedule
+    if schedule == "single_inflight":
+        execution["refill_threshold_s"] = 0.001
+    config.execution = ExecutionConfig(**execution)
+    config.execution.smooth.tracking_mode = tracking
+    config.execution.smooth.gripper = GripperHysteresisConfig(
+        mode="close_latch", group_indices={"left_arm": 1, "right_arm": 1},
+        close_threshold=0.6, open_threshold=0.75, closed_value=0.2,
+        max_velocity=3.0, max_acceleration=12.0, max_closing_velocity=1.0,
+    )
+    config.execution.command_safety = CommandSafetyConfig(
+        position_lower={name: [-3.0, 0.0] for name in config.robot.group_dims},
+        position_upper={name: [3.0, 1.0] for name in config.robot.group_dims},
+        max_velocity={name: [3.0, 3.3333333333333335] for name in config.robot.group_dims},
+    )
+    runtime = EdgeRuntime(config, tmp_path, clock=clock)
+    robot = ContactRobot(config.robot.group_dims, clock)
+    for name in config.robot.group_dims:
+        robot._groups[name][-1] = robot._target[name][-1] = 0.65
+    runtime._robot, runtime._worker, runtime._viewer = robot, Worker(), _AutoRunningViewer()
+    result = runtime.run()
+    assert result.success and result.accepted_plans >= 3
+    events = [json.loads(line) for line in
+              (result.episode_dir / "events.jsonl").read_text().splitlines()]
+    decisions = [e for e in events if e["kind"] == "gripper_decision"]
+    second = [e for e in decisions if e["plan_id"] == "latch-2"]
+    third = [e for e in decisions if e["plan_id"] == "latch-3"]
+    assert second and third
+    assert all(e["groups"]["left_arm"]["target_aperture"] == 0.2 for e in second)
+    np.testing.assert_allclose([e["groups"]["left_arm"]["target_aperture"] for e in third], 0.8)
+    assert all(not e["groups"]["left_arm"]["latched_closed"] for e in third)
+    assert all(not e["groups"]["right_arm"]["latched_closed"] for e in decisions)
+    data = zarr.open_group(str(result.episode_dir / "data.zarr"), mode="r")
+    times = data["ticks/monotonic_ns"][:]
+    commands = data["ticks/command/left_arm"][:, -1]
+    after_settle = times >= second[0]["monotonic_ns"]
+    before_reopen = times < third[0]["monotonic_ns"]
+    # Includes the gap after the second plan, where measured aperture is 0.35.
+    assert np.max(commands[after_settle & before_reopen]) < 0.22
+    assert np.max(np.abs(np.diff(commands)) / 0.01) <= 3.0 + 1e-8
+    assert commands[-1] == pytest.approx(0.8, abs=0.01)
+
+
 def test_braking_runtime_keeps_50_predictions_and_executes_25_step_prefix(tmp_path: Path):
     config = load_config('configs/mock.yaml')
     config.run.max_steps = 180

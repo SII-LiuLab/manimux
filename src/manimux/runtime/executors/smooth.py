@@ -80,6 +80,10 @@ class SmoothExecutor:
         return bool(self._gripper_events)
 
     @property
+    def uses_close_latch(self) -> bool:
+        return self._gripper is not None and self._gripper.mode == "close_latch"
+
+    @property
     def horizon_steps(self) -> int:
         return 2
 
@@ -92,6 +96,9 @@ class SmoothExecutor:
         if self._previous is None or self._previous_velocity is None:
             self.reset(state)
         assert self._previous is not None and self._previous_velocity is not None
+        if self.uses_close_latch:
+            # Missing predictions cannot count toward a confirmed reopen.
+            self._gripper_open_candidate_ns = dict.fromkeys(self._gripper_closed)
         if self.has_pending_gripper_event:
             # A validated gripper-event target survives ordinary inference gaps. Other
             # groups still brake; Pause/Home call reset and cancel pending events.
@@ -118,7 +125,27 @@ class SmoothExecutor:
             self._previous_velocity[name] = next_velocity
         return RobotCommand(copy_group_vector(self._previous), now_ns, plan_id=None)
 
-    def reset(self, state: RobotState) -> None:
+    def hold(self, now_ns: int, state: RobotState) -> RobotCommand:
+        """Reanchor motion during an inference gap, retaining a close latch.
+
+        Arms follow the caller's hold state. A close-latch gripper keeps its
+        last command, so contact feedback cannot remove the commanded squeeze.
+        """
+        groups = copy_group_vector(state.groups)
+        if self.uses_close_latch and self._previous is not None:
+            assert self._gripper is not None
+            for name, index in self._gripper.group_indices.items():
+                groups[name][index] = self._previous[name][index]
+        self.reset(
+            RobotState(groups, now_ns, state.sequence), preserve_gripper_latch=True,
+        )
+        return RobotCommand(groups, now_ns, plan_id=None)
+
+    def reset(self, state: RobotState, *, preserve_gripper_latch: bool = False) -> None:
+        # Only inference holds preserve the logical state. Explicit reset,
+        # Pause and Home start unlatched, independently of measured aperture.
+        latched = self._gripper_closed if preserve_gripper_latch and self.uses_close_latch else {}
+        closed_since = self._gripper_closed_since_ns
         self._previous = copy_group_vector(state.groups)
         self._previous_velocity = {
             name: np.zeros_like(value) for name, value in state.groups.items()
@@ -142,7 +169,10 @@ class SmoothExecutor:
                     f"smooth gripper index {index} is outside group {name!r} "
                     f"with dimension {len(state.groups[name])}"
                 )
-            closed = bool(state.groups[name][index] <= self._gripper.close_threshold)
+            closed = (
+                latched.get(name, False) if self.uses_close_latch
+                else bool(state.groups[name][index] <= self._gripper.close_threshold)
+            )
             self._gripper_closed[name] = closed
             self._release_armed[name] = bool(
                 state.groups[name][index] <= self._gripper.close_threshold
@@ -151,6 +181,8 @@ class SmoothExecutor:
                 state.groups[name][index] >= self._gripper.open_threshold
             )
             self._gripper_closed_since_ns[name] = state.monotonic_ns if closed else None
+            if closed and self.uses_close_latch:
+                self._gripper_closed_since_ns[name] = closed_since.get(name, state.monotonic_ns)
             self._gripper_open_candidate_ns[name] = None
 
     def _shape_grippers(
@@ -171,6 +203,8 @@ class SmoothExecutor:
             if name in reference.hold_groups:
                 output[name][index] = self._previous[name][index]
                 velocities[name][index] = 0.0
+                if self.uses_close_latch:
+                    self._gripper_open_candidate_ns[name] = None
                 event = self._gripper_events.get(name)
                 if event is None or event.phase != "await_replan":
                     self.gripper_diagnostics[name] = {
@@ -195,7 +229,11 @@ class SmoothExecutor:
                     )
                 )
             else:
-                if not closed and desired <= self._gripper.close_threshold:
+                close_requested = (
+                    desired < self._gripper.close_threshold if self.uses_close_latch
+                    else desired <= self._gripper.close_threshold
+                )
+                if not closed and close_requested:
                     closed = True
                     self._gripper_closed[name] = True
                     self._gripper_closed_since_ns[name] = now_ns
@@ -210,7 +248,10 @@ class SmoothExecutor:
                         candidate = self._gripper_open_candidate_ns[name]
                         if candidate is None:
                             self._gripper_open_candidate_ns[name] = now_ns
-                        elif now_ns - candidate >= open_confirm_ns:
+                        if (
+                            (candidate is not None and now_ns - candidate >= open_confirm_ns)
+                            or (self.uses_close_latch and open_confirm_ns == 0)
+                        ):
                             closed = False
                             self._gripper_closed[name] = False
                             self._gripper_closed_since_ns[name] = None
@@ -219,7 +260,8 @@ class SmoothExecutor:
                         self._gripper_open_candidate_ns[name] = None
 
                 goal = (
-                    self._gripper.closed_value if closed else self._gripper.open_value
+                    self._gripper.closed_value if closed
+                    else desired if self.uses_close_latch else self._gripper.open_value
                 )
             previous = float(self._previous[name][index])
             previous_velocity = float(self._previous_velocity[name][index])
@@ -237,11 +279,19 @@ class SmoothExecutor:
             output[name][index] = float(
                 np.clip(
                     command,
-                    self._gripper.closed_value,
+                    # A close setpoint is not a mechanical lower bound. Starting
+                    # below it must still respect the velocity/acceleration limits.
+                    0.0 if self.uses_close_latch else self._gripper.closed_value,
                     self._gripper.open_value,
                 )
             )
             velocities[name][index] = velocity
+            if self.uses_close_latch:
+                self.gripper_diagnostics[name] = {
+                    "mode": "close_latch", "latched_closed": closed,
+                    "desired_aperture": desired, "target_aperture": goal,
+                    "command_aperture": float(output[name][index]),
+                }
 
     @staticmethod
     def _rotation_error(actual: np.ndarray, target: np.ndarray) -> float:

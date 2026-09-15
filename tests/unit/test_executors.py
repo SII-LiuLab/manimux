@@ -312,6 +312,112 @@ def test_smooth_executor_latches_gripper_closed_across_noisy_open_requests() -> 
     assert opened.groups["left_arm"][1] > candidate.groups["left_arm"][1]
 
 
+def _close_latch_executor(*, tracking_mode="legacy", **options):
+    gripper = {
+        "mode": "close_latch", "group_indices": {"left_arm": 1, "right_arm": 1},
+        "close_threshold": 0.6, "open_threshold": 0.75, "closed_value": 0.2,
+        "max_velocity": None, "max_acceleration": None,
+    }
+    gripper.update(options)
+    return SmoothExecutor(
+        SmoothConfig(tracking_mode=tracking_mode, gripper=GripperHysteresisConfig(**gripper)),
+        control_dt_s=0.01,
+    )
+
+
+def _gripper_reference(left, right=None, *, plan_id="plan", hold_groups=()):
+    return ActionHorizon(
+        0, 10_000_000, plan_id,
+        {"left_arm": np.tile([0.0, left], (2, 1)),
+         "right_arm": np.tile([0.0, left if right is None else right], (2, 1))},
+        hold_groups=hold_groups,
+    )
+
+
+def test_close_latch_thresholds_raw_open_and_independent_arms_across_plans():
+    executor = _close_latch_executor()
+    state = _state()  # Closed feedback must not seed the logical latch.
+    inputs = [(0.6, 0.59), (0.59, 0.6), (0.74, 0.75), (0.75, 0.65), (0.65, 0.3)]
+    expected = [(0.6, 0.2), (0.2, 0.2), (0.2, 0.75), (0.75, 0.65), (0.65, 0.2)]
+    for tick, ((left, right), targets) in enumerate(zip(inputs, expected, strict=True)):
+        command = executor.step(
+            tick * 10_000_000, state, _gripper_reference(left, right, plan_id=str(tick)),
+        )
+        np.testing.assert_allclose(
+            [command.groups[name][1] for name in state.groups], targets,
+        )
+
+
+def test_close_latch_ignores_future_rows_and_held_arm_signals():
+    executor = _close_latch_executor(tracking_mode="braking")
+    state = _state()
+    reference = _gripper_reference(0.65, 0.3)
+    reference.groups["left_arm"][1, 1] = 0.1  # Unexecuted future close.
+    reference.groups["right_arm"][1, 1] = 1.0  # Unexecuted future reopen.
+    executor.step(0, state, reference)
+    held = executor.step(10_000_000, state, _gripper_reference(
+        0.59, 0.9, plan_id="replacement", hold_groups=("right_arm",),
+    ))
+    np.testing.assert_allclose([held.groups[name][1] for name in state.groups], [0.2, 0.2])
+    resumed = executor.step(20_000_000, state, _gripper_reference(0.7))
+    assert all(values[1] == pytest.approx(0.2) for values in resumed.groups.values())
+    # The open left state in the initial reference must also survive a new plan
+    # when no actual close sample was executed.
+    executor.reset(state)
+    executor.step(0, state, reference)
+    replaced = executor.step(10_000_000, state, _gripper_reference(0.65, plan_id="new"))
+    np.testing.assert_allclose([replaced.groups[name][1] for name in state.groups], [0.65, 0.2])
+
+
+@pytest.mark.parametrize("gap_method", ["hold", "brake_hold"])
+def test_close_latch_survives_gap_with_contact_feedback_and_clears_on_reset(gap_method):
+    executor = _close_latch_executor()
+    state = _state()
+    executor.step(0, state, _gripper_reference(0.59, 0.9))
+    for values in state.groups.values():
+        values[1] = 0.35  # A held object prevents reaching the close target.
+    held = getattr(executor, gap_method)(10_000_000, state)
+    np.testing.assert_allclose([held.groups[name][1] for name in state.groups], [0.2, 0.9])
+    resumed = executor.step(20_000_000, state, _gripper_reference(0.65, plan_id="resumed"))
+    np.testing.assert_allclose([resumed.groups[name][1] for name in state.groups], [0.2, 0.65])
+    executor.reset(state)
+    restarted = executor.step(30_000_000, state, _gripper_reference(0.65))
+    assert all(values[1] == pytest.approx(0.65) for values in restarted.groups.values())
+
+
+def test_close_latch_reopen_honors_optional_hold_and_confirmation_times():
+    executor = _close_latch_executor(min_closed_s=0.1, open_confirm_s=0.02)
+    state = _state()
+    executor.step(0, state, _gripper_reference(0.59))
+    for now, desired, expected in (
+        (90_000_000, 0.9, 0.2), (100_000_000, 0.9, 0.2),
+        (110_000_000, 0.74, 0.2), (120_000_000, 0.8, 0.2),
+        (130_000_000, 0.8, 0.2), (140_000_000, 0.8, 0.8),
+    ):
+        command = executor.step(now, state, _gripper_reference(desired))
+        assert command.groups["left_arm"][1] == pytest.approx(expected)
+
+
+@pytest.mark.parametrize("initial", [0.0, 0.1, 0.35, 1.0])
+def test_close_latch_retains_motion_limits_even_below_closed_setpoint(initial):
+    executor = _close_latch_executor(
+        max_velocity=3.0, max_acceleration=12.0, max_closing_velocity=1.0,
+    )
+    state = _state()
+    for values in state.groups.values():
+        values[1] = initial
+    command_positions = [initial]
+    for tick in range(160):
+        command = executor.step(tick * 10_000_000, state, _gripper_reference(0.4))
+        command_positions.append(command.groups["left_arm"][1])
+    velocities = np.diff(command_positions) / 0.01
+    assert velocities.min() >= -1.0 - 1e-9
+    assert velocities.max() <= 3.0 + 1e-9
+    assert np.max(np.abs(np.diff(np.r_[0.0, velocities]) / 0.01)) <= 12.0 + 1e-8
+    assert command_positions[-1] == pytest.approx(0.2, abs=0.01)
+    assert executor.gripper_diagnostics["left_arm"]["latched_closed"] is True
+
+
 def test_smooth_executor_continuous_gripper_has_independent_limits() -> None:
     executor = SmoothExecutor(
         SmoothConfig(

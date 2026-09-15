@@ -106,7 +106,7 @@ class MotionLimitsConfig(StrictModel):
 class GripperHysteresisConfig(StrictModel):
     """Optional last-mile shaping for grippers embedded in joint groups."""
 
-    mode: Literal["hysteresis", "continuous"] = "hysteresis"
+    mode: Literal["hysteresis", "continuous", "close_latch"] = "hysteresis"
     group_indices: dict[str, int]
     close_threshold: float = Field(default=0.35, ge=0.0, le=1.0)
     open_threshold: float = Field(default=0.85, ge=0.0, le=1.0)
@@ -130,6 +130,12 @@ class GripperHysteresisConfig(StrictModel):
             raise ValueError("gripper close_threshold must be below open_threshold")
         if self.closed_value >= self.open_value:
             raise ValueError("gripper closed_value must be below open_value")
+        if self.mode == "close_latch" and not (
+            self.closed_value < self.close_threshold < self.open_threshold <= self.open_value
+        ):
+            raise ValueError(
+                "close_latch requires closed_value < close_threshold < open_threshold <= open_value"
+            )
         return self
 
 
