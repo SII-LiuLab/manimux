@@ -17,6 +17,7 @@ import numpy as np
 
 from ..camera.interface import CameraDriver, CameraFrame
 from ..config import StationConfig
+from .control_timing import recording_snapshot, stage, summarize
 from .formats import get_writer
 from .schema import (
     SCHEMA_VERSION,
@@ -37,7 +38,9 @@ from .schema import (
 
 def task_slug(task_name: str | None) -> str:
     """Filesystem-safe task folder name. Falls back to 'untitled'."""
-    s = "".join(ch if (ch.isalnum() or ch in "-_") else "_" for ch in (task_name or "").strip().lower())
+    s = "".join(
+        ch if (ch.isalnum() or ch in "-_") else "_" for ch in (task_name or "").strip().lower()
+    )
     s = "_".join(filter(None, s.split("_")))  # collapse repeats
     return s or "untitled"
 
@@ -51,8 +54,11 @@ class EpisodeRecorder:
         arm_names: list[str],
         writer_name: str | None = None,
         backend=None,
+        native_sources_factory=None,
     ):
         self.backend = backend
+        self._native_sources_factory = native_sources_factory
+        self._native_recording = None
         self.save_root = Path(save_root)
         self.station = station
         self.cameras = cameras
@@ -68,9 +74,60 @@ class EpisodeRecorder:
         self.is_saving = False
         self._buf: dict[str, list] | None = None
         self._dir: Path | None = None
+        self._pending_save = None
+        self._control_timings: list[dict] = []
         # Guards start/tick/stop/abort: the control-loop thread calls tick()
         # concurrently with the GUI thread calling start()/stop().
         self._lock = threading.Lock()
+        self.independent_cameras = station.collection_hz is not None
+        self._camera_workers = list(cameras)
+        self._camera_error: str | None = None
+        self._start_ns = 0
+
+    def set_camera_workers(self, workers) -> None:
+        if self.is_recording:
+            raise RuntimeError("cannot replace camera workers during recording")
+        self._camera_workers = list(workers)
+
+    def capture_frame(self, name: str, frame: CameraFrame) -> None:
+        """Called once per new camera frame, outside the robot control thread.
+
+        Drivers can reuse their image buffers. Copy on the capture thread before
+        its next read, and only hold the recorder lock when appending references.
+        A generation check prevents an in-flight old frame entering a new episode.
+        """
+        with self._lock:
+            if not self.is_recording or not self.independent_cameras:
+                return
+            generation = self._buf
+            cam = next(c for c in self.cameras if c.name == name)
+        try:
+            timestamp_ms = float(frame.timestamp_ms)
+            if not np.isfinite(timestamp_ms):
+                raise ValueError("nonfinite frame timestamp")
+            copies = {k: np.array(frame.images[k], copy=True) for k in cam.image_keys()}
+            with self._lock:
+                if not self.is_recording or generation is not self._buf:
+                    return
+                if timestamp_ms * 1e6 < self._start_ns:
+                    return
+                times = self._buf[cam_timestamp_key(cam.role)]
+                if times and timestamp_ms < times[-1]:
+                    raise ValueError("camera timestamps went backwards")
+                if times and timestamp_ms == times[-1]:
+                    return  # the same capture must never become a new video frame
+                for key, value in copies.items():
+                    self._buf[cam_image_key(cam.role, key)].append(value)
+                times.append(timestamp_ms)
+        except Exception as exc:
+            with self._lock:
+                if generation is self._buf:
+                    self._camera_error = f"camera {name}: {type(exc).__name__}: {exc}"
+
+    def _detach_cameras(self) -> None:
+        if self.independent_cameras:
+            for worker in self._camera_workers:
+                worker.remove_frame_listener(self.capture_frame)
 
     def start(
         self,
@@ -78,10 +135,21 @@ class EpisodeRecorder:
         include_eepose: bool = False,
         save_root: str | Path | None = None,
         writer_name: str | None = None,
+        record_native_joints: bool | None = None,
     ) -> Path:
         with self._lock:
             if self.is_recording or self.is_saving:
                 raise RuntimeError("already recording or saving the previous episode")
+            if self.independent_cameras and any(
+                not callable(getattr(w, "add_frame_listener", None))
+                for w in self._camera_workers
+            ):
+                raise ValueError(
+                    "independent recording requires CameraWorkers; attach the control loop first"
+                )
+            if record_native_joints is None:
+                record_native_joints = self.station.record_native_joints
+            self.station.record_native_joints = record_native_joints
             if save_root is not None:
                 self.save_root = Path(save_root).expanduser()
             if writer_name is not None and writer_name != self.writer_name:
@@ -93,7 +161,24 @@ class EpisodeRecorder:
             # and the converters/Review can target one task at a time.
             self._dir = self.save_root / task_slug(task_name) / f"{ts}_{uuid.uuid4().hex[:8]}"
             self._dir.mkdir(parents=True, exist_ok=True)
+            if record_native_joints:
+                try:
+                    from .native_joints import NativeJointRecording
+
+                    if self._native_sources_factory is None:
+                        raise RuntimeError("native joint recording is unavailable for this session")
+                    capture = NativeJointRecording(self._native_sources_factory())
+                    capture.start(self._dir)
+                    self._native_recording = capture
+                except BaseException:
+                    shutil.rmtree(self._dir, ignore_errors=True)
+                    self._dir = None
+                    raise
             self._buf = {}
+            self._control_timings = []
+            if self.independent_cameras:
+                self._buf["tick-timestamp-ns"] = []
+                self._buf["tick-monotonic-ns"] = []
             for arm in self.arms:
                 self._buf[joint_pos_key(arm)] = []
                 self._buf[gripper_pos_key(arm)] = []
@@ -110,9 +195,14 @@ class EpisodeRecorder:
             self.include_eepose = bool(include_eepose)
             self.last_stop_warning = None
             self.frame_count = 0
+            self._camera_error = None
+            self._start_ns = time.time_ns()
             if self.backend is not None:
                 self.backend.start_trace()
             self.is_recording = True
+            if self.independent_cameras:
+                for worker in self._camera_workers:
+                    worker.add_frame_listener(self.capture_frame)
             return self._dir
 
     def tick(
@@ -121,64 +211,118 @@ class EpisodeRecorder:
         obs: dict[str, dict[str, np.ndarray]],
         frames: dict[str, CameraFrame],
         controller_inputs: dict[str, dict] | None = None,
+        tick_timestamp_ns: int | None = None,
+        tick_monotonic_ns: int | None = None,
     ) -> None:
         """Record one step. ``actions``/``obs`` are keyed by arm name; the camera
         streams are shared across arms."""
-        with self._lock:
+        with stage("record_lock_wait"):
+            self._lock.acquire()
+        try:
             if not self.is_recording or self._buf is None:
                 return
-            for arm in self.arms:
-                action = np.asarray(actions[arm], dtype=np.float64).reshape(-1)
-                o = obs[arm]
-                self._buf[joint_pos_key(arm)].append(
-                    np.asarray(o["joint_pos"], dtype=np.float64)
-                )
-                self._buf[gripper_pos_key(arm)].append(
-                    np.asarray(o["gripper_pos"], dtype=np.float64)
-                )
-                self._buf[action_joint_key(arm)].append(action[: self.n].copy())
-                self._buf[action_gripper_key(arm)].append(action[self.n : self.n + 1].copy())
-                controller = (controller_inputs or {}).get(arm)
-                # Non-YAM/custom robots may not expose the diagnostic hook.  Keep
-                # recording compatible by falling back to the applied action;
-                # metadata marks whether samples came from the controller hook.
-                controller_joint = (
-                    np.asarray(controller["joint_pos"], dtype=np.float64).reshape(-1)[: self.n]
-                    if controller is not None
-                    else action[: self.n]
-                )
-                controller_ts = (
-                    int(controller["timestamp_ns"])
-                    if controller is not None
-                    else time.time_ns()
-                )
-                feedback_ts = int(o.get("feedback_timestamp_ns", time.time_ns()))
-                self._buf[controller_joint_key(arm)].append(controller_joint.copy())
-                self._buf[controller_timestamp_key(arm)].append(np.int64(controller_ts))
-                self._buf[feedback_timestamp_key(arm)].append(np.int64(feedback_ts))
-            for cam in self.cameras:
-                fr = frames[cam.name]
-                for k in cam.image_keys():
-                    # Copy: camera drivers may reuse one buffer across reads, so
-                    # storing the reference would alias every frame to the latest.
-                    self._buf[cam_image_key(cam.role, k)].append(
-                        np.array(fr.images[k], copy=True)
+            with stage("record_buffer"):
+                if self._camera_error is not None:
+                    raise RuntimeError(self._camera_error)
+                if self.independent_cameras:
+                    self._buf["tick-timestamp-ns"].append(np.int64(
+                        time.time_ns() if tick_timestamp_ns is None else tick_timestamp_ns
+                    ))
+                    self._buf["tick-monotonic-ns"].append(np.int64(
+                        time.monotonic_ns() if tick_monotonic_ns is None else tick_monotonic_ns
+                    ))
+                for arm in self.arms:
+                    action = np.asarray(actions[arm], dtype=np.float64).reshape(-1)
+                    o = obs[arm]
+                    self._buf[joint_pos_key(arm)].append(
+                        np.asarray(o["joint_pos"], dtype=np.float64)
                     )
-                self._buf[cam_timestamp_key(cam.role)].append(float(fr.timestamp_ms))
-            self.frame_count += 1
+                    self._buf[gripper_pos_key(arm)].append(
+                        np.asarray(o["gripper_pos"], dtype=np.float64)
+                    )
+                    self._buf[action_joint_key(arm)].append(action[: self.n].copy())
+                    self._buf[action_gripper_key(arm)].append(action[self.n : self.n + 1].copy())
+                    controller = (controller_inputs or {}).get(arm)
+                    # Non-YAM/custom robots may not expose the diagnostic hook.  Keep
+                    # recording compatible by falling back to the applied action;
+                    # metadata marks whether samples came from the controller hook.
+                    controller_joint = (
+                        np.asarray(controller["joint_pos"], dtype=np.float64).reshape(-1)[: self.n]
+                        if controller is not None
+                        else action[: self.n]
+                    )
+                    controller_ts = (
+                        int(controller["timestamp_ns"])
+                        if controller is not None
+                        else time.time_ns()
+                    )
+                    feedback_ts = int(o.get("feedback_timestamp_ns", time.time_ns()))
+                    self._buf[controller_joint_key(arm)].append(controller_joint.copy())
+                    self._buf[controller_timestamp_key(arm)].append(np.int64(controller_ts))
+                    self._buf[feedback_timestamp_key(arm)].append(np.int64(feedback_ts))
+                for cam in (() if self.independent_cameras else self.cameras):
+                    fr = frames[cam.name]
+                    for k in cam.image_keys():
+                        # Copy: camera drivers may reuse one buffer across reads, so
+                        # storing the reference would alias every frame to the latest.
+                        self._buf[cam_image_key(cam.role, k)].append(
+                            np.array(fr.images[k], copy=True)
+                        )
+                    self._buf[cam_timestamp_key(cam.role)].append(float(fr.timestamp_ms))
+                self.frame_count += 1
+            timing = recording_snapshot()
+            if timing is not None:
+                timing["tick_timestamp_ns"] = tick_timestamp_ns
+                timing["tick_monotonic_ns"] = tick_monotonic_ns
+                timing["sample_index"] = self.frame_count - 1
+                self._control_timings.append(timing)
+        finally:
+            self._lock.release()
 
-    def stop(self) -> Path:
+    def freeze(self) -> None:
+        """End capture now; defer encoding/writing until stop() is called.
+
+        Replay uses this to exclude Home from the trial without running a video
+        encoder while the robot is still away from its verified Home position.
+        """
         with self._lock:
+            if self._pending_save is not None:
+                return
             if not self.is_recording or self._buf is None or self._dir is None:
                 raise RuntimeError("not recording")
             # Freeze recording first so any in-flight tick() is a no-op.
             self.is_recording = False
+            self._detach_cameras()
             self.is_saving = True
+            native = self._native_recording
+            self._native_recording = None
+            if native is not None:
+                native.request_stop()
             trace = self.backend.finish_trace() if self.backend is not None else []
             buf, out_dir = self._buf, self._dir
             # Capture inside the lock, before a concurrent start() can reset them.
             frame_count, task_name = self.frame_count, self.task_name
             include_eepose = self.include_eepose
+            self._pending_save = (
+                native, trace, buf, out_dir, frame_count, task_name, include_eepose,
+                self._control_timings,
+            )
+
+    def stop(self) -> Path:
+        self.freeze()
+        with self._lock:
+            if self._pending_save is None:
+                raise RuntimeError("recording is already being saved")
+            (native, trace, buf, out_dir, frame_count, task_name,
+             include_eepose, control_timings) = self._pending_save
+            self._pending_save = None
+
+        try:
+            native_meta = native.stop() if native is not None else None
+        except BaseException:
+            with self._lock:
+                self.is_saving = False
+            raise
 
         if frame_count == 0:
             shutil.rmtree(out_dir, ignore_errors=True)
@@ -200,6 +344,40 @@ class EpisodeRecorder:
                     out[key] = np.stack(val) if val else np.empty((0,))
 
             extra = {}
+            if control_timings:
+                with (out_dir / "control-timing.jsonl").open("w", encoding="utf-8") as handle:
+                    for row in control_timings:
+                        handle.write(json.dumps(row) + "\n")
+                extra["control_timing"] = {
+                    "file": "control-timing.jsonl", "schema_version": 2,
+                    "clock": "monotonic nanoseconds; offsets relative to cycle_monotonic_ns",
+                    "scope": "SDK call durations, not CAN reception or physical command latency; "
+                             "nested stages overlap; work ends after sample buffering; "
+                             "period is current cycle start minus previous cycle start; "
+                             "cpu_ns is calling-thread CPU time; wall minus CPU includes "
+                             "waiting and descheduling; previous_pacing describes the named "
+                             "preceding cycle, not the current sample",
+                    **summarize(control_timings),
+                }
+            if self.independent_cameras:
+                from .timing import describe_timing
+
+                extra["timing"] = describe_timing(
+                    out, self.arms, self.cameras, self.station.control_hz,
+                )
+                if self._camera_error:
+                    extra["timing"]["camera_error"] = self._camera_error
+                    self.last_stop_warning = self._camera_error
+            if native_meta is not None:
+                extra["native_joints"] = {
+                    "metadata": "native_joints/metadata.json",
+                    "complete": native_meta["complete"],
+                }
+                if not native_meta["complete"]:
+                    self.last_stop_warning = (
+                        "Native joint recording has gaps or errors; "
+                        "inspect native_joints/metadata.json"
+                    )
             if self.backend is not None:
                 extra["manimux"] = self.backend.metadata()
                 extra["manimux"]["station"] = asdict(self.station)
@@ -222,13 +400,16 @@ class EpisodeRecorder:
                     out, eepose_meta = add_eepose_buffers(out, self.station, self.arms)
                     extra["eepose"] = eepose_meta
                 except Exception as exc:  # keep irreplaceable raw episode data
-                    self.last_stop_warning = f"EE pose generation failed: {type(exc).__name__}: {exc}"
+                    warning = f"EE pose generation failed: {type(exc).__name__}: {exc}"
+                    self.last_stop_warning = "; ".join(
+                        message for message in (self.last_stop_warning, warning) if message
+                    )
                     logging.exception(self.last_stop_warning)
                     extra["eepose"] = {"enabled": True, "saved": False, "error": str(exc)}
 
             meta = EpisodeMeta(
                 yam_abc_reproduce_version=_yam_abc_reproduce_version(),
-                schema_version=SCHEMA_VERSION,
+                schema_version=2 if self.independent_cameras else SCHEMA_VERSION,
                 created_at=time.strftime("%Y-%m-%dT%H:%M:%S"),
                 task_name=task_name or "",
                 arm_names=self.arms,
@@ -257,11 +438,18 @@ class EpisodeRecorder:
             if not self.is_recording:
                 return None
             self.is_recording = False
+            self._detach_cameras()
             if self.backend is not None:
                 self.backend.finish_trace()
+            native = self._native_recording
+            self._native_recording = None
+            if native is not None:
+                native.request_stop()
             out_dir = self._dir
             self._buf = None
             self._dir = None
+        if native is not None:
+            native.stop()
         if out_dir is not None and out_dir.exists():
             shutil.rmtree(out_dir, ignore_errors=True)
         return out_dir

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import numpy as np
 
 from manimux.config import MotionLimitsConfig
@@ -21,6 +23,12 @@ class DirectExecutor:
     @property
     def horizon_steps(self) -> int:
         return 2
+
+    def set_control_period(self, control_dt_s: float) -> None:
+        """Change timing while retaining command and velocity history."""
+        if not math.isfinite(control_dt_s) or control_dt_s <= 0:
+            raise ValueError("control_dt_s must be finite and positive")
+        self._dt_s = control_dt_s
 
     def reset(self, state: RobotState) -> None:
         self._previous = copy_group_vector(state.groups)

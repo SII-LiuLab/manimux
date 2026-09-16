@@ -269,9 +269,13 @@ class StationConfig:
     robot: RobotConfig = field(default_factory=RobotConfig)
     cameras: list[CameraConfig] = field(default_factory=list)
     control_hz: float = 30.0
+    # Optional collection-only timing override. Also enables independent camera
+    # recording (schema v2); shared deployment/model timing stays unchanged.
+    collection_hz: float | None = None
     save_root: str = "data/episodes"
     task_name: str = "pick_and_place"
     data_format: str = "default"  # default on-disk format for new episodes
+    record_native_joints: bool = False  # independent per-motor feedback sidecars
     # Pose the followers ramp to before a policy takes over, so its first observation
     # is in-distribution. Per-arm ``[joints..., gripper]`` concatenated in ``robots``
     # order -- the same layout as the policy state vector, so 14 values for a 2-arm YAM
@@ -282,10 +286,17 @@ class StationConfig:
     def __post_init__(self):
         if self.collector != "yam":
             raise ValueError("YAM station requires collector: yam")
+        if not isinstance(self.record_native_joints, bool):
+            raise ValueError("record_native_joints must be true or false")
         if self.execution_mode not in {"synchronous", "threaded"}:
             raise ValueError("execution_mode must be synchronous or threaded")
         if not math.isfinite(self.control_hz) or self.control_hz <= 0:
             raise ValueError("control_hz must be finite and positive")
+        if self.collection_hz is not None:
+            if (isinstance(self.collection_hz, bool)
+                    or not math.isfinite(self.collection_hz) or self.collection_hz <= 0):
+                raise ValueError("collection_hz must be finite and positive")
+            self.control_hz = float(self.collection_hz)
 
 
 def load_yaml(path: str | Path) -> dict[str, Any]:
@@ -339,9 +350,10 @@ def _apply_control_profile(station: StationConfig, raw: dict) -> None:
     if runtime.control_profile is None:
         return
     frequency = 1.0 / runtime.policy.effective_action_dt_s
-    if "control_hz" in raw and not math.isclose(station.control_hz, frequency, rel_tol=1e-9):
+    if (station.collection_hz is None and "control_hz" in raw
+            and not math.isclose(station.control_hz, frequency, rel_tol=1e-9)):
         raise ValueError("station control_hz conflicts with control_profile")
-    station.control_hz = frequency
+    station.control_hz = station.collection_hz or frequency
     raw_robot = raw.get("robot", {})
     shared = runtime.robot.options
     if runtime.execution.motion_limits is not None:

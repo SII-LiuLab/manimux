@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from enum import StrEnum
 
 import numpy as np
@@ -52,6 +53,12 @@ class SafetyGuard:
         self._control_dt_s = control_dt_s
         self._previous_command: dict[str, FloatArray] | None = None
         self._previous_velocity: dict[str, FloatArray] | None = None
+
+    def set_control_period(self, control_dt_s: float) -> None:
+        """Retain command history; express the next rate check at the new period."""
+        if not math.isfinite(control_dt_s) or control_dt_s <= 0:
+            raise ValueError("control_dt_s must be finite and positive")
+        self._control_dt_s = control_dt_s
 
     def _normalize_limits(
         self, name: str, values: dict[str, list[float]] | None

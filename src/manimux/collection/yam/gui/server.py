@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
+from dataclasses import replace
 from pathlib import Path
 
 from fastapi import Body, FastAPI, HTTPException, Response, WebSocket, WebSocketDisconnect
@@ -38,6 +39,7 @@ from ..robot.can_bus import list_can_interfaces
 from . import convert_progress, gpus
 from .jobs import JobManager
 from .schemas import (
+    CollectionTiming,
     CreateJob,
     DeployStart,
     RecordingOptions,
@@ -89,7 +91,10 @@ def create_app(
         if station_path is None:
             return session.cfg
         try:
-            return build_station_config(station_path, cameras_path)
+            loaded = build_station_config(station_path, cameras_path)
+            if session.collection_hz_override is not None:
+                loaded = replace(loaded, collection_hz=session.collection_hz_override)
+            return loaded
         except Exception:
             return session.cfg
 
@@ -240,6 +245,16 @@ def create_app(
         session.stop_teleop()
         return session.status()
 
+    @app.post("/api/collect/timing")
+    def collection_timing(body: CollectionTiming):
+        try:
+            session.set_collection_hz(body.collection_hz)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        except RuntimeError as e:
+            raise HTTPException(status_code=409, detail=str(e)) from e
+        return session.status()
+
     @app.post("/api/collect/start-recording")
     def start_recording(body: StartRecording):
         try:
@@ -248,6 +263,7 @@ def create_app(
                 include_eepose=body.include_eepose,
                 save_root=body.save_root,
                 data_format=body.data_format,
+                record_native_joints=body.record_native_joints,
             )
         except RuntimeError as e:  # recorder not built yet (before go-live)
             raise HTTPException(status_code=409, detail=str(e))
@@ -259,10 +275,15 @@ def create_app(
 
     @app.post("/api/collect/recording-options")
     def recording_options(body: RecordingOptions):
-        if session.recorder is not None and session.recorder.is_recording:
+        if session.recorder is not None and (
+            session.recorder.is_recording or session.recorder.is_saving
+        ):
             raise HTTPException(status_code=409, detail="recording options are locked during an episode")
         if body.include_eepose is not None:
             session.record_eepose = body.include_eepose
+        if body.record_native_joints is not None:
+            session.record_native_joints = body.record_native_joints
+            session.cfg.record_native_joints = body.record_native_joints
         if body.save_root is not None:
             save_root = body.save_root.strip()
             if not save_root:
@@ -278,6 +299,7 @@ def create_app(
             session.set_recording_task_name(body.task_name)
         return {
             "include_eepose": session.record_eepose,
+            "record_native_joints": session.record_native_joints,
             "save_root": session.cfg.save_root,
             "data_format": session.cfg.data_format,
             "task_name": session.cfg.task_name,
@@ -418,6 +440,10 @@ def create_app(
         data: dict = {
             "num_frames": m.get("num_frames"),
             "control_hz": m.get("control_hz"),
+            "tick_timestamps_ms": (
+                (np.load(d / "tick-timestamp-ns.npy") / 1e6).tolist()
+                if (d / "tick-timestamp-ns.npy").exists() else None
+            ),
             "arm_names": arms,
             "arms": {},
             "cameras": {},
@@ -431,7 +457,8 @@ def create_app(
             }
         for c in m.get("cameras", []):
             role = c.get("role")
-            data["cameras"][role] = {"timestamps": load(f"{role}-timestamp")}
+            data["cameras"][role] = {"timestamps": load(f"{role}-timestamp"),
+                                     "frame_indices": load(f"{role}-frame-index")}
         return data
 
     # --- cameras ----------------------------------------------------------
@@ -449,6 +476,9 @@ def create_app(
 
     @app.get("/api/cameras/{name}/preview.jpg")
     def preview(name: str, eye: str | None = None):
+        health = session.camera_health()
+        if name not in health or health[name] is not None:
+            return Response(status_code=404)
         jpg = session.hub.preview_jpeg(name, eye=eye)
         if jpg is None:
             return Response(status_code=404)
@@ -489,7 +519,8 @@ def create_app(
 
     def _local_port_owner(port: int):
         """Best-effort (pid, cmdline) of the LISTEN holder of :port via ss."""
-        import re as _re, subprocess as _sp
+        import re as _re
+        import subprocess as _sp
         from pathlib import Path as _Path
         try:
             out = _sp.run(["ss", "-tlnp"], capture_output=True, text=True, timeout=3).stdout
@@ -585,7 +616,9 @@ def create_app(
     def deploy_server_stop(port: int = 8000):
         """Stop the local policy server: the GUI-launched job AND/OR any external
         process listening on :port whose cmdline looks like one of our servers."""
-        import os as _os, signal as _sig, time as _time
+        import os as _os
+        import signal as _sig
+        import time as _time
         n = jobs.stop_kind("deploy")
         killed = []
         denied = None
@@ -739,12 +772,13 @@ def create_app(
                     present[d.get_info(rs.camera_info.serial_number)] = d.get_info(rs.camera_info.name)
             except Exception:
                 pass
-        live = {getattr(w, "name", None) for w in session.workers}
+        health = session.camera_health()
         cams = []
         for cm in base_cfg().cameras:
             cams.append({"name": cm.name, "role": cm.role, "type": cm.type, "serial": cm.serial,
                          "detected": (cm.serial in present) if (full and cm.type == "realsense") else None,
-                         "streaming": cm.name in live})
+                         "streaming": cm.name in health and health[cm.name] is None,
+                         "error": health.get(cm.name, "camera is not connected")})
         return {"cameras": cams, "holders": (_video_holders() if full else []),
                 "gui_pid": _os.getpid(), "full": full}
 

@@ -19,18 +19,23 @@ from __future__ import annotations
 
 import logging
 import threading
+from contextlib import ExitStack
+from dataclasses import asdict, replace
 from pathlib import Path
 
+from ..backend import load_backend_config
 from ..camera.worker import CameraWorker
 from ..config import (
-    ControllerConfig,
     FORMAT_OPTIONS,
+    CameraConfig,
+    ControllerConfig,
     StationConfig,
     controller_channel_for,
     gello_variant,
     is_passive_gello,
     leader_joint_signs_for,
     robot_channel_for,
+    validate_camera_configs,
 )
 from ..data.recorder import EpisodeRecorder, task_slug
 from ..data.schema import WRITE_COMPLETE_FLAG
@@ -38,7 +43,6 @@ from ..robot.can_bus import check_can_up
 from ..runtime import build_arm_units, build_cameras_from_config
 from ..teleop.loop import ControlLoop
 from .camera_hub import CameraHub
-
 
 _UNSET_TASK_NAMES = {"", "unknown", "unknow"}
 
@@ -72,6 +76,9 @@ class CollectSession:
         # Serializes sync transitions so a hardware button and a GUI click can't
         # both run engage() at once.
         self._sync_lock = threading.Lock()
+        self._camera_lock = threading.RLock()
+        self._recording_lock = threading.RLock()
+        self.collection_hz_override: float | None = None
         # Cameras can be connected (preview) without teleop; robots/loop are built
         # at go-live. Nothing here touches hardware.
         self.units: list = []
@@ -80,6 +87,7 @@ class CollectSession:
         self.deploy_recorder = None  # logs the rollout to a separate save path
         # Used by both the GUI Record button and the physical second button.
         self.record_eepose = True
+        self.record_native_joints = cfg.record_native_joints
         self._record_save_thread: threading.Thread | None = None
         self.record_path: str | None = None
         self.last_episode_path: str | None = None
@@ -90,7 +98,7 @@ class CollectSession:
         self.record_task_required = False
         self.record_task_request_id = 0
         self.workers: list = []
-        self.cameras_connected = False
+        self._camera_open_errors: dict[str, str] = {}
         self._cam_cfg: dict = {}
         self._cam_sig: list = []
 
@@ -118,39 +126,115 @@ class CollectSession:
     # --- cameras (independent of teleop; feed previews) -------------------
     @staticmethod
     def _camera_sig(cfg: StationConfig) -> list:
-        return [(c.name, c.type, c.role, c.serial, c.mode) for c in cfg.cameras]
+        return [asdict(c) for c in cfg.cameras]
 
     def connect_cameras(self, cfg: StationConfig) -> None:
-        """Open the cameras and start their capture threads (feeding previews),
-        independent of teleop/CAN. Re-opens only if the camera config changed, so
-        a later go-live reuses already-previewing cameras. A device opens once."""
-        if self.cameras_connected and self._camera_sig(cfg) == self._cam_sig:
+        # Page loads, Preview clicks and teleop startup share the same devices.
+        # Serialize opens/teardown so two requests cannot orphan capture workers.
+        with self._camera_lock:
+            self._connect_cameras(cfg)
+
+    def _connect_cameras(self, cfg: StationConfig) -> None:
+        """Connect each preview independently; retry failures without reopening
+        healthy streams. Keep the configured roster intact for recording."""
+        validate_camera_configs(cfg.cameras)
+        signature = self._camera_sig(cfg)
+        same_config = signature == self._cam_sig
+        if self.live:
+            # The loop and recorder share these workers; never replace them live.
+            if not same_config:
+                raise RuntimeError("stop teleop or the rollout before changing the camera set")
             self.cfg = cfg
             return
-        if self.live:
-            # Reopening would stop the workers the running loop reads from (below).
-            raise RuntimeError("stop teleop or the rollout before changing the camera set")
         if self.loop is not None:
             self.loop.stop()  # the loop shares these workers; stop before swapping
-        self._disconnect_cameras()
-        self.cfg = cfg
-        drivers = build_cameras_from_config(cfg, mock=self.mock)
-        self.workers = [CameraWorker(d, on_frame=self.hub.update) for d in drivers]
-        try:
-            for worker in self.workers:
-                worker.start()
-        except Exception:
+        if not same_config:
             self._disconnect_cameras()
-            raise
-        self._cam_cfg = {c.name: c for c in cfg.cameras}
-        self._cam_sig = self._camera_sig(cfg)
-        self.cameras_connected = True
+        self.cfg = cfg
+        cameras = cfg.cameras
+        if not cameras and (self.mock or cfg.robot.type == "mock"):
+            cameras = [CameraConfig("top", "mock", "top")]
+        self._cam_cfg = {c.name: c for c in cameras}
+        self._cam_sig = signature
+        for c in cameras:
+            worker = next((w for w in self.workers if w.name == c.name), None)
+            if worker is not None and worker.preview_error() is None:
+                continue
+            try:
+                if worker is not None:
+                    if not worker.stop():
+                        raise RuntimeError(
+                            "previous capture is still closing; retry after it exits"
+                        )
+                    self.workers.remove(worker)
+                self.hub.remove(c.name)
+                worker = None
+                # Retain the shared driver factory and mock semantics, but scope
+                # its all-or-nothing cleanup to this one camera.
+                driver, = build_cameras_from_config(replace(cfg, cameras=[c]), mock=self.mock)
+                worker = CameraWorker(driver, on_frame=self.hub.update)
+                worker.start()
+                self.workers.append(worker)
+                self._camera_open_errors.pop(c.name, None)
+            except Exception as exc:
+                self._camera_open_errors[c.name] = str(exc)
+                logging.exception("camera %r preview unavailable", c.name)
+                if worker is not None and worker not in self.workers:
+                    # start() normally cleans up its own timeout. Retain a stuck
+                    # reader so retries cannot create a second device owner.
+                    self.workers.append(worker)
+                    try:
+                        if worker.stop(join_timeout=0):
+                            self.workers.remove(worker)
+                    except Exception:
+                        logging.exception("camera %r cleanup failed", c.name)
+                self.hub.remove(c.name)
+        order = {c.name: i for i, c in enumerate(cameras)}
+        self.workers.sort(key=lambda w: order[w.name])
+        if cameras and not self.cameras_connected:
+            raise RuntimeError(self.camera_error or "no camera previews available")
 
     def _disconnect_cameras(self) -> None:
-        for w in self.workers:
-            w.stop()
-        self.workers = []
-        self.cameras_connected = False
+        with self._camera_lock:
+            for w in list(self.workers):
+                if w.stop():
+                    self.workers.remove(w)
+                self.hub.remove(w.name)
+            if self.workers:
+                raise RuntimeError("camera capture is still closing; retry after it exits")
+            self._camera_open_errors.clear()
+            self._cam_cfg = {}
+            self._cam_sig = []
+
+    def camera_health(self) -> dict[str, str | None]:
+        """Per-camera preview errors; None means a recent frame is available."""
+        workers = {w.name: w for w in self.workers}
+        errors = self._camera_open_errors.copy()
+        health = {}
+        for name in self._cam_cfg:
+            error = (
+                workers[name].preview_error() if name in workers else "camera is not connected"
+            )
+            health[name] = errors.get(name, error) if error is not None else None
+        return health
+
+    @property
+    def cameras_connected(self) -> bool:
+        return any(error is None for error in self.camera_health().values())
+
+    @property
+    def camera_error(self) -> str | None:
+        return "; ".join(f"{name}: {error}" for name, error in self.camera_health().items()
+                         if error is not None) or None
+
+    def _require_recording_cameras(self) -> None:
+        health = self.camera_health()
+        missing = [c.name for c in self.cfg.cameras if c.name not in health or health[c.name]]
+        if missing:
+            raise RuntimeError(
+                f"configured recording cameras unavailable: {', '.join(missing)}; "
+                "restore the cameras and retry Preview before starting collection"
+            )
 
     # --- device stack -----------------------------------------------------
     @staticmethod
@@ -170,13 +254,32 @@ class CollectSession:
         already-connected cameras, and wire the button callbacks."""
         # Pass the running workers so the loop shares them (doesn't reopen devices).
         self.loop = ControlLoop(self.units, self.workers, cfg.control_hz)
+        self.loop.timings.configure_output(
+            Path(cfg.save_root) / ".diagnostics" / "teleop",
+            {"task_name": cfg.task_name, "mock": self.mock,
+             "execution_mode": cfg.execution_mode, "configured_hz_at_start": cfg.control_hz},
+        )
         self.recorder = EpisodeRecorder(
             cfg.save_root, cfg, self.workers, arm_names=[u.name for u in self.units],
-            backend=self.units[0].robot.backend
+            backend=self.units[0].robot.backend,
+            native_sources_factory=self._native_joint_sources,
         )
         self.loop.attach_recorder(self.recorder)
         self.loop.on_sync_button = self.toggle_sync
         self.loop.on_record_button = self.toggle_record
+
+    def _native_joint_sources(self):
+        driver = self.units[0].robot.backend.driver
+        getter = getattr(driver, "native_joint_sources", None)
+        if not callable(getter):
+            raise RuntimeError("native joint recording requires real YAM CAN feedback")
+        sources = list(getter())
+        for unit in self.units:
+            getter = getattr(unit.agent, "native_joint_source", None)
+            if not callable(getter):
+                raise RuntimeError("native joint recording requires motorized YAM teaching arms")
+            sources.append(getter(f"leader_{unit.name}"))
+        return sources
 
     def go_live(self, cfg: StationConfig, followers_only: bool = False) -> None:
         """Apply ``cfg``, bring CAN up (hardware), build the robots over the connected
@@ -200,6 +303,7 @@ class CollectSession:
                     f"and that udev names match (expected {needed})."
                 )
         self.connect_cameras(cfg)  # reuse preview cameras if already up
+        self._require_recording_cameras()
         try:
             self.cfg = cfg
             self.units = build_arm_units(cfg, mock=self.mock, followers_only=followers_only)
@@ -261,6 +365,12 @@ class CollectSession:
     def start_teleop(self, cfg: StationConfig | None = None) -> None:
         """Go live on the first call (applying ``cfg``); afterwards just re-enable
         sync. The physical top button toggles sync once live."""
+        if self.live and (self._estopped or (self.loop is not None and self.loop.estopped)):
+            detail = self.loop.last_error if self.loop is not None else None
+            raise RuntimeError(
+                f"Teleop is e-stopped: {detail or 'emergency stop is latched'}. "
+                "Click Reset Session before starting teleop again."
+            )
         if self.live and self.followers_only:
             # No leaders and no teleop loop in this session — re-enabling sync would
             # silently do nothing. The leaders come back only on a rebuild.
@@ -276,6 +386,67 @@ class CollectSession:
     def stop_teleop(self) -> None:
         # Disable sync but keep the loop running so the buttons stay live.
         self.disable_sync()
+
+    def collection_timing_error(self) -> str | None:
+        rec = self.recorder
+        if rec is not None and (rec.is_recording or rec.is_saving):
+            return "Stop recording and wait for saving to finish before changing Hz"
+        if self.followers_only or self.deploy_loop is not None:
+            return "Collection Hz is unavailable during policy deployment"
+        if self.cfg.execution_mode != "synchronous":
+            return "Online Hz changes require synchronous teleoperation"
+        if self.units:
+            backend = self.units[0].robot.backend
+            if backend.config.execution.executor not in {"direct", "smooth"}:
+                return "Online Hz changes support Direct and Smooth executors"
+        return None
+
+    def set_collection_hz(self, hz: float) -> None:
+        """Change collection timing between complete control steps, keeping devices open."""
+        if hz is None:
+            raise ValueError("collection_hz must be finite and positive")
+        # Validate before touching any live object.
+        replace(self.cfg, collection_hz=hz)
+        loop = self.loop
+        with ExitStack() as locks:
+            # Same order as step -> teaching-handle Record. Never hold the
+            # recording lock while waiting for a step whose callback needs it.
+            if loop is not None:
+                locks.enter_context(loop.cycle_lock)
+                locks.enter_context(loop._io_lock)
+            locks.enter_context(self._recording_lock)
+            rec = self.recorder
+            if rec is not None:
+                locks.enter_context(rec._lock)
+            if self.loop is not loop:
+                raise RuntimeError("Session changed while applying Hz; retry")
+            reason = self.collection_timing_error()
+            if reason:
+                raise RuntimeError(reason)
+            proposed = replace(self.cfg, collection_hz=hz)
+            if self.units:
+                setters = [getattr(u.agent, "set_control_hz", None) for u in self.units]
+                if not all(callable(setter) for setter in setters):
+                    raise RuntimeError("This leader does not support online Hz changes")
+                backend = self.units[0].robot.backend
+                backend.set_control_hz(hz)
+                for setter in setters:
+                    setter(hz)
+            else:
+                config = load_backend_config(proposed, mock=self.mock)
+                if config.execution.executor not in {"direct", "smooth"}:
+                    raise RuntimeError("Online Hz changes support Direct and Smooth executors")
+            self.cfg.collection_hz = hz
+            self.cfg.control_hz = float(hz)
+            self.collection_hz_override = float(hz)
+            if rec is not None:
+                rec.station = self.cfg
+                rec.independent_cameras = True
+            if loop is not None:
+                loop.dt = 1.0 / hz
+                loop.actual_hz = 0.0
+                loop.last_period = 0.0
+                loop.overruns = 0
 
     def enable_sync(self) -> None:
         with self._sync_lock:
@@ -297,7 +468,9 @@ class CollectSession:
                 with self.loop._io_lock:
                     self.loop.sync_enabled = False
                     if self.units:
-                        self.units[0].robot.backend.pause()
+                        with self.loop.timings.cycle(self.loop.dt, kind="pause"):
+                            self.units[0].robot.backend.pause()
+                self.loop.timings.request_save("pause")
 
     def toggle_sync(self) -> None:
         if self.loop is not None and self.loop.sync_enabled:
@@ -372,16 +545,29 @@ class CollectSession:
         include_eepose: bool | None = None,
         save_root: str | None = None,
         data_format: str | None = None,
+        record_native_joints: bool | None = None,
+    ) -> str:
+        with self._recording_lock:
+            return self._start_recording(
+                task_name, include_eepose, save_root, data_format, record_native_joints,
+            )
+
+    def _start_recording(
+        self, task_name, include_eepose, save_root, data_format, record_native_joints,
     ) -> str:
         if self.recorder is None:
             raise RuntimeError("not live — Start Teleop before recording")
         task_name = valid_task_name(task_name)
         if task_name is None:
             raise ValueError("set a Task name before recording")
+        self._require_recording_cameras()
         self.cfg.task_name = task_name
         self.record_task_required = False
         if include_eepose is not None:
             self.record_eepose = bool(include_eepose)
+        if record_native_joints is not None:
+            self.record_native_joints = record_native_joints
+        self.cfg.record_native_joints = self.record_native_joints
         if save_root is not None:
             save_root = save_root.strip()
             if not save_root:
@@ -398,6 +584,7 @@ class CollectSession:
                 include_eepose=self.record_eepose,
                 save_root=self.cfg.save_root,
                 writer_name=self.cfg.data_format,
+                record_native_joints=self.record_native_joints,
             ).resolve()
         )
         self.record_path = path
@@ -448,7 +635,13 @@ class CollectSession:
         elif self.recorder.is_saving:
             print("[yam-abc] recording ignored — previous episode is still saving", flush=True)
         elif (task_name := valid_task_name(self.cfg.task_name)) is not None:
-            self.start_recording(task_name)
+            try:
+                self.start_recording(task_name)
+            except RuntimeError as exc:
+                # A refused record button must not propagate into the control
+                # loop's exception handler and E-STOP otherwise healthy teleop.
+                self.last_record_warning = str(exc)
+                logging.warning("recording not started: %s", exc)
         else:
             self.record_task_required = True
             self.record_task_request_id += 1
@@ -562,7 +755,9 @@ class CollectSession:
         configured device specs so the GUI can render the config rail and build
         per-eye preview URLs without a second request."""
         out = []
-        for cam in self.workers:
+        for cam in list(self.workers):
+            if cam.preview_error() is not None:
+                continue
             c = self._cam_cfg.get(cam.name)
             for k in cam.image_keys():
                 eye = None if k == "rgb" else k
@@ -592,6 +787,14 @@ class CollectSession:
             "recording": bool(rec and rec.is_recording),
             "saving_episode": bool(rec and rec.is_saving),
             "record_eepose": self.record_eepose,
+            "record_native_joints": self.record_native_joints,
+            "collection_hz": self.cfg.control_hz,
+            "collection_timing_error": self.collection_timing_error(),
+            "collection_actual_hz": loop.actual_hz if loop else 0.0,
+            "collection_overruns": loop.overruns if loop else 0,
+            "lead_timing": loop.timings.snapshot() if loop else None,
+            "teleop_diagnostics": loop.timings.output_status() if loop else None,
+            "record_samples": rec.frame_count if rec else 0,
             "record_save_root": str(rec.save_root) if rec else self.cfg.save_root,
             "record_path": self.record_path,
             "last_episode_path": self.last_episode_path,
@@ -606,6 +809,10 @@ class CollectSession:
             "buttons": (list(loop.buttons) if loop else [False, False]),
             "trigger": (round(loop.trigger, 3) if loop else 0.0),
             "cameras": self.camera_descriptors(),
+            "cameras_connected": self.cameras_connected,
+            "camera_error": self.camera_error,
+            "camera_errors": {name: error for name, error in self.camera_health().items()
+                              if error is not None},
             # Per-unit follower joint vector + leader command, for calibration/debug.
             # A rollout reports its own (same shape, no leader rows) — keyed on the loop
             # existing, not on `deploying`, which is still False while homing/ramping.

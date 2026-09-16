@@ -26,4 +26,5 @@ motion_limits:
       right_arm: 6
     max_velocity: null
     max_acceleration: null
-    max_closing_velocity: 1.0
+    # Toggle teleop sends the final open/close target in one update.
+    max_closing_velocity: null

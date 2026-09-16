@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import threading
 import time
 from contextlib import contextmanager
@@ -10,11 +11,13 @@ from pathlib import Path
 import numpy as np
 
 from manimux.clock import SystemClock
+from manimux.collection.yam.data.control_timing import arm_scope, stage
 from manimux.config import load_config
 from manimux.robots import build_robot
 from manimux.runtime.executors import DirectExecutor, MPCExecutor, SmoothExecutor
 from manimux.runtime.lock import RuntimeInstanceLock
 from manimux.runtime.safety import SafetyGuard
+from manimux.timing import timed_lock
 from manimux.types import ActionHorizon, RobotCommand, copy_group_vector
 
 
@@ -80,6 +83,7 @@ class CollectionBackend:
         self._batch = None
         self._target = None
         self._target_ns = 0
+        self._target_interval_s = config.policy.effective_action_dt_s
         self._sequence = 0
         self._last_command = None
         self._command_unix_ns = 0
@@ -112,9 +116,55 @@ class CollectionBackend:
         if not self._connected:
             raise RuntimeError("collection backend is closed")
 
+    @property
+    def leader_timeout_s(self) -> float:
+        """Allow the scheduled target period while retaining a finite timeout.
+
+        The configured timeout remains a floor. Two target periods allow one
+        normal interval plus scheduling margin. Retain the previous target's
+        period until a fresh target arrives, including a slow-to-fast switch.
+        """
+        return max(
+            self.config.policy.timeout_s,
+            2 * self.config.policy.effective_action_dt_s,
+            2 * self._target_interval_s,
+        )
+
+    def _target_timed_out(self, now_ns: int) -> bool:
+        return now_ns - self._target_ns > int(self.leader_timeout_s * 1e9)
+
+    def set_control_hz(self, hz: float) -> None:
+        """Update a synchronous leader loop without resetting or commanding hardware.
+
+        Caller serializes this with leader sampling and recording. Histories and
+        current targets survive, so a frequency switch cannot reset a gripper ramp.
+        """
+        if isinstance(hz, bool) or not math.isfinite(hz) or hz <= 0:
+            raise ValueError("collection_hz must be finite and positive")
+        with self._mutex:
+            self._check()
+            if (self.execution_mode != "synchronous"
+                    or self.config.policy.worker != "local_yam_leader"
+                    or not isinstance(self.executor, (DirectExecutor, SmoothExecutor))):
+                raise RuntimeError(
+                    "online frequency changes require synchronous Direct/Smooth teleop"
+                )
+            if self._batch is not None or self._trace is not None:
+                raise RuntimeError("cannot change frequency during a target batch or recording")
+            if self._enabled and self._target_timed_out(self.clock.now_ns()):
+                # A slower selection must not revive an already expired target.
+                raise RuntimeError("leader target timed out; cannot apply frequency change")
+            dt = 1.0 / hz
+            self.executor.set_control_period(dt)
+            self.safety.set_control_period(dt)
+            self.dt = dt
+            self.config.robot.control_hz = hz
+            self.config.policy.action_dt_s = dt
+            self.config.policy.trajectory_duration_s = None
+
     @contextmanager
     def target_batch(self):
-        with self._mutex:
+        with timed_lock(self._mutex, "backend.target_lock_wait"):
             self._check()
             self._batch = copy_group_vector(self._target)
             try:
@@ -126,9 +176,7 @@ class CollectionBackend:
     def _publish(self, groups):
         if self._halted:
             raise RuntimeError("collection is stopped; Reset Session before resuming")
-        if self._enabled and self.clock.now_ns() - self._target_ns > int(
-            self.config.policy.timeout_s * 1e9
-        ):
+        if self._enabled and self._target_timed_out(self.clock.now_ns()):
             error = RuntimeError("leader target timed out")
             self._stop_on_error(error)
             raise error
@@ -141,11 +189,13 @@ class CollectionBackend:
             if not 0 <= value[-1] <= 1:
                 raise ValueError(f"invalid leader gripper for {name}")
         if not self._enabled:
-            self._state = self.driver.get_state()
+            with arm_scope("initial"), stage("state_read"):
+                self._state = self.driver.get_state()
             self.executor.reset(self._state)
             self.safety.reset(self._state)
         self._target = copy_group_vector(command.groups)
         self._target_ns = command.monotonic_ns
+        self._target_interval_s = self.config.policy.effective_action_dt_s
         self._sequence += 1
         self._enabled = True
         if self.execution_mode == "synchronous":
@@ -169,42 +219,54 @@ class CollectionBackend:
     def tick(self):
         with self._mutex:
             self._check()
-            self._state = self.driver.get_state()
-            self.safety.validate_state(self._state)
+            with stage("backend.state_read_validate"), arm_scope("precommand"):
+                with stage("state_read"):
+                    self._state = self.driver.get_state()
+                with stage("state_validate"):
+                    self.safety.validate_state(self._state)
             if not self._enabled:
                 return
             now = self.clock.now_ns()
-            if now - self._target_ns > int(self.config.policy.timeout_s * 1e9):
+            if self._target_timed_out(now):
                 raise RuntimeError("leader target timed out")
-            reference = ActionHorizon(
-                now,
-                int(self.dt * 1e9),
-                f"yam-leader-{self._sequence}",
-                {
-                    name: np.tile(value, (self.executor.horizon_steps, 1))
-                    for name, value in self._target.items()
-                },
-                observation_time_ns=self._target_ns,
-            )
-            command = self.executor.step(now, self._state, reference)
-            self.safety.validate_command(command)
-            self.driver.send_command(command)
+            with stage("backend.executor"):
+                reference = ActionHorizon(
+                    now,
+                    int(self.dt * 1e9),
+                    f"yam-leader-{self._sequence}",
+                    {
+                        name: np.tile(value, (self.executor.horizon_steps, 1))
+                        for name, value in self._target.items()
+                    },
+                    observation_time_ns=self._target_ns,
+                )
+                command = self.executor.step(now, self._state, reference)
+            with stage("backend.command_validate"):
+                self.safety.validate_command(command)
+            with stage("backend.follower_sdk_submit", sequence=self._sequence,
+                       source_monotonic_ns=self._target_ns), arm_scope("submit"):
+                self.driver.send_command(command)
             self._last_command = command
             self._command_unix_ns = time.time_ns()
             if self._trace is not None:
-                self._trace.append(
-                    {
-                        "monotonic_ns": now,
-                        "unix_ns": self._command_unix_ns,
-                        "source_monotonic_ns": self._target_ns,
-                        "sequence": self._sequence,
-                        "source": {name: value.tolist() for name, value in self._target.items()},
-                        "command": {name: value.tolist() for name, value in command.groups.items()},
-                        "feedback": {
-                            name: value.tolist() for name, value in self._state.groups.items()
-                        },
-                    }
-                )
+                with stage("backend.trace_buffer"):
+                    self._trace.append(
+                        {
+                            "monotonic_ns": now,
+                            "unix_ns": self._command_unix_ns,
+                            "source_monotonic_ns": self._target_ns,
+                            "sequence": self._sequence,
+                            "source": {
+                                name: value.tolist() for name, value in self._target.items()
+                            },
+                            "command": {
+                                name: value.tolist() for name, value in command.groups.items()
+                            },
+                            "feedback": {
+                                name: value.tolist() for name, value in self._state.groups.items()
+                            },
+                        }
+                    )
 
     def _stop_on_error(self, error):
         with self._mutex:
@@ -227,11 +289,13 @@ class CollectionBackend:
             self._quit.wait(max(0.0, self.dt - (time.monotonic() - started)))
 
     def observation(self, group):
-        with self._mutex:
+        with arm_scope(f"observation_{group}"), timed_lock(self._mutex, "lock_wait"):
             self._check()
             if self.execution_mode == "synchronous":
-                self._state = self.driver.get_state()
-                self.safety.validate_state(self._state)
+                with stage("state_read"):
+                    self._state = self.driver.get_state()
+                with stage("state_validate"):
+                    self.safety.validate_state(self._state)
             values = self._state.groups[group].copy()
             timestamp = time.time_ns() - (self.clock.now_ns() - self._state.monotonic_ns)
             return {
@@ -257,11 +321,13 @@ class CollectionBackend:
             self._halted = self._halted or halt
             if self._fault:
                 return
-            self._state = self.driver.get_state()
+            with arm_scope("pause"), stage("state_read"):
+                self._state = self.driver.get_state()
             hold = RobotCommand(
                 copy_group_vector(self._state.groups), self.clock.now_ns(), "collection-hold"
             )
-            self.driver.send_command(hold)
+            with stage("backend.hold_submit"), arm_scope("hold"):
+                self.driver.send_command(hold)
             self._target = copy_group_vector(self._state.groups)
             self.executor.reset(self._state)
             self.safety.reset(self._state)
@@ -285,6 +351,7 @@ class CollectionBackend:
                 str(self.config.control_profile) if self.config.control_profile else None
             ),
             "policy_config": self.config.policy.model_dump(mode="json"),
+            "leader_timeout_s": self.leader_timeout_s,
             "robot": self.config.robot.model_dump(mode="json"),
             "execution": self.config.execution.model_dump(mode="json"),
             "controller_tracking_scope": "executor output before driver joint-limit clipping",
@@ -338,6 +405,16 @@ def load_backend_config(station, *, mock=False):
 
     config = load_config(station.manimux_config)
     station.__post_init__()
+    if station.collection_hz is not None:
+        # This is a local leader policy, not a learned checkpoint's action clock.
+        # Change the resolved collection copy, never the shared profile on disk.
+        if config.policy.worker != "local_yam_leader":
+            raise ValueError("collection_hz requires the local_yam_leader policy")
+        if station.execution_mode != "synchronous":
+            raise ValueError("collection_hz requires synchronous target updates and recording")
+        config.robot.control_hz = station.collection_hz
+        config.policy.action_dt_s = 1.0 / station.collection_hz
+        config.policy.trajectory_duration_s = None
     if config.control_profile is not None and config.execution.motion_limits is not None:
         closing_velocity = config.execution.motion_limits.gripper.max_closing_velocity
         duration = 0.0 if closing_velocity is None else 1.0 / closing_velocity

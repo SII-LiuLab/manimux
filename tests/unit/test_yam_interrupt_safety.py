@@ -11,6 +11,7 @@ import os
 import signal
 import threading
 import time
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -28,6 +29,9 @@ class _SleepingArm:
         self.steps = steps
         self.completed_moves: list[np.ndarray] = []
         self.closed = False
+        self.motor_chain = SimpleNamespace(running=True)
+        self._stop_event = threading.Event()
+        self._server_thread = SimpleNamespace(is_alive=lambda: not self.closed)
 
     def move_joints(self, target: np.ndarray, time_interval_s: float) -> None:
         for _ in range(self.steps):
@@ -68,7 +72,7 @@ class _Bimanual:
 
 
 def _live_driver() -> tuple[YamDualArmDriver, _Bimanual]:
-    config = load_config("configs/molmoact2/yam/infra/manimux.yaml")
+    config = load_config("configs/pi05/yam/infra/manimux.yaml")
     config.robot.options["home_duration_s"] = 0.4
     config.robot.options["home_gripper_release_duration_s"] = 0.1
     config.robot.options["start_duration_s"] = 0.4
@@ -76,6 +80,103 @@ def _live_driver() -> tuple[YamDualArmDriver, _Bimanual]:
     backend = _Bimanual()
     driver._robot = backend
     return driver, backend
+
+
+@pytest.mark.parametrize("side", ["left", "right"])
+@pytest.mark.parametrize("fault", ["motor", "server", "stop"])
+def test_dead_i2rt_loops_cannot_return_cached_feedback_or_accept_targets(side, fault):
+    from manimux.types import RobotCommand
+
+    driver, backend = _live_driver()
+    native = (backend._robot_l if side == "left" else backend._robot_r).robot
+    if fault == "motor":
+        native.motor_chain.running = False
+    elif fault == "server":
+        native.closed = True
+    else:
+        native._stop_event.set()
+    before = backend.get_joint_state().copy()  # SDK still returns a finite cached pose.
+    with pytest.raises(RuntimeError, match=f"YAM {side}: i2rt control loop stopped"):
+        driver.get_state()
+    assert driver._sequence == 0
+    command = RobotCommand({"left_arm": np.ones(7), "right_arm": np.ones(7)}, 1, "test")
+    with pytest.raises(RuntimeError, match="control loop stopped"):
+        driver.send_command(command)
+    np.testing.assert_array_equal(backend.get_joint_state(), before)
+
+
+def test_i2rt_failure_during_sdk_read_does_not_renew_state_timestamp(monkeypatch):
+    driver, backend = _live_driver()
+    original = backend.get_joint_state
+
+    def read_then_fail():
+        cached = original()
+        backend._robot_r.robot.motor_chain.running = False
+        return cached
+
+    monkeypatch.setattr(backend, "get_joint_state", read_then_fail)
+    with pytest.raises(RuntimeError, match="YAM right"):
+        driver.get_state()
+    assert driver._sequence == 0
+
+
+@pytest.mark.parametrize("failed_side", ["left", "right"])
+def test_fault_hold_commands_only_the_healthy_arm(monkeypatch, failed_side):
+    driver, robot = _live_driver()
+    sent = {"left": [], "right": []}
+    for side, arm in (("left", robot._robot_l), ("right", robot._robot_r)):
+        monkeypatch.setattr(arm, "command_joint_state",
+                            lambda q, side=side: sent[side].append(q.copy()), raising=False)
+        if side == failed_side:
+            arm.robot.motor_chain.running = False
+            monkeypatch.setattr(arm, "get_joint_state",
+                                lambda: pytest.fail("must not read dead arm cache"))
+    result = driver.hold_healthy_arms()
+    healthy_side = "right" if failed_side == "left" else "left"
+    assert result[failed_side]["status"] == "unavailable"
+    assert not sent[failed_side]
+    assert result[healthy_side]["status"] == "hold_submitted"
+    assert len(sent[healthy_side]) == 1
+    arm = robot._robot_r if healthy_side == "right" else robot._robot_l
+    np.testing.assert_array_equal(sent[healthy_side][0], arm.robot.position)
+    assert not robot._robot_l.robot.closed and not robot._robot_r.robot.closed
+
+
+def test_grouped_commands_reach_i2rt_joint_position_interface_without_feedback_substitution():
+    from manimux.robots.yam.arm import YAMRobot
+    from manimux.robots.yam.base import BimanualRobot
+    from manimux.types import RobotCommand
+
+    received = {"left": [], "right": []}
+    wrappers = []
+    for side in ("left", "right"):
+        arm = YAMRobot.__new__(YAMRobot)  # Do not construct/connect any SDK robot.
+        arm._joint_state = np.zeros(7)
+        arm.robot = SimpleNamespace(
+            motor_chain=SimpleNamespace(running=True),
+            _stop_event=threading.Event(),
+            _server_thread=SimpleNamespace(is_alive=lambda: True),
+            command_joint_pos=lambda q, side=side: received[side].append(q.copy()),
+        )
+        wrappers.append(arm)
+    driver = YamDualArmDriver(load_config("configs/collection/yam/control.yaml").robot,
+                             SystemClock())
+    driver._robot = BimanualRobot(*wrappers)
+    targets = {"left_arm": np.r_[np.linspace(-0.3, 0.2, 6), 0.4],
+               "right_arm": np.r_[np.linspace(0.1, 0.6, 6), 0.7]}
+    driver.send_command(RobotCommand(targets, 1, "saved-command-replay"))
+    for side in received:
+        assert len(received[side]) == 1
+        np.testing.assert_array_equal(received[side][0], targets[f"{side}_arm"])
+
+
+def test_replay_home_keeps_grippers_and_only_moves_arm_joints():
+    driver, backend = _live_driver()
+    driver._home_duration_s = 0.01
+    driver.home(release_grippers=False)
+    for arm, grip in ((backend._robot_l, 0.25), (backend._robot_r, 0.75)):
+        assert len(arm.robot.completed_moves) == 1
+        np.testing.assert_allclose(arm.robot.position, np.r_[np.zeros(6), grip])
 
 
 def _interrupt_after(delay_s: float, count: int = 1) -> threading.Thread:

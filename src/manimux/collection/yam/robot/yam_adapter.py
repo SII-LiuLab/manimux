@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import math
 import time
 from threading import Event
 
 import numpy as np
 
+from ..data.control_timing import stage
 from .interface import RobotInterface, TeleopAgent
 
 
@@ -44,12 +46,14 @@ class YamLeaderArm:
         self._handle.close()
 
     def get_state(self) -> tuple[np.ndarray, float, list[bool]]:
-        """One same-bus read -> (arm_joints, gripper_norm, [top, second] buttons).
+        """Read SDK caches -> (arm_joints, gripper_norm, [top, second] buttons).
 
         Mirrors i2rt minimum_gello's ``YAMLeaderRobot.get_info``: the teaching-handle
         trigger is ``1 - position`` and ``io_inputs`` are the two button bits."""
-        arm = np.asarray(self._robot.get_joint_pos(), dtype=np.float64).reshape(-1)[: self._n]
-        enc = self._robot.motor_chain.get_same_bus_device_states()[0]
+        with stage("leader_joint_cache"):
+            arm = np.asarray(self._robot.get_joint_pos(), dtype=np.float64).reshape(-1)[: self._n]
+        with stage("leader_handle_cache"):
+            enc = self._robot.motor_chain.get_same_bus_device_states()[0]
         gripper = float(np.clip(1.0 - enc.position, 0.0, 1.0))
         # Teaching-handle button polarity varies between units (some idle high,
         # some idle low). Learn the idle level from the first read (assumes no
@@ -63,6 +67,9 @@ class YamLeaderArm:
     def command_arm(self, arm_joints: np.ndarray) -> None:
         """Command the leader arm joints (bilateral force feedback only)."""
         self._robot.command_joint_pos(np.asarray(arm_joints, dtype=np.float64).reshape(-1))
+
+    def native_joint_source(self, stream: str):
+        return self._handle.native_joint_source(stream)
 
 
 class YamLeaderPolicy(TeleopAgent):
@@ -93,17 +100,21 @@ class YamLeaderPolicy(TeleopAgent):
         self._follower = follower
         self._bilateral_kp = bilateral_kp
         self._gripper_mode = gripper_mode
-        self._gripper_close_step = (
-            1.0
-            if gripper_close_duration_s == 0
-            else 1.0 / (control_hz * gripper_close_duration_s)
-        )
+        self._gripper_close_duration_s = gripper_close_duration_s
+        self.set_control_hz(control_hz)
         self._n = follower.num_dofs() - 1
         # Leader state cached by read_inputs() so act() reads the bus only once/tick.
         self._cached: tuple[np.ndarray, float] | None = None
         self._toggle_gripper_target: float | None = None
         self._toggle_gripper_command: float | None = None
         self._toggle_gripper_armed = False
+
+    def set_control_hz(self, hz: float) -> None:
+        """Keep the current toggle position/target and its duration in seconds."""
+        if isinstance(hz, bool) or not math.isfinite(hz) or hz <= 0:
+            raise ValueError("control_hz must be finite and positive")
+        duration = self._gripper_close_duration_s
+        self._gripper_close_step = 1.0 if duration == 0 else 1.0 / (hz * duration)
 
     def _gripper_command(self, trigger: float) -> float:
         trigger = float(np.clip(trigger, 0.0, 1.0))
@@ -128,8 +139,10 @@ class YamLeaderPolicy(TeleopAgent):
         return self._toggle_gripper_command
 
     def _read_leader(self) -> tuple[np.ndarray, float, list[bool]]:
-        arm, trigger, buttons = self._require_leader().get_state()
-        self._cached = (arm, self._gripper_command(trigger))
+        with stage("leader_state"):
+            arm, trigger, buttons = self._require_leader().get_state()
+        with stage("gripper_mapping"):
+            self._cached = (arm, self._gripper_command(trigger))
         return arm, trigger, buttons
 
     def _require_leader(self):
@@ -148,17 +161,26 @@ class YamLeaderPolicy(TeleopAgent):
         return np.concatenate([arm, [float(np.clip(gripper, 0.0, 1.0))]])
 
     def act(self, obs: dict[str, np.ndarray]) -> np.ndarray:
-        cmd = self._target()  # identity: follower target == leader pose
-        self._follower.command_joint_pos(cmd)
+        with stage("target_assembly"):
+            cmd = self._target()  # identity: follower target == leader pose
+        with stage("target_queue"):
+            self._follower.command_joint_pos(cmd)
         if self._bilateral_kp > 0:
             # Push the leader toward the follower's current arm pose (haptics).
-            self._leader.command_arm(np.asarray(obs["joint_pos"], dtype=np.float64).reshape(-1))
+            with stage("bilateral_sdk_submit"):
+                self._leader.command_arm(np.asarray(obs["joint_pos"], dtype=np.float64).reshape(-1))
         self._cached = None
         return cmd
 
     def read_inputs(self) -> tuple[list[bool], float] | None:
         _, gripper, buttons = self._read_leader()
         return buttons, gripper
+
+    def native_joint_source(self, stream: str):
+        source = getattr(self._require_leader(), "native_joint_source", None)
+        if not callable(source):
+            raise RuntimeError("native joint recording requires motorized YAM teaching arms")
+        return source(stream)
 
     def leader_raw(self) -> tuple[np.ndarray, np.ndarray] | None:
         """``(raw, cal)`` leader joint angles in radians for the live readout, or None for

@@ -113,6 +113,8 @@ class LeRobotFormat:
 
     def _ensure_dataset(self, meta: EpisodeMeta) -> None:
         if self._ds is not None:
+            if self._fps != int(round(meta.control_hz)):
+                raise ValueError("Cannot mix collection frequencies in one LeRobot dataset")
             return
         from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
@@ -128,6 +130,15 @@ class LeRobotFormat:
         )
 
     def add_episode(self, meta: EpisodeMeta, buffers: dict) -> None:
+        if meta.schema_version == 2:
+            from ..timing import uniform_training_buffers
+
+            buffers = uniform_training_buffers(meta, buffers)
+            print(
+                f"[convert] schema v2 -> LeRobot {meta.control_hz:g} Hz: "
+                "aligning by timestamps; video repeats the latest image. "
+                "Original files are unchanged.", flush=True,
+            )
         self._ensure_dataset(meta)
         arms = meta.arm_names or ["left"]
 

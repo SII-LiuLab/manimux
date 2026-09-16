@@ -1,5 +1,6 @@
 import json
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -24,6 +25,9 @@ def test_orbbec_missing_dependency_is_not_reported_as_missing_camera(monkeypatch
 
 def station(tmp_path):
     cfg = build_station_config("configs/collection/yam/station.yaml")
+    # Exercise the legacy path here; test_collection_timing covers the override.
+    cfg.collection_hz = None
+    cfg.control_hz = 30.0
     cfg.save_root = str(tmp_path / "episodes")
     cfg.cameras = []
     return cfg
@@ -55,11 +59,11 @@ def test_camera_start_failure_closes_all_drivers(tmp_path, monkeypatch):
         def stop(self):
             closed.append(self.name)
 
-    drivers = [
-        TrackingCamera(name, name, CameraMode.MONO, 64, 48) for name in ("left", "right")
-    ]
+    drivers = {name: TrackingCamera(name, name, CameraMode.MONO, 64, 48)
+               for name in ("left", "right")}
     monkeypatch.setattr(
-        session_module, "build_cameras_from_config", lambda *args, **kwargs: drivers
+        session_module, "build_cameras_from_config",
+        lambda cfg, **kwargs: [drivers[cfg.cameras[0].name]],
     )
 
     def refuse_start(self):
@@ -67,12 +71,241 @@ def test_camera_start_failure_closes_all_drivers(tmp_path, monkeypatch):
 
     monkeypatch.setattr(session_module.CameraWorker, "start", refuse_start)
     config = station(tmp_path)
+    config.cameras = [CameraConfig(name, "mock", name) for name in drivers]
     session = session_module.CollectSession(config, mock=True)
     with pytest.raises(RuntimeError, match="warmup failed"):
         session.connect_cameras(config)
     assert closed == ["left", "right"]
     assert session.workers == []
     assert not session.cameras_connected
+    assert session.status()["camera_errors"] == {name: "warmup failed" for name in drivers}
+
+
+@pytest.mark.parametrize("failed_names", [
+    {"gemini305", "gemini335"},
+    {"left", "top", "right", "gemini305", "gemini335"},
+])
+def test_gui_camera_failure_is_isolated_and_retry_preserves_healthy_workers(
+    tmp_path, monkeypatch, failed_names,
+):
+    from fastapi.testclient import TestClient
+
+    from manimux.collection.yam.gui import session as session_module
+    from manimux.collection.yam.gui.server import create_app
+
+    config = station(tmp_path)
+    names = ["left", "top", "right", "gemini305", "gemini335"]
+    config.cameras = [CameraConfig(name, "mock", name, width=64, height=48) for name in names]
+    build = session_module.build_cameras_from_config
+    failing = set(failed_names)
+    attempts = []
+
+    def open_camera(cfg, **kwargs):
+        name = cfg.cameras[0].name
+        attempts.append(name)
+        if name in failing:
+            raise RuntimeError("device unavailable")
+        return build(cfg, **kwargs)
+
+    def forbid_robot_connection(*args, **kwargs):
+        pytest.fail("Preview must not build robot units")
+
+    monkeypatch.setattr(session_module, "build_cameras_from_config", open_camera)
+    monkeypatch.setattr(session_module, "build_arm_units", forbid_robot_connection)
+    app = create_app(config, mock=True)
+    with TestClient(app) as client:
+        response = client.post("/api/collect/connect")
+        good_names = [name for name in names if name not in failed_names]
+        assert response.status_code == (200 if good_names else 409)
+        status = client.get("/api/collect/status").json()
+        assert status["camera_errors"] == {name: "device unavailable" for name in failed_names}
+        assert status["cameras_connected"] == bool(good_names)
+        assert [c["name"] for c in status["cameras"]] == good_names
+        assert not status["live"]
+        assert len(client.get("/api/config").json()["cameras"]) == 5
+        healthy_workers = list(app.state.session.workers)
+        assert attempts == names
+        for name in names:
+            assert client.get(f"/api/cameras/{name}/preview.jpg").status_code == (
+                404 if name in failed_names else 200
+            )
+        health = client.get("/api/cameras/health").json()["cameras"]
+        assert [c["name"] for c in health if c["streaming"]] == good_names
+        assert {c["name"] for c in health if c["error"]} == failed_names
+
+        # Partial preview does not authorize silently collecting fewer views.
+        response = client.post("/api/collect/start-teleop")
+        assert response.status_code == 409
+        assert not app.state.session.live
+        attempts.clear()
+        failing.clear()
+
+        response = client.post("/api/collect/connect")
+        assert response.status_code == 200
+        status = response.json()
+        assert status["camera_error"] is None
+        assert status["camera_errors"] == {}
+        assert status["cameras_connected"]
+        assert not status["live"]
+        assert [c["name"] for c in status["cameras"]] == names
+        assert attempts == [name for name in names if name in failed_names]
+        assert all(w in app.state.session.workers for w in healthy_workers)
+        for name in names:
+            assert client.get(f"/api/cameras/{name}/preview.jpg").status_code == 200
+
+
+def test_gui_stream_loss_hides_only_stale_camera_and_recovers(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from manimux.collection.yam.camera.mock_camera import MockCamera
+    from manimux.collection.yam.gui import session as session_module
+    from manimux.collection.yam.gui.server import create_app
+
+    failed = threading.Event()
+    read_failed = threading.Event()
+
+    class UnpluggedCamera(MockCamera):
+        def read(self):
+            time.sleep(0.005)
+            if self.name == "gemini305" and failed.is_set():
+                read_failed.set()
+                raise RuntimeError("USB disconnected")
+            return super().read()
+
+    def build(cfg, **kwargs):
+        c = cfg.cameras[0]
+        return [UnpluggedCamera(c.name, c.role, width=64, height=48)]
+
+    monkeypatch.setattr(session_module, "build_cameras_from_config", build)
+    cfg = station(tmp_path)
+    cfg.cameras = [CameraConfig(name, "mock", name) for name in ("top", "gemini305")]
+    app = create_app(cfg, mock=True)
+    with TestClient(app) as client:
+        assert client.post("/api/collect/connect").status_code == 200
+        session = app.state.session
+        bad = next(w for w in session.workers if w.name == "gemini305")
+        failed.set()
+        assert read_failed.wait(1)
+        with bad._lock:
+            bad._last_frame_at -= 3
+        status = client.get("/api/collect/status").json()
+        assert [c["name"] for c in status["cameras"]] == ["top"]
+        assert "gemini305" in status["camera_errors"]
+        assert client.get("/api/cameras/top/preview.jpg").status_code == 200
+        assert client.get("/api/cameras/gemini305/preview.jpg").status_code == 404
+        health = client.get("/api/cameras/health").json()["cameras"]
+        assert [c["streaming"] for c in health] == [True, False]
+
+        # Both HTTP and teaching-handle recording paths reject a missing view;
+        # the physical button must not raise into the robot loop and E-STOP it.
+        session.recorder = type("FakeRecorder", (), {"is_recording": False, "is_saving": False})()
+        try:
+            with pytest.raises(RuntimeError, match="gemini305"):
+                session.start_recording("bottles")
+            session.cfg.task_name = "bottles"
+            session.toggle_record()
+            assert "gemini305" in session.last_record_warning
+        finally:
+            session.recorder = None
+
+        failed.clear()
+        deadline = time.monotonic() + 1
+        while bad.preview_error() is not None and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert bad.preview_error() is None
+        status = client.get("/api/collect/status").json()
+        assert len(status["cameras"]) == 2
+        assert status["camera_errors"] == {}
+        assert client.get("/api/cameras/gemini305/preview.jpg").status_code == 200
+        session._disconnect_cameras()
+        assert session.hub.names() == []
+        assert client.get("/api/cameras/top/preview.jpg").status_code == 404
+
+
+def test_camera_close_timeout_retains_reader_until_cleanup():
+    from manimux.collection.yam.camera.mock_camera import MockCamera
+    from manimux.collection.yam.camera.worker import CameraWorker
+
+    entered = threading.Event()
+    release = threading.Event()
+    closed = []
+
+    class StuckCamera(MockCamera):
+        def read(self):
+            if self._t:
+                entered.set()
+                release.wait(3)
+            return super().read()
+
+        def stop(self):
+            closed.append(True)
+
+    worker = CameraWorker(StuckCamera(width=64, height=48))
+    worker.start()
+    try:
+        assert entered.wait(1)
+        assert not worker.stop(join_timeout=0)
+        assert not worker.stop(join_timeout=0)
+        assert worker._thread.is_alive()
+        assert not closed
+    finally:
+        release.set()
+        assert worker.stop(join_timeout=1)
+    assert closed == [True]
+    assert worker.stop()
+    assert closed == [True]
+
+
+def test_concurrent_camera_connect_reuses_workers_without_leaking(tmp_path, monkeypatch):
+    from manimux.collection.yam.gui import session as session_module
+
+    config = station(tmp_path)
+    config.cameras = [CameraConfig("top", "mock", "top", width=64, height=48)]
+    session = session_module.CollectSession(config, mock=True)
+    build = session_module.build_cameras_from_config
+    opening = threading.Event()
+    release = threading.Event()
+    competing = threading.Event()
+    duplicate = threading.Event()
+    calls = []
+    errors = []
+
+    def slow_open(*args, **kwargs):
+        calls.append(1)
+        if len(calls) > 1:
+            duplicate.set()
+        opening.set()
+        assert release.wait(3)
+        return build(*args, **kwargs)
+
+    def connect(second=False):
+        if second:
+            competing.set()
+        try:
+            session.connect_cameras(config)
+        except Exception as exc:
+            errors.append(exc)
+
+    monkeypatch.setattr(session_module, "build_cameras_from_config", slow_open)
+    first = threading.Thread(target=connect)
+    second = threading.Thread(target=connect, args=(True,))
+    first.start()
+    assert opening.wait(3)
+    second.start()
+    try:
+        assert competing.wait(3)
+        assert not duplicate.wait(0.1)
+    finally:
+        release.set()
+        first.join(3)
+        second.join(3)
+        workers = list(session.workers)
+        session._disconnect_cameras()
+    assert not first.is_alive() and not second.is_alive()
+    assert not errors
+    assert len(calls) == 1
+    assert len(workers) == 1
+    assert workers[0]._thread is None
 
 
 @pytest.fixture
@@ -443,12 +676,13 @@ def test_collection_profile_applies_shared_station_defaults(tmp_path):
     (tmp_path / "control.yaml").write_text(yaml.safe_dump(control))
     raw = yaml.safe_load(Path("configs/collection/yam/station.yaml").read_text())
     raw["manimux_config"] = str(tmp_path / "control.yaml")
+    raw["collection_hz"] = None  # derive legacy timing from the shared profile
     path = tmp_path / "station.yaml"
     path.write_text(yaml.safe_dump(raw))
     cfg = build_station_config(path)
     assert cfg.robot.ee_mass == 0.8
     assert cfg.robot.gripper_force_limit == 50
-    assert cfg.robot.gripper_close_duration_s == 1.0
+    assert cfg.robot.gripper_close_duration_s == 0.0
     assert cfg.control_hz == 30
     hardware = load_backend_config(cfg, mock=True).robot.options["left_hardware_options"]
     assert hardware["ee_mass"] == 0.8
@@ -458,12 +692,14 @@ def test_collection_profile_applies_shared_station_defaults(tmp_path):
         build_station_config(path)
 
 
-def test_toggle_gripper_matches_original_curve_without_double_slowdown(tmp_path):
+@pytest.mark.parametrize("hz", [1, 10, 30, 100])
+def test_toggle_gripper_sends_final_open_close_target_in_one_update(tmp_path, hz):
     from types import SimpleNamespace
 
     from manimux.types import ActionHorizon, RobotState
 
     cfg = station(tmp_path)
+    cfg.collection_hz = hz
     runtime = load_backend_config(cfg, mock=True)
     follower = SimpleNamespace(
         num_dofs=lambda: 7, get_joint_pos=lambda: np.array([0.0] * 6 + [1.0]),
@@ -478,15 +714,18 @@ def test_toggle_gripper_matches_original_curve_without_double_slowdown(tmp_path)
         monotonic_ns=0, sequence=0,
     )
     assert policy._gripper_command(1.0) == 1.0
-    for index in range(30):
-        target = policy._gripper_command(0.0)
-        assert target == pytest.approx(max(0.0, 1 - (index + 1) / 30))
+    assert cfg.robot.gripper_close_duration_s == 0.0
+    assert runtime.execution.motion_limits.gripper.max_closing_velocity is None
+    dt_ns = round(1e9 / hz)
+    # Press, hold, release, press: direct close, remain closed, direct open.
+    for index, (trigger, expected) in enumerate([(0.0, 0.0), (0.0, 0.0),
+                                                (1.0, 0.0), (0.0, 1.0)]):
+        target = policy._gripper_command(trigger)
+        assert target == expected
         reference = ActionHorizon(
-            start_time_ns=0, dt_ns=33_333_333, plan_id="teleop",
+            start_time_ns=0, dt_ns=dt_ns, plan_id="teleop",
             groups={group: np.tile([0.0] * 6 + [target], (2, 1)) for group in state.groups},
         )
-        command = executor.step(index * 33_333_333, state, reference)
+        command = executor.step(index * dt_ns, state, reference)
         for values in command.groups.values():
             assert values[6] == pytest.approx(target)
-    policy._gripper_command(1.0)
-    assert policy._gripper_command(0.0) == 1.0

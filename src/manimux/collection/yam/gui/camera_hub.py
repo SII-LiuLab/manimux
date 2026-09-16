@@ -26,6 +26,10 @@ class CameraHub:
         with self._lock:
             return list(self._latest)
 
+    def remove(self, name: str) -> None:
+        with self._lock:
+            self._latest.pop(name, None)
+
     def preview_jpeg(self, name: str, eye: str | None = None, max_width: int = 320) -> bytes | None:
         import cv2
 

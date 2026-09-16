@@ -11,8 +11,8 @@ Topics (bimanual), each carrying protobuf messages decoded via ``mcap_protobuf``
 
 from __future__ import annotations
 
-import io
 import base64
+import io
 from pathlib import Path
 
 import numpy as np
@@ -23,6 +23,8 @@ from ..schema import (
     action_gripper_key,
     action_joint_key,
     cam_image_key,
+    controller_timestamp_key,
+    feedback_timestamp_key,
     gripper_pos_key,
     joint_pos_key,
 )
@@ -115,6 +117,14 @@ class ABCFormat:
         hz = max(1, int(round(meta.control_hz)))
         tick = 1_000_000_000 // hz
         n = len(buffers[joint_pos_key(arms[0])])
+        multirate = meta.schema_version == 2
+        if multirate:
+            from ..timing import camera_times_ns
+
+            times = [np.asarray(buffers[controller_timestamp_key(a)], dtype=np.int64) for a in arms]
+            times += [np.asarray(buffers[feedback_timestamp_key(a)], dtype=np.int64) for a in arms]
+            times += [camera_times_ns(buffers, c.role) for c in meta.cameras]
+            origin = min(int(t[0]) for t in times if len(t))
 
         path = self._out / f"episode_{self._ep:06d}.mcap"
         self._ep += 1
@@ -132,33 +142,47 @@ class ABCFormat:
                 for i in range(n):
                     t = i * tick
                     for a in arms:
+                        state_t = (
+                            int(buffers[feedback_timestamp_key(a)][i]) - origin if multirate else t
+                        )
+                        action_t = (
+                            int(buffers[controller_timestamp_key(a)][i]) - origin if multirate else t
+                        )
                         w.write_message(
                             topic=f"/{a}-arm-state",
                             message=self._stamp(
-                                RobotState(position=list(np.asarray(buffers[joint_pos_key(a)][i]).ravel())), t
+                                RobotState(position=np.asarray(
+                                    buffers[joint_pos_key(a)][i],
+                                ).ravel().tolist()), state_t,
                             ),
-                            log_time=t, publish_time=t,
+                            log_time=state_t, publish_time=state_t,
                         )
                         w.write_message(
                             topic=f"/{a}-arm-action",
                             message=self._stamp(
-                                RobotState(position=list(np.asarray(buffers[action_joint_key(a)][i]).ravel())), t
+                                RobotState(position=np.asarray(
+                                    buffers[action_joint_key(a)][i],
+                                ).ravel().tolist()), action_t,
                             ),
-                            log_time=t, publish_time=t,
+                            log_time=action_t, publish_time=action_t,
                         )
                         w.write_message(
                             topic=f"/{a}-ee-state",
                             message=self._stamp(
-                                GripperState(position=list(np.asarray(buffers[gripper_pos_key(a)][i]).ravel())), t
+                                GripperState(position=np.asarray(
+                                    buffers[gripper_pos_key(a)][i],
+                                ).ravel().tolist()), state_t,
                             ),
-                            log_time=t, publish_time=t,
+                            log_time=state_t, publish_time=state_t,
                         )
                         w.write_message(
                             topic=f"/{a}-ee-action",
                             message=self._stamp(
-                                GripperState(position=list(np.asarray(buffers[action_gripper_key(a)][i]).ravel())), t
+                                GripperState(position=np.asarray(
+                                    buffers[action_gripper_key(a)][i],
+                                ).ravel().tolist()), action_t,
                             ),
-                            log_time=t, publish_time=t,
+                            log_time=action_t, publish_time=action_t,
                         )
                 # Per-camera video, one CompressedVideo message per frame.
                 for cam in meta.cameras:
@@ -168,8 +192,9 @@ class ABCFormat:
                     frames = buffers.get(cam_image_key(cam.role, "rgb"))
                     if not frames:
                         continue
-                    for j, pkt in enumerate(_h264_packets(frames, hz)):
-                        t = j * tick
+                    camera_ts = camera_times_ns(buffers, cam.role) if multirate else None
+                    for j, pkt in enumerate(_h264_packets(frames, cam.fps if multirate else hz)):
+                        t = int(camera_ts[j]) - origin if multirate else j * tick
                         w.write_message(
                             topic=topic,
                             message=self._stamp(

@@ -65,10 +65,18 @@ class MockRobot(RobotInterface):
 class MockTeleop(TeleopAgent):
     """Generates a deterministic sinusoidal command and applies it to a robot."""
 
-    def __init__(self, robot: RobotInterface, num_arm_joints: int = 6):
+    def __init__(
+        self, robot: RobotInterface, num_arm_joints: int = 6, control_hz: float = 30.0,
+    ):
         self._robot = robot
         self._n = num_arm_joints
         self._t = 0
+        self.set_control_hz(control_hz)
+
+    def set_control_hz(self, hz: float) -> None:
+        if isinstance(hz, bool) or not math.isfinite(hz) or hz <= 0:
+            raise ValueError("control_hz must be finite and positive")
+        self._phase_step = 30.0 / hz
 
     def act(self, obs: dict[str, np.ndarray]) -> np.ndarray:
         phase = self._t * 0.05
@@ -76,7 +84,7 @@ class MockTeleop(TeleopAgent):
         gripper = 0.5 * (1.0 + math.sin(phase))  # sweeps [0, 1]
         cmd = np.concatenate([arm, [gripper]]).astype(np.float64)
         self._robot.command_joint_pos(cmd)
-        self._t += 1
+        self._t += self._phase_step
         return cmd
 
     def engage(self, abort=None) -> None:

@@ -16,6 +16,7 @@ from collections.abc import Callable
 from ..camera.interface import CameraDriver, CameraFrame
 from ..camera.worker import CameraWorker
 from ..config import StationConfig
+from ..data.control_timing import ControlTimings, arm_scope, stage
 from ..runtime import ArmUnit
 
 
@@ -58,12 +59,16 @@ class ControlLoop:
         # engage() ramp) so a GUI-thread engage can't overlap _step() on another
         # thread. See engage_all()/_step().
         self._io_lock = threading.Lock()
+        # Frequency changes must not split read_inputs/act/record across periods.
+        # RLock permits teaching-handle callbacks inside the current step.
+        self.cycle_lock = threading.RLock()
         self._thread: threading.Thread | None = None
         self.actual_hz = 0.0
         # Raw (un-EMA'd) last period + a missed-deadline counter, for diagnosing
         # rate problems that the smoothed actual_hz hides.
         self.last_period = 0.0
         self.overruns = 0
+        self.timings = ControlTimings()
         # Continuous-loop model: the loop always reads the controller so its
         # buttons are live; ``sync_enabled`` gates whether the follower mirrors it
         # (the top button / GUI "Start Teleop" toggle this). See _step.
@@ -90,6 +95,9 @@ class ControlLoop:
     # --- recording hook ----------------------------------------------------
     def attach_recorder(self, recorder) -> None:
         self._recorder = recorder
+        setter = getattr(recorder, "set_camera_workers", None)
+        if setter is not None:
+            setter(self._workers)
 
     @property
     def estopped(self) -> bool:
@@ -122,7 +130,7 @@ class ControlLoop:
         """Ease every follower to its leader before mirroring (mock no-op). Passes
         the E-STOP event so a stop aborts the ramp; bails between arms too. Holds
         _io_lock so the ramp can't overlap _step()'s CAN access on another thread."""
-        with self._io_lock:
+        with self.timings.cycle(self.dt, kind="alignment"), self._io_lock:
             for u in self.units:
                 if self._estop_event.is_set():
                     return
@@ -130,12 +138,22 @@ class ControlLoop:
 
     # --- one iteration -----------------------------------------------------
     def _step(self) -> None:
-        frames: dict[str, CameraFrame] = {}
-        for w in self._workers:
-            fr = w.read()  # latest cached frame; non-blocking (worker feeds preview)
-            if fr is None:
-                continue
-            frames[w.name] = fr
+        with self.timings.cycle(self.dt, sync_enabled=self.sync_enabled):
+            with stage("cycle_lock_wait"):
+                self.cycle_lock.acquire()
+            try:
+                self._step_once()
+            finally:
+                self.cycle_lock.release()
+
+    def _step_once(self) -> None:
+        with stage("camera_cache"):
+            frames: dict[str, CameraFrame] = {}
+            for w in self._workers:
+                fr = w.read()  # latest cached frame; non-blocking (worker feeds preview)
+                if fr is None:
+                    continue
+                frames[w.name] = fr
         # Read every controller so buttons stay live even when sync is off; global
         # sync/record fire on a rising edge of ANY controller's top/second button.
         obs: dict[str, dict] = {}
@@ -143,10 +161,14 @@ class ControlLoop:
         # Serialize CAN reads under _io_lock (engage_all() holds it during its ramp).
         # Released before the button callback, which may itself run engage_all(), so
         # there is no re-entrant deadlock.
-        with self._io_lock:
+        with stage("read_lock_wait"):
+            self._io_lock.acquire()
+        try:
             for u in self.units:
-                obs[u.name] = u.robot.get_observations()
-                inp = u.agent.read_inputs()
+                with stage(f"{u.name}.follower_observation"):
+                    obs[u.name] = u.robot.get_observations()
+                with arm_scope(u.name), stage("leader_inputs"):
+                    inp = u.agent.read_inputs()
                 if inp is not None:
                     btns, trig = inp
                     top = top or (len(btns) > 0 and bool(btns[0]))
@@ -155,32 +177,46 @@ class ControlLoop:
                     self._last_inputs[u.name] = ([bool(b) for b in btns[:2]], float(trig))
                 raw = getattr(u.agent, "leader_raw", None)
                 if callable(raw):
-                    self._last_leader_angles[u.name] = raw()
+                    with stage(f"{u.name}.leader_raw"):
+                        self._last_leader_angles[u.name] = raw()
+        finally:
+            self._io_lock.release()
         self.buttons = [top, second]
-        self._handle_button_edges(self.buttons)
+        with stage("button_callbacks"):
+            self._handle_button_edges(self.buttons)
         self._last_obs = obs
 
         if self._estopped or not self.sync_enabled:
             # Drop the cached action; a stale vector reads as a live command in the per-arm feed.
             self._last_action = {}
             return
-        with self._io_lock:
+        with stage("command_lock_wait"):
+            self._io_lock.acquire()
+        try:
             if self._estopped or not self.sync_enabled:
                 return
-            with self.units[0].robot.backend.target_batch():
-                actions = {u.name: u.agent.act(obs[u.name]) for u in self.units}
-            controller_inputs = {
-                u.name: getter()
-                for u in self.units
-                if callable((getter := getattr(u.robot, "get_controller_input", None)))
-            }
+            tick_timestamp_ns, tick_monotonic_ns = time.time_ns(), time.monotonic_ns()
+            with stage("target_batch"), self.units[0].robot.backend.target_batch():
+                actions = {}
+                for u in self.units:
+                    with arm_scope(u.name), stage("act"):
+                        actions[u.name] = u.agent.act(obs[u.name])
+            with stage("controller_snapshot"):
+                controller_inputs = {
+                    u.name: getter()
+                    for u in self.units
+                    if callable(getter := getattr(u.robot, "get_controller_input", None))
+                }
+        finally:
+            self._io_lock.release()
         self._last_action = actions
         self._last_controller_input = {
             name: sample for name, sample in controller_inputs.items() if sample is not None
         }
         rec = self._recorder
         if rec is not None and rec.is_recording:
-            rec.tick(actions, obs, frames, controller_inputs=controller_inputs)
+            rec.tick(actions, obs, frames, controller_inputs=controller_inputs,
+                     tick_timestamp_ns=tick_timestamp_ns, tick_monotonic_ns=tick_monotonic_ns)
 
     def joint_snapshot(self) -> dict:
         """Per-unit view of the last tick's cache — no CAN reads. ``follower`` and
@@ -219,6 +255,8 @@ class ControlLoop:
         # perf_counter (monotonic) so an NTP/clock step can't inject a missed or
         # doubled deadline.
         elapsed = time.perf_counter() - t0
+        requested_sleep = 0.0
+        actual_sleep_ns = 0
         if self.dt > 0 and elapsed >= self.dt:
             self.overruns += 1  # step blew the period budget — no sleep this tick
             logging.debug(
@@ -226,13 +264,20 @@ class ControlLoop:
                 elapsed * 1e3, self.dt * 1e3,
             )
         elif self.dt > 0:
-            time.sleep(self.dt - elapsed)
+            requested_sleep = self.dt - elapsed
+            sleep_start = time.monotonic_ns()
+            time.sleep(requested_sleep)
+            actual_sleep_ns = time.monotonic_ns() - sleep_start
         total = time.perf_counter() - t0
         self.last_period = total  # raw, un-smoothed
         if total > 0:
             # EMA-smooth so the GUI readout doesn't jitter on single-frame spikes.
             inst = 1.0 / total
             self.actual_hz = inst if self.actual_hz == 0.0 else 0.8 * self.actual_hz + 0.2 * inst
+        self.timings.record_pacing(
+            work_s=elapsed, requested_s=requested_sleep, actual_ns=actual_sleep_ns,
+            total_s=total, actual_hz=self.actual_hz,
+        )
 
     # --- threaded mode (GUI) ----------------------------------------------
     def start(self) -> None:
@@ -258,7 +303,10 @@ class ControlLoop:
                             "the arm powered off. Check power + CAN, then Reset Session.")
                 self.last_error = msg
                 logging.exception("control loop step failed; e-stopping")
-                self.estop()
+                try:
+                    self.estop()
+                finally:
+                    self.timings.flush("loop_error")
                 break
             self._sleep_to_rate(t0)
 
@@ -270,6 +318,8 @@ class ControlLoop:
                 raise RuntimeError("collection loop did not stop; ownership retained")
             self._thread = None
         self._stop_cameras()
+        self.timings.flush("loop_stop")
+        self.timings.wait_for_saves()
 
     def estop(self) -> None:
         """Safety stop: stop commanding immediately and hard-stop every arm. Sets
@@ -278,6 +328,7 @@ class ControlLoop:
         self._estop_event.set()
         self._estopped = True
         self.sync_enabled = False
+        self.timings.request_save("estop")
         for u in self.units:
             try:
                 u.agent.stop()

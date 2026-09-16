@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+
+class CollectionTiming(BaseModel):
+    collection_hz: float = Field(gt=0, allow_inf_nan=False, strict=True)
 
 
 class StartRecording(BaseModel):
@@ -10,6 +14,7 @@ class StartRecording(BaseModel):
     include_eepose: bool = True
     save_root: str | None = None
     data_format: str | None = None
+    record_native_joints: bool | None = None
 
 
 class RecordingOptions(BaseModel):
@@ -17,6 +22,7 @@ class RecordingOptions(BaseModel):
     save_root: str | None = None
     data_format: str | None = None
     task_name: str | None = None
+    record_native_joints: bool | None = None
 
 
 class ZeroGello(BaseModel):

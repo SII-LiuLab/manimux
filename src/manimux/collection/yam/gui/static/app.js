@@ -1,6 +1,8 @@
 "use strict";
 
 const $ = (id) => document.getElementById(id);
+const tabEnabled = (name) =>
+  document.querySelector(`.tabs button[data-tab="${name}"]`)?.disabled === false;
 const post = (url, body) =>
   fetch(url, {
     method: "POST",
@@ -27,6 +29,92 @@ let OPTS = { controller_type: [], robot_type: [], gripper: [], camera_type: [], 
 let _recordOptionsTimer = null;
 let _lastSavedEpisodeShown = null;
 let _lastRecordTaskRequest = 0;
+let _lastTeleopError = null;
+let _cameraBootComplete = false;
+let _cameraConnection = null;
+let _cameraPreviewReady = false;
+let _timingPending = false;
+let _timingAppliedHz = null;
+let _timingStatus = null;
+
+function renderCollectionTiming(s) {
+  _timingStatus = s;
+  const input = $("collection-hz"), button = $("btn-collection-hz");
+  const hz = Number(s.collection_hz);
+  if (!_timingPending && hz > 0 && hz !== _timingAppliedHz) {
+    input.value = String(hz);
+    _timingAppliedHz = hz;
+  }
+  const reason = s.collection_timing_error || "";
+  const requestedHz = Number(input.value);
+  const valid = Number.isFinite(requestedHz) && requestedHz > 0;
+  input.setCustomValidity(valid ? "" : "Enter a positive frequency in Hz");
+  input.disabled = _timingPending || !!reason;
+  button.disabled = _timingPending || !!reason || !valid || requestedHz === hz;
+  button.textContent = _timingPending ? "Applying…" : "Apply Hz";
+  input.title = button.title = reason || (!valid ? "Enter a positive frequency in Hz" : "") ||
+    "Apply between control steps. Cameras keep their configured FPS. " +
+    "The setting lasts for this GUI session.";
+}
+
+function renderLeadTiming(s) {
+  const timing = s.lead_timing;
+  const diagnostic = s.teleop_diagnostics;
+  const saved = diagnostic?.latest;
+  $("teleop-diagnostics").textContent = saved
+    ? `${saved.status === "saved" ? "已保存" : saved.status === "error" ? "保存失败" : "正在保存"}：${saved.path}` +
+      (saved.error ? ` · ${saved.error}` : "") + ` · 内存 ${diagnostic.buffered_rows} 条`
+    : `完整诊断：内存 ${diagnostic?.buffered_rows || 0} 条，Pause 后保存（无需 Record）。`;
+  const hint = $("lead-timing-hint"), body = $("lead-timing-rows");
+  if (!timing?.samples) {
+    hint.textContent = "等待采集循环";
+    body.replaceChildren();
+    return;
+  }
+  const names = {
+    work: "整轮工作（不含等待下一轮）", period: "实际周期（含轮间等待）",
+    cycle_lock_wait: "周期锁等待", camera_cache: "相机缓存",
+    read_lock_wait: "读取锁等待", command_lock_wait: "下发锁等待",
+    button_callbacks: "按钮处理（含对齐/录制切换）", target_batch: "目标处理与同步下发（总计）",
+    controller_snapshot: "已下发 command 缓存", record_lock_wait: "录制锁等待",
+    record_buffer: "录制缓冲写入", follower_observation: "follower 状态读取",
+    leader_inputs: "leader 输入（总计）", leader_state: "leader 状态读取（总计）",
+    leader_joint_cache: "leader 关节缓存读取", leader_handle_cache: "leader 手柄缓存读取",
+    gripper_mapping: "夹爪映射", leader_raw: "leader 原始角度缓存", act: "目标生成与排队（总计）",
+    target_assembly: "target 组装", target_queue: "follower target 排队",
+    bilateral_sdk_submit: "leader 力反馈提交", state_read_validate: "下发前状态读取/校验",
+    executor: "执行器生成 command", command_validate: "command 校验",
+    follower_sdk_submit: "follower SDK 提交",
+    state_read: "双臂状态读取", state_validate: "状态校验", lock_wait: "状态读取锁等待",
+    target_lock_wait: "目标批次锁等待", left_sdk_state: "左臂 SDK 状态读取",
+    right_sdk_state: "右臂 SDK 状态读取", left_sdk_submit: "左臂 SDK 提交",
+    right_sdk_submit: "右臂 SDK 提交", trace_buffer: "command 日志缓冲",
+    requested_sleep: "上一轮计划休眠", actual_sleep: "上一轮实际休眠",
+    sleep_overshoot: "上一轮晚醒时间",
+  };
+  const budget = 1000 / Number(s.collection_hz);
+  hint.textContent = `${timing.samples} 轮 · 预算 ${budget.toFixed(2)} ms · ` +
+    `工作 P95 ${(timing.stages_ms.work?.p95 || 0).toFixed(2)} ms` +
+    (s.teleop_running ? " · 正在下发" : " · 未同步，仅读取") +
+    (timing.latest?.error ? ` · ${timing.latest.error}` : "");
+  const rows = Object.entries(timing.stages_ms).map(([key, stats]) => {
+    const row = document.createElement("tr");
+    const label = document.createElement("td");
+    const parts = key.split(".");
+    label.textContent = (parts.length > 1 ? parts.slice(0, -1).join(".") + " · " : "") +
+      (names[parts.at(-1)] || key);
+    label.title = key + ` (${stats.count} samples)`;
+    label.style.textAlign = "left";
+    row.append(label);
+    for (const metric of ["last", "mean", "p95", "max", "cpu_mean"]) {
+      const cell = document.createElement("td");
+      cell.textContent = stats[metric] == null ? "—" : Number(stats[metric]).toFixed(3);
+      row.append(cell);
+    }
+    return row;
+  });
+  body.replaceChildren(...rows);
+}
 // Live-hardware scan (/api/cameras/detect) so the rail's serial pickers offer real
 // devices instead of hand-typed serials. Refreshed at boot and via the ↻ button.
 let DEVICES = [];
@@ -112,6 +200,8 @@ function renderRail(cfg) {
         <button class="add" id="add-cam">+ Add camera</button>
         <button class="add" id="redetect" title="rescan connected cameras">↻ Detect</button>
       </div>
+      <div id="camera-error" role="alert" hidden
+        style="margin-top:8px;color:#cf222e;font-size:12px;overflow-wrap:anywhere"></div>
     </div>
     <div class="cfg"><h3>Output</h3>
       <div class="cfg-row"><span class="k">format</span>
@@ -205,6 +295,7 @@ function buildCameras(cams) {
 }
 // Refresh preview images ~5 fps with a cache-buster.
 setInterval(() => {
+  if (!_cameraPreviewReady) return;
   document.querySelectorAll("#stage img").forEach((img) => {
     if (!img.dataset.url) return;
     img.src = img.dataset.url + (img.dataset.url.includes("?") ? "&" : "?") + "t=" + Date.now();
@@ -311,8 +402,18 @@ function renderArms(s) {
 // --- websocket status feed ---------------------------------------------------
 function connectWS() {
   const ws = new WebSocket(`ws://${location.host}/ws`);
+  let firstStatus = true;
   ws.onmessage = (ev) => {
     const s = JSON.parse(ev.data);
+    // A restarted GUI has a fresh session. A browser kept open across the restart
+    // must initialize its previews again, without starting robot control.
+    if (firstStatus && _cameraBootComplete && s.cameras_connected === false &&
+        !s.camera_error && !s.live) {
+      connectCameraPreview();
+    }
+    firstStatus = false;
+    _cameraPreviewReady = s.cameras_connected === true;
+    showCameraError(s.camera_error);
     const dot = $("conn-dot");
     dot.classList.toggle("bad", !!s.estopped);
     $("conn-txt").textContent = s.estopped ? "e-stopped" : "live";
@@ -351,7 +452,12 @@ function connectWS() {
     }
 
     // teleop button reflects sync state (top button / GUI drive the same flag)
-    $("teleop-label").textContent = s.teleop_running ? "Stop Teleop" : "Start Teleop";
+    $("teleop-label").textContent = s.estopped ? "E-stopped" :
+      (s.teleop_running ? "Stop Teleop" : "Start Teleop");
+    const teleopError = s.estopped ? s.last_error : null;
+    if (teleopError && teleopError !== _lastTeleopError)
+      toast(`Teleop stopped: ${teleopError}. Reset Session before starting again.`, "err");
+    _lastTeleopError = teleopError;
     $("btn-teleop").classList.toggle("ghost", s.teleop_running);
     $("btn-teleop").classList.toggle("primary", !s.teleop_running);
     // A deploy session runs on the follower buses only — there are no leaders to teleop
@@ -360,7 +466,17 @@ function connectWS() {
     const autonomyWhy = "live for autonomy (follower buses only) — Stop the rollout and " +
       "Reset Session first";
     $("btn-teleop").disabled = autonomy;
-    $("btn-teleop").title = autonomy ? autonomyWhy : "";
+    $("btn-teleop").title = autonomy ? autonomyWhy :
+      (s.estopped ? `${s.last_error || "E-stopped"}. Reset Session before starting again.` : "");
+    const configuredHz = Number(s.collection_hz);
+    const measuredHz = Number(s.collection_actual_hz);
+    $("collection-rate").textContent = autonomy || !configuredHz ? ""
+      : `Target ${configuredHz} Hz` + (s.teleop_running
+        ? ` · actual ${measuredHz.toFixed(1)} Hz` : "");
+    $("collection-rate").title = "Leader target updates and command/joint recording. " +
+      "Camera capture rates are configured separately.";
+    renderCollectionTiming(s);
+    renderLeadTiming(s);
     // Recording is available once the system is live (devices up), not only when synced.
     $("btn-rec").disabled = !s.live || autonomy;
     $("btn-rec").title = autonomy ? autonomyWhy + " (the rollout records itself)" : "";
@@ -373,6 +489,9 @@ function connectWS() {
       : (rec ? "Stop Recording" : "Start Recording");
     $("btn-rec").disabled = !s.live || autonomy || savingEpisode;
     $("record-eepose").disabled = rec || savingEpisode || !s.live || autonomy;
+    $("record-native-joints").disabled = rec || savingEpisode || autonomy;
+    if (!rec && typeof s.record_native_joints === "boolean")
+      $("record-native-joints").checked = s.record_native_joints;
     if (!rec && typeof s.record_eepose === "boolean")
       $("record-eepose").checked = s.record_eepose;
     $("rec-lamp").classList.toggle("on", rec);
@@ -409,7 +528,7 @@ function connectWS() {
     $("eps").textContent = s.episodes_done;
 
     // (Re)build the camera grid when the camera set first arrives or changes.
-    if (s.cameras && s.cameras.length && camsSignature(s.cameras) !== camSig)
+    if (Array.isArray(s.cameras) && camsSignature(s.cameras) !== camSig)
       buildCameras(s.cameras);
     updateJobPills(s.jobs || []);
     // The in-session deploy client owns the deploy pill while a rollout runs, and
@@ -426,6 +545,8 @@ function connectWS() {
     }
   };
   ws.onclose = () => {
+    _cameraPreviewReady = false;
+    buildCameras([]);
     $("conn-dot").classList.add("bad");
     $("conn-txt").textContent = "reconnecting…";
     setTimeout(connectWS, 1000);
@@ -450,6 +571,37 @@ function updateJobPills(jobs) {
 }
 
 // --- collect controls --------------------------------------------------------
+$("collection-hz").oninput = () => {
+  if (_timingStatus) renderCollectionTiming(_timingStatus);
+};
+$("collection-hz").onkeydown = (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    if (!$("btn-collection-hz").disabled) $("btn-collection-hz").click();
+  }
+};
+$("btn-collection-hz").onclick = async () => {
+  const hz = Number($("collection-hz").value);
+  if (!Number.isFinite(hz) || hz <= 0) {
+    $("collection-hz").reportValidity();
+    return;
+  }
+  _timingPending = true;
+  if (_timingStatus) renderCollectionTiming(_timingStatus);
+  try {
+    const result = await post("/api/collect/timing", { collection_hz: hz });
+    if (result.detail) toast(`Frequency change refused: ${result.detail}`, "err");
+    else {
+      _timingStatus = result;
+      toast(`Collection target set to ${result.collection_hz} Hz`, "ok");
+    }
+  } catch (error) {
+    toast(`Frequency change failed: ${error.message}`, "err");
+  } finally {
+    _timingPending = false;
+    if (_timingStatus) renderCollectionTiming(_timingStatus);
+  }
+};
 $("btn-teleop").onclick = async () => {
   // Toggle based on current label (status feed keeps it in sync afterwards).
   const running = $("teleop-label").textContent.startsWith("Stop");
@@ -476,6 +628,7 @@ $("btn-rec").onclick = async () => {
   const result = await post("/api/collect/start-recording", {
     task_name: task,
     include_eepose: $("record-eepose").checked,
+    record_native_joints: $("record-native-joints").checked,
     save_root: $("save-root").value.trim() || "data/episodes",
     data_format: $("fmt").value,
   });
@@ -488,9 +641,16 @@ $("record-eepose").onchange = async () => {
   });
   if (result.detail) toast(`EE pose option refused: ${result.detail}`, "warn");
 };
+$("record-native-joints").onchange = async () => {
+  const result = await post("/api/collect/recording-options", {
+    record_native_joints: $("record-native-joints").checked,
+  });
+  if (result.detail) toast(`Native joint option refused: ${result.detail}`, "warn");
+};
 const syncRecordingOptions = async () => {
   const result = await post("/api/collect/recording-options", {
     include_eepose: $("record-eepose").checked,
+    record_native_joints: $("record-native-joints").checked,
     save_root: $("save-root").value.trim() || "data/episodes",
     data_format: $("fmt").value,
     task_name: $("task").value.trim(),
@@ -557,7 +717,50 @@ $("end-hardware-session").onclick = async () => {
   alert("Hardware session ended. The YAM-ABC-Reproduce page will disconnect now.");
 };
 // Preview: (re)open cameras from the current rail config, without robot/teleop.
-$("btn-preview").onclick = () => post("/api/collect/connect", gatherForm());
+function showCameraError(message) {
+  const error = $("camera-error");
+  if (!error) return;
+  error.textContent = message ? `Unavailable camera views (hidden): ${message}` : "";
+  error.hidden = !message;
+}
+
+function connectCameraPreview(form) {
+  if (_cameraConnection) return _cameraConnection;
+  _cameraConnection = (async () => {
+    const button = $("btn-preview");
+    button.disabled = true;
+    try {
+      const response = await fetch("/api/collect/connect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: form ? JSON.stringify(form) : null,
+      });
+      const raw = await response.text();
+      let result;
+      try { result = JSON.parse(raw); } catch (_) { result = null; }
+      if (!response.ok || result?.detail) {
+        const detail = result?.detail;
+        throw new Error((typeof detail === "string" ? detail : detail && JSON.stringify(detail)) ||
+          raw || `HTTP ${response.status}`);
+      }
+      _cameraPreviewReady = result.cameras_connected === true;
+      if (Array.isArray(result.cameras) && camsSignature(result.cameras) !== camSig) {
+        buildCameras(result.cameras);
+      }
+      showCameraError(result.camera_error);
+    } catch (error) {
+      showCameraError(error.message);
+      toast(`Camera connection failed: ${error.message}`, "err");
+      console.error("Camera connection failed", error);
+    } finally {
+      button.disabled = false;
+      _cameraConnection = null;
+    }
+  })();
+  return _cameraConnection;
+}
+
+$("btn-preview").onclick = () => connectCameraPreview(gatherForm());
 $("reset-can").onclick = async () => {
   toast("Resetting CAN buses\u2026");
   const r = await post("/api/maintenance/reset-can");
@@ -766,7 +969,7 @@ function gatherTrainParams() {
 }
 
 $("ft-backend").addEventListener("change", () => renderTrainFields($("ft-backend").value));
-renderTrainFields($("ft-backend").value); // initial render
+if (tabEnabled("train")) renderTrainFields($("ft-backend").value);
 
 // Convert recorded episodes to a training dataset — as a job so progress streams here.
 $("btn-convert").onclick = async () => {
@@ -976,7 +1179,7 @@ async function loadCkpts(replace) {
 }
 $("dp-backend").addEventListener("change", () => loadCkpts(true));
 $("dp-ckpt").addEventListener("focus", () => loadCkpts(false));
-loadCkpts(false);
+if (tabEnabled("deploy")) loadCkpts(false);
 
 // --- GPU process popup: click the topbar GPU badge to inspect / kill ---------
 const _gpuPop = document.createElement("div");
@@ -1037,8 +1240,10 @@ async function pollServer() {
     $("btn-deploy").title = _srvReady ? "" : "start (or connect to) a policy server first";
   } catch (e) { /* GUI unreachable; leave badge as-is */ }
 }
-setInterval(pollServer, 3000);
-pollServer();
+if (tabEnabled("deploy")) {
+  setInterval(pollServer, 3000);
+  pollServer();
+}
 
 $("btn-serve-stop").onclick = async () => {
   const port = Number($("dp-port").value) || 8000;
@@ -1087,9 +1292,12 @@ Promise.all([
     // without clicking Start Teleop. The WS feed then (re)builds the grid.
     // Boot should use the persisted YAML mapping. Submitting the rendered rail
     // here can write stale browser selections back over cameras.yaml on refresh.
-    post("/api/collect/connect").catch(() => {});
+    return connectCameraPreview().finally(() => { _cameraBootComplete = true; });
   })
-  .catch(() => {});
+  .catch((error) => {
+    toast(`Could not load collection page: ${error.message}`, "err");
+    console.error("Could not load collection page", error);
+  });
 connectWS();
 
 // --- review (post-collection sanity check) -----------------------------------
@@ -1170,6 +1378,7 @@ connectWS();
     ]);
     const fps = meta.control_hz || 30;
     R = { id, meta, sig, fps, T: sig.num_frames || 0, frame: 0, playing: false, videos: [] };
+    R.tickTimes = sig.tick_timestamps_ms;
     $("rv-head").textContent = `${meta.task_name || "(untitled)"} — ${R.T} frames @ ${fps} Hz`;
     const vwrap = $("rv-videos");
     vwrap.innerHTML = "";
@@ -1182,6 +1391,9 @@ connectWS();
       v.muted = true;
       v.preload = "auto";
       v.playsInline = true;
+      v.dataset.role = c.role;
+      v.dataset.fps = c.fps || 30;
+      v.addEventListener("loadedmetadata", () => { if (R?.id === id) seekFrame(R.frame); });
       box.appendChild(v);
       const cap = document.createElement("div");
       cap.className = "vid-cap";
@@ -1211,7 +1423,17 @@ connectWS();
     const t = R.frame / R.fps;
     R.videos.forEach((v) => {
       try {
-        v.currentTime = t;
+        const indices = R.sig.cameras[v.dataset.role]?.frame_indices;
+        if (R.tickTimes && indices) {
+          const index = indices[R.frame];
+          v.style.visibility = index < 0 ? "hidden" : "";
+          if (index >= 0 && v.readyState >= 1 && v.dataset.frame !== String(index)) {
+            v.currentTime = (index + 0.1) / Number(v.dataset.fps);
+            v.dataset.frame = String(index);
+          }
+        } else {
+          v.currentTime = t;
+        }
       } catch {}
     });
     $("rv-scrub").value = R.frame;
@@ -1223,6 +1445,23 @@ connectWS();
     if (!R) return;
     R.playing = true;
     $("rv-play").textContent = "Pause";
+    if (R.tickTimes?.length === R.T) {
+      const started = performance.now(), origin = R.tickTimes[R.frame], episode = R;
+      const step = () => {
+        if (R !== episode || !R.playing) return;
+        const now = origin + performance.now() - started;
+        let low = R.frame, high = R.T;
+        while (low + 1 < high) {
+          const mid = Math.floor((low + high) / 2);
+          if (R.tickTimes[mid] <= now) low = mid; else high = mid;
+        }
+        seekFrame(low);
+        if (low >= R.T - 1) return pause();
+        requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+      return;
+    }
     R.videos.forEach((v) => v.play().catch(() => {}));
     const step = () => {
       if (!R || !R.playing) return;
@@ -1335,12 +1574,14 @@ connectWS();
       msgs = [];
     for (const [role, c] of Object.entries(sig.cameras || {})) {
       const n = c.timestamps ? c.timestamps.length : 0;
-      if (n !== T) msgs.push(`camera ${role}: ${n} frames vs ${T}`);
+      if (!sig.tick_timestamps_ms && n !== T) msgs.push(`camera ${role}: ${n} frames vs ${T}`);
+      if (!n) msgs.push(`camera ${role}: no recorded frames`);
       if (c.timestamps && c.timestamps.length > 2) {
         let mx = 0;
         for (let i = 1; i < c.timestamps.length; i++)
           mx = Math.max(mx, c.timestamps[i] - c.timestamps[i - 1]);
-        const exp = 1000 / (meta.control_hz || 30);
+        const camera = (meta.cameras || []).find((camera) => camera.role === role);
+        const exp = 1000 / (sig.tick_timestamps_ms ? (camera?.fps || 30) : (meta.control_hz || 30));
         if (mx > exp * 2.5) msgs.push(`${role}: max frame gap ${mx.toFixed(0)}ms (~${exp.toFixed(0)}ms expected)`);
       }
     }

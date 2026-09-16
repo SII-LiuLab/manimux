@@ -12,11 +12,16 @@ Layout of one episode folder::
       controller-<arm>-timestamp-ns.npy (N,), q_cmd update time
       <arm>-feedback-timestamp-ns.npy (N,), achieved sample time
       <role>-images-<key>.mp4    one per camera image stream (stereo -> two mp4s)
-      <role>-timestamp.npy       (N,) capture timestamps in ms
+      <role>-timestamp.npy       (M_role,) capture timestamps in ms
+      tick-timestamp-ns.npy      (N,) control sampling times (schema v2)
+      tick-monotonic-ns.npy      (N,) monotonic control sampling times (v2)
+      <role>-frame-index.npy     (N,) latest camera ordinal per tick; -1 if none (v2)
       write_complete.flag        written last, by the recorder
 
 ``buffers`` value types: image keys -> list[HxWx3 frames]; ``*-timestamp`` ->
 (N,) float array; state/action keys -> (N, d) array.
+Schema v1 cameras have N entries. Schema v2 records each camera independently;
+its M_role frames need not match N or any other camera's count.
 """
 
 from __future__ import annotations

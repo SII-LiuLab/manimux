@@ -3,6 +3,8 @@ from typing import Protocol
 
 import numpy as np
 
+from manimux.timing import stage
+
 
 class Robot(Protocol):
     """Robot protocol.
@@ -93,11 +95,17 @@ class BimanualRobot(Robot):
         return self._robot_l.num_dofs() + self._robot_r.num_dofs()
 
     def get_joint_state(self) -> np.ndarray:
-        return np.concatenate((self._robot_l.get_joint_state(), self._robot_r.get_joint_state()))
+        with stage("left_sdk_state"):
+            left = self._robot_l.get_joint_state()
+        with stage("right_sdk_state"):
+            right = self._robot_r.get_joint_state()
+        return np.concatenate((left, right))
 
     def command_joint_state(self, joint_state: np.ndarray) -> None:
-        self._robot_l.command_joint_state(joint_state[: self._robot_l.num_dofs()])
-        self._robot_r.command_joint_state(joint_state[self._robot_l.num_dofs() :])
+        with stage("left_sdk_submit"):
+            self._robot_l.command_joint_state(joint_state[: self._robot_l.num_dofs()])
+        with stage("right_sdk_submit"):
+            self._robot_r.command_joint_state(joint_state[self._robot_l.num_dofs() :])
 
     def get_observations(self) -> dict[str, np.ndarray]:
         l_obs = self._robot_l.get_observations()

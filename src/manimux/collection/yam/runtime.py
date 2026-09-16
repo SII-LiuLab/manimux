@@ -45,7 +45,7 @@ def build_arm_units(cfg: StationConfig, mock=False, followers_only=False) -> lis
             side = robot.type.removeprefix("yam_")
             follower = FollowerView(backend, f"{side}_arm")
             if mock:
-                policy = MockTeleop(follower)
+                policy = MockTeleop(follower, control_hz=cfg.control_hz)
             else:
                 from .robot.yam_adapter import YamLeaderArm, YamLeaderPolicy
 

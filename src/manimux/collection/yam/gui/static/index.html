@@ -37,6 +37,19 @@
   <details class="armmon" id="armmon" open>
     <summary>Arms · live joints <span class="hint" id="armmon-hint">idle</span></summary>
     <div class="armmon-grid" id="armmon-grid"></div>
+    <details style="margin: 8px 16px">
+      <summary>Lead target · 分段耗时 <span class="hint" id="lead-timing-hint">等待采集循环</span></summary>
+      <p class="hint">最近 200 轮，单位 ms。子阶段包含在父阶段中，请勿相加。
+        CPU 列是本线程计算时间，其余耗时可能是等待或未获调度。
+        SDK 耗时不代表 CAN 接收或电机响应延迟。</p>
+      <p class="hint" id="teleop-diagnostics">每次遥操下发保存在内存，Pause 后统一保存诊断日志。</p>
+      <div style="max-height: 260px; overflow: auto">
+        <table style="width: 100%; text-align: right; font-variant-numeric: tabular-nums">
+          <thead><tr><th style="text-align: left">阶段</th><th>最近</th><th>平均</th><th>P95</th><th>最大</th><th>CPU 平均</th></tr></thead>
+          <tbody id="lead-timing-rows"></tbody>
+        </table>
+      </div>
+    </details>
   </details>
 
   <div class="tray" id="tray">
@@ -47,6 +60,13 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
           <span id="teleop-label">Start Teleop</span>
         </button>
+        <label class="chk">Hz
+          <input class="inp" id="collection-hz" type="number" min="0" step="any"
+            inputmode="decimal" required disabled style="width:6rem"
+            aria-label="Collection frequency in Hz" />
+        </label>
+        <button class="btn ghost" id="btn-collection-hz" disabled>Apply Hz</button>
+        <span class="chk" id="collection-rate"></span>
       </div>
     </div>
     <div class="field">
@@ -55,6 +75,9 @@
         <button class="btn rec" id="btn-rec" disabled><span class="rec-dot"></span><span id="rec-label">Start Recording</span></button>
         <label class="chk" title="Save EE position, rotation matrix, quaternion, Euler XYZ and 4x4 transform for state and action">
           <input type="checkbox" id="record-eepose" checked /> EE pose
+        </label>
+        <label class="chk" title="Record each new joint feedback sample from both teaching and follower arms. Camera and teleop rates stay unchanged.">
+          <input type="checkbox" id="record-native-joints" /> Native joint rate
         </label>
         <span class="mit-log-on" title="Always saves MIT controller input joint targets and follower feedback timestamps">
           <i></i> MIT gap log · ON
@@ -228,6 +251,6 @@
     <pre id="dp-logs" class="logs"></pre>
   </div>
 
-  <script src="/app.js?v=mit-gap-log-1"></script>
+  <script src="/app.js?v=collection-timeout-5"></script>
 </body>
 </html>

@@ -41,6 +41,7 @@ class SmoothExecutor:
         self._dt_s = control_dt_s
         rc = 1.0 / (2.0 * math.pi * config.cutoff_hz)
         self._alpha = control_dt_s / (rc + control_dt_s)
+        self._rc = rc
         self._limits = ScalarLimits(
             max_velocity=config.max_velocity,
             max_acceleration=config.max_acceleration,
@@ -82,6 +83,13 @@ class SmoothExecutor:
     @property
     def horizon_steps(self) -> int:
         return 2
+
+    def set_control_period(self, control_dt_s: float) -> None:
+        """Retain filter/limit history and events while changing the sample period."""
+        if not math.isfinite(control_dt_s) or control_dt_s <= 0:
+            raise ValueError("control_dt_s must be finite and positive")
+        self._dt_s = control_dt_s
+        self._alpha = control_dt_s / (self._rc + control_dt_s)
 
     def brake_hold(self, now_ns: int, state: RobotState) -> RobotCommand:
         """On a RUNNING inference gap, decelerate rather than jump to feedback.

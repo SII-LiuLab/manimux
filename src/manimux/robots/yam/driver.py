@@ -121,7 +121,9 @@ class YamDualArmDriver:
         from manimux.robots.yam.base import BimanualRobot
 
         left_channel = self._options.get("left_channel", left_cfg.get("robot", {}).get("channel"))
-        right_channel = self._options.get("right_channel", right_cfg.get("robot", {}).get("channel"))
+        right_channel = self._options.get(
+            "right_channel", right_cfg.get("robot", {}).get("channel")
+        )
         if not isinstance(left_channel, str) or not isinstance(right_channel, str):
             raise ValueError("both YAM configs must define robot.channel")
         left_robot = None
@@ -134,6 +136,7 @@ class YamDualArmDriver:
                 channel=right_channel, **self._options.get("right_hardware_options", {})
             )
             self._robot = BimanualRobot(left_robot, right_robot)
+            self.check_health()
             if self._move_to_start_on_connect:
                 self._move_joints(
                     np.concatenate([left_start, right_start]),
@@ -169,7 +172,9 @@ class YamDualArmDriver:
         return self._robot
 
     def get_state(self) -> RobotState:
+        self.check_health()
         joints = np.asarray(self._require_robot().get_joint_state(), dtype=np.float64)
+        self.check_health()
         if joints.shape != (14,) or not np.isfinite(joints).all():
             raise RuntimeError(f"YAM returned invalid joint state shape {joints.shape}")
         self._sequence += 1
@@ -183,9 +188,61 @@ class YamDualArmDriver:
         joints = np.concatenate([command.groups[name] for name in self.GROUP_ORDER])
         if joints.shape != (14,) or not np.isfinite(joints).all():
             raise ValueError("YAM command must contain two finite 7-value groups")
+        # Check both arms before either receives a target. SDK getters/setters
+        # can keep returning cached state after their background threads exit.
+        self.check_health()
         self._require_robot().command_joint_state(joints)
 
-    def home(self) -> None:
+    def check_health(self) -> None:
+        """Reject stopped i2rt loops without reading CAN or renewing state timestamps."""
+        robot = self._require_robot()
+        for side, arm in (("left", robot._robot_l), ("right", robot._robot_r)):
+            self._check_arm_health(side, arm)
+
+    @staticmethod
+    def _check_arm_health(side, arm) -> None:
+        native = arm.robot
+        chain = getattr(native, "motor_chain", None)
+        server = getattr(native, "_server_thread", None)
+        stop = getattr(native, "_stop_event", None)
+        if chain is None or server is None or stop is None:
+            raise RuntimeError(f"YAM {side}: i2rt health hooks are unavailable")
+        if not chain.running or stop.is_set() or not server.is_alive():
+            raise RuntimeError(
+                f"YAM {side}: i2rt control loop stopped; cached joint feedback is invalid. "
+                "No joint target will be submitted; exit and inspect the motor error."
+            )
+
+    def hold_healthy_arms(self) -> dict[str, dict]:
+        """Hold each responsive arm independently; never command a stopped loop.
+
+        This does not recover a disconnected motor or guarantee physical support.
+        A failed arm must not prevent the other arm from receiving its hold target.
+        """
+        robot = self._require_robot()
+        result = {}
+        for side, arm in (("left", robot._robot_l), ("right", robot._robot_r)):
+            try:
+                self._check_arm_health(side, arm)
+                q = np.asarray(arm.get_joint_state(), dtype=np.float64).copy()
+                if q.shape != (7,) or not np.isfinite(q).all():
+                    raise RuntimeError(f"YAM {side}: invalid feedback for hold")
+                self._check_arm_health(side, arm)
+                arm.command_joint_state(q)
+                result[side] = {"status": "hold_submitted", "joint_target": q.tolist()}
+            except Exception as exc:
+                result[side] = {"status": "unavailable", "error": str(exc)}
+        return result
+
+    def native_joint_sources(self):
+        robot = self._require_robot()
+        return [
+            robot._robot_l.native_joint_source("follower_left"),
+            robot._robot_r.native_joint_source("follower_right"),
+        ]
+
+    def home(self, *, release_grippers: bool = True) -> None:
+        self.check_health()
         achieved = np.asarray(self._require_robot().get_joint_state(), dtype=np.float64)
         if achieved.shape != (14,) or not np.isfinite(achieved).all():
             raise RuntimeError("YAM returned invalid joint state before homing")
@@ -204,6 +261,9 @@ class YamDualArmDriver:
             parallel=True,
             reraise_interrupt=False,
         )
+        self.check_health()
+        if not release_grippers:
+            return
 
         # Only after both arms have reached home do we release both grippers.
         released_home = arm_home.copy()

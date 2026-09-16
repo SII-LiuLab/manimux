@@ -141,6 +141,11 @@ class YAMRobot(Robot):
         motor_chain.close()
         print("Robot closed with all torques set to zero.")
 
+    def native_joint_source(self, stream: str):
+        from manimux.robots.yam.native import NativeJointSource
+
+        return NativeJointSource.from_robot(self.robot, stream)
+
 
 def main():
     robot = YAMRobot()
