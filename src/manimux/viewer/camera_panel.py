@@ -131,15 +131,10 @@ def _camera_panel_html(labels: Mapping[str, tuple[str, str]] | None = None) -> s
 <div class="manimux-camera-anchor"></div>
 <section class="manimux-camera-panel"></section>
 """
-    # Keep all three native image nodes in the DOM so sibling selectors remain
-    # anchored when the policy uses only one or two cameras.
-    hidden = "".join(
-        'div:has(> .manimux-camera-anchor)' + ' + div' * (index + 1)
-        + ' { visibility: hidden; pointer-events: none; }'
-        for index, slot in enumerate(PANEL_SLOTS) if slot not in labels
-    )
+    # Missing cameras retain their black image handles and fixed layout positions.
+    labels = {slot: labels.get(slot, (slot, "")) for slot in PANEL_SLOTS}
     display_names = {"left": "left side", "right": "right side"}
-    return style + f"<style>{hidden}</style>" + "".join(
+    return style + "".join(
         f'<span class="manimux-camera-label manimux-camera-label-{slot}" '
         f'title="{html.escape(display_names.get(slot, name))}">'
         f'<strong>{html.escape(display_names.get(slot, name))}</strong></span>'
@@ -150,7 +145,7 @@ def _camera_panel_html(labels: Mapping[str, tuple[str, str]] | None = None) -> s
 class CameraPanel:
     """Keep model names as labels; GUI handle IDs never depend on a model namespace.
 
-    The first three inputs use the existing large/small preview layout. Further
+    Recognized camera sources use fixed top/left/right preview positions. Further
     inputs remain visible in a separate native GUI folder. Image handles persist
     across frames and model switches; only labels change when routing changes.
     """
@@ -165,7 +160,7 @@ class CameraPanel:
         self._on_main_image = on_main_image
         self._policy_map: dict[str, str] = {}
         self._invalid_map = False
-        self._views = list(config.cameras.model_dump().items())
+        self._views: list[tuple[str, str] | None] = list(config.cameras.model_dump().items())
         self._received: set[int] = set()
         self._sources: dict[int, str] = {}
         self._placeholder = np.zeros((90, 160, 3), dtype=np.uint8)
@@ -191,6 +186,32 @@ class CameraPanel:
             self._clear_image(index)
         self._render()
 
+    def _policy_views(self, policy_map: Mapping[str, str]) -> list[tuple[str, str] | None]:
+        views: list[tuple[str, str] | None] = [None] * len(PANEL_SLOTS)
+        unassigned = []
+        extra = []
+        for name, source in policy_map.items():
+            slot = self._normalize(source)
+            if slot in PANEL_SLOTS:
+                index = PANEL_SLOTS.index(slot)
+                if views[index] is None:
+                    views[index] = (name, source)
+                else:
+                    extra.append((name, source))
+            elif source.endswith("_prev"):
+                # Temporal model inputs are not additional physical viewpoints.
+                extra.append((name, source))
+            else:
+                unassigned.append((name, source))
+        # Preserve config order for sources without a known spatial role, after
+        # reserving positions for all recognized cameras.
+        for view in unassigned:
+            if None in views:
+                views[views.index(None)] = view
+            else:
+                extra.append(view)
+        return views + extra
+
     def set_policy_map(self, raw: object, *, reset: bool = False) -> None:
         valid = isinstance(raw, Mapping) and all(
             isinstance(key, str) and bool(key.strip())
@@ -207,7 +228,7 @@ class CameraPanel:
         self._policy_map = policy_map
         self._invalid_map = invalid
         self._views = (
-            list(policy_map.items())
+            self._policy_views(policy_map)
             if self._config.camera_mode == "policy" and policy_map
             else list(self._config.cameras.model_dump().items())
         )
@@ -227,7 +248,10 @@ class CameraPanel:
             return
         follow_policy = self._config.camera_mode == "policy" and bool(self._policy_map)
         resolved = {} if follow_policy else self._config.cameras.resolve(payloads, self._normalize)
-        for index, (name, source) in enumerate(self._views):
+        for index, view in enumerate(self._views):
+            if view is None:
+                continue
+            name, source = view
             selected = source if follow_policy else resolved.get(name, source)
             self._sources[index] = selected
             if selected not in payloads:
@@ -246,8 +270,8 @@ class CameraPanel:
 
     def _render(self) -> None:
         labels = {
-            PANEL_SLOTS[index]: (name, self._sources.get(index, source))
-            for index, (name, source) in enumerate(self._views[:3])
+            PANEL_SLOTS[index]: (view[0], self._sources.get(index, view[1]))
+            for index, view in enumerate(self._views[:3]) if view is not None
         }
         panel_html = _camera_panel_html(labels)
         if self.panel.content != panel_html:
@@ -261,7 +285,11 @@ class CameraPanel:
         else:
             title = "默认预览 · 尚未获取模型输入配置"
         rows = []
-        for index, (name, source) in enumerate(self._views):
+        for index, view in enumerate(self._views):
+            if view is None:
+                rows.append(f"<tr><td>{PANEL_SLOTS[index]}</td><td>—</td><td>未配置</td></tr>")
+                continue
+            name, source = view
             source = self._sources.get(index, source)
             status = "预览中" if index in self._received else "等待图像"
             rows.append(

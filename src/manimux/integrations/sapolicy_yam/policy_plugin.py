@@ -46,7 +46,7 @@ def _string_option(options: Mapping[str, object], name: str, default: str) -> st
         raise ValueError(f"policy.options.{name} must be a non-empty string")
     return value
 
-
+collections
 def _string_sequence(
     options: Mapping[str, object], name: str, default: Sequence[str]
 ) -> tuple[str, ...]:
@@ -423,7 +423,7 @@ class SAPolicyYamAdapter:
             raise ValueError("independent decode hold is not enabled")
         return self._decode_action(raw, context, partition, hold_reason=reason)
 
-    def _solve_arm_bounded(
+    def _solve_arm_boundedgroups(
         self, group, actions, seed_state, *, budget_ms, diagnostics, hold_reason=None,
     ):
         import time

@@ -153,9 +153,9 @@ class _CameraGui:
         return add
 
 
-def _camera_viewer(config=None):
+def _camera_viewer(config=None, robot=None):
     viewer = PolicyViewer.__new__(PolicyViewer)
-    viewer.robot = YamAdapter()
+    viewer.robot = robot or YamAdapter()
     viewer.episode_active = True
     viewer.paused = True
     viewer.observe_only = False
@@ -169,9 +169,10 @@ def _camera_viewer(config=None):
     return viewer, overlay_updates
 
 
-def _camera_state(camera_map=None, frames=None):
+def _camera_state(camera_map=None, frames=None, *, robot="yam"):
     return RobotSnapshot(
-        robot="yam", joint_positions=np.zeros(14), cameras=frames or {},
+        robot=robot, joint_positions=np.zeros(16 if robot == "tianji" else 14),
+        cameras=frames or {},
         step=0, max_steps=100,
         metadata={"camera_map": camera_map} if camera_map is not None else {},
     ).to_wire()
@@ -187,7 +188,10 @@ def _camera_state(camera_map=None, frames=None):
         "configs/sapolicy/yam/infra/teleopMV51/gemini335-rtc.yaml",
     ],
 )
-def test_default_viewer_follows_pi05_and_sa_inputs_without_viewer_config(config_path):
+@pytest.mark.parametrize("reverse_order", [False, True])
+def test_default_viewer_follows_pi05_and_sa_inputs_without_viewer_config(
+    config_path, reverse_order,
+):
     from manimux.config import load_config
 
     camera_map = load_config(config_path).policy.options["camera_map"]
@@ -200,7 +204,8 @@ def test_default_viewer_follows_pi05_and_sa_inputs_without_viewer_config(config_
     for name in ("front_camera", "gemini305", "gemini335"):
         frames.setdefault(name, np.full((12, 16, 3), 250, dtype=np.uint8))
     viewer, overlay = _camera_viewer()
-    viewer._update_state(_camera_state(camera_map, frames))
+    wire_map = dict(reversed(list(camera_map.items()))) if reverse_order else camera_map
+    viewer._update_state(_camera_state(wire_map, frames))
 
     for i, (_name, _source) in enumerate(camera_map.items()):
         np.testing.assert_allclose(viewer.camera_view.images[i].image[0, 0], colors[i], atol=3)
@@ -230,17 +235,86 @@ def test_manual_preview_stays_separate_and_still_reports_policy_inputs(view):
     assert "cam_head ← another_camera" in viewer.camera_view.details.content
 
 
-def test_missing_metadata_uses_labeled_default_preview_and_robot_aliases():
-    viewer, _ = _camera_viewer()
+@pytest.mark.parametrize("include_history", [False, True])
+@pytest.mark.parametrize("reverse_order", [False, True])
+@pytest.mark.parametrize("runtime_config", ["default", "rtc"])
+def test_tianji_wrist_views_keep_spatial_slots_and_black_top(
+    include_history, reverse_order, runtime_config,
+):
+    from manimux.config import load_config
+
+    camera_map = load_config(
+        f"configs/umi_dp/tianji/infra/pass_ball/{runtime_config}.yaml",
+    ).policy.options["camera_map"]
+    if not include_history:
+        camera_map = {name: source for name, source in camera_map.items()
+                      if not source.endswith("_prev")}
+    if reverse_order:
+        camera_map = dict(reversed(list(camera_map.items())))
+    viewer, overlay = _camera_viewer(robot=TianjiAdapter())
+    # Switching from a three-camera station must clear its old top frame.
+    viewer._update_state(_camera_state(
+        {"head": "top", "left": "left_camera", "right": "right_camera"},
+        {"top": np.full((12, 16, 3), 200, np.uint8)},
+        robot="tianji",
+    ))
+    panel = viewer.camera_view
+    handles = tuple(panel.images)
+    frames = {
+        "left_wrist": np.full((12, 16, 3), (210, 30, 40), np.uint8),
+        "right_wrist": np.full((12, 16, 3), (40, 210, 60), np.uint8),
+        "left_wrist_prev": np.full((12, 16, 3), 60, np.uint8),
+        "right_wrist_prev": np.full((12, 16, 3), 90, np.uint8),
+    }
+    # The live bridge publishes only the two physical cameras, even when the
+    # policy map also declares temporal inputs assembled for model inference.
+    live_frames = {name: frame for name, frame in frames.items() if not name.endswith("_prev")}
+    viewer._update_state(_camera_state(camera_map, live_frames, robot="tianji"))
+
+    assert all(a is b for a, b in zip(handles, panel.images[:3], strict=True))
+    assert all(handle.visible for handle in panel.images[:3])
+    assert panel.images[0].image.max() == 0
+    assert overlay[-1] is None
+    assert "visibility: hidden" not in panel.panel.content
+    assert "<strong>top</strong>" in panel.panel.content
+    assert "未配置" in panel.details.content
+    np.testing.assert_allclose(panel.images[1].image[0, 0], (210, 30, 40), atol=3)
+    np.testing.assert_allclose(panel.images[2].image[0, 0], (40, 210, 60), atol=3)
+    assert panel.extra_folder.visible is include_history
+    if include_history:
+        assert len(panel.images) == 5
+        assert all(handle.image.max() == 0 for handle in panel.images[3:])
+        viewer._update_state(_camera_state(camera_map, frames, robot="tianji"))
+        assert panel.images[0].image.max() == 0
+        assert overlay[-1] is None
+        for handle in panel.images[3:]:
+            source = "left_wrist_prev" if "left" in handle.label else "right_wrist_prev"
+            assert source in handle.label
+            np.testing.assert_allclose(handle.image, frames[source], atol=3)
+
+
+@pytest.mark.parametrize(
+    ("robot", "sources"),
+    [(YamAdapter(), ("front_camera", "left_camera", "right_camera")),
+     (TianjiAdapter(), ("left_wrist", "right_wrist"))],
+)
+@pytest.mark.parametrize("camera_mode", ["policy", "manual"])
+def test_missing_metadata_uses_labeled_default_preview_and_robot_aliases(
+    robot, sources, camera_mode,
+):
+    viewer, _ = _camera_viewer(ViewerConfig(camera_mode=camera_mode), robot=robot)
     frames = {name: np.full((12, 16, 3), 100, np.uint8)
-              for name in ("front_camera", "left_camera", "right_camera")}
-    viewer._update_state(_camera_state(frames=frames))
-    assert "尚未获取模型输入配置" in viewer.camera_view.details.content
+              for name in sources}
+    viewer._update_state(_camera_state(frames=frames, robot=robot.name))
+    title = "尚未获取模型输入配置" if camera_mode == "policy" else "手动预览"
+    assert title in viewer.camera_view.details.content
     assert "top" in viewer.camera_view.panel.content
     assert "left side" in viewer.camera_view.panel.content
     assert "right side" in viewer.camera_view.panel.content
-    for handle in viewer.camera_view.images:
-        np.testing.assert_allclose(handle.image, 100, atol=3)
+    for index, handle in enumerate(viewer.camera_view.images):
+        expected = 0 if robot.name == "tianji" and index == 0 else 100
+        assert handle.visible
+        np.testing.assert_allclose(handle.image, expected, atol=3)
 
 
 def test_policy_switch_reuses_handles_clears_old_images_and_handles_arbitrary_input_names():
@@ -250,13 +324,14 @@ def test_policy_switch_reuses_handles_clears_old_images_and_handles_arbitrary_in
     old_map = {"cam_head": "front_camera", "cam_left": "left_camera", "cam_right": "right_camera"}
     old_frames = {name: np.full((12, 16, 3), 100, np.uint8) for name in old_map.values()}
     viewer._update_state(_camera_state(old_map, old_frames))
-    # Config order determines presentation, with no guessing from model role names.
+    # Unknown sources retain config order around recognized spatial sources.
     new_map = {"observation.images.view_7": "gemini305", "other_view": "left_camera"}
     viewer._update_state(_camera_state(new_map))
     assert all(a is b for a, b in zip(original_handles, panel.images, strict=True))
     assert overlay[-1] is None
     assert panel.images[0].image.max() == 0
-    assert " + div + div + div { visibility: hidden" in panel.panel.content
+    assert panel.images[2].visible
+    assert panel.images[2].image.max() == 0
     assert "cam_head" not in panel.details.content
     assert "observation.images.view_7" in panel.panel.content
     # A packet of unselected cameras must not restore the old external image.
@@ -303,7 +378,8 @@ def test_more_than_three_inputs_are_displayed_and_hidden_after_switch():
     viewer._update_state(_camera_state({"one_view": "physical_0"}, frames))
     assert not panel.extra_folder.visible
     assert [handle.visible for handle in panel.images] == [True, True, True, False, False]
-    assert " + div + div { visibility: hidden" in panel.panel.content
+    assert panel.images[1].image.max() == 0
+    assert panel.images[2].image.max() == 0
 
 
 def test_reset_same_camera_map_clears_frames_and_escaped_labels_are_safe():

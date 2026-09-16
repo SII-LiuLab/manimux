@@ -55,3 +55,13 @@ tests/
 /tests/integration/*
 !/tests/integration/test_umi_tianji_process_decoding.py
 !/tests/integration/test_tianji_rtc_process.py
+
+# Private embodiment SDKs and robot assets stay on the local installation.
+/src/manimux/embodiments/**/sdk/
+/src/manimux/embodiments/**/asset/
+/src/manimux/embodiments/**/assets/
+# Also exclude the pre-refactor locations and backup copies.
+/src/manimux/robots/tianji*/vendor/
+/src/manimux/end_effectors/taccap/vendor/
+/src/manimux/assets/tianji/
+/src/manimux/assets/end_effectors/umi_follower/
