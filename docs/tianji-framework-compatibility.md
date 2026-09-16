@@ -75,7 +75,7 @@ because its driver import requires the absent `i2rt` package. The helper's AST
 comparison passed, but this does not replace YAM hardware testing. These checks
 also do not certify every original model/backend or physical Viewer action.
 
-## What 250 Hz means
+## What the control rate means
 
 The model returns a chunk asynchronously. Its prediction interval and the
 timestamps of rows within a chunk are separate from the runtime control tick.
@@ -89,15 +89,16 @@ model chunk → body decode/IK → joint timeline
                          driver.send_command → SDK target update
 ```
 
-`robot.control_hz: 250` gives a nominal 4 ms runtime tick. This is the frequency
+The pass-ball templates' `robot.control_hz: 100` gives a nominal 10 ms runtime
+tick (250 Hz and 4 ms before 2026-09-15). This is the frequency
 at which the runtime samples and smooths an accepted trajectory. The same loop
 calls the Tianji driver's `send_command`, which calls the Marvin session's
 `send_joints`, then `send_cmd` / `OnSetSend`. Thus it is also the intended SDK
-target-update call frequency. It is **not** 250 model/chunk submissions per
+target-update call frequency. It is **not** 100 model/chunk submissions per
 second, nor proof of the controller's internal servo or network packet rate.
 Overruns can make the actual application call rate lower.
 
-A whole chunk's IK preparation does not inherently have to finish within 4 ms.
+A whole chunk's IK preparation does not inherently have to finish within one tick.
 It may run ahead while the previous trajectory is being smoothed. The current
 UMI adapter decodes inline on the control thread, however, so its whole-chunk
 work interrupts those control ticks. The previously measured analytic decode

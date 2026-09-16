@@ -222,7 +222,7 @@ semantics and executor settings. Rebind the copied template to produce a new
 paired configuration; do not change artifact identities by hand.
 
 `execution.rtc.initial_delay_steps` is an initial estimate in **model action
-steps**, not 250 Hz ticks. The template uses 4, `min_execute_steps: null` (half
+steps**, not control ticks. The template uses 4, `min_execute_steps: null` (half
 the source horizon, bounded by feasibility) and PiGDM `beta: 5.0`. Runtime
 forecasting takes the maximum of the recent delay buffer and rounds fractional
 steps upward. It includes observation age, request preparation, transport,
@@ -292,7 +292,8 @@ On the integration machine, reachable synthetic two-arm chunks took about
 19–23ms for H16 and 77–79ms for H64 (three trials, no hardware connection).
 These are analytic-backend timings. The diff backend took 65–66ms for H16 and
 260–262ms for H64; its individual QP steps had medians of 0.22–0.26ms.
-Whole-chunk work exceeds the 4ms budget of a 250Hz tick. Inline decoding blocks
+Whole-chunk work exceeds a control tick (4ms at the 250Hz these runs used, 10ms
+at the current 100Hz templates). Inline decoding blocks
 the control loop until it finishes: the 2026-09-14 H64 diff rollout froze for
 111–137ms at each of its 18 plan commits, with no commands sent meanwhile.
 
@@ -318,7 +319,25 @@ decoder exceeding the request deadline still faults the runtime. Process
 isolation alone does not establish a hard real-time bound; real-robot command
 timing, tracking and task success still require hardware validation, including
 for the RTC template, which also uses process decoding. These measurements do
-not justify relaxing IK checks or lowering the unified control frequency.
+not justify relaxing IK checks.
+
+Both pass-ball templates run `robot.control_hz: 100` (10ms ticks);
+`max_steps: 2400` keeps the previous 24s rollout cap. The earlier 250Hz setting
+sent a fresh position target every 4ms, and on 2026-09-14 the loop did not hold
+it (median tick 4.8–4.9ms, 6–7% of ticks above 6ms). The IK path does not depend
+on the control rate: substeps stay at `ik_validation_dt_s` (4ms) and the diff-IK
+dt cap comes from `motion_limits.arm.max_step_dt_s`, so decode compute is
+unchanged. The rate only sets how often the loop polls finished decodes. Over
+the 47 process-decoded H64 diff commits recorded at 250Hz with
+`expected_decode_s: 0.065`, compute took 56.5ms median (72.0ms max), submit to
+commit 60.3ms median (75.9ms max), and plans started 4.7ms before the expected
+time at the median. At 100Hz the polling wait grows from at most 4ms to at most
+10ms, about 3ms more on average, so 0.065 should stay near the median; this is
+an estimate. On 100Hz rollouts, compare each `plan_boundary` time with
+`decode_submitted.expected_start_ns` and set `expected_decode_s` to the median
+submit-to-commit time. The driver's home move and `set-state drag` keep their own
+250Hz loops. How position mode follows 10ms targets is not yet validated on
+hardware.
 
 Run the real model on a temporary evaluation port, then evaluate RTC against
 the same model, IK, control profile and executor using a simulated plant:

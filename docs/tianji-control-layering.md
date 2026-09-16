@@ -59,11 +59,14 @@ The independent quantities are:
 - SDK communication servicing;
 - controller firmware's motion following and inner servo loops.
 
-Thus 250 Hz is currently a **deployment/runtime choice**, also used by the local
-teleop stack. It is not a vendor-mandated interpolation rate. The vendor README
+Thus the control rate is a **deployment/runtime choice**. The pass-ball templates
+use 100 Hz (250 Hz before 2026-09-15); the local teleop stack, the driver's home
+move and `set-state drag` still use 250 Hz. It is not a vendor-mandated
+interpolation rate. The vendor README
 mentions up to 200 Hz in one streamed-planning section and commands below 1 kHz
 in its general FAQ, while other modes have their own rates. These statements
-must not be combined into a claim that every interface is validated at 250 Hz.
+must not be combined into a claim that every interface is validated at 100 or
+250 Hz.
 No physical frequency or tracking test was performed here.
 
 ## Responsibility boundary
