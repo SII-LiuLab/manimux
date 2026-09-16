@@ -2,9 +2,9 @@ control_profile: ../../../../robots/tianji/common.yaml
 run:
   task: pass the ball between the two grippers
   output_dir: ./data/experiments/umi-dp-tianji
-  max_steps: 6000
+  max_steps: 2400 # 24 s at control_hz
 robot:
-  control_hz: 250.0
+  control_hz: 100.0
 sensors:
 - name: tianji_wrist_history
   driver: manimux.integrations.umi_dp_tianji.camera_sensor:build_sensor
