@@ -788,6 +788,7 @@ class CollectSession:
             "saving_episode": bool(rec and rec.is_saving),
             "record_eepose": self.record_eepose,
             "record_native_joints": self.record_native_joints,
+            "record_achieved": self.cfg.record_achieved,
             "collection_hz": self.cfg.control_hz,
             "collection_timing_error": self.collection_timing_error(),
             "collection_actual_hz": loop.actual_hz if loop else 0.0,

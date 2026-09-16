@@ -97,13 +97,22 @@ are possible when motion is small or a newer feedback sample is not yet availabl
 
 With a numeric `collection_hz`, schema v2 saves independent streams:
 
+The current station sets `record_achieved: false` for timing trials. It saves
+commands, controller targets, videos and timing diagnostics, while omitting
+follower joint/gripper arrays, feedback timestamps, achieved EE poses and trace
+`feedback` values. Control still reads feedback for bilateral force feedback and
+safety. The EE pose option continues to save action EE poses. Metadata explicitly
+records `extra.record_achieved: false`. Set `record_achieved: true` to restore
+measured trajectories; this is also required for native feedback, ABC/LeRobot
+recording and command-versus-achieved replay. Existing episodes are unchanged.
+
 | Saved stream | Rate / timestamp |
 | --- | --- |
 | `action-<arm>-joint/gripper.npy` | One latest leader target per control tick |
-| `<arm>-joint_pos/gripper_pos.npy` | Follower feedback snapshot read before that tick's target |
+| `<arm>-joint_pos/gripper_pos.npy` | Follower feedback snapshot; only with `record_achieved: true` |
 | `controller-<arm>-joint.npy` | Executor target before driver joint-limit clipping |
 | `controller-<arm>-timestamp-ns.npy` | Host command submission time, not CAN transmit time |
-| `<arm>-feedback-timestamp-ns.npy` | Host driver snapshot time, not per-motor CAN receive time |
+| `<arm>-feedback-timestamp-ns.npy` | Host driver snapshot time; only with `record_achieved: true` |
 | `tick-timestamp-ns.npy`, `tick-monotonic-ns.npy` | Common control tick clocks |
 | `<role>-images-rgb.mp4`, `<role>-timestamp.npy` | Each new camera capture, nominally 30 FPS |
 | `<role>-frame-index.npy` | Latest capture at/before each control tick; −1 before the first image |
@@ -127,13 +136,20 @@ than three nominal periods and leaves the original 30 FPS videos unchanged.
 ### Per-command teleop timing diagnostics
 
 The **Lead target · 分段耗时** panel shows the latest 200 cycles, including wall
-time and the calling thread's CPU time. Three separate state-read scopes identify
-the existing synchronous reads: `observation_left_arm`, `observation_right_arm`
-and `precommand`. Each contains the left/right SDK wrapper calls; the reads,
-their order, command values, force feedback and safety checks are unchanged.
+time and the calling thread's CPU time. Synchronous teleop now reads one dual-arm
+snapshot per normal cycle. The first observation contains `state_read` and the
+left/right SDK wrapper calls; the other observation and `precommand` contain
+`state_reuse`. Observations, bilateral feedback and the executor use that same
+snapshot, with its original read timestamp. State and command validation remain
+in place, and the driver still checks health before submission. Snapshots expire
+at the end of each cycle. Alignment, pause and faults invalidate them; alignment
+and standalone backend calls retain independent reads. A cycle interrupted by an
+alignment or pause callback skips publishing its pre-callback observations.
 `submit.left_sdk_submit` and `submit.right_sdk_submit` locate each arm's submission
 inside the full `backend.follower_sdk_submit` span, which includes the target
-sequence. Exceptions are recorded and propagated normally.
+sequence plus `feedback_monotonic_ns`, `feedback_sequence` and `feedback_age_ns`
+(snapshot read to submission). This age measures use of the cached snapshot, not
+sensor age on the CAN bus. Exceptions are recorded and propagated normally.
 
 Complete diagnostics are buffered independently of **Record**. **Pause** saves
 them in a background thread under

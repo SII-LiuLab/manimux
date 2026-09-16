@@ -70,6 +70,7 @@ class EpisodeRecorder:
         self.frame_count = 0
         self.task_name: str | None = None
         self.include_eepose = False
+        self.record_achieved = station.record_achieved
         self.last_stop_warning: str | None = None
         self.is_saving = False
         self._buf: dict[str, list] | None = None
@@ -149,6 +150,12 @@ class EpisodeRecorder:
                 )
             if record_native_joints is None:
                 record_native_joints = self.station.record_native_joints
+            self.record_achieved = self.station.record_achieved
+            if not self.record_achieved:
+                if (writer_name or self.writer_name) != "default":
+                    raise ValueError("record_achieved: false requires the default recording format")
+                if record_native_joints:
+                    raise ValueError("native joint recording requires record_achieved: true")
             self.station.record_native_joints = record_native_joints
             if save_root is not None:
                 self.save_root = Path(save_root).expanduser()
@@ -180,13 +187,14 @@ class EpisodeRecorder:
                 self._buf["tick-timestamp-ns"] = []
                 self._buf["tick-monotonic-ns"] = []
             for arm in self.arms:
-                self._buf[joint_pos_key(arm)] = []
-                self._buf[gripper_pos_key(arm)] = []
+                if self.record_achieved:
+                    self._buf[joint_pos_key(arm)] = []
+                    self._buf[gripper_pos_key(arm)] = []
+                    self._buf[feedback_timestamp_key(arm)] = []
                 self._buf[action_joint_key(arm)] = []
                 self._buf[action_gripper_key(arm)] = []
                 self._buf[controller_joint_key(arm)] = []
                 self._buf[controller_timestamp_key(arm)] = []
-                self._buf[feedback_timestamp_key(arm)] = []
             for cam in self.cameras:
                 for k in cam.image_keys():
                     self._buf[cam_image_key(cam.role, k)] = []
@@ -198,7 +206,7 @@ class EpisodeRecorder:
             self._camera_error = None
             self._start_ns = time.time_ns()
             if self.backend is not None:
-                self.backend.start_trace()
+                self.backend.start_trace(record_feedback=self.record_achieved)
             self.is_recording = True
             if self.independent_cameras:
                 for worker in self._camera_workers:
@@ -233,13 +241,16 @@ class EpisodeRecorder:
                     ))
                 for arm in self.arms:
                     action = np.asarray(actions[arm], dtype=np.float64).reshape(-1)
-                    o = obs[arm]
-                    self._buf[joint_pos_key(arm)].append(
-                        np.asarray(o["joint_pos"], dtype=np.float64)
-                    )
-                    self._buf[gripper_pos_key(arm)].append(
-                        np.asarray(o["gripper_pos"], dtype=np.float64)
-                    )
+                    if self.record_achieved:
+                        o = obs[arm]
+                        self._buf[joint_pos_key(arm)].append(
+                            np.asarray(o["joint_pos"], dtype=np.float64).copy()
+                        )
+                        self._buf[gripper_pos_key(arm)].append(
+                            np.asarray(o["gripper_pos"], dtype=np.float64).copy()
+                        )
+                        feedback_ts = int(o.get("feedback_timestamp_ns", time.time_ns()))
+                        self._buf[feedback_timestamp_key(arm)].append(np.int64(feedback_ts))
                     self._buf[action_joint_key(arm)].append(action[: self.n].copy())
                     self._buf[action_gripper_key(arm)].append(action[self.n : self.n + 1].copy())
                     controller = (controller_inputs or {}).get(arm)
@@ -256,10 +267,8 @@ class EpisodeRecorder:
                         if controller is not None
                         else time.time_ns()
                     )
-                    feedback_ts = int(o.get("feedback_timestamp_ns", time.time_ns()))
                     self._buf[controller_joint_key(arm)].append(controller_joint.copy())
                     self._buf[controller_timestamp_key(arm)].append(np.int64(controller_ts))
-                    self._buf[feedback_timestamp_key(arm)].append(np.int64(feedback_ts))
                 for cam in (() if self.independent_cameras else self.cameras):
                     fr = frames[cam.name]
                     for k in cam.image_keys():
@@ -343,7 +352,7 @@ class EpisodeRecorder:
                 else:
                     out[key] = np.stack(val) if val else np.empty((0,))
 
-            extra = {}
+            extra = {"record_achieved": self.record_achieved}
             if control_timings:
                 with (out_dir / "control-timing.jsonl").open("w", encoding="utf-8") as handle:
                     for row in control_timings:
@@ -386,9 +395,11 @@ class EpisodeRecorder:
                         handle.write(json.dumps(sample) + "\n")
             extra["controller_tracking"] = {
                 "controller_joint": "controller-<arm>-joint",
-                "achieved_joint": "<arm>-joint_pos",
+                "achieved_joint": "<arm>-joint_pos" if self.record_achieved else None,
                 "controller_timestamp": "controller-<arm>-timestamp-ns",
-                "feedback_timestamp": "<arm>-feedback-timestamp-ns",
+                "feedback_timestamp": (
+                    "<arm>-feedback-timestamp-ns" if self.record_achieved else None
+                ),
                 "joint_units": "radian",
                 "timestamp_units": "Unix nanoseconds",
                 "scope": "arm joints only; training action-* fields are unchanged",
