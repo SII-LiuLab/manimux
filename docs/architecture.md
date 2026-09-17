@@ -1,5 +1,8 @@
 # ManiMux V1 功能架构
 
+> 当前重组的目录边界与迁移状态见 [代码组织](code-organization.md)。下文保留 V1
+> 运行机制说明，其中旧配置类、插件加载和目录名称不代表重组后的目标布局。
+
 状态：V1 runtime contract
 
 日期：2026-08-21
@@ -159,7 +162,7 @@ class PolicyAdapter(Protocol):
     def build_observation(self, snapshot: ObservationSnapshot) -> object: ...
     def prepare_request(self, request: InferenceRequest) -> InferenceRequest: ...
     def decode_action(self, raw: object, context: ActionContext) -> ActionChunk: ...
-    def validate(self, robot: RobotConfig, policy: PolicyConfig) -> None: ...
+    def validate(self, robot: dict, policy: dict) -> None: ...
 ```
 
 它负责：

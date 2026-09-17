@@ -1,5 +1,28 @@
 # Configuration layout
 
+实验 YAML 由主入口 `manimux.cli.load_config()` 读取，返回普通字典，例如
+`experiment["robot"]`、`experiment["policy"]`。各模块的默认参数在对应实现旁补齐；
+不再导入顶层 `manimux.config` 的配置类。仅需读取原始 YAML 时使用
+`manimux.cli.read_yaml()`，它不解释业务字段。目录目标与迁移范围见
+[代码组织](../docs/code-organization.md)。
+
+## Tianji–TacCap 新配置布局
+
+本轮新增的 Tianji–TacCap 入口按职责分层；其余本体/模型保持下文所述旧布局。
+
+- `embodiment/`：arm、end_effector、sensor 和 robot 的可复用定义。
+- `policy/umi_dp/`：模型服务和 Tianji–TacCap adapter 基础配置。
+- `experiments/pass_ball/tianji_taccap_umi_dp.yaml`：统一实验入口。
+- `experiments/runtime/tianji_taccap.yaml`：原实验调度、平滑和执行约束。
+- `local/`：可复制模板；个人实际绑定放到 `.local/`，通过 `--local` 选择。
+
+组件连接字段按需要填写（IP、CAN channel、串口或 serial），没有必填的通用 IP/序列号对。
+一体化末端共享连接时省略独立绑定，不用 null 占位。相机服务与 runtime 从同一工位文件
+读取设备编号。新入口和路径规则见 [runbook](../docs/umi-dp-tianji-taccap-runbook.md)。
+
+以下章节描述尚未迁移的旧入口，仍然有效。
+
+
 模型运行配置按 `configs/<model>/<embodiment>/{server,infra}/` 组织；
 任务相关配置继续按 task 分子目录，避免将所有实验堆在 `infra/` 下：
 

@@ -30,7 +30,10 @@ adapter implements `prepare_request` directly.
 
 - Put its driver and SDK wrapper under `src/manimux/robots/`. Vendored SDK source
   and native bindings are acceptable there; a separately published package is not required.
-- The robot factory takes `(RobotConfig, Clock)`. `src/manimux/plugins.py` supports
+- The robot factory takes a plain parameter dictionary and a `Clock`. The main
+  loader is `manimux.cli.load_config()`; the old top-level configuration classes
+  have been removed. See `docs/code-organization.md` for migration boundaries.
+  `src/manimux/plugins.py` currently supports
   a `module:factory` reference in `robot.driver`, as well as built-ins and entry points.
   Follow the corresponding loader for sensor, kinematics and Viewer plugins.
 - Specify named groups, joint ordering, units, gripper convention and any base/TCP

@@ -50,7 +50,7 @@ Changing only a manual Viewer preview does not change the model input.
   intended collection/deployment control settings.
 - `control_profile` paths resolve relative to the referring config. Profile-owned values
   cannot be overridden with conflicting values in an infra config: see `load_config`
-  in `src/manimux/config.py`. Other driver paths may be relative to the working directory;
+  in `src/manimux/cli.py`. Other driver paths may be relative to the working directory;
   give commands from the repository root with paths that resolve there.
 - Keep collection separate per body. YAM collection selects its runtime config through
   `manimux_config` in `configs/collection/yam/station.yaml`; share the intended local

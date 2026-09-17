@@ -232,7 +232,7 @@ selectors are ManiMux concerns and are not sent to the model server.
 | `src/manimux/integrations/xpolicylab/policy_plugin.py` | Capability request, stats loading/cache and candidate selection |
 | `src/manimux/integrations/xpolicylab/ws_client.py` | Preserve the structured candidate response |
 | `src/manimux/runtime/aac.py` | Official synchronous query cadence and selected-chunk metadata |
-| `src/manimux/config.py` | Typed AAC config and required stats validation |
+| `src/manimux/runtime/aac.py` and `runtime/__init__.py` | Plain AAC parameters and required stats validation |
 | `scripts/datasets/compute_yam_aac_ee_stats.py` | Reproducible embodiment stats and motion calibration |
 | `scripts/validation/xpolicylab_yam_forward_probe.py` | Hardware-free AAC request and selected-horizon report |
 | `configs/groot/yam/infra/aac.yaml` | Complete GR00T/YAM experiment composition |

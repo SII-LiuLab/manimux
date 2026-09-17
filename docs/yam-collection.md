@@ -109,7 +109,7 @@ action-point interval. The YAM driver retains its six-joints-then-gripper order,
 radian joint units, and normalized gripper convention (0 closed, 1 open).
 This does not introduce a second generic robot or calibration framework.
 
-The standard `manimux.config.load_config()` resolves one `control_profile` reference,
+The standard `manimux.cli.load_config()` returns a dictionary and resolves one `control_profile` reference,
 relative to the declaring config file (absolute paths also work). Profiles cannot
 inherit other profiles. Existing paths such as `robot.config` and
 `robot.options.right_config` keep their original working-directory-relative semantics.
