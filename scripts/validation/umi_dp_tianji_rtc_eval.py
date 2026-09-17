@@ -10,12 +10,14 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from copy import deepcopy
 from pathlib import Path
 
 import numpy as np
 import zarr
 
-from manimux.config import ManiMuxConfig, load_config
+from manimux.cli import load_config, prepare_experiment
+from manimux.policies.base import action_interval
 from manimux.robots.mock import MockDualArmDriver
 from manimux.runtime import build_runtime
 from manimux.types import SensorFrame, copy_group_vector
@@ -41,10 +43,10 @@ def fixture(path):
 
 
 def build_plant(config, clock):
-    plant = MockDualArmDriver(config.group_dims, clock)
-    data = fixture(config.options.get("fixture"))
-    groups = {name: np.asarray(data[name], dtype=np.float64) for name in config.group_dims}
-    for name, dim in config.group_dims.items():
+    plant = MockDualArmDriver(config["group_dims"], clock)
+    data = fixture(config["options"].get("fixture"))
+    groups = {name: np.asarray(data[name], dtype=np.float64) for name in config["group_dims"]}
+    for name, dim in config["group_dims"].items():
         if groups[name].shape != (dim,) or not np.isfinite(groups[name]).all():
             raise ValueError(f"Invalid fixture joint state for {name}")
     plant._groups = copy_group_vector(groups)
@@ -55,12 +57,12 @@ def build_plant(config, clock):
 class FixtureCameras:
     def __init__(self, config, clock):
         self.clock = clock
-        data = fixture(config.options.get("fixture"))
+        data = fixture(config["options"].get("fixture"))
         self.images = {name: data[name] for name in ("left_wrist", "right_wrist")}
         for image in self.images.values():
             if image.ndim != 3 or image.shape[2] != 3 or image.dtype != np.uint8:
                 raise ValueError("Fixture images must be HxWx3 RGB uint8")
-        self.period_ns = round(1e9 / config.fps)
+        self.period_ns = round(1e9 / config["fps"])
         self.last_ns = -self.period_ns
         self.sequence = 0
         self.frames = {}
@@ -111,7 +113,7 @@ def summarize(episode, config):
     ticks = zarr.open(str(episode / "data.zarr"), mode="r")["ticks"]
     times = ticks["monotonic_ns"][:]
     command_step, tracking = [], []
-    for name in config.robot.group_dims:
+    for name in config["robot"]["group_dims"]:
         commands = ticks[f"command/{name}"][:, :7]
         state = ticks[f"state/{name}"][:, :7]
         command_step.extend(np.max(np.abs(np.diff(commands, axis=0)), axis=1).tolist())
@@ -129,19 +131,19 @@ def summarize(episode, config):
                             )
                         )
                     )
-                    for name in config.robot.group_dims
+                    for name in config["robot"]["group_dims"]
                 )
             )
     return {
         "hardware_connected": False,
         "task_success": None,
         "observations": "fixed RGB fixtures; simulated capture times and joint feedback",
-        "runtime": config.policy.options["history_strategy"],
-        "ik_backend": config.policy.options["ik_backend"],
-        "action_decoding": config.policy.action_decoding,
-        "control_hz": config.robot.control_hz,
-        "action_dt_s": config.policy.effective_action_dt_s,
-        "horizon": config.policy.horizon_steps,
+        "runtime": config["policy"]["options"]["history_strategy"],
+        "ik_backend": config["policy"]["options"]["ik_backend"],
+        "action_decoding": config["policy"]["action_decoding"],
+        "control_hz": config["robot"]["control_hz"],
+        "action_dt_s": action_interval(config["policy"]),
+        "horizon": config["policy"]["horizon_steps"],
         "submitted": len(submissions),
         "conditioned_submissions": sum(bool(e.get("conditioned")) for e in submissions),
         "conditioned_accepted": sum(e["request_seq"] in conditioned for e in accepted),
@@ -181,12 +183,13 @@ def main():
         parser.error("seconds must be positive and output must be a new directory")
     config = load_config(args.config)
     if (
-        config.policy.worker != "xpolicylab_ws"
-        or config.policy.adapter != "manimux.integrations.umi_dp_tianji.policy_plugin:build_adapter"
-        or not config.policy.options.get("deployment_bound")
+        config["policy"]["worker"] != "xpolicylab_ws"
+        or config["policy"]["adapter"]
+        != "manimux.integrations.umi_dp_tianji.policy_plugin:build_adapter"
+        or not config["policy"]["options"].get("deployment_bound")
     ):
         parser.error("A bound UMI_DP Tianji deployment is required")
-    data = config.model_dump(exclude_unset=True)
+    data = deepcopy(config)
     fixture_path = None if args.fixture is None else str(args.fixture.resolve())
     data["robot"].update(driver=f"{MODULE}:build_plant", options={"fixture": fixture_path})
     data["sensors"] = [
@@ -208,8 +211,8 @@ def main():
     execution.pop("refill_threshold_s", None)
     if args.strategy == "manimux":
         execution.update(inference_schedule="single_inflight", refill_threshold_s=0.25)
-    data["run"]["max_steps"] = max(1, round(args.seconds * config.robot.control_hz))
-    config = ManiMuxConfig.model_validate(data)
+    data["run"]["max_steps"] = max(1, round(args.seconds * config["robot"]["control_hz"]))
+    config = prepare_experiment(**data)
     args.output.mkdir(parents=True)
     runtime = build_runtime(config, args.output)
     error = None

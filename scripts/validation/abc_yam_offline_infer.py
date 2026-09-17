@@ -15,7 +15,7 @@ import cv2
 import numpy as np
 import requests
 
-from manimux.config import load_config
+from manimux.cli import load_config
 from manimux.policies import build_policy_adapter, build_policy_model
 from manimux.types import (
     ActionContext,
@@ -34,9 +34,9 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     config = load_config(args.config)
-    if config.policy.worker != "abc_http" or config.policy.adapter != "abc_yam":
+    if config["policy"]["worker"] != "abc_http" or config["policy"]["adapter"] != "abc_yam":
         raise ValueError("this probe requires the ABC HTTP worker and YAM adapter")
-    server = str(config.policy.options["server"]).rstrip("/").removesuffix("/act")
+    server = str(config["policy"]["options"]["server"]).rstrip("/").removesuffix("/act")
     response = requests.get(server + "/act", timeout=5)
     response.raise_for_status()
     health = response.json()
@@ -53,9 +53,9 @@ def main() -> None:
         )
         for arm in ("left", "right")
     }
-    model = build_policy_model(config.policy)
-    adapter = build_policy_adapter(config.robot, config.policy)
-    adapter.validate(config.robot, config.policy)
+    model = build_policy_model(config["policy"])
+    adapter = build_policy_adapter(config["robot"], config["policy"])
+    adapter.validate(config["robot"], config["policy"])
     session = "abc-offline-probe"
     samples, arrays = [], {}
     try:
@@ -87,9 +87,9 @@ def main() -> None:
                 session,
                 seq,
                 now,
-                now + int(config.policy.timeout_s * 1e9),
+                now + int(config["policy"]["timeout_s"] * 1e9),
                 snapshot,
-                config.run.task,
+                config["run"]["task"],
             )
             start = time.perf_counter()
             raw = np.asarray(model.infer(request))

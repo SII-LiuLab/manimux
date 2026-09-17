@@ -22,7 +22,6 @@ from collections.abc import Mapping, Sequence
 
 import numpy as np
 
-from manimux.config import PolicyConfig, RobotConfig
 from manimux.integrations.xpolicylab.aac import (
     AacPreviousAction,
     EeActionStats,
@@ -37,6 +36,7 @@ from manimux.integrations.xpolicylab.obs_codec import (
 )
 from manimux.integrations.xpolicylab.ws_client import XPolicyLabWsClient
 from manimux.kinematics.base import ArmKinematics
+from manimux.policies.base import action_interval
 from manimux.policies.capabilities import PolicyCapabilities
 from manimux.types import ActionChunk, ActionContext, InferenceRequest, ObservationSnapshot
 
@@ -49,37 +49,6 @@ DEFAULT_CAMERA_MAP = {
     "cam_right_wrist": "right_camera",
 }
 DEFAULT_GRIPPER_DOFS = 1
-
-
-def _string_option(options: Mapping[str, object], name: str, default: str) -> str:
-    value = options.get(name, default)
-    if not isinstance(value, str) or not value:
-        raise ValueError(f"policy.options.{name} must be a non-empty string")
-    return value
-
-
-def _string_sequence(
-    options: Mapping[str, object],
-    name: str,
-    default: Sequence[str],
-) -> tuple[str, ...]:
-    value = options.get(name, list(default))
-    if not isinstance(value, list) or not value or not all(isinstance(item, str) for item in value):
-        raise ValueError(f"policy.options.{name} must be a non-empty list of strings")
-    return tuple(value)
-
-
-def _string_mapping(
-    options: Mapping[str, object],
-    name: str,
-    default: Mapping[str, str],
-) -> dict[str, str]:
-    value = options.get(name, dict(default))
-    if not isinstance(value, dict) or not value:
-        raise ValueError(f"policy.options.{name} must be a non-empty mapping")
-    if not all(isinstance(key, str) and isinstance(item, str) for key, item in value.items()):
-        raise ValueError(f"policy.options.{name} must map strings to strings")
-    return dict(value)
 
 
 def _positive_float_option(options: Mapping[str, object], name: str, default: float) -> float:
@@ -110,8 +79,8 @@ def _layouts_from_options(
     group_dims: Mapping[str, int],
 ) -> tuple[GroupLayout, ...]:
     return build_layouts(
-        _string_sequence(options, "group_order", DEFAULT_GROUP_ORDER),
-        _string_mapping(options, "group_prefixes", DEFAULT_GROUP_PREFIXES),
+        tuple(options.get("group_order", DEFAULT_GROUP_ORDER)),
+        dict(options.get("group_prefixes", DEFAULT_GROUP_PREFIXES)),
         group_dims,
         gripper_dofs=_positive_int_option(options, "gripper_dofs", DEFAULT_GRIPPER_DOFS),
     )
@@ -120,27 +89,27 @@ def _layouts_from_options(
 class XPolicyLabWsPolicyModel:
     """WebSocket inference backend; robot semantics stay in the adapter."""
 
-    def __init__(self, config: PolicyConfig) -> None:
-        options = config.options
-        self._url = _string_option(options, "server", DEFAULT_SERVER)
-        self._camera_map = _string_mapping(options, "camera_map", DEFAULT_CAMERA_MAP)
+    def __init__(self, config: dict) -> None:
+        options = config["options"]
+        self._url = options.get("server", DEFAULT_SERVER)
+        self._camera_map = dict(options.get("camera_map", DEFAULT_CAMERA_MAP))
         # The observation carries the rate *we* run at. XPolicyLab treats the
         # environment as the owner of the control rate, so this is ours to
         # declare, and it comes from the same value the adapter uses for dt.
-        self._frequency = 1.0 / config.effective_action_dt_s
+        self._frequency = 1.0 / action_interval(config)
         self._request_timeout_s = _positive_float_option(
-            options, "request_timeout_s", config.timeout_s
+            options, "request_timeout_s", config["timeout_s"]
         )
         self._connect_timeout_s = _positive_float_option(
-            options, "connect_timeout_s", config.startup_timeout_s
+            options, "connect_timeout_s", config["startup_timeout_s"]
         )
         # The model plugin never sees RobotConfig, so the arm/gripper split is
         # resolved from the first observation and then held fixed.
-        self._group_order = _string_sequence(options, "group_order", DEFAULT_GROUP_ORDER)
-        self._group_prefixes = _string_mapping(options, "group_prefixes", DEFAULT_GROUP_PREFIXES)
+        self._group_order = tuple(options.get("group_order", DEFAULT_GROUP_ORDER))
+        self._group_prefixes = dict(options.get("group_prefixes", DEFAULT_GROUP_PREFIXES))
         self._gripper_dofs = _positive_int_option(options, "gripper_dofs", DEFAULT_GRIPPER_DOFS)
-        self._horizon_steps = config.horizon_steps
-        self._aac_kinematics_name = _string_option(options, "aac_kinematics", "yam")
+        self._horizon_steps = config["horizon_steps"]
+        self._aac_kinematics_name = options.get("aac_kinematics", "yam")
         self._aac_kinematics: ArmKinematics | None = None
         self._aac_ee_stats: EeActionStats | None = None
         self._aac_ee_stats_path: str | None = None
@@ -217,7 +186,6 @@ class XPolicyLabWsPolicyModel:
                     "PAINT cannot be combined with RTC, AAC, AutoHorizon, or DVAC sampling"
                 )
             prefix_array = np.asarray(paint_prefix, dtype=np.float32)
-            assert paint_delay_steps is not None
             delay_steps = int(paint_delay_steps)
             expected_width = sum(layout.dim for layout in self._layouts)
             if (
@@ -291,12 +259,8 @@ class XPolicyLabWsPolicyModel:
                     "mode": "dvac",
                     "tail_steps": int(getattr(request, "dvac_tail_steps", 5)),
                     "alpha": float(getattr(request, "dvac_alpha", 2.0)),
-                    "rolling_window_size": int(
-                        getattr(request, "dvac_rolling_window_size", 5)
-                    ),
-                    "min_execution_steps": int(
-                        getattr(request, "dvac_min_execution_steps", 1)
-                    ),
+                    "rolling_window_size": int(getattr(request, "dvac_rolling_window_size", 5)),
+                    "min_execution_steps": int(getattr(request, "dvac_min_execution_steps", 1)),
                     "max_execution_steps": int(
                         getattr(request, "dvac_max_execution_steps", self._horizon_steps)
                     ),
@@ -350,24 +314,20 @@ class XPolicyLabWsPolicyModel:
             if client is None
             else getattr(client, "sampling_modes", frozenset({"default"}))
         )
-        metadata = (
-            {}
-            if client is None
-            else getattr(client, "backend_metadata", {})
-        )
+        metadata = {} if client is None else getattr(client, "backend_metadata", {})
         return PolicyCapabilities(sampling_modes=modes, backend_metadata=dict(metadata))
 
 
 class XPolicyLabAdapter:
     """Translate canonical snapshots and XPolicyLab per-step action dictionaries."""
 
-    def __init__(self, robot: RobotConfig, policy: PolicyConfig) -> None:
-        self._layouts = _layouts_from_options(policy.options, robot.group_dims)
-        self._camera_map = _string_mapping(policy.options, "camera_map", DEFAULT_CAMERA_MAP)
+    def __init__(self, robot: dict, policy: dict) -> None:
+        self._layouts = _layouts_from_options(policy["options"], robot["group_dims"])
+        self._camera_map = dict(policy["options"].get("camera_map", DEFAULT_CAMERA_MAP))
         self._required_cameras = tuple(self._camera_map.values())
-        self._action_dt_ns = int(policy.effective_action_dt_s * 1_000_000_000)
-        self._horizon_steps = policy.horizon_steps
-        self._allow_short_horizon = _bool_option(policy.options, "allow_short_horizon", False)
+        self._action_dt_ns = int(action_interval(policy) * 1_000_000_000)
+        self._horizon_steps = policy["horizon_steps"]
+        self._allow_short_horizon = _bool_option(policy["options"], "allow_short_horizon", False)
 
     def build_observation(self, snapshot: ObservationSnapshot) -> ObservationSnapshot:
         missing = [name for name in self._required_cameras if name not in snapshot.frames]
@@ -401,25 +361,25 @@ class XPolicyLabAdapter:
             groups=groups,
         )
 
-    def validate(self, robot: RobotConfig, policy: PolicyConfig) -> None:
+    def validate(self, robot: dict, policy: dict) -> None:
         del policy
         expected = tuple(layout.group for layout in self._layouts)
-        if tuple(robot.group_dims) != expected:
+        if tuple(robot["group_dims"]) != expected:
             raise ValueError(
                 "XPolicyLab requires robot groups in order "
-                f"{list(expected)}, got {list(robot.group_dims)}"
+                f"{list(expected)}, got {list(robot['group_dims'])}"
             )
         for layout in self._layouts:
-            if robot.group_dims[layout.group] != layout.dim:
+            if robot["group_dims"][layout.group] != layout.dim:
                 raise ValueError(
-                    f"group {layout.group!r} is {robot.group_dims[layout.group]} values "
+                    f"group {layout.group!r} is {robot['group_dims'][layout.group]} values "
                     f"but the layout describes {layout.dim}"
                 )
 
 
-def build_model(config: PolicyConfig) -> XPolicyLabWsPolicyModel:
+def build_model(config: dict) -> XPolicyLabWsPolicyModel:
     return XPolicyLabWsPolicyModel(config)
 
 
-def build_adapter(robot: RobotConfig, policy: PolicyConfig) -> XPolicyLabAdapter:
+def build_adapter(robot: dict, policy: dict) -> XPolicyLabAdapter:
     return XPolicyLabAdapter(robot, policy)

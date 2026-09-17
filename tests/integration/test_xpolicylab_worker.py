@@ -15,7 +15,7 @@ from typing import Any
 import numpy as np
 import pytest
 
-from manimux.config import load_config
+from manimux.cli import load_config
 from manimux.policies import build_policy_adapter, build_policy_model
 from manimux.types import (
     ActionContext,
@@ -90,9 +90,7 @@ class FakeXPolicyLabServer:
             return {
                 **envelope,
                 "message_type": "hello_ack",
-                "payload": {
-                    "capabilities": {"sampling_modes": ["default", "rtc"]}
-                },
+                "payload": {"capabilities": {"sampling_modes": ["default", "rtc"]}},
             }
         if kind == "reset":
             self.calls.put(("reset", None))
@@ -170,8 +168,8 @@ def server() -> Iterator[FakeXPolicyLabServer]:
 
 def _configs(server_url: str) -> tuple[Any, Any]:
     config = load_config("configs/xpolicylab/yam/infra/smoke.yaml")
-    config.policy.options["server"] = server_url
-    return config.robot, config.policy
+    config["policy"]["options"]["server"] = server_url
+    return config["robot"], config["policy"]
 
 
 def test_a_full_round_trip_produces_a_canonical_chunk(server: FakeXPolicyLabServer) -> None:

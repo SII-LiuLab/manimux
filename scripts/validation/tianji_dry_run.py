@@ -21,8 +21,9 @@ from pathlib import Path
 import numpy as np
 import yaml
 
+from manimux.cli import control_profile_parameters
 from manimux.clock import SystemClock
-from manimux.config import ControlProfileConfig, RobotConfig
+from manimux.embodiments.robot import robot_parameters
 from manimux.kinematics.tianji import TianjiKinematics
 from manimux.robots import build_robot
 
@@ -44,10 +45,10 @@ def _parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = _parser().parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-    profile = ControlProfileConfig.model_validate(yaml.safe_load(args.profile.read_text()))
-    options = dict(profile.robot.options)
+    profile = control_profile_parameters(**yaml.safe_load(args.profile.read_text()))
+    options = dict(profile["robot"]["options"])
     options["execute"] = False
-    group_dims = dict(profile.robot.group_dims)
+    group_dims = dict(profile["robot"]["group_dims"])
     end_effector = None if args.no_gripper else str(options.get("end_effector", "umi_follower"))
     if args.no_gripper:
         options["end_effector"] = "none"
@@ -55,16 +56,16 @@ def main() -> None:
     if args.robot_ip:
         options["robot_ip"] = args.robot_ip
     robot = build_robot(
-        RobotConfig(driver=profile.robot.driver, group_dims=group_dims, options=options),
+        robot_parameters(driver=profile["robot"].driver, group_dims=group_dims, options=options),
         SystemClock(),
     )
     kinematics = TianjiKinematics(end_effector=end_effector)
     client = None
     if args.viewer:
-        from manimux.viewer.client import ViewerClient
+        from manimux.viewer.publisher import ViewerClient
 
         client = ViewerClient(
-            robot="tianji", policy="read-only bring-up", endpoint=args.viewer_endpoint
+            robot="tianji-taccap", policy="read-only bring-up", endpoint=args.viewer_endpoint
         )
 
     steps = max(1, int(args.seconds * args.hz))
@@ -75,9 +76,8 @@ def main() -> None:
         for step in range(steps):
             state = robot.get_state()
             if client is not None:
-                vector = np.concatenate([state.groups[name] for name in ("left_arm", "right_arm")])
                 client.step_executed(
-                    joint_positions=vector,
+                    groups=state.groups,
                     cameras={},
                     step=step,
                     max_steps=steps,

@@ -9,8 +9,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from manimux.cli import load_config
 from manimux.clock import SystemClock
-from manimux.config import load_config
 from manimux.integrations.xpolicylab.policy_plugin import XPolicyLabWsPolicyModel
 from manimux.integrations.xr1_yam.policy_plugin import (
     ACTION_DIM,
@@ -50,7 +50,7 @@ ANCHOR = np.array(
 @pytest.fixture(scope="module")
 def adapter() -> XR1YamAdapter:
     config = load_config("configs/xiaomi-xr1/yam/infra/manimux.yaml")
-    return build_policy_adapter(config.robot, config.policy)
+    return build_policy_adapter(config["robot"], config["policy"])
 
 
 def test_xr1_run_config_swaps_only_the_policy_layer() -> None:
@@ -59,13 +59,13 @@ def test_xr1_run_config_swaps_only_the_policy_layer() -> None:
     xr1 = load_config("configs/xiaomi-xr1/yam/infra/manimux.yaml")
     molmoact = load_config("configs/molmoact2/yam/infra/manimux.yaml")
 
-    assert isinstance(build_robot(xr1.robot, SystemClock()), YamDualArmDriver)
-    assert isinstance(build_sensor(xr1.sensors[0], SystemClock()), CameraServerSensorDriver)
-    assert isinstance(build_policy_model(xr1.policy), XPolicyLabWsPolicyModel)
+    assert isinstance(build_robot(xr1["robot"], SystemClock()), YamDualArmDriver)
+    assert isinstance(build_sensor(xr1["sensors"][0], SystemClock()), CameraServerSensorDriver)
+    assert isinstance(build_policy_model(xr1["policy"]), XPolicyLabWsPolicyModel)
 
-    assert xr1.robot.driver == molmoact.robot.driver
-    assert xr1.sensors[0].driver == molmoact.sensors[0].driver
-    assert xr1.viewer.robot_adapter == molmoact.viewer.robot_adapter
+    assert xr1["robot"]["type"] == molmoact["robot"]["type"]
+    assert xr1["sensors"][0]["driver"] == molmoact["sensors"][0]["driver"]
+    assert xr1["viewer"]["robot"] == molmoact["viewer"]["robot"]
 
 
 def test_zero_delta_holds_the_measured_pose(adapter: XR1YamAdapter) -> None:

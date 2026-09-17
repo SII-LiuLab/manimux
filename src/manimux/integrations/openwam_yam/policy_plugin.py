@@ -6,9 +6,10 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 import numpy as np
-from scipy.spatial.transform import Rotation
 
+from manimux.integrations.xpolicylab.obs_codec import matrix_pose, pose_matrix
 from manimux.integrations.xpolicylab.policy_plugin import DEFAULT_CAMERA_MAP
+from manimux.policies.base import action_interval
 from manimux.types import ActionChunk, InferenceRequest
 
 SEMANTICS = "absolute_per_arm_base_xyz_wxyz"
@@ -19,49 +20,45 @@ class XPolicyPoseRequest(InferenceRequest):
     xpolicylab_state: dict | None = None
 
 
-def pose_matrix(value):
-    pose = np.asarray(value, dtype=np.float64)
-    if pose.shape != (7,) or not np.isfinite(pose).all():
-        raise ValueError("EE pose must be finite [xyz, quaternion wxyz]")
-    if not np.isclose(np.linalg.norm(pose[3:]), 1.0, atol=1e-4):
-        raise ValueError("EE quaternion must be unit length")
-    result = np.eye(4)
-    result[:3, :3] = Rotation.from_quat(pose[[4, 5, 6, 3]]).as_matrix()
-    result[:3, 3] = pose[:3]
-    return result
-
-
 class OpenWAMYamAdapter:
     def __init__(self, robot, policy):
         from manimux.kinematics import build_kinematics
 
         self.validate(robot, policy)
-        self.cameras = policy.options.get("camera_map", DEFAULT_CAMERA_MAP)
+        self.cameras = policy["options"].get("camera_map", DEFAULT_CAMERA_MAP)
         if set(self.cameras) != set(DEFAULT_CAMERA_MAP):
             raise ValueError("OpenWAM requires the three standard XPolicy cameras")
-        self.horizon = policy.horizon_steps
-        self.dt = int(policy.effective_action_dt_s * 1e9)
+        self.horizon = policy["horizon_steps"]
+        self.dt = int(action_interval(policy) * 1e9)
         self.kin = build_kinematics(
-            policy.options.get("kinematics", "yam"),
-            **policy.options.get("kinematics_options", {}),
+            policy["options"].get("kinematics", "yam"),
+            **policy["options"].get("kinematics_options", {}),
         )
         if self.kin.num_arm_joints != 6:
             raise ValueError("YAM requires six joints per arm")
         self.anchors = OrderedDict()
 
     def validate(self, robot, policy):
-        if policy.worker != "xpolicylab_ws":
+        if policy["worker"] != "xpolicylab_ws":
             raise ValueError("OpenWAM requires xpolicylab_ws")
-        if list(robot.group_dims.items()) != [("left_arm", 7), ("right_arm", 7)]:
+        if list(robot["group_dims"].items()) != [("left_arm", 7), ("right_arm", 7)]:
             raise ValueError("OpenWAM YAM requires left_arm/right_arm with 6+1 values")
-        if robot.driver == "yam_dual":
-            expected = policy.expected_backend
-            identity = {} if expected is None else expected.model
-            required = ("checkpoint_path", "checkpoint_file", "checkpoint_sha256",
-                        "training_config_sha256", "norm_stats_path", "norm_stats_sha256")
-            if not policy.options.get("deployment_bound") or any(not identity.get(k) for k in required):
+        if robot["type"] == "yam_dual":
+            expected = policy["expected_backend"]
+            identity = {} if expected is None else expected["model"]
+            required = (
+                "checkpoint_path",
+                "checkpoint_file",
+                "checkpoint_sha256",
+                "training_config_sha256",
+                "norm_stats_path",
+                "norm_stats_sha256",
+            )
+            if not policy["options"].get("deployment_bound") or any(
+                not identity.get(k) for k in required
+            ):
                 raise ValueError("Bind OpenWAM deployment identity before using the YAM driver")
-            if identity.get("action_horizon") != policy.horizon_steps:
+            if identity.get("action_horizon") != policy["horizon_steps"]:
                 raise ValueError("Bound OpenWAM horizon does not match runtime horizon")
 
     def build_observation(self, snapshot):
@@ -79,8 +76,7 @@ class OpenWAMYamAdapter:
             if not 0 <= values[-1] <= 1:
                 raise ValueError("YAM gripper must be in [0, 1]")
             matrix = self.kin.fk(values[:6], float(values[-1]))
-            quat = Rotation.from_matrix(matrix[:3, :3]).as_quat()
-            state[f"{side}_ee_pose"] = np.r_[matrix[:3, 3], quat[[3, 0, 1, 2]]]
+            state[f"{side}_ee_pose"] = matrix_pose(matrix)
             anchors[group] = values
         self.anchors[request.request_seq] = anchors
         while len(self.anchors) > 8:

@@ -9,7 +9,7 @@ from pathlib import Path
 
 import numpy as np
 
-from manimux.config import load_config
+from manimux.cli import load_config
 from manimux.integrations.sapolicy_yam.policy_plugin import SAPolicyYamAdapter
 from manimux.policies.decoder import ActionDecoderClient
 from manimux.types import ActionContext, InferenceResponse, RobotState
@@ -27,9 +27,9 @@ def main():
     signals = np.load(source / "signals.npz")
     profile = json.loads((source / "offline-ik-profile.json").read_text())
     # Historical fixtures can have a shorter horizon than the live deployment.
-    cfg.policy.horizon_steps = int(predictions["1_wire"].shape[0])
-    adapter = SAPolicyYamAdapter(cfg.robot, cfg.policy)
-    decoder = ActionDecoderClient(cfg.robot, cfg.policy, adapter)
+    cfg["policy"]["horizon_steps"] = int(predictions["1_wire"].shape[0])
+    adapter = SAPolicyYamAdapter(cfg["robot"], cfg["policy"])
+    decoder = ActionDecoderClient(cfg["robot"], cfg["policy"], adapter)
     adapter.warmup_decode(None)
     rows = []
     seq = 0
@@ -37,7 +37,9 @@ def main():
         decoder.start()
         for index, entry in enumerate(profile, 1):
             tick = int(np.argmin(abs(signals["time_s"] - entry["seconds"])))
-            groups = {name: signals[name + "_state"][tick].copy() for name in cfg.robot.group_dims}
+            groups = {
+                name: signals[name + "_state"][tick].copy() for name in cfg["robot"]["group_dims"]
+            }
             raw = predictions[f"{index}_wire"]
             serial_ms = []
             parallel_ms = []

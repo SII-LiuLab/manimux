@@ -10,7 +10,7 @@ import json_numpy
 import numpy as np
 import pytest
 
-from manimux.config import load_config
+from manimux.cli import load_config
 from manimux.policies import build_policy_adapter
 from manimux.policies.worker import PolicyWorkerClient
 from manimux.types import (
@@ -66,9 +66,9 @@ def test_molmoact_http_worker_round_trip_to_canonical_action_chunk() -> None:
     thread.start()
 
     config = load_config("configs/molmoact2/yam/infra/manimux.yaml")
-    config.policy.options["server"] = f"http://127.0.0.1:{server.server_port}"
+    config["policy"]["options"]["server"] = f"http://127.0.0.1:{server.server_port}"
     session_id = "molmoact-test-session"
-    worker = PolicyWorkerClient(config.policy, session_id)
+    worker = PolicyWorkerClient(config["policy"], session_id)
     now_ns = time.monotonic_ns()
     frames = {
         name: SensorFrame(
@@ -107,7 +107,7 @@ def test_molmoact_http_worker_round_trip_to_canonical_action_chunk() -> None:
         assert response.error is None
         assert response.raw_action is not None
 
-        adapter = build_policy_adapter(config.robot, config.policy)
+        adapter = build_policy_adapter(config["robot"], config["policy"])
         chunk = adapter.decode_action(
             response.raw_action,
             ActionContext(
@@ -137,8 +137,8 @@ def test_molmoact_worker_fails_startup_before_hardware_when_server_is_unhealthy(
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     config = load_config("configs/molmoact2/yam/infra/manimux.yaml")
-    config.policy.options["server"] = f"http://127.0.0.1:{server.server_port}"
-    worker = PolicyWorkerClient(config.policy, "unhealthy-session")
+    config["policy"]["options"]["server"] = f"http://127.0.0.1:{server.server_port}"
+    worker = PolicyWorkerClient(config["policy"], "unhealthy-session")
 
     try:
         with pytest.raises(RuntimeError, match="health check failed"):

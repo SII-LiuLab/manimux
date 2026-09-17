@@ -12,7 +12,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from manimux.config import PolicyConfig, RobotConfig
+from manimux.embodiments.robot import robot_parameters
 from manimux.integrations.xpolicylab.obs_codec import (
     DATA_FORMAT_VERSION,
     GroupLayout,
@@ -24,6 +24,7 @@ from manimux.integrations.xpolicylab.policy_plugin import build_adapter, build_m
 from manimux.integrations.xpolicylab.ws_client import XPolicyLabWsClient, normalize_url
 from manimux.integrations.xr1_yam.policy_plugin import build_adapter as build_xr1_adapter
 from manimux.integrations.xr1_yam.policy_plugin import joint_condition_to_xr1_actions
+from manimux.policies.base import policy_parameters
 from manimux.runtime.aac import AacInferenceRequest
 from manimux.runtime.dvac import DvacInferenceRequest
 from manimux.runtime.rtc import RtcInferenceRequest
@@ -77,7 +78,7 @@ def _action_steps(horizon: int) -> list[dict[str, np.ndarray]]:
     return steps
 
 
-def _policy_config(**options: object) -> PolicyConfig:
+def _policy_config(**options: object) -> dict:
     merged: dict[str, object] = {
         "server": "ws://127.0.0.1:8500",
         "group_order": ["left_arm", "right_arm"],
@@ -86,7 +87,7 @@ def _policy_config(**options: object) -> PolicyConfig:
         "camera_map": dict(CAMERA_MAP),
     }
     merged.update(options)
-    return PolicyConfig(
+    return policy_parameters(
         worker="xpolicylab_ws",
         adapter="xpolicylab",
         action_dt_s=0.05,
@@ -95,8 +96,8 @@ def _policy_config(**options: object) -> PolicyConfig:
     )
 
 
-def _robot_config() -> RobotConfig:
-    return RobotConfig(
+def _robot_config() -> dict:
+    return robot_parameters(
         driver="mock",
         control_hz=30.0,
         group_dims={"left_arm": 7, "right_arm": 7},
@@ -201,7 +202,7 @@ def test_decode_rejects_an_empty_chunk() -> None:
 def test_decode_rejects_a_missing_key() -> None:
     steps = _action_steps(2)
     del steps[1]["right_ee_joint_state"]
-    with pytest.raises(ValueError, match="step 1 is missing 'right_ee_joint_state'"):
+    with pytest.raises(KeyError, match="right_ee_joint_state"):
         decode_action_steps(steps, layouts=LAYOUTS)
 
 
@@ -270,7 +271,7 @@ def test_adapter_unwraps_aac_metadata_without_changing_actions() -> None:
 
 def test_adapter_validate_rejects_a_group_order_mismatch() -> None:
     adapter = build_adapter(_robot_config(), _policy_config())
-    swapped = RobotConfig(
+    swapped = robot_parameters(
         driver="mock",
         control_hz=30.0,
         group_dims={"right_arm": 7, "left_arm": 7},
@@ -308,7 +309,7 @@ def test_build_layouts_rejects_a_group_with_no_arm_joints_left() -> None:
 
 
 def test_build_layouts_rejects_an_unmapped_group() -> None:
-    with pytest.raises(ValueError, match="no entry for 'right_arm'"):
+    with pytest.raises(KeyError, match="right_arm"):
         build_layouts(
             ["right_arm"],
             {"left_arm": "left"},
@@ -445,14 +446,7 @@ def test_model_capabilities_preserve_policy_server_fingerprint() -> None:
 
     assert capabilities.sampling_modes == frozenset({"default", "rtc"})
     assert capabilities.backend_metadata["server_revision"] == "xpolicy-sha"
-    assert capabilities.backend_metadata["model"] == {
-        "model_root": "/checkpoints/pi05-step-1000"
-    }
-
-
-def test_model_rejects_an_empty_server_option() -> None:
-    with pytest.raises(ValueError, match="policy.options.server"):
-        build_model(_policy_config(server=""))
+    assert capabilities.backend_metadata["model"] == {"model_root": "/checkpoints/pi05-step-1000"}
 
 
 def test_model_infer_refuses_an_uninitialised_session() -> None:

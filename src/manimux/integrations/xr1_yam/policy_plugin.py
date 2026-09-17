@@ -34,7 +34,7 @@ from typing import Any
 
 import numpy as np
 
-from manimux.config import PolicyConfig, RobotConfig
+from manimux.policies.base import action_interval
 from manimux.runtime.rtc.request import RtcInferenceRequest
 from manimux.types import (
     ActionChunk,
@@ -111,24 +111,6 @@ def joint_condition_to_xr1_actions(
     return np.ascontiguousarray(actions, dtype=np.float32)
 
 
-def _string_option(options: Mapping[str, object], name: str, default: str) -> str:
-    value = options.get(name, default)
-    if not isinstance(value, str) or not value:
-        raise ValueError(f"policy.options.{name} must be a non-empty string")
-    return value
-
-
-def _string_sequence(
-    options: Mapping[str, object],
-    name: str,
-    default: Sequence[str],
-) -> tuple[str, ...]:
-    value = options.get(name, list(default))
-    if not isinstance(value, list) or not value or not all(isinstance(item, str) for item in value):
-        raise ValueError(f"policy.options.{name} must be a non-empty list of strings")
-    return tuple(value)
-
-
 def _axis_angle_to_rotation(axis_angle: np.ndarray) -> np.ndarray:
     """Rodrigues' formula, matching ``mibot.utils.io.aa2rotm``."""
     theta = float(np.linalg.norm(axis_angle))
@@ -148,21 +130,17 @@ def _axis_angle_to_rotation(axis_angle: np.ndarray) -> np.ndarray:
 class XR1YamAdapter:
     """End-effector deltas -> absolute poses -> YAM joint groups via IK."""
 
-    def __init__(self, robot: RobotConfig, policy: PolicyConfig) -> None:
+    def __init__(self, robot: dict, policy: dict) -> None:
         from manimux.kinematics import build_kinematics
 
-        self._group_order = _string_sequence(policy.options, "group_order", DEFAULT_GROUP_ORDER)
-        self._group_dims = dict(robot.group_dims)
-        self._action_dt_ns = int(policy.effective_action_dt_s * 1_000_000_000)
-        camera_map = policy.options.get("camera_map", DEFAULT_CAMERA_MAP)
-        if not isinstance(camera_map, dict):
-            raise ValueError("policy.options.camera_map must be a mapping")
+        self._group_order = tuple(policy["options"].get("group_order", DEFAULT_GROUP_ORDER))
+        self._group_dims = dict(robot["group_dims"])
+        self._action_dt_ns = int(action_interval(policy) * 1_000_000_000)
+        camera_map = policy["options"].get("camera_map", DEFAULT_CAMERA_MAP)
         self._required_cameras = tuple(str(value) for value in camera_map.values())
 
-        kinematics_name = _string_option(policy.options, "kinematics", "yam")
-        options = policy.options.get("kinematics_options", {})
-        if not isinstance(options, dict):
-            raise ValueError("policy.options.kinematics_options must be a mapping")
+        kinematics_name = policy["options"].get("kinematics", "yam")
+        options = policy["options"].get("kinematics_options", {})
         self._kinematics = build_kinematics(kinematics_name, **options)
         self._anchors: OrderedDict[int, np.ndarray] = OrderedDict()
         if self._kinematics.num_arm_joints != ARM_JOINTS:
@@ -284,16 +262,16 @@ class XR1YamAdapter:
             raise ValueError(f"XR-1 IK produced non-finite joints for {group}")
         return np.ascontiguousarray(out)
 
-    def validate(self, robot: RobotConfig, policy: PolicyConfig) -> None:
+    def validate(self, robot: dict, policy: dict) -> None:
         del policy
-        if tuple(robot.group_dims) != self._group_order:
+        if tuple(robot["group_dims"]) != self._group_order:
             raise ValueError(
                 "XR-1 YAM requires robot groups in order "
-                f"{list(self._group_order)}, got {list(robot.group_dims)}"
+                f"{list(self._group_order)}, got {list(robot['group_dims'])}"
             )
-        if any(robot.group_dims[name] != GROUP_DIM for name in self._group_order):
+        if any(robot["group_dims"][name] != GROUP_DIM for name in self._group_order):
             raise ValueError(f"XR-1 YAM requires two {GROUP_DIM}-value arm+gripper groups")
 
 
-def build_adapter(robot: RobotConfig, policy: PolicyConfig) -> XR1YamAdapter:
+def build_adapter(robot: dict, policy: dict) -> XR1YamAdapter:
     return XR1YamAdapter(robot, policy)

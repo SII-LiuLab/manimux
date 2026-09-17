@@ -3,11 +3,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from manimux.config import PolicyConfig, RobotConfig
+from manimux.embodiments.robot import robot_parameters
 from manimux.integrations.lingbot_vla2_yam.policy_plugin import (
     ACTION_SEMANTICS,
     LingBotVLA2YamAdapter,
 )
+from manimux.policies.base import policy_parameters
 from manimux.types import (
     ActionContext,
     InferenceRequest,
@@ -17,12 +18,12 @@ from manimux.types import (
 
 
 def _adapter() -> LingBotVLA2YamAdapter:
-    robot = RobotConfig(
+    robot = robot_parameters(
         driver="fake",
         control_hz=100.0,
         group_dims={"left_arm": 7, "right_arm": 7},
     )
-    policy = PolicyConfig(
+    policy = policy_parameters(
         worker="fake",
         adapter="lingbot_vla2_yam",
         action_dt_s=1 / 30,

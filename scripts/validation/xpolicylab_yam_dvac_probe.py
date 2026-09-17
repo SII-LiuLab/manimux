@@ -13,7 +13,7 @@ from pathlib import Path
 import numpy as np
 from xpolicylab_yam_forward_probe import _snapshot
 
-from manimux.config import load_config
+from manimux.cli import load_config
 from manimux.policies import build_policy_adapter, build_policy_model
 from manimux.runtime.dvac import DvacInferenceRequest
 from manimux.types import ActionContext
@@ -34,18 +34,18 @@ def main() -> int:
 
     config_path = args.config.resolve()
     config = load_config(config_path)
-    if config.policy.worker != "xpolicylab_ws":
+    if config["policy"]["worker"] != "xpolicylab_ws":
         raise ValueError("DVAC probe requires policy.worker: xpolicylab_ws")
-    if config.execution.runtime != "dvac":
+    if config["execution"]["runtime"] != "dvac":
         raise ValueError("DVAC probe requires execution.runtime: dvac")
 
-    settings = config.execution.dvac
-    maximum = settings.max_execution_steps or config.policy.horizon_steps
-    group_order = list(config.policy.options["group_order"])
-    expected_width = sum(int(config.robot.group_dims[name]) for name in group_order)
+    settings = config["execution"]["dvac"]
+    maximum = settings["max_execution_steps"] or config["policy"]["horizon_steps"]
+    group_order = list(config["policy"]["options"]["group_order"])
+    expected_width = sum(int(config["robot"]["group_dims"][name]) for name in group_order)
     session_id = f"xpolicy-dvac-probe-{uuid.uuid4().hex[:8]}"
-    model = build_policy_model(config.policy)
-    adapter = build_policy_adapter(config.robot, config.policy)
+    model = build_policy_model(config["policy"])
+    adapter = build_policy_adapter(config["robot"], config["policy"])
     reports: list[dict[str, object]] = []
     try:
         model.reset(session_id)
@@ -57,13 +57,13 @@ def main() -> int:
                 request_seq=request_seq,
                 observation_time_ns=observation_time_ns,
                 deadline_ns=observation_time_ns
-                + int(config.policy.timeout_s * 1_000_000_000),
+                + int(config["policy"]["timeout_s"] * 1_000_000_000),
                 observation=snapshot,
                 instruction=args.instruction,
-                dvac_tail_steps=settings.tail_steps,
-                dvac_alpha=settings.alpha,
-                dvac_rolling_window_size=settings.rolling_window_size,
-                dvac_min_execution_steps=settings.min_execution_steps,
+                dvac_tail_steps=settings["tail_steps"],
+                dvac_alpha=settings["alpha"],
+                dvac_rolling_window_size=settings["rolling_window_size"],
+                dvac_min_execution_steps=settings["min_execution_steps"],
                 dvac_max_execution_steps=maximum,
             )
             started = time.perf_counter()
@@ -74,7 +74,7 @@ def main() -> int:
                 raise ValueError("DVAC reply is missing metadata")
             variance = np.asarray(metadata.get("variance"), dtype=np.float64)
             if (
-                variance.shape != (config.policy.horizon_steps,)
+                variance.shape != (config["policy"]["horizon_steps"],)
                 or not np.isfinite(variance).all()
                 or np.any(variance < 0)
             ):
@@ -89,10 +89,8 @@ def main() -> int:
                     created_time_ns=time.monotonic_ns(),
                 ),
             )
-            packed = np.concatenate(
-                [chunk.groups[name] for name in group_order], axis=1
-            )
-            expected_shape = (config.policy.horizon_steps, expected_width)
+            packed = np.concatenate([chunk.groups[name] for name in group_order], axis=1)
+            expected_shape = (config["policy"]["horizon_steps"], expected_width)
             if packed.shape != expected_shape or not np.isfinite(packed).all():
                 raise ValueError(
                     f"DVAC adapter must return a finite {expected_shape} chunk, got {packed.shape}"
@@ -102,9 +100,7 @@ def main() -> int:
                     "request_seq": request_seq,
                     "round_trip_ms": round(round_trip_ms, 1),
                     "execution_steps": metadata.get("execution_steps"),
-                    "first_threshold_crossing": metadata.get(
-                        "first_threshold_crossing"
-                    ),
+                    "first_threshold_crossing": metadata.get("first_threshold_crossing"),
                     "threshold": metadata.get("threshold"),
                     "total_variance": metadata.get("total_variance"),
                     "rolling_states": metadata.get("rolling_states"),
@@ -122,8 +118,7 @@ def main() -> int:
     if any(report.get("cold_start") is not False for report in reports[1:]):
         raise ValueError("later DVAC requests must reuse the prior rolling window")
     expected_rolling_states = [
-        min(index, settings.rolling_window_size)
-        for index in range(1, args.requests + 1)
+        min(index, settings["rolling_window_size"]) for index in range(1, args.requests + 1)
     ]
     rolling_states = [report.get("rolling_states") for report in reports]
     if rolling_states != expected_rolling_states:
@@ -136,7 +131,7 @@ def main() -> int:
             {
                 "status": "ok",
                 "config": str(config_path),
-                "server": config.policy.options["server"],
+                "server": config["policy"]["options"]["server"],
                 "session_id": session_id,
                 "requests": reports,
             },

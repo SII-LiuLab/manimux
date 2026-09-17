@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 import numpy as np
 from scipy.spatial.transform import Rotation
 
-from manimux.config import PolicyConfig, RobotConfig
+from manimux.policies.base import action_interval
 from manimux.runtime.rtc.request import RtcInferenceRequest
 from manimux.types import (
     ActionChunk,
@@ -40,31 +40,6 @@ WIRE_ACTION_DIM = 16
 DEFAULT_WIRE_IMAGE_HW = (168, 224)
 
 
-def _string_option(options: Mapping[str, object], name: str, default: str) -> str:
-    value = options.get(name, default)
-    if not isinstance(value, str) or not value:
-        raise ValueError(f"policy.options.{name} must be a non-empty string")
-    return value
-
-
-def _string_sequence(
-    options: Mapping[str, object], name: str, default: Sequence[str]
-) -> tuple[str, ...]:
-    value = options.get(name, list(default))
-    if not isinstance(value, list) or not value or not all(isinstance(item, str) for item in value):
-        raise ValueError(f"policy.options.{name} must be a non-empty list of strings")
-    return tuple(value)
-
-
-def _mapping_option(options: Mapping[str, object], name: str) -> dict[str, object]:
-    value = options.get(name)
-    if not isinstance(value, dict) or not value:
-        raise ValueError(f"policy.options.{name} must be a non-empty mapping")
-    if not all(isinstance(key, str) and key for key in value):
-        raise ValueError(f"policy.options.{name} keys must be non-empty strings")
-    return dict(value)
-
-
 @dataclass(slots=True)
 class SAPolicyXPolicyRequest(RtcInferenceRequest):
     """InferenceRequest plus EE/intrinsics for ``XPolicyLabWsPolicyModel``."""
@@ -74,10 +49,7 @@ class SAPolicyXPolicyRequest(RtcInferenceRequest):
 
 
 def _parse_camera_map(options: Mapping[str, object]) -> dict[str, str]:
-    raw = _mapping_option(options, "camera_map")
-    if not all(isinstance(value, str) and value for value in raw.values()):
-        raise ValueError("policy.options.camera_map must map model names to sensor names")
-    result = {key: str(value) for key, value in raw.items()}
+    result = dict(options["camera_map"])
     if len(set(result.values())) != len(result):
         raise ValueError("policy.options.camera_map sensor names must be unique")
     return result
@@ -86,7 +58,7 @@ def _parse_camera_map(options: Mapping[str, object]) -> dict[str, str]:
 def _parse_intrinsics(
     options: Mapping[str, object], camera_names: Sequence[str]
 ) -> dict[str, np.ndarray]:
-    raw = _mapping_option(options, "camera_intrinsics")
+    raw = dict(options["camera_intrinsics"])
     if set(raw) != set(camera_names):
         raise ValueError(
             "policy.options.camera_intrinsics must contain exactly the model-facing "
@@ -123,9 +95,7 @@ def _parse_model_frame_transforms(
 
 def _parse_wire_image_hw(options: Mapping[str, object]) -> tuple[int, int]:
     raw = options.get("wire_image_hw", list(DEFAULT_WIRE_IMAGE_HW))
-    if not isinstance(raw, (list, tuple)) or len(raw) != 2:
-        raise ValueError("policy.options.wire_image_hw must be [height, width]")
-    height, width = int(raw[0]), int(raw[1])
+    height, width = map(int, raw)
     if height <= 0 or width <= 0:
         raise ValueError("policy.options.wire_image_hw must be positive")
     return height, width
@@ -162,30 +132,28 @@ def _wire_endpose_to_pose(endpose: np.ndarray) -> np.ndarray:
 class SAPolicyYamAdapter:
     """Encode YAM observations and solve SAPolicy Cartesian chunks back to joints."""
 
-    def __init__(self, robot: RobotConfig, policy: PolicyConfig) -> None:
+    def __init__(self, robot: dict, policy: dict) -> None:
         from manimux.kinematics import build_kinematics
 
-        self._group_order = _string_sequence(policy.options, "group_order", DEFAULT_GROUP_ORDER)
-        self._horizon_steps = policy.horizon_steps
-        self.action_space = _string_option(policy.options, "action_space", "joint_position")
+        self._group_order = tuple(policy["options"].get("group_order", DEFAULT_GROUP_ORDER))
+        self._horizon_steps = policy["horizon_steps"]
+        self.action_space = policy["options"].get("action_space", "joint_position")
         if self.action_space != "joint_position":
             raise ValueError("SAPolicy adapter outputs joint_position; EEF targets require IK")
-        self._action_dt_ns = int(policy.effective_action_dt_s * 1_000_000_000)
-        self._camera_map = _parse_camera_map(policy.options)
-        self._intrinsics = _parse_intrinsics(policy.options, tuple(self._camera_map))
-        self._wire_image_hw = _parse_wire_image_hw(policy.options)
+        self._action_dt_ns = int(action_interval(policy) * 1_000_000_000)
+        self._camera_map = _parse_camera_map(policy["options"])
+        self._intrinsics = _parse_intrinsics(policy["options"], tuple(self._camera_map))
+        self._wire_image_hw = _parse_wire_image_hw(policy["options"])
         self._model_from_kinematics = _parse_model_frame_transforms(
-            policy.options, self._group_order
+            policy["options"], self._group_order
         )
         self._kinematics_from_model = {
             group: np.linalg.inv(transform)
             for group, transform in self._model_from_kinematics.items()
         }
 
-        kinematics_name = _string_option(policy.options, "kinematics", "yam")
-        kinematics_options = policy.options.get("kinematics_options", {})
-        if not isinstance(kinematics_options, dict):
-            raise ValueError("policy.options.kinematics_options must be a mapping")
+        kinematics_name = policy["options"].get("kinematics", "yam")
+        kinematics_options = policy["options"].get("kinematics_options", {})
         self._kinematics = build_kinematics(kinematics_name, **kinematics_options)
         self._anchors: OrderedDict[int, np.ndarray] = OrderedDict()
         if self._kinematics.num_arm_joints != ARM_JOINTS:
@@ -260,11 +228,13 @@ class SAPolicyYamAdapter:
             rtc_beta=getattr(request, "rtc_beta", 5.0),
             xpolicylab_additional_info={"sapolicy": sap_info},
             xpolicylab_state={
-                f"{side}_ee_pose": np.concatenate([
-                    payload[f"{side}_endpose"][:3],
-                    payload[f"{side}_endpose"][6:7],
-                    payload[f"{side}_endpose"][3:6],
-                ])
+                f"{side}_ee_pose": np.concatenate(
+                    [
+                        payload[f"{side}_endpose"][:3],
+                        payload[f"{side}_endpose"][6:7],
+                        payload[f"{side}_endpose"][3:6],
+                    ]
+                )
                 for side in ("left", "right")
             },
         )
@@ -277,9 +247,7 @@ class SAPolicyYamAdapter:
         """
         joints = np.asarray(condition, dtype=np.float64)
         if joints.shape != (self._horizon_steps, 2 * GROUP_DIM):
-            raise ValueError(
-                f"SAPolicy RTC joint condition must be ({self._horizon_steps}, 14)"
-            )
+            raise ValueError(f"SAPolicy RTC joint condition must be ({self._horizon_steps}, 14)")
         if not np.isfinite(joints).all():
             raise ValueError("SAPolicy RTC joint condition must be finite")
         result = np.empty((len(joints), WIRE_ACTION_DIM), dtype=np.float64)
@@ -289,9 +257,14 @@ class SAPolicyYamAdapter:
                     state[:ARM_JOINTS], float(state[-1])
                 )
                 xyz_xyzw = _pose_to_wire_endpose(pose)
-                result[i, arm * 8 : arm * 8 + 8] = np.concatenate([
-                    xyz_xyzw[:3], xyz_xyzw[6:7], xyz_xyzw[3:6], state[-1:],
-                ])
+                result[i, arm * 8 : arm * 8 + 8] = np.concatenate(
+                    [
+                        xyz_xyzw[:3],
+                        xyz_xyzw[6:7],
+                        xyz_xyzw[3:6],
+                        state[-1:],
+                    ]
+                )
         return result
 
     def decode_action(self, raw: object, context: ActionContext) -> ActionChunk:
@@ -320,15 +293,21 @@ class SAPolicyYamAdapter:
         return self._decode_action(raw, context, partition)
 
     def _decode_action(
-        self, raw: object, context: ActionContext, partition: str | None = None,
+        self,
+        raw: object,
+        context: ActionContext,
+        partition: str | None = None,
         hold_reason: str | None = None,
     ) -> ActionChunk:
         raw_actions = raw.get("actions") if isinstance(raw, Mapping) else raw
         if isinstance(raw_actions, list) and raw_actions and isinstance(raw_actions[0], Mapping):
             rows = []
             for action in raw_actions:
-                expected = {f"{side}_{field}" for side in ("left", "right")
-                            for field in ("ee_pose", "ee_joint_state")}
+                expected = {
+                    f"{side}_{field}"
+                    for side in ("left", "right")
+                    for field in ("ee_pose", "ee_joint_state")
+                }
                 if set(action) != expected:
                     raise ValueError(f"Invalid SAPolicy standard action keys: {set(action)}")
                 row = []
@@ -348,8 +327,10 @@ class SAPolicyYamAdapter:
             )
         if not np.isfinite(actions).all():
             raise ValueError("SAPolicy actions contain non-finite values")
-        if any(np.any(np.linalg.norm(actions[:, start:start + 4], axis=1) < 1e-12)
-               for start in (3, 11)):
+        if any(
+            np.any(np.linalg.norm(actions[:, start : start + 4], axis=1) < 1e-12)
+            for start in (3, 11)
+        ):
             raise ValueError("SAPolicy actions contain zero quaternions")
         anchor = self._anchors.pop(context.request_seq, None)
         if anchor is None and context.measured_state is None:
@@ -386,8 +367,10 @@ class SAPolicyYamAdapter:
             assert seed_state is not None
             if context.independent_groups:
                 groups[group], failed_at = self._solve_arm_bounded(
-                    group, actions[offset:end, arm_index * 8 : arm_index * 8 + 8],
-                    seed_state, budget_ms=context.decode_budget_ms,
+                    group,
+                    actions[offset:end, arm_index * 8 : arm_index * 8 + 8],
+                    seed_state,
+                    budget_ms=context.decode_budget_ms,
                     diagnostics=ik_diagnostics,
                     hold_reason=hold_reason or ("expired_prefix" if expired else None),
                 )
@@ -424,7 +407,14 @@ class SAPolicyYamAdapter:
         return self._decode_action(raw, context, partition, hold_reason=reason)
 
     def _solve_arm_bounded(
-        self, group, actions, seed_state, *, budget_ms, diagnostics, hold_reason=None,
+        self,
+        group,
+        actions,
+        seed_state,
+        *,
+        budget_ms,
+        diagnostics,
+        hold_reason=None,
     ):
         import time
 
@@ -444,7 +434,10 @@ class SAPolicyYamAdapter:
             else:
                 target = self._kinematics_from_model[group] @ _wire_endpose_to_pose(row[:7])
                 converged, solved, result = self._kinematics.ik_bounded(
-                    target, current, float(row[7]), deadline_ns=deadline,
+                    target,
+                    current,
+                    float(row[7]),
+                    deadline_ns=deadline,
                 )
                 if converged:
                     current = self._kinematics.clip_arm_joints(solved)
@@ -458,12 +451,16 @@ class SAPolicyYamAdapter:
                 break
         diagnostics[group] = {
             "ik_ms": (time.monotonic_ns() - started) / 1e6,
-            "step_ms": durations, "step_results": results,
-            "converged": [i < (failed_at if failed_at is not None else len(actions))
-                          for i in range(len(actions))],
+            "step_ms": durations,
+            "step_results": results,
+            "converged": [
+                i < (failed_at if failed_at is not None else len(actions))
+                for i in range(len(actions))
+            ],
             "failed_steps": int(failed_at is not None),
             "skipped_steps": 0 if failed_at is None else len(actions) - failed_at - 1,
-            "hold_from_step": failed_at, "budget_ms": budget_ms,
+            "hold_from_step": failed_at,
+            "budget_ms": budget_ms,
             "seed_joints": np.asarray(seed_state[:ARM_JOINTS]).tolist(),
         }
         return out, failed_at
@@ -513,16 +510,16 @@ class SAPolicyYamAdapter:
             raise ValueError(f"SAPolicy IK produced non-finite joints for {group}")
         return out
 
-    def validate(self, robot: RobotConfig, policy: PolicyConfig) -> None:
+    def validate(self, robot: dict, policy: dict) -> None:
         del policy
-        if tuple(robot.group_dims) != self._group_order:
+        if tuple(robot["group_dims"]) != self._group_order:
             raise ValueError(
                 "SAPolicy YAM requires robot groups in order "
-                f"{list(self._group_order)}, got {list(robot.group_dims)}"
+                f"{list(self._group_order)}, got {list(robot['group_dims'])}"
             )
-        if any(robot.group_dims[name] != GROUP_DIM for name in self._group_order):
+        if any(robot["group_dims"][name] != GROUP_DIM for name in self._group_order):
             raise ValueError("SAPolicy YAM requires two 7-value arm+gripper groups")
 
 
-def build_adapter(robot: RobotConfig, policy: PolicyConfig) -> SAPolicyYamAdapter:
+def build_adapter(robot: dict, policy: dict) -> SAPolicyYamAdapter:
     return SAPolicyYamAdapter(robot, policy)

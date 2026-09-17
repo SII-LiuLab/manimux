@@ -33,10 +33,11 @@ def load_module(name, path):
 
 
 def main():
-    from manimux.config import load_config
+    from manimux.robots.tianji.sdk import load_marvin_kine
+
+    from manimux.cli import load_config
     from manimux.kinematics.tianji import BD67_REAL, DH_TABLE_M6_40, TianjiKinematics
     from manimux.kinematics.tianji_diff import DifferentialIKConfig, TianjiDifferentialIK
-    from manimux.robots.tianji.sdk import load_marvin_kine
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--reference", type=Path, required=True)
@@ -67,9 +68,9 @@ def main():
     old_kin = load_module("algos.kinematics", reference / "algos/kinematics.py")
     converter = load_marvin_kine().Marvin_Kine()
     profile = load_config(REPO / "configs/umi_dp/tianji/infra/pass_ball/default.yaml")
-    motion = profile.execution.motion_limits.arm
+    motion = profile["execution"]["motion_limits"]["arm"]
     tuning = DifferentialIKConfig(
-        max_velocity_rad_s=motion.max_velocity, dt_max_s=motion.max_step_dt_s
+        max_velocity_rad_s=motion["max_velocity"], dt_max_s=motion["max_step_dt_s"]
     )
     starts = [
         [50, -40, -30, -100, -65, 0, 40],
@@ -94,9 +95,9 @@ def main():
                 converter,
                 lo.tolist(),
                 hi.tolist(),
-                [np.degrees(motion.max_velocity)] * 7,
+                [np.degrees(motion["max_velocity"])] * 7,
                 limit_margin_deg=kin.limit_margin_deg,
-                dt_max=motion.max_step_dt_s,
+                dt_max=motion["max_step_dt_s"],
                 w_pos=tuning.w_pos,
                 w_rot=tuning.w_rot,
                 lam=tuning.lam,
@@ -158,8 +159,8 @@ def main():
     report["reference_sha256"] = {
         name: hashlib.sha256((reference / name).read_bytes()).hexdigest() for name in files
     }
-    report["max_velocity_rad_s"] = motion.max_velocity
-    report["dt_max_s"] = motion.max_step_dt_s
+    report["max_velocity_rad_s"] = motion["max_velocity"]
+    report["dt_max_s"] = motion["max_step_dt_s"]
     report["osqp_version"] = port._osqp.__version__
     text = json.dumps(report, indent=2)
     print(text)

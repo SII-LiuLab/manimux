@@ -30,6 +30,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
+from scipy.spatial.transform import Rotation
 
 from manimux.types import FloatArray, ObservationSnapshot
 
@@ -154,8 +155,6 @@ def decode_action_steps(
 
 
 def _step_value(step: Mapping[str, Any], key: str, dofs: int, index: int) -> FloatArray:
-    if key not in step:
-        raise ValueError(f"XPolicyLab action step {index} is missing {key!r}")
     values = np.asarray(step[key], dtype=np.float64).reshape(-1)
     if values.size != dofs:
         raise ValueError(
@@ -175,10 +174,6 @@ def build_layouts(
 
     layouts: list[GroupLayout] = []
     for group in group_order:
-        if group not in group_dims:
-            raise ValueError(f"robot.group_dims has no group {group!r}")
-        if group not in prefixes:
-            raise ValueError(f"policy.options.group_prefixes has no entry for {group!r}")
         dim = int(group_dims[group])
         if dim <= gripper_dofs:
             raise ValueError(
@@ -194,3 +189,21 @@ def build_layouts(
             )
         )
     return tuple(layouts)
+
+
+# 标准位姿字典使用 xyz + wxyz；只转换表示，不变换参考坐标系。
+def pose_matrix(value):
+    pose = np.asarray(value, dtype=np.float64)
+    if pose.shape != (7,) or not np.isfinite(pose).all():
+        raise ValueError("EE pose must be finite [xyz, quaternion wxyz]")
+    if not np.isclose(np.linalg.norm(pose[3:]), 1.0, atol=1e-4):
+        raise ValueError("EE quaternion must be unit length")
+    result = np.eye(4)
+    result[:3, :3] = Rotation.from_quat(pose[[4, 5, 6, 3]]).as_matrix()
+    result[:3, 3] = pose[:3]
+    return result
+
+
+def matrix_pose(matrix):
+    quat = Rotation.from_matrix(matrix[:3, :3]).as_quat()
+    return np.r_[matrix[:3, 3], quat[[3, 0, 1, 2]]]

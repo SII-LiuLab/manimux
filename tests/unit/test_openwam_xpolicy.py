@@ -10,11 +10,13 @@ import numpy as np
 import pytest
 from scipy.spatial.transform import Rotation
 
+from manimux.cli import load_config
+from manimux.policies.base import action_interval
+
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "XPolicyLab"))
 
-from manimux.config import load_config
 from manimux.integrations.openwam_yam.policy_plugin import SEMANTICS, OpenWAMYamAdapter
 from manimux.integrations.xpolicylab.policy_plugin import XPolicyLabWsPolicyModel
 from manimux.types import (
@@ -53,8 +55,8 @@ def setup(monkeypatch):
     kin = Kinematics()
     monkeypatch.setattr(manimux.kinematics, "build_kinematics", lambda *a, **k: kin)
     config = load_config(ROOT / "configs/openwam/yam/infra/manimux.yaml")
-    config.robot.driver = "fake"
-    adapter = OpenWAMYamAdapter(config.robot, config.policy)
+    config["robot"]["type"] = "fake"
+    adapter = OpenWAMYamAdapter(config["robot"], config["policy"])
     state = RobotState(
         {
             "left_arm": np.array([0.1, 0.2, 0.3, 0.2, -0.1, 0.4, 0.25]),
@@ -304,7 +306,10 @@ def test_qz_launcher_disables_wandb_and_pins_training_budget():
     package = (ROOT / "XPolicyLab/policy/OpenWAM/OpenWAM/pyproject.toml").read_text()
     loader = (
         ROOT
-        / "XPolicyLab/policy/OpenWAM/OpenWAM/openwam/model/video_backbone/wan/shared/core/loader/config.py"
+        / (
+            "XPolicyLab/policy/OpenWAM/OpenWAM/openwam/model/video_backbone/wan"
+            "/shared/core/loader/config.py"
+        )
     ).read_text()
     assert "WANDB_MODE=disabled" in launcher
     assert '"project.wandb.project=null"' in launcher
@@ -320,25 +325,38 @@ def test_qz_launcher_disables_wandb_and_pins_training_budget():
     assert "torch==" not in setup
     assert '"opencv-python-headless>=4.7,<5"' in package
     assert "from modelscope import snapshot_download" not in loader.split("class ModelConfig", 1)[0]
-    assert "from huggingface_hub import snapshot_download" not in loader.split("class ModelConfig", 1)[0]
+    assert (
+        "from huggingface_hub import snapshot_download"
+        not in loader.split("class ModelConfig", 1)[0]
+    )
 
 
 def test_checked_in_put_bottles_deployment_is_bound():
-    config = load_config(
-        ROOT / "configs/openwam/yam/infra/manimux-put-bottles-step30000.yaml"
-    )
-    identity = config.policy.expected_backend.model
-    assert config.robot.control_hz == 100.0
-    assert config.robot.options["start_joints"] == [
-        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0,
-        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+    config = load_config(ROOT / "configs/openwam/yam/infra/manimux-put-bottles-step30000.yaml")
+    identity = config["policy"]["expected_backend"]["model"]
+    assert config["robot"]["control_hz"] == 100.0
+    assert config["robot"]["options"]["start_joints"] == [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
     ]
-    assert config.policy.effective_action_dt_s == pytest.approx(1.0 / 30.0)
-    assert config.policy.horizon_steps == 32
-    assert config.policy.options["deployment_bound"] is True
-    assert config.execution.inference_schedule == "serial"
-    assert config.execution.chunk_steps == 12
+    assert action_interval(config["policy"]) == pytest.approx(1.0 / 30.0)
+    assert config["policy"]["horizon_steps"] == 32
+    assert config["policy"]["options"]["deployment_bound"] is True
+    assert config["execution"]["inference_schedule"] == "serial"
+    assert config["execution"]["chunk_steps"] == 12
     assert identity["checkpoint_file"] == "checkpoint_step_30000.safetensors"
     assert identity["action_horizon"] == 32
-    assert config.execution.smooth.gripper.max_velocity == 1.0
-    assert config.execution.smooth.gripper.max_acceleration == 12.0
+    assert config["execution"]["smooth"]["gripper"]["max_velocity"] == 1.0
+    assert config["execution"]["smooth"]["gripper"]["max_acceleration"] == 12.0

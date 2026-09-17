@@ -13,11 +13,12 @@ from manimux.types import SensorFrame
 class TimestampedCameraSensor:
     def __init__(self, config, clock):
         self.clock = clock
-        self.endpoint = str(config.options.get("endpoint", "tcp://127.0.0.1:5556"))
-        self.names = tuple(config.options.get("camera_names", ("left_wrist", "right_wrist")))
-        self.max_age_ns = int(float(config.options.get("max_frame_age_sec", 0.15)) * 1e9)
-        self.jump_ns = int(float(config.options.get("clock_jump_tolerance_s", 0.02)) * 1e9)
-        self.startup_ns = int(float(config.options.get("startup_timeout_s", 5)) * 1e9)
+        self.endpoint = str(config["options"].get("endpoint", "tcp://127.0.0.1:5556"))
+        self.names = tuple(config["options"].get("camera_names", ("left_wrist", "right_wrist")))
+        self.output_names = config["options"].get("output_names", {})
+        self.max_age_ns = int(float(config["options"].get("max_frame_age_sec", 0.15)) * 1e9)
+        self.jump_ns = int(float(config["options"].get("clock_jump_tolerance_s", 0.02)) * 1e9)
+        self.startup_ns = int(float(config["options"].get("startup_timeout_s", 5)) * 1e9)
         if not self.names or min(self.max_age_ns, self.jump_ns, self.startup_ns) <= 0:
             raise ValueError("Camera names and positive timing bounds are required")
         self.client = None
@@ -51,7 +52,9 @@ class TimestampedCameraSensor:
                 if old is not None and sequence < old.sequence:
                     raise RuntimeError(f"Camera timestamp moved backwards: {name}")
                 if old is None or sequence != old.sequence:
-                    self.frames[name] = SensorFrame(name, images[name], capture_ns, sequence)
+                    self.frames[name] = SensorFrame(
+                        self.output_names.get(name, name), images[name], capture_ns, sequence
+                    )
         if not self.frames:
             if now - self.started_ns > self.startup_ns:
                 raise RuntimeError("Camera PUB stream did not produce timestamped frames")
@@ -60,7 +63,9 @@ class TimestampedCameraSensor:
             age = now - frame.capture_monotonic_ns
             if age < -self.jump_ns or age > self.max_age_ns:
                 raise RuntimeError(f"Camera {name} capture timestamp is stale or in the future")
-        return dict(self.frames)
+        # A cached frame retains object identity, RGB, capture time and sequence.
+        # Logical names were assigned once, when the source frame arrived.
+        return {frame.name: frame for frame in self.frames.values()}
 
     def close(self):
         if self.client is not None:

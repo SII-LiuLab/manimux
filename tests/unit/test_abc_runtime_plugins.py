@@ -7,10 +7,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from manimux.cli import load_config
 from manimux.clock import SystemClock
-from manimux.config import load_config
 from manimux.integrations.abc_yam.policy_plugin import AbcHttpPolicyModel, AbcYamAdapter
 from manimux.policies import build_policy_adapter, build_policy_model
+from manimux.policies.base import action_interval
 from manimux.robots import build_robot
 from manimux.robots.yam import YamDualArmDriver
 from manimux.sensors import build_sensor
@@ -29,23 +30,23 @@ def test_abc_run_config_swaps_only_the_policy_layer() -> None:
     abc = load_config(Path("configs/abc/yam/infra/manimux.yaml"))
     molmoact = load_config(Path("configs/molmoact2/yam/infra/manimux.yaml"))
 
-    assert isinstance(build_robot(abc.robot, SystemClock()), YamDualArmDriver)
-    assert isinstance(build_sensor(abc.sensors[0], SystemClock()), CameraServerSensorDriver)
-    assert isinstance(build_policy_model(abc.policy), AbcHttpPolicyModel)
-    assert isinstance(build_policy_adapter(abc.robot, abc.policy), AbcYamAdapter)
+    assert isinstance(build_robot(abc["robot"], SystemClock()), YamDualArmDriver)
+    assert isinstance(build_sensor(abc["sensors"][0], SystemClock()), CameraServerSensorDriver)
+    assert isinstance(build_policy_model(abc["policy"]), AbcHttpPolicyModel)
+    assert isinstance(build_policy_adapter(abc["robot"], abc["policy"]), AbcYamAdapter)
 
-    assert abc.robot.driver == molmoact.robot.driver
-    assert abc.sensors[0].driver == molmoact.sensors[0].driver
-    assert abc.viewer.robot_adapter == molmoact.viewer.robot_adapter
-    assert (abc.policy.worker, abc.policy.adapter) != (
-        molmoact.policy.worker,
-        molmoact.policy.adapter,
+    assert abc["robot"]["type"] == molmoact["robot"]["type"]
+    assert abc["sensors"][0]["driver"] == molmoact["sensors"][0]["driver"]
+    assert abc["viewer"]["robot"] == molmoact["viewer"]["robot"]
+    assert (abc["policy"]["worker"], abc["policy"]["adapter"]) != (
+        molmoact["policy"]["worker"],
+        molmoact["policy"]["adapter"],
     )
 
 
 def test_abc_adapter_splits_raw_actions_into_canonical_yam_groups() -> None:
     config = load_config("configs/abc/yam/infra/manimux.yaml")
-    adapter = build_policy_adapter(config.robot, config.policy)
+    adapter = build_policy_adapter(config["robot"], config["policy"])
     raw = np.arange(30 * 14, dtype=np.float64).reshape(30, 14)
 
     chunk = adapter.decode_action(
@@ -56,14 +57,14 @@ def test_abc_adapter_splits_raw_actions_into_canonical_yam_groups() -> None:
     assert chunk.action_space == "joint_position"
     assert chunk.request_seq == 4
     assert chunk.plan_id.startswith("abc-")
-    assert chunk.dt_ns == int(config.policy.action_dt_s * 1_000_000_000)
+    assert chunk.dt_ns == int(config["policy"]["action_dt_s"] * 1_000_000_000)
     np.testing.assert_array_equal(chunk.groups["left_arm"], raw[:, :7])
     np.testing.assert_array_equal(chunk.groups["right_arm"], raw[:, 7:])
 
 
 def test_abc_adapter_rejects_wrong_action_width() -> None:
     config = load_config("configs/abc/yam/infra/manimux.yaml")
-    adapter = build_policy_adapter(config.robot, config.policy)
+    adapter = build_policy_adapter(config["robot"], config["policy"])
 
     with pytest.raises(ValueError, match="shape"):
         adapter.decode_action(
@@ -76,12 +77,12 @@ def test_abc_live_config_matches_the_checkpoint_timing() -> None:
     config = load_config("configs/abc/yam/infra/manimux.yaml")
 
     # ABC-DiT was trained at 30 Hz with a fixed chunk_length of 30.
-    assert config.run.task == "put the plastic bottles in the bin"
-    assert config.policy.horizon_steps == 30
-    assert config.policy.effective_action_dt_s == pytest.approx(1.0 / 30.0, abs=1e-4)
-    assert config.execution.executor == "direct"
-    assert config.execution.blend_steps == 0
-    assert config.robot.options["home_on_close"] is True
+    assert config["run"]["task"] == "put the plastic bottles in the bin"
+    assert config["policy"]["horizon_steps"] == 30
+    assert action_interval(config["policy"]) == pytest.approx(1.0 / 30.0, abs=1e-4)
+    assert config["execution"]["executor"] == "direct"
+    assert config["execution"]["blend_steps"] == 0
+    assert config["robot"]["options"]["home_on_close"] is True
 
 
 class _StubResponse:
@@ -109,7 +110,7 @@ def test_abc_http_model_posts_the_server_wire_schema(monkeypatch: pytest.MonkeyP
     import json_numpy
 
     config = load_config("configs/abc/yam/infra/manimux.yaml")
-    model = build_policy_model(config.policy)
+    model = build_policy_model(config["policy"])
     model._session_id = "session"
 
     captured: dict[str, object] = {}

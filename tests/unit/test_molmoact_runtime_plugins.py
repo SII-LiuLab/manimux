@@ -7,13 +7,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from manimux.cli import load_config
 from manimux.clock import SystemClock
-from manimux.config import load_config
 from manimux.integrations.molmoact_yam.policy_plugin import (
     MolmoActHttpPolicyModel,
     MolmoActYamAdapter,
 )
 from manimux.policies import build_policy_adapter, build_policy_model
+from manimux.policies.base import action_interval
 from manimux.robots import build_robot
 from manimux.robots.yam import YamDualArmDriver
 from manimux.sensors import build_sensor
@@ -24,15 +25,15 @@ from manimux.types import ActionContext, RobotCommand
 def test_molmoact_yam_run_config_selects_real_plugins_without_touching_hardware() -> None:
     config = load_config(Path("configs/molmoact2/yam/infra/manimux.yaml"))
 
-    assert isinstance(build_robot(config.robot, SystemClock()), YamDualArmDriver)
-    assert isinstance(build_sensor(config.sensors[0], SystemClock()), CameraServerSensorDriver)
-    assert isinstance(build_policy_model(config.policy), MolmoActHttpPolicyModel)
-    assert isinstance(build_policy_adapter(config.robot, config.policy), MolmoActYamAdapter)
+    assert isinstance(build_robot(config["robot"], SystemClock()), YamDualArmDriver)
+    assert isinstance(build_sensor(config["sensors"][0], SystemClock()), CameraServerSensorDriver)
+    assert isinstance(build_policy_model(config["policy"]), MolmoActHttpPolicyModel)
+    assert isinstance(build_policy_adapter(config["robot"], config["policy"]), MolmoActYamAdapter)
 
 
 def test_molmoact_adapter_splits_raw_actions_into_canonical_yam_groups() -> None:
     config = load_config("configs/molmoact2/yam/infra/manimux.yaml")
-    adapter = build_policy_adapter(config.robot, config.policy)
+    adapter = build_policy_adapter(config["robot"], config["policy"])
     raw = np.arange(30 * 14, dtype=np.float64).reshape(30, 14)
 
     chunk = adapter.decode_action(
@@ -42,14 +43,14 @@ def test_molmoact_adapter_splits_raw_actions_into_canonical_yam_groups() -> None
 
     assert chunk.action_space == "joint_position"
     assert chunk.request_seq == 4
-    assert chunk.dt_ns == int(config.policy.action_dt_s * 1_000_000_000)
+    assert chunk.dt_ns == int(config["policy"]["action_dt_s"] * 1_000_000_000)
     np.testing.assert_array_equal(chunk.groups["left_arm"], raw[:, :7])
     np.testing.assert_array_equal(chunk.groups["right_arm"], raw[:, 7:])
 
 
 def test_molmoact_adapter_rejects_wrong_action_width() -> None:
     config = load_config("configs/molmoact2/yam/infra/manimux.yaml")
-    adapter = build_policy_adapter(config.robot, config.policy)
+    adapter = build_policy_adapter(config["robot"], config["policy"])
 
     with pytest.raises(ValueError, match="shape"):
         adapter.decode_action(
@@ -110,7 +111,7 @@ class _FakeBimanualHardware:
 
 def test_yam_driver_maps_grouped_move_to_existing_joint_command() -> None:
     config = load_config("configs/molmoact2/yam/infra/manimux.yaml")
-    driver = YamDualArmDriver(config.robot, SystemClock())
+    driver = YamDualArmDriver(config["robot"], SystemClock())
     backend = _FakeBimanualYam()
     driver._robot = backend
 
@@ -136,26 +137,26 @@ def test_an_unknown_robot_option_is_refused_before_the_arms_move() -> None:
     key at construction instead, before anything opens CAN.
     """
     config = load_config("configs/molmoact2/yam/infra/manimux.yaml")
-    config.robot.options["start_duration"] = 1.0  # missing the _s suffix
+    config["robot"]["options"]["start_duration"] = 1.0  # missing the _s suffix
 
     with pytest.raises(ValueError, match="start_duration"):
-        YamDualArmDriver(config.robot, SystemClock())
+        YamDualArmDriver(config["robot"], SystemClock())
 
 
 def test_live_config_enables_explicit_start_and_verified_home() -> None:
     config = load_config("configs/molmoact2/yam/infra/manimux.yaml")
 
-    assert config.robot.options["move_to_start_on_connect"] is True
-    assert config.robot.options["home_on_close"] is True
-    assert config.robot.control_hz == 100.0
-    assert config.robot.options["start_duration_s"] == 3.0
-    assert config.robot.options["home_duration_s"] == 3.0
-    assert config.policy.effective_action_dt_s == pytest.approx(0.05)
+    assert config["robot"]["options"]["move_to_start_on_connect"] is True
+    assert config["robot"]["options"]["home_on_close"] is True
+    assert config["robot"]["control_hz"] == 100.0
+    assert config["robot"]["options"]["start_duration_s"] == 3.0
+    assert config["robot"]["options"]["home_duration_s"] == 3.0
+    assert action_interval(config["policy"]) == pytest.approx(0.05)
 
 
 def test_yam_live_close_releases_without_implicit_motion() -> None:
     config = load_config("configs/molmoact2/yam/infra/manimux.yaml")
-    driver = YamDualArmDriver(config.robot, SystemClock())
+    driver = YamDualArmDriver(config["robot"], SystemClock())
     backend = _FakeBimanualHardware()
     driver._robot = backend
 

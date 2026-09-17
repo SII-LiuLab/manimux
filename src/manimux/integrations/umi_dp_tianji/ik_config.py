@@ -4,18 +4,18 @@ from manimux.kinematics.tianji_diff import DifferentialIKConfig
 
 
 def profile_parameters(config):
-    motion = config.execution.motion_limits
-    if motion is None or motion.arm.max_step_dt_s is None:
+    motion = config["execution"]["motion_limits"]
+    if motion is None or motion["arm"]["max_step_dt_s"] is None:
         raise ValueError("UMI differential IK requires shared motion_limits and max_step_dt_s")
     return {
-        "max_velocity_rad_s": motion.arm.max_velocity,
-        "dt_max_s": motion.arm.max_step_dt_s,
+        "max_velocity_rad_s": motion["arm"]["max_velocity"],
+        "dt_max_s": motion["arm"]["max_step_dt_s"],
     }
 
 
 def bind_diff_ik_profile(config):
     """Only the offline binding launcher/probes call this; runtime only validates."""
-    options = config.policy.options
+    options = config["policy"]["options"]
     if options.get("ik_backend", "analytic") != "diff":
         return
     parameters = options.setdefault("diff_ik", {})
@@ -27,7 +27,7 @@ def bind_diff_ik_profile(config):
 
 
 def validate_diff_ik_profile(config):
-    options = config.policy.options
+    options = config["policy"]["options"]
     if options.get("ik_backend", "analytic") != "diff":
         return
     parameters = DifferentialIKConfig.model_validate(options.get("diff_ik", {}))

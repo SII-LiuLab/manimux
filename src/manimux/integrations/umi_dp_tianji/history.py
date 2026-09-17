@@ -7,11 +7,13 @@ history readiness and supplies observations; scheduling stays in the delegate.
 from __future__ import annotations
 
 from collections import deque
+from copy import deepcopy
 from dataclasses import dataclass
 
 import numpy as np
 
-from manimux.config import ManiMuxConfig
+from manimux.policies.base import action_interval
+from manimux.runtime import validate_execution_parameters, validate_runtime_parameters
 from manimux.runtime.inference import build_inference_strategy
 from manimux.types import ObservationSnapshot, RobotState, copy_group_vector
 
@@ -147,15 +149,15 @@ class HistoryStrategy:
         from manimux.integrations.umi_dp_tianji.ik_config import validate_diff_ik_profile
 
         validate_diff_ik_profile(config)
-        options = config.policy.options
+        options = config["policy"]["options"]
         delegate_name = options.get("history_strategy", "manimux")
         if delegate_name not in {"manimux", "rtc"}:
             raise ValueError("UMI history supports the existing manimux and rtc strategies")
-        delegate_config = config.model_dump(exclude_unset=True)
+        delegate_config = deepcopy(config)
         delegate_config["execution"]["runtime"] = delegate_name
-        # Re-run all stock configuration validation; custom plugin names must
-        # never let an invalid RTC configuration evade capability/timing checks.
-        delegate_config = ManiMuxConfig.model_validate(delegate_config)
+        # 配置已补齐默认值；只复查切换 delegate 后的时间与动作约束。
+        validate_execution_parameters(delegate_config["execution"])
+        validate_runtime_parameters(delegate_config)
         self.delegate = build_inference_strategy(delegate_config)
         camera_map = options["camera_map"]
         names = [value for key, value in camera_map.items() if not key.endswith("_prev")]
@@ -167,9 +169,9 @@ class HistoryStrategy:
             camera_skew_s=float(options.get("camera_skew_s", 0.04)),
         )
         self.offset_ns = round(float(options["first_action_offset_s"]) * 1e9)
-        self.dt_ns = round(config.policy.effective_action_dt_s * 1e9)
-        self.group_order = tuple(config.robot.group_dims)
-        self.horizon = config.policy.horizon_steps
+        self.dt_ns = round(action_interval(config["policy"]) * 1e9)
+        self.group_order = tuple(config["robot"]["group_dims"])
+        self.horizon = config["policy"]["horizon_steps"]
 
     def __getattr__(self, name):
         return getattr(self.delegate, name)

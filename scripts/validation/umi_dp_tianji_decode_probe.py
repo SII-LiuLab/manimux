@@ -13,10 +13,8 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "src"))
 
 
-
-
 def main():
-    from manimux.config import load_config
+    from manimux.cli import load_config
     from manimux.integrations.umi_dp_tianji.history import WindowSnapshot
     from manimux.integrations.umi_dp_tianji.ik_config import bind_diff_ik_profile
     from manimux.integrations.umi_dp_tianji.policy_plugin import UmiDpTianjiAdapter, matrix_pose
@@ -41,14 +39,14 @@ def main():
         parser.error("repeat and horizons must be positive")
     config = load_config(args.config)
     if args.ik_backend:
-        config.policy.options["ik_backend"] = args.ik_backend
+        config["policy"]["options"]["ik_backend"] = args.ik_backend
     bind_diff_ik_profile(config)
     # Only kinematics is constructed: neither a RobotDriver nor sensor is opened.
-    config.robot.driver = "mock"
+    config["robot"]["type"] = "mock"
     report = {}
     for horizon in args.horizons:
-        config.policy.horizon_steps = horizon
-        adapter = UmiDpTianjiAdapter(config.robot, config.policy)
+        config["policy"]["horizon_steps"] = horizon
+        adapter = UmiDpTianjiAdapter(config["robot"], config["policy"])
         start = np.radians([50, -40, -30, -100, -65, 0, 40])
         state = RobotState(
             {side + "_arm": np.r_[start, 0.8] for side in ("left", "right")}, 1000000000, 1

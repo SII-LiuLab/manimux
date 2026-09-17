@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import time
+from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -11,7 +12,7 @@ import numpy as np
 import pytest
 import zarr
 
-from manimux.config import load_config
+from manimux.cli import load_config, prepare_experiment
 from manimux.policies.fake import FakePolicyAdapter
 from manimux.runtime import build_runtime
 from manimux.runtime.edge import EdgeRuntime
@@ -53,11 +54,11 @@ def build_delegating_strategy(config):
 
 def plugin_config():
     config = load_config(ROOT / "configs/mock.yaml")
-    config.policy.adapter = f"{__name__}:build_slow_adapter"
-    config.policy.action_decoding = "process"
-    config.policy.inference_delay_s = 0.01
-    config.execution.runtime = f"{__name__}:build_delegating_strategy"
-    config.execution.inference_schedule = "single_inflight"
+    config["policy"]["adapter"] = f"{__name__}:build_slow_adapter"
+    config["policy"]["action_decoding"] = "process"
+    config["policy"]["inference_delay_s"] = 0.01
+    config["execution"]["runtime"] = f"{__name__}:build_delegating_strategy"
+    config["execution"]["inference_schedule"] = "single_inflight"
     return config
 
 
@@ -69,9 +70,9 @@ def events_of(result):
 @pytest.mark.parametrize("expired", [False, True])
 def test_delegating_plugin_keeps_control_ticking_during_process_decode(tmp_path, expired):
     config = plugin_config()
-    config.policy.horizon_steps = 6 if expired else 20
-    config.execution.executor = "direct"
-    config.run.max_steps = 100
+    config["policy"]["horizon_steps"] = 6 if expired else 20
+    config["execution"]["executor"] = "direct"
+    config["run"]["max_steps"] = 100
     runtime = build_runtime(config, tmp_path)
     assert isinstance(runtime._strategy, DelegatingStrategy)
     result = runtime.run()
@@ -125,7 +126,7 @@ class PauseDuringDecode:
 @pytest.mark.parametrize("home", [False, True])
 def test_delegating_plugin_pause_discards_pending_decode(tmp_path, home):
     config = plugin_config()
-    config.run.max_steps = 120
+    config["run"]["max_steps"] = 120
     runtime = build_runtime(config, tmp_path)
     runtime._viewer = PauseDuringDecode(runtime, home=home)
     result = runtime.run()
@@ -145,23 +146,22 @@ def test_process_decoding_rejects_a_plugin_delegating_to_an_unsupported_strategy
 
 
 def test_expected_decode_time_requires_process_decoding():
-    from manimux.config import ManiMuxConfig
 
-    data = load_config(ROOT / "configs/mock.yaml").model_dump(mode="python")
+    data = deepcopy(load_config(ROOT / "configs/mock.yaml"))
     data["execution"]["expected_decode_s"] = 0.05
     with pytest.raises(ValueError, match="expected_decode_s requires process action decoding"):
-        ManiMuxConfig.model_validate(data)
+        prepare_experiment(**data)
 
 
 def test_decode_seed_follows_the_active_reference_to_the_expected_start(tmp_path):
     from manimux.types import ActionChunk, RobotState
 
     config = plugin_config()
-    config.execution.commit_lead_s = 0.02
-    config.execution.expected_decode_s = 0.065
+    config["execution"]["commit_lead_s"] = 0.02
+    config["execution"]["expected_decode_s"] = 0.065
     runtime = EdgeRuntime(config, tmp_path)
     state = RobotState(
-        {name: np.full(dim, -1.0) for name, dim in config.robot.group_dims.items()}, 10**9, 7
+        {name: np.full(dim, -1.0) for name, dim in config["robot"]["group_dims"].items()}, 10**9, 7
     )
     now = 11 * 10**8
     start = now + 85_000_000
@@ -169,18 +169,30 @@ def test_decode_seed_follows_the_active_reference_to_the_expected_start(tmp_path
     assert runtime._decode_seed(state, now) == (start, state, "measured_state")
     rows = np.arange(20, dtype=float)[:, None] * 0.01
     chunk = ActionChunk(
-        "p", 1, 10**9, 10**9, "joint_position", 50_000_000,
-        {name: np.tile(rows, (1, dim)) for name, dim in config.robot.group_dims.items()},
+        "p",
+        1,
+        10**9,
+        10**9,
+        "joint_position",
+        50_000_000,
+        {name: np.tile(rows, (1, dim)) for name, dim in config["robot"]["group_dims"].items()},
     )
-    zeros = {name: np.zeros(dim) for name, dim in config.robot.group_dims.items()}
+    zeros = {name: np.zeros(dim) for name, dim in config["robot"]["group_dims"].items()}
     assert runtime._timeline.commit(
-        chunk, now_ns=10**9, commit_lead_ns=0, max_plan_age_ns=10**10,
-        current_command=zeros, blend_steps=0,
+        chunk,
+        now_ns=10**9,
+        commit_lead_ns=0,
+        max_plan_age_ns=10**10,
+        current_command=zeros,
+        blend_steps=0,
     ).accepted
     # Row time 185ms at 50ms spacing is 3.7 rows along the committed ramp.
     start_ns, seed, source = runtime._decode_seed(state, now)
     assert (start_ns, seed.monotonic_ns, seed.sequence, source) == (
-        start, start, 7, "active_reference"
+        start,
+        start,
+        7,
+        "active_reference",
     )
     for values in seed.groups.values():
         np.testing.assert_allclose(values, 0.037)
@@ -189,14 +201,14 @@ def test_decode_seed_follows_the_active_reference_to_the_expected_start(tmp_path
     assert source == "active_reference"
     np.testing.assert_allclose(seed.groups["left_arm"], 0.19)
     # Without an expected decode time the measurement stays the seed.
-    config.execution.expected_decode_s = 0.0
+    config["execution"]["expected_decode_s"] = 0.0
     assert runtime._decode_seed(state, now) == (now + 20_000_000, state, "measured_state")
 
 
 def test_runtime_seeds_later_decodes_from_the_active_reference(tmp_path):
     config = plugin_config()
-    config.execution.expected_decode_s = 0.05
-    config.run.max_steps = 250
+    config["execution"]["expected_decode_s"] = 0.05
+    config["run"]["max_steps"] = 250
     result = build_runtime(config, tmp_path).run()
     sent = [e for e in events_of(result) if e["kind"] == "decode_submitted"]
     assert len(sent) >= 2
@@ -204,11 +216,13 @@ def test_runtime_seeds_later_decodes_from_the_active_reference(tmp_path):
     assert "active_reference" in {e["seed_source"] for e in sent[1:]}
     assert all(
         e["expected_start_ns"] >= e["seed_time_ns"]
-        for e in sent if e["seed_source"] == "measured_state"
+        for e in sent
+        if e["seed_source"] == "measured_state"
     )
     assert all(
         e["seed_time_ns"] == e["expected_start_ns"]
-        for e in sent if e["seed_source"] == "active_reference"
+        for e in sent
+        if e["seed_source"] == "active_reference"
     )
 
 
@@ -230,11 +244,11 @@ def test_umi_tianji_per_arm_processes_match_inline_diff_decode():
     from manimux.types import ActionContext, InferenceResponse, RobotState
 
     config = load_config(ROOT / "configs/umi_dp/tianji/infra/pass_ball/default.yaml")
-    config.robot.driver = "mock"
-    config.policy.horizon_steps = 64
-    config.policy.options["ik_backend"] = "diff"
+    config["robot"]["type"] = "mock"
+    config["policy"]["horizon_steps"] = 64
+    config["policy"]["options"]["ik_backend"] = "diff"
     bind_diff_ik_profile(config)
-    adapter = UmiDpTianjiAdapter(config.robot, config.policy)
+    adapter = UmiDpTianjiAdapter(config["robot"], config["policy"])
     actions = []
     for index in range(64):
         action = {}
@@ -256,7 +270,7 @@ def test_umi_tianji_per_arm_processes_match_inline_diff_decode():
         decoder.submit(response, context, time.monotonic_ns() + 30_000_000_000)
         return context
 
-    decoder = ActionDecoderClient(config.robot, config.policy, adapter)
+    decoder = ActionDecoderClient(config["robot"], config["policy"], adapter)
     try:
         decoder.start()
         context = submit(1)

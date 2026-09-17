@@ -9,12 +9,12 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 import numpy as np
-from scipy.spatial.transform import Rotation
 
-from manimux.integrations.openwam_yam.policy_plugin import pose_matrix
 from manimux.integrations.umi_dp_tianji.history import WindowSnapshot
+from manimux.integrations.xpolicylab.obs_codec import matrix_pose, pose_matrix
 from manimux.kinematics import build_kinematics
 from manimux.kinematics.tianji_diff import rotation_matrix, rotation_vector
+from manimux.policies.base import PolicyAdapterBase, action_interval
 from manimux.runtime.rtc.request import RtcInferenceRequest
 from manimux.types import ActionChunk
 
@@ -35,11 +35,6 @@ class UmiRequest(RtcInferenceRequest):
     xpolicylab_additional_info: dict | None = None
 
 
-def matrix_pose(matrix):
-    quat = Rotation.from_matrix(matrix[:3, :3]).as_quat()
-    return np.r_[matrix[:3, 3], quat[[3, 0, 1, 2]]]
-
-
 def state_vector(value):
     value = np.asarray(value, dtype=float)
     if value.shape != (8,) or not np.isfinite(value).all() or not 0 <= value[-1] <= 1:
@@ -47,68 +42,79 @@ def state_vector(value):
     return value
 
 
-class UmiDpTianjiAdapter:
+class UmiDpTianjiAdapter(PolicyAdapterBase):
     supports_context_only_decode = True
     decode_partitions = ("left_arm", "right_arm")
 
-    def __init__(self, robot, policy):
+    def __init__(self, robot, policy, *, kinematics=None):
         self.validate(robot, policy)
         self.policy = policy
-        self.horizon = policy.horizon_steps
-        self.dt_ns = round(policy.effective_action_dt_s * 1e9)
-        self.offset_ns = round(float(policy.options["first_action_offset_s"]) * 1e9)
-        validation_dt = float(policy.options.get("ik_validation_dt_s", 0.004))
+        self.horizon = policy["horizon_steps"]
+        self.dt_ns = round(action_interval(policy) * 1e9)
+        self.offset_ns = round(float(policy["options"]["first_action_offset_s"]) * 1e9)
+        validation_dt = float(policy["options"].get("ik_validation_dt_s", 0.004))
         if not math.isfinite(validation_dt) or validation_dt <= 0:
             raise ValueError("ik_validation_dt_s must be positive")
         self.validation_dt = validation_dt
-        self.cameras = policy.options.get("camera_map", CAMERA_MAP)
+        self.cameras = policy["options"].get("camera_map", CAMERA_MAP)
         if set(self.cameras) != set(CAMERA_MAP):
             raise ValueError("UMI requires both wrist cameras at both observation times")
+        # In-process decoding receives the robot's exact models. A spawned
+        # action decoder loads geometry only, from the same assembly config.
+        self.robot_kinematics = kinematics
+        if robot["type"] == "tianji_taccap" and self.robot_kinematics is None:
+            from manimux.embodiments.robot import RobotModel
+
+            self.robot_kinematics = RobotModel.from_config(robot["config"]).kinematics
         self.kin = {}
-        self.ik_backend = policy.options.get("ik_backend", "analytic")
+        self.ik_backend = policy["options"].get("ik_backend", "analytic")
         if self.ik_backend not in {"analytic", "diff"}:
             raise ValueError("ik_backend must be analytic or diff")
-        if self.ik_backend == "analytic" and policy.options.get("diff_ik"):
+        if self.ik_backend == "analytic" and policy["options"].get("diff_ik"):
             raise ValueError("diff_ik settings apply only to ik_backend: diff")
         self.diff_solvers = {}
         for side in ("left", "right"):
-            options = dict(policy.options.get("kinematics_options", {}))
-            options.update(policy.options.get(f"{side}_kinematics_options", {}))
-            self.kin[side] = build_kinematics(
-                policy.options.get("kinematics", "tianji"), arm=side, **options
-            )
-            if self.kin[side].num_arm_joints != 7:
-                raise ValueError("UMI Tianji requires seven arm joints")
+            if self.robot_kinematics is not None:
+                self.kin[side] = self.robot_kinematics.models[f"{side}_arm"]
+                arm_solver = self.kin[side].arm
+            else:
+                # Compatibility for experiments not yet migrated to robot.type/config.
+                options = dict(policy["options"].get("kinematics_options", {}))
+                options.update(policy["options"].get(f"{side}_kinematics_options", {}))
+                self.kin[side] = build_kinematics(
+                    policy["options"].get("kinematics", "tianji"), arm=side, **options
+                )
+                arm_solver = self.kin[side]
             if self.ik_backend == "diff":
-                from manimux.kinematics.tianji import TianjiKinematics
+                from manimux.embodiments.arm.tianji.kinematics import TianjiArmKinematics
                 from manimux.kinematics.tianji_diff import (
                     DifferentialIKConfig,
                     TianjiDifferentialIK,
                 )
 
-                if not isinstance(self.kin[side], TianjiKinematics):
+                if not isinstance(arm_solver, TianjiArmKinematics):
                     raise ValueError("UMI differential IK requires Tianji kinematics")
-                config = DifferentialIKConfig.model_validate(policy.options.get("diff_ik", {}))
+                config = DifferentialIKConfig.model_validate(policy["options"].get("diff_ik", {}))
                 if not config.check_j67:
                     raise ValueError("UMI differential IK requires the J6/J7 constraint")
-                self.diff_solvers[side] = TianjiDifferentialIK(self.kin[side], config)
+                self.diff_solvers[side] = TianjiDifferentialIK(arm_solver, config)
         self.anchors = OrderedDict()
 
     def validate(self, robot, policy):
-        if policy.worker != "xpolicylab_ws":
+        if policy["worker"] != "xpolicylab_ws":
             raise ValueError("UMI_DP must use xpolicylab_ws")
-        if list(robot.group_dims.items()) != [("left_arm", 8), ("right_arm", 8)]:
+        if list(robot["group_dims"].items()) != [("left_arm", 8), ("right_arm", 8)]:
             raise ValueError("UMI Tianji requires left_arm/right_arm with 7+1 values")
-        options = policy.options
+        options = policy["options"]
         for key in ("first_action_offset_s", "observation_period_s"):
             if not np.isfinite(options.get(key, np.nan)) or options[key] <= 0:
                 raise ValueError(f"Bind the checkpoint {key} before constructing the adapter")
-        identity = {} if policy.expected_backend is None else policy.expected_backend.model
+        identity = {} if policy["expected_backend"] is None else policy["expected_backend"]["model"]
         if identity.get("action_semantics") != SEMANTICS:
             raise ValueError(
                 "UMI server identity must declare absolute per-arm base pose semantics"
             )
-        if robot.driver == "tianji_dual":
+        if robot["type"] in {"tianji_dual", "tianji_taccap"}:
             required = (
                 "checkpoint_sha256",
                 "training_config_sha256",
@@ -123,8 +129,8 @@ class UmiDpTianjiAdapter:
             if not options.get("deployment_bound") or any(key not in identity for key in required):
                 raise ValueError("Bind UMI checkpoint identity before using the Tianji driver")
             for key, value in (
-                ("action_horizon", policy.horizon_steps),
-                ("action_dt_s", policy.effective_action_dt_s),
+                ("action_horizon", policy["horizon_steps"]),
+                ("action_dt_s", action_interval(policy)),
                 ("first_action_offset_s", options["first_action_offset_s"]),
                 ("observation_period_s", options["observation_period_s"]),
             ):
@@ -148,7 +154,7 @@ class UmiDpTianjiAdapter:
             for suffix, source in (("_prev", snapshot.previous), ("", snapshot)):
                 values = state_vector(source.state.groups[group])
                 extra[f"{side}_ee_pose{suffix}"] = matrix_pose(
-                    self.kin[side].fk(values[:7], float(values[-1]))
+                    self._fk(self.kin[side], values[:7], float(values[-1]))
                 )
                 if suffix:
                     extra[f"{side}_ee_joint_state_prev"] = values[-1:].copy()
@@ -173,7 +179,7 @@ class UmiDpTianjiAdapter:
                 for index, side in enumerate(("left", "right")):
                     values = state_vector(condition[row, index * 8 : (index + 1) * 8])
                     poses[row, index * 8 : index * 8 + 7] = matrix_pose(
-                        self.kin[side].fk(values[:7], float(values[-1]))
+                        self._fk(self.kin[side], values[:7], float(values[-1]))
                     )
                     poses[row, index * 8 + 7] = values[-1]
             condition = poses
@@ -201,10 +207,29 @@ class UmiDpTianjiAdapter:
             },
         )
 
+    def _fk(self, kin, joints, aperture):
+        # Both paths return TCP in this arm's own base, never the Viewer frame.
+        if self.robot_kinematics is not None:
+            return kin.fk(np.r_[joints, aperture])
+        return kin.fk(joints, aperture)
+
+    def _ik(self, kin, target, seed, aperture):
+        if self.robot_kinematics is not None:
+            result = kin.ik(target, np.r_[seed, aperture], fixed_coordinates={"gripper": aperture})
+            return result.converged, None if result.joints is None else result.joints[:7]
+        return kin.ik(target, seed, aperture)
+
+    def _diff_target(self, kin, target, aperture):
+        # The shared assembly removes the tool once; the differential solver
+        # operates on the same bare arm model and keeps its existing QP math.
+        if self.robot_kinematics is not None:
+            return kin.flange_target(target, np.array([aperture]))
+        return target
+
     def _solve_knot(
         self, kin, current, target, aperture, duration_s, *, diff_solver=None, lag=None
     ):
-        start = kin.fk(current, aperture)
+        start = self._fk(kin, current, aperture)
         rotation = rotation_vector(start[:3, :3].T @ target[:3, :3])
         # The existing 1.8-degree branch check came from 250 Hz IK. Validate a
         # sampled SE(3) path at that cadence rather than relaxing that detector
@@ -219,9 +244,11 @@ class UmiDpTianjiAdapter:
             waypoint[:3, 3] = (1 - alpha) * start[:3, 3] + alpha * target[:3, 3]
             waypoint[:3, :3] = start[:3, :3] @ rotation_matrix(alpha * rotation)
             if diff_solver is None:
-                ok, solved = kin.ik(waypoint, current, aperture)
+                ok, solved = self._ik(kin, waypoint, current, aperture)
             else:
-                result = diff_solver.solve(waypoint, current, duration_s / substeps)
+                result = diff_solver.solve(
+                    self._diff_target(kin, waypoint, aperture), current, duration_s / substeps
+                )
                 if not result.ok:
                     raise ValueError(
                         f"Tianji differential IK {result.reason}; rejecting the entire chunk "
@@ -243,14 +270,18 @@ class UmiDpTianjiAdapter:
         # Load libKine and build the OSQP problem before the first real chunk.
         sides = ("left", "right") if partition is None else (partition.removesuffix("_arm"),)
         for side in sides:
-            target = self.kin[side].fk(WARMUP_JOINTS, 0.5)
+            target = self._fk(self.kin[side], WARMUP_JOINTS, 0.5)
             target[:3, 3] += (0.001, 0.0, 0.0)
             solver = self.diff_solvers.get(side)
             if solver is None:
-                self.kin[side].ik(target, WARMUP_JOINTS.copy(), 0.5)
+                self._ik(self.kin[side], target, WARMUP_JOINTS.copy(), 0.5)
             else:
                 solver.reset()
-                solver.solve(target, WARMUP_JOINTS.copy(), self.validation_dt)
+                solver.solve(
+                    self._diff_target(self.kin[side], target, 0.5),
+                    WARMUP_JOINTS.copy(),
+                    self.validation_dt,
+                )
                 solver.reset()
 
     def decode_action(self, raw, context):
@@ -276,8 +307,13 @@ class UmiDpTianjiAdapter:
                 raise ValueError("UMI gripper action must lie in [0, 1]")
             duration_s = first_duration_s if knot_index == 0 else self.dt_ns / 1e9
             current = self._solve_knot(
-                self.kin[side], current, target, float(grip[0]), duration_s,
-                diff_solver=diff_solver, lag=lag,
+                self.kin[side],
+                current,
+                target,
+                float(grip[0]),
+                duration_s,
+                diff_solver=diff_solver,
+                lag=lag,
             )
             rows.append(np.r_[current, grip])
         return np.asarray(rows), lag
@@ -332,5 +368,5 @@ class UmiDpTianjiAdapter:
         )
 
 
-def build_adapter(robot, policy):
-    return UmiDpTianjiAdapter(robot, policy)
+def build_adapter(robot, policy, *, kinematics=None):
+    return UmiDpTianjiAdapter(robot, policy, kinematics=kinematics)

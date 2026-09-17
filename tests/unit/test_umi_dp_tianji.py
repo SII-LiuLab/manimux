@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 from scipy.spatial.transform import Rotation
 
-from manimux.config import load_config
+from manimux.cli import load_config
 from manimux.integrations.umi_dp_tianji import policy_plugin
 from manimux.integrations.umi_dp_tianji.history import (
     HistoryStrategy,
@@ -63,8 +63,8 @@ def adapter(monkeypatch):
     kin = FakeKin()
     monkeypatch.setattr(policy_plugin, "build_kinematics", lambda *a, **k: kin)
     config = load_config(ROOT / "configs/umi_dp/tianji/infra/pass_ball/default.yaml")
-    config.robot.driver = "mock"
-    return policy_plugin.UmiDpTianjiAdapter(config.robot, config.policy), kin, config
+    config["robot"]["type"] = "mock"
+    return policy_plugin.UmiDpTianjiAdapter(config["robot"], config["policy"]), kin, config
 
 
 def request_for(adapter, *, timestamp=1000000000):
@@ -127,7 +127,7 @@ def test_history_delegates_and_validates_rtc_constraints():
         assert strategy.required_sampling_modes == frozenset(
             {"default" if name == "default" else "rtc"}
         )
-    config.execution.rtc.initial_delay_steps = 9
+    config["execution"]["rtc"]["initial_delay_steps"] = 9
     with pytest.raises(ValueError, match="initial_delay"):
         HistoryStrategy(config)
 
@@ -288,7 +288,7 @@ def test_timestamped_camera_retains_sequence_and_detects_clock_jump(monkeypatch)
     client = SimpleNamespace(try_recv_bundle=lambda: bundle, close=lambda: None)
     monkeypatch.setattr(camera_sensor, "CameraSubscriber", lambda endpoint: client)
     sensor = camera_sensor.TimestampedCameraSensor(
-        SimpleNamespace(options={"camera_names": ["left_wrist"]}), clock
+        {"options": {"camera_names": ["left_wrist"]}}, clock
     )
     sensor.start()
     first = sensor.read()["left_wrist"]
@@ -310,7 +310,7 @@ def test_pause_submits_and_commits_nothing_only_when_the_strategy_asks(
 ):
     from manimux.runtime import edge
     from manimux.types import ActionChunk, InferenceResponse
-    from manimux.viewer.bridge import ViewerControl
+    from manimux.viewer.publisher import ViewerControl
 
     class Clock:
         now = 10**9
@@ -334,15 +334,23 @@ def test_pause_submits_and_commits_nothing_only_when_the_strategy_asks(
         def submit_latest(self, request):
             submitted_while.append(holder["runtime"]._state)
             chunk = ActionChunk(
-                plan_id=f"p{request.request_seq}", request_seq=request.request_seq,
+                plan_id=f"p{request.request_seq}",
+                request_seq=request.request_seq,
                 observation_time_ns=request.observation_time_ns,
-                created_time_ns=clock.now_ns(), action_space="joint_position",
+                created_time_ns=clock.now_ns(),
+                action_space="joint_position",
                 dt_ns=50_000_000,
-                groups={name: np.tile(values, (20, 1))
-                        for name, values in request.observation.state.groups.items()},
+                groups={
+                    name: np.tile(values, (20, 1))
+                    for name, values in request.observation.state.groups.items()
+                },
             )
             self.pending = InferenceResponse(
-                request.session_id, request.request_seq, clock.now_ns(), 0.0, chunk,
+                request.session_id,
+                request.request_seq,
+                clock.now_ns(),
+                0.0,
+                chunk,
                 observation_time_ns=request.observation_time_ns,
             )
 
@@ -358,8 +366,8 @@ def test_pause_submits_and_commits_nothing_only_when_the_strategy_asks(
 
     monkeypatch.setattr(edge, "PolicyWorkerClient", lambda *_: InstantPolicy())
     config = load_config(ROOT / "configs/mock.yaml")
-    config.sensors = []
-    config.run.max_steps = 10_000
+    config["sensors"] = []
+    config["run"]["max_steps"] = 10_000
     runtime = edge.EdgeRuntime(config, tmp_path, clock=clock, strategy=Strategy(config))
     holder["runtime"] = runtime
     controls = iter(

@@ -9,12 +9,11 @@ from __future__ import annotations
 
 import time
 import uuid
-from collections.abc import Mapping, Sequence
 from typing import Any
 
 import numpy as np
 
-from manimux.config import PolicyConfig, RobotConfig
+from manimux.policies.base import action_interval
 from manimux.policies.capabilities import PolicyCapabilities
 from manimux.types import ActionChunk, ActionContext, InferenceRequest, ObservationSnapshot
 
@@ -25,24 +24,6 @@ DEFAULT_CAMERA_MAP = {
     "top_cam": "front_camera",
     "right_cam": "right_camera",
 }
-
-
-def _string_option(options: Mapping[str, object], name: str, default: str) -> str:
-    value = options.get(name, default)
-    if not isinstance(value, str) or not value:
-        raise ValueError(f"policy.options.{name} must be a non-empty string")
-    return value
-
-
-def _string_sequence(
-    options: Mapping[str, object],
-    name: str,
-    default: Sequence[str],
-) -> tuple[str, ...]:
-    value = options.get(name, list(default))
-    if not isinstance(value, list) or not value or not all(isinstance(item, str) for item in value):
-        raise ValueError(f"policy.options.{name} must be a non-empty list of strings")
-    return tuple(value)
 
 
 def _server_url(server: str) -> str:
@@ -57,29 +38,21 @@ def _server_url(server: str) -> str:
 class AbcHttpPolicyModel:
     """HTTP inference backend; robot semantics stay in ``AbcYamAdapter``."""
 
-    def __init__(self, config: PolicyConfig) -> None:
-        self._url = _server_url(_string_option(config.options, "server", DEFAULT_SERVER))
+    def __init__(self, config: dict) -> None:
+        self._url = _server_url(config["options"].get("server", DEFAULT_SERVER))
         self._health_url = self._url.removesuffix("/act") + "/healthz"
-        self._group_order = _string_sequence(
-            config.options,
-            "group_order",
-            DEFAULT_GROUP_ORDER,
-        )
+        self._group_order = tuple(config["options"].get("group_order", DEFAULT_GROUP_ORDER))
         self._camera_map = dict(DEFAULT_CAMERA_MAP)
-        camera_map = config.options.get("camera_map")
+        camera_map = config["options"].get("camera_map")
         if camera_map is not None:
-            if not isinstance(camera_map, dict) or not all(
-                isinstance(key, str) and isinstance(value, str) for key, value in camera_map.items()
-            ):
-                raise ValueError("policy.options.camera_map must map strings to strings")
             self._camera_map = dict(camera_map)
-        diffusion_steps = config.options.get("diffusion_steps")
+        diffusion_steps = config["options"].get("diffusion_steps")
         if diffusion_steps is not None and (
             not isinstance(diffusion_steps, int) or diffusion_steps <= 0
         ):
             raise ValueError("policy.options.diffusion_steps must be a positive integer")
         self._diffusion_steps = diffusion_steps
-        self._timeout_s = float(config.options.get("http_timeout_s", config.timeout_s))
+        self._timeout_s = float(config["options"].get("http_timeout_s", config["timeout_s"]))
         if self._timeout_s <= 0:
             raise ValueError("policy.options.http_timeout_s must be positive")
         self._session_id: str | None = None
@@ -90,10 +63,7 @@ class AbcHttpPolicyModel:
         response = requests.get(self._health_url, timeout=self._timeout_s)
         if response.status_code != 200:
             raise RuntimeError(f"ABC health check failed with status {response.status_code}")
-        try:
-            payload = response.json()
-        except ValueError as exc:
-            raise RuntimeError("ABC health check returned invalid JSON") from exc
+        payload = response.json()
         if payload.get("status") != "ok":
             raise RuntimeError(f"ABC health check is not ready: {payload!r}")
         self._session_id = session_id
@@ -147,8 +117,6 @@ class AbcHttpPolicyModel:
         if response.status_code != 200:
             raise RuntimeError(f"ABC server error {response.status_code}: {response.text}")
         decoded = json_numpy.loads(response.text)
-        if not isinstance(decoded, dict) or "actions" not in decoded:
-            raise ValueError("ABC response must contain actions")
         actions = np.asarray(decoded["actions"], dtype=np.float64)
         if actions.ndim != 2 or not actions.shape[0] or not np.isfinite(actions).all():
             raise ValueError("ABC actions must be a non-empty finite matrix")
@@ -164,17 +132,11 @@ class AbcHttpPolicyModel:
 class AbcYamAdapter:
     """Translate canonical YAM snapshots and raw ABC matrices."""
 
-    def __init__(self, robot: RobotConfig, policy: PolicyConfig) -> None:
-        self._group_order = _string_sequence(
-            policy.options,
-            "group_order",
-            DEFAULT_GROUP_ORDER,
-        )
-        self._group_dims = dict(robot.group_dims)
-        self._action_dt_ns = int(policy.effective_action_dt_s * 1_000_000_000)
-        camera_map = policy.options.get("camera_map", DEFAULT_CAMERA_MAP)
-        if not isinstance(camera_map, dict):
-            raise ValueError("policy.options.camera_map must be a mapping")
+    def __init__(self, robot: dict, policy: dict) -> None:
+        self._group_order = tuple(policy["options"].get("group_order", DEFAULT_GROUP_ORDER))
+        self._group_dims = dict(robot["group_dims"])
+        self._action_dt_ns = int(action_interval(policy) * 1_000_000_000)
+        camera_map = policy["options"].get("camera_map", DEFAULT_CAMERA_MAP)
         self._required_cameras = tuple(str(value) for value in camera_map.values())
 
     def build_observation(self, snapshot: ObservationSnapshot) -> ObservationSnapshot:
@@ -208,20 +170,20 @@ class AbcYamAdapter:
             groups=groups,
         )
 
-    def validate(self, robot: RobotConfig, policy: PolicyConfig) -> None:
+    def validate(self, robot: dict, policy: dict) -> None:
         del policy
-        if tuple(robot.group_dims) != self._group_order:
+        if tuple(robot["group_dims"]) != self._group_order:
             raise ValueError(
                 "ABC YAM requires robot groups in order "
-                f"{list(self._group_order)}, got {list(robot.group_dims)}"
+                f"{list(self._group_order)}, got {list(robot['group_dims'])}"
             )
-        if any(robot.group_dims[name] != 7 for name in self._group_order):
+        if any(robot["group_dims"][name] != 7 for name in self._group_order):
             raise ValueError("ABC YAM requires two 7-value arm+gripper groups")
 
 
-def build_model(config: PolicyConfig) -> AbcHttpPolicyModel:
+def build_model(config: dict) -> AbcHttpPolicyModel:
     return AbcHttpPolicyModel(config)
 
 
-def build_adapter(robot: RobotConfig, policy: PolicyConfig) -> AbcYamAdapter:
+def build_adapter(robot: dict, policy: dict) -> AbcYamAdapter:
     return AbcYamAdapter(robot, policy)

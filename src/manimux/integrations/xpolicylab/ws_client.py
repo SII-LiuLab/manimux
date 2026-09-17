@@ -86,10 +86,7 @@ def _codec() -> tuple[Any, Any]:
 
 def pack_frame(frame: dict[str, Any]) -> bytes:
     msgpack, msgpack_numpy = _codec()
-    packed = msgpack.packb(frame, default=msgpack_numpy.encode, use_bin_type=True)
-    if not isinstance(packed, bytes):  # pragma: no cover - msgpack always returns bytes
-        raise XPolicyLabProtocolError("msgpack did not produce bytes")
-    return packed
+    return msgpack.packb(frame, default=msgpack_numpy.encode, use_bin_type=True)
 
 
 def unpack_frame(raw: bytes | str) -> dict[str, Any]:

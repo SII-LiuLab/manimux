@@ -3,14 +3,16 @@
 import json
 import math
 import time
+from copy import deepcopy
 
 import numpy as np
 import pytest
 import zarr
 
-from manimux.config import ManiMuxConfig, load_config
+from manimux.cli import load_config, prepare_experiment
 from manimux.integrations.umi_dp_tianji.ik_config import bind_diff_ik_profile
 from manimux.integrations.umi_dp_tianji.policy_plugin import UmiDpTianjiAdapter, matrix_pose
+from manimux.policies.base import action_interval
 from manimux.policies.decoder import ActionDecoderClient
 from manimux.policies.fake import FakePolicyAdapter
 from manimux.runtime import build_runtime
@@ -22,14 +24,14 @@ from manimux.viewer import ViewerControl
 @pytest.mark.parametrize("horizon", [16, 64])
 def test_real_tianji_parallel_ik_matches_serial_and_rejects_whole_chunk(backend, horizon):
     config = load_config("configs/umi_dp/tianji/infra/pass_ball/rtc.yaml")
-    config.robot.driver = "mock_dual_arm"
-    config.policy.horizon_steps = horizon
-    config.policy.options["ik_backend"] = backend
+    config["robot"]["type"] = "mock_dual_arm"
+    config["policy"]["horizon_steps"] = horizon
+    config["policy"]["options"]["ik_backend"] = backend
     bind_diff_ik_profile(config)
-    adapter = UmiDpTianjiAdapter(config.robot, config.policy)
+    adapter = UmiDpTianjiAdapter(config["robot"], config["policy"])
     joints = np.radians([50, -40, -30, -100, -65, 0, 40])
     now = time.monotonic_ns()
-    state = RobotState({name: np.r_[joints, 0.8] for name in config.robot.group_dims}, now, 1)
+    state = RobotState({name: np.r_[joints, 0.8] for name in config["robot"]["group_dims"]}, now, 1)
     actions = []
     for row in range(horizon):
         target = joints.copy()
@@ -42,7 +44,7 @@ def test_real_tianji_parallel_ik_matches_serial_and_rejects_whole_chunk(backend,
     context = ActionContext(1, now, now, now + adapter.offset_ns + 2 * adapter.dt_ns, state)
     serial = adapter.decode_action(actions, context)
     assert serial.source_offset_steps == 2
-    decoder = ActionDecoderClient(config.robot, config.policy, adapter)
+    decoder = ActionDecoderClient(config["robot"], config["policy"], adapter)
     try:
         decoder.start()
 
@@ -62,9 +64,11 @@ def test_real_tianji_parallel_ik_matches_serial_and_rejects_whole_chunk(backend,
         assert result.error is None
         assert result.chunk.source_offset_steps == 2
         assert result.chunk.horizon_steps == horizon - 2
-        for name in config.robot.group_dims:
+        for name in config["robot"]["group_dims"]:
             np.testing.assert_allclose(result.chunk.groups[name], serial.groups[name], atol=1e-9)
-        assert set(result.chunk.metadata["decode_partition_ms"]) == set(config.robot.group_dims)
+        assert set(result.chunk.metadata["decode_partition_ms"]) == set(
+            config["robot"]["group_dims"]
+        )
         actions[3]["right_ee_joint_state"] = np.array([1.1])
         failed = decode(2)
         assert failed.chunk is None and "gripper" in failed.error
@@ -99,7 +103,7 @@ def build_slow_adapter(robot, policy):
 
 
 def rtc_config():
-    data = load_config("configs/mock.yaml").model_dump(exclude_unset=True)
+    data = deepcopy(load_config("configs/mock.yaml"))
     data["execution"].pop("refill_threshold_s")
     data["execution"].update(runtime="rtc", commit_lead_s=0.0)
     data["robot"].update(control_hz=250, group_dims={"left_arm": 6, "right_arm": 6})
@@ -113,7 +117,7 @@ def rtc_config():
     )
     data["sensors"] = []
     data["run"]["max_steps"] = 1400
-    return ManiMuxConfig.model_validate(data)
+    return prepare_experiment(**data)
 
 
 @pytest.mark.parametrize("home", [False, True])
@@ -148,7 +152,7 @@ def test_rtc_process_loop_conditions_and_resumes_after_inflight_pause(tmp_path, 
     assert not [e for e in events if e["kind"] == "rtc_delay_infeasible"]
     for event in accepted:
         assert event["rtc_source_horizon"] == 64
-        assert event["measured_delay"] >= math.ceil(0.13 / config.policy.effective_action_dt_s)
+        assert event["measured_delay"] >= math.ceil(0.13 / action_interval(config["policy"]))
         assert event["request_to_commit_ms"] >= event["decode_stage_ms"]
     ticks = zarr.open(str(result.episode_dir / "data.zarr"), mode="r")["ticks/monotonic_ns"][:]
     decodes = [e for e in events if e["kind"] == "decode_submitted"]
@@ -172,8 +176,8 @@ def test_rtc_process_loop_conditions_and_resumes_after_inflight_pause(tmp_path, 
 
 def test_rtc_decoder_timeout_closes_children_and_mock_robot(tmp_path):
     config = rtc_config()
-    config.policy.timeout_s = 0.08
-    config.policy.inference_delay_s = 0.001
+    config["policy"]["timeout_s"] = 0.08
+    config["policy"]["inference_delay_s"] = 0.001
     runtime = build_runtime(config, tmp_path)
     with pytest.raises(TimeoutError, match="decoder exceeded"):
         runtime.run()

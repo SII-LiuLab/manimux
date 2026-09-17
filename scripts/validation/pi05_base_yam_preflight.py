@@ -9,15 +9,16 @@ import json
 import math
 import time
 import uuid
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
+from manimux.cli import load_config
 from manimux.clock import SystemClock
-from manimux.config import load_config
 from manimux.policies import build_policy_adapter, build_policy_model
-from manimux.policies.base import prepare_policy_request
+from manimux.policies.base import action_interval, prepare_policy_request
 from manimux.robots import build_robot
 from manimux.runtime.rtc.mask import inpainting_condition
 from manimux.runtime.rtc.request import RtcInferenceRequest
@@ -64,15 +65,15 @@ def main() -> int:
     args = parser.parse_args()
 
     config = load_config(args.config)
-    robot_config = config.robot.model_copy(deep=True)
-    robot_config.options["move_to_start_on_connect"] = False
-    robot_config.options["home_on_close"] = False
-    policy_config = config.policy.model_copy(deep=True)
-    policy_config.options["request_timeout_s"] = 120.0
+    robot_config = deepcopy(config["robot"])
+    robot_config["options"]["move_to_start_on_connect"] = False
+    robot_config["options"]["home_on_close"] = False
+    policy_config = deepcopy(config["policy"])
+    policy_config["options"]["request_timeout_s"] = 120.0
 
     clock = SystemClock()
     robot = build_robot(robot_config, clock)
-    sensor = build_sensor(config.sensors[0], clock)
+    sensor = build_sensor(config["sensors"][0], clock)
     model = build_policy_model(policy_config)
     adapter = build_policy_adapter(robot_config, policy_config)
     session_id = f"pi05-preflight-{uuid.uuid4().hex[:8]}"
@@ -85,9 +86,9 @@ def main() -> int:
         frames = sensor.read()
         snapshot = ObservationSnapshot(state=state, frames=frames)
 
-        first_request = _request(session_id, 1, snapshot, config.run.task)
+        first_request = _request(session_id, 1, snapshot, config["run"]["task"])
         first_chunk, compile_latency_s = _decode(model, adapter, first_request)
-        second_request = _request(session_id, 2, snapshot, config.run.task)
+        second_request = _request(session_id, 2, snapshot, config["run"]["task"])
         steady_chunk, steady_latency_s = _decode(model, adapter, second_request)
 
         rows = np.concatenate(
@@ -102,7 +103,7 @@ def main() -> int:
 
         contract_checks = {
             "shape_matches_config": rows.shape
-            == (policy_config.horizon_steps, sum(robot_config.group_dims.values())),
+            == (policy_config["horizon_steps"], sum(robot_config["group_dims"].values())),
             "finite": bool(np.isfinite(rows).all()),
             "grippers_in_0_1": bool(np.all((grippers >= 0.0) & (grippers <= 1.0))),
             "absolute_position_limit": bool(np.all(np.abs(rows[:, arm_indices]) <= 3.14)),
@@ -119,12 +120,12 @@ def main() -> int:
             },
             "camera_shapes": {name: list(frame.data.shape) for name, frame in frames.items()},
         }
-        if config.execution.runtime == "rtc":
+        if config["execution"]["runtime"] == "rtc":
             delay_steps = max(
                 1,
-                math.ceil(steady_latency_s / policy_config.effective_action_dt_s),
+                math.ceil(steady_latency_s / action_interval(policy_config)),
             )
-            executed_steps = max(config.execution.rtc.min_execute_steps or 1, delay_steps)
+            executed_steps = max(config["execution"]["rtc"]["min_execute_steps"] or 1, delay_steps)
             if not delay_steps <= executed_steps <= len(rows) - delay_steps:
                 raise RuntimeError(
                     "steady inference latency is not RTC-feasible: "
@@ -141,17 +142,17 @@ def main() -> int:
                 observation_time_ns=state.monotonic_ns,
                 deadline_ns=time.monotonic_ns() + 120_000_000_000,
                 observation=snapshot,
-                instruction=config.run.task,
+                instruction=config["run"]["task"],
                 action_condition=condition.astype(np.float64),
                 condition_weights=weights.astype(np.float64),
-                rtc_beta=config.execution.rtc.beta,
+                rtc_beta=config["execution"]["rtc"]["beta"],
             )
             _, rtc_compile_latency_s = _decode(model, adapter, rtc_request)
             rtc_request = dataclasses.replace(rtc_request, request_seq=4)
             _, rtc_steady_latency_s = _decode(model, adapter, rtc_request)
-            contract_checks["rtc_steady_feasible"] = math.ceil(
-                rtc_steady_latency_s / policy_config.effective_action_dt_s
-            ) <= len(rows) // 2
+            contract_checks["rtc_steady_feasible"] = (
+                math.ceil(rtc_steady_latency_s / action_interval(policy_config)) <= len(rows) // 2
+            )
             report["latency_s"].update(
                 rtc_compile=rtc_compile_latency_s,
                 rtc_steady=rtc_steady_latency_s,
