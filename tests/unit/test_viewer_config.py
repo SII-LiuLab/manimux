@@ -1,82 +1,87 @@
 import sys
-from pathlib import Path
 
 import pytest
-from pydantic import ValidationError
+import yaml
 
 from manimux.viewer import dashboard
-from manimux.viewer.config import load_viewer_config
-from manimux.viewer.dashboard import _parser
-from manimux.viewer.robots.yam import YamAdapter
+from manimux.viewer.dashboard import load_robot_view, load_viewer_config
 
 
-def test_default_camera_roles_and_existing_yam_aliases() -> None:
-    cfg = load_viewer_config()
-    assert cfg.camera_mode == "policy"
-    assert cfg.cameras.model_dump() == {"top": "top", "left": "left", "right": "right"}
-    assert cfg.cameras.resolve(
-        ["front_camera", "left_camera", "right_camera"], YamAdapter().camera_slot,
-    ) == {"top": "front_camera", "left": "left_camera", "right": "right_camera"}
-
-
-def test_viewer_cli_config_overrides_only_external_camera(tmp_path: Path) -> None:
+def _write_config(tmp_path, **options):
+    config = load_viewer_config()
+    config["model"] = str(config["model"])
+    config.update(options)
     path = tmp_path / "viewer.yaml"
-    path.write_text("camera_mode: manual\ncameras:\n  top: gemini305\n", encoding="utf-8")
-    args = _parser().parse_args(["--robot", "yam", "--config", str(path)])
-    cfg = load_viewer_config(args.config)
-    assert cfg.camera_mode == "manual"
-    assert cfg.cameras.resolve(
-        ["front_camera", "gemini305", "left_camera", "right_camera"],
-        YamAdapter().camera_slot,
-    ) == {"top": "gemini305", "left": "left_camera", "right": "right_camera"}
+    path.write_text(yaml.safe_dump(config))
+    return path
 
 
-def test_missing_explicit_source_does_not_display_another_camera() -> None:
-    cfg = load_viewer_config(Path("configs/viewer/yam-gemini305.yaml"))
-    assert cfg.cameras.resolve(
-        ["front_camera", "gemini335", "left_camera", "right_camera"], YamAdapter().camera_slot,
-    ) == {"left": "left_camera", "right": "right_camera"}
+def test_tianji_defaults_have_only_the_two_wrist_cameras():
+    config = load_viewer_config()
+    assert config["camera_mode"] == "policy"
+    assert [c["source"] for c in config["cameras"]] == ["left_wrist", "right_wrist"]
+    assert [c["slot"] for c in config["cameras"]] == ["left", "right"]
+    assert config["model"].name == "tianji_taccap.yaml"
+
+
+def test_model_path_is_relative_to_selected_yaml(tmp_path):
+    model = load_viewer_config()["model"]
+    path = tmp_path / "viewer.yaml"
+    import os
+
+    path.write_text(yaml.safe_dump({"model": os.path.relpath(model, tmp_path), "cameras": []}))
+    config = load_viewer_config(path)
+    assert config["model"] == model
+    assert config["cameras"] == []
+
+
+def test_camera_list_can_add_agent_view_without_changing_robot(tmp_path):
+    cameras = [
+        {"source": "agent_view", "label": "External", "slot": "top"},
+        *load_viewer_config()["cameras"],
+    ]
+    config = load_viewer_config(_write_config(tmp_path, cameras=cameras, camera_mode="manual"))
+    robot = load_robot_view(config)
+    assert [c["source"] for c in config["cameras"]] == ["agent_view", "left_wrist", "right_wrist"]
+    assert set(robot.model.groups) == {"left_arm", "right_arm"}
 
 
 @pytest.mark.parametrize(
-    "payload",
+    "options",
     [
-        "camera_map: {top: front_camera}",
-        "cameras: {cam_head: front_camera}",
-        "cameras: {top: ''}",
-        "cameras: {top: '  '}",
-        "cameras: {top: null}",
-        "camera_mode: guess",
+        {"camera_mode": "guess"},
+        {"cameras": {"top": "camera"}},
+        {"cameras": [{}]},
+        {"cameras": [{"source": ""}]},
+        {"cameras": [{"source": "a", "slot": "top"}, {"source": "b", "slot": "top"}]},
     ],
 )
-def test_invalid_viewer_config_fails_before_startup(tmp_path: Path, payload: str) -> None:
-    path = tmp_path / "viewer.yaml"
-    path.write_text(payload, encoding="utf-8")
-    with pytest.raises(ValidationError):
-        load_viewer_config(path)
+def test_invalid_config_fails_before_viewer_startup(tmp_path, options):
+    with pytest.raises(ValueError):
+        load_viewer_config(_write_config(tmp_path, **options))
 
 
-def test_viewer_startup_combines_camera_config_and_robot_options(monkeypatch, tmp_path):
-    config = tmp_path / "viewer.yaml"
-    config.write_text("camera_mode: manual\ncameras:\n  top: gemini305\n", encoding="utf-8")
-    monkeypatch.setattr(sys, "argv", [
-        "manimux-viewer", "--robot", "tianji", "--config", str(config),
-        "--robot-option", "end_effector=none",
-    ])
+def test_startup_uses_selected_model_scene_and_cameras(monkeypatch, tmp_path):
+    config = _write_config(
+        tmp_path,
+        camera_mode="manual",
+        cameras=[{"source": "agent_view", "label": "External", "slot": "top"}],
+    )
+    monkeypatch.setattr(sys, "argv", ["manimux-viewer", "--config", str(config)])
     selected = {}
 
     class StopBeforeServing(Exception):
         pass
 
-    def capture_viewer(*args, **kwargs):
+    def capture(*args, **kwargs):
         selected["robot"] = args[4]
         selected["config"] = kwargs["viewer_config"]
         raise StopBeforeServing
 
-    monkeypatch.setattr(dashboard, "PolicyViewer", capture_viewer)
+    monkeypatch.setattr(dashboard, "PolicyViewer", capture)
     with pytest.raises(StopBeforeServing):
         dashboard.main()
-    assert selected["robot"].name == "tianji"
-    assert selected["robot"].end_effector is None
-    assert selected["config"].camera_mode == "manual"
-    assert selected["config"].cameras.top == "gemini305"
+    assert selected["robot"].name == "tianji-taccap"
+    assert selected["config"]["camera_mode"] == "manual"
+    assert selected["config"]["cameras"][0]["source"] == "agent_view"
+    assert selected["robot"].scene_boxes[0].position == (0.65, 0, 0.68)

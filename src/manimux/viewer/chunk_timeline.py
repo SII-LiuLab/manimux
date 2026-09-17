@@ -23,15 +23,14 @@ class ChunkLane:
     source_chunk_id: int | None = None
     condition_from_index: int | None = None
     latency_from_index: int | None = None
-    gripper_closed_steps_by_group: dict[str, tuple[bool, ...]] = field(
-        default_factory=dict
-    )
+    gripper_closed_steps_by_group: dict[str, tuple[bool, ...]] = field(default_factory=dict)
 
 
 class ChunkTimelineView:
     """Reduce viewer wire messages into two alternating chunk lanes."""
 
-    def __init__(self) -> None:
+    def __init__(self, gripper_groups: dict[str, str] | None = None) -> None:
+        self.gripper_groups = dict(gripper_groups or {})
         self.runtime = "waiting"
         self.lanes = [ChunkLane(), ChunkLane()]
         self.active_chunk_id: int | None = None
@@ -141,9 +140,7 @@ class ChunkTimelineView:
                 frozen_steps=min(frozen, horizon),
                 state="pending",
                 conditioned=conditioned,
-                source_chunk_id=(
-                    None if source_chunk_id is None else int(source_chunk_id)
-                ),
+                source_chunk_id=(None if source_chunk_id is None else int(source_chunk_id)),
             )
             self.lanes[self._lane_index(chunk_id)] = lane
             self.pending_chunk_id = chunk_id
@@ -177,17 +174,11 @@ class ChunkTimelineView:
                     previous_lane.cursor,
                     int(metadata.get("previous_chunk_index", previous_lane.cursor)),
                 )
-                previous_lane.superseded_steps = max(
-                    0, int(metadata.get("superseded_steps", 0))
-                )
-                if (
-                    previous_lane.latency_from_index is None
-                    and "active_chunk_index" in metadata
-                ):
+                previous_lane.superseded_steps = max(0, int(metadata.get("superseded_steps", 0)))
+                if previous_lane.latency_from_index is None and "active_chunk_index" in metadata:
                     previous_lane.latency_from_index = min(
                         previous_lane.horizon_steps,
-                        previous_lane.trimmed_steps
-                        + max(0, int(metadata["active_chunk_index"])),
+                        previous_lane.trimmed_steps + max(0, int(metadata["active_chunk_index"])),
                     )
                 if conditioned and previous_lane.condition_from_index is None:
                     previous_lane.condition_from_index = max(
@@ -203,7 +194,7 @@ class ChunkTimelineView:
                     )
                 previous_lane.state = "source" if conditioned else "retired"
 
-        committed_steps = len(message.get("actions", []))
+        committed_steps = len(next(iter(message.get("groups", {}).values()), []))
         raw_horizon = max(
             committed_steps,
             int(metadata.get("raw_horizon_steps", committed_steps)),
@@ -214,6 +205,7 @@ class ChunkTimelineView:
             max(0, int(metadata.get("conditioned_overlap_steps", 0))),
         )
         frozen = min(raw_horizon, max(0, int(metadata.get("frozen_steps", 0))))
+
         def raw_gripper_steps(values: Any) -> tuple[bool, ...]:
             committed = tuple(bool(value) for value in values)
             raw = ((False,) * trimmed + committed[:committed_steps])[:raw_horizon]
@@ -238,9 +230,7 @@ class ChunkTimelineView:
             inference_ms=float(message.get("inference_ms", 0.0)),
             state="active",
             conditioned=conditioned,
-            source_chunk_id=(
-                None if previous_chunk_id is None else int(previous_chunk_id)
-            ),
+            source_chunk_id=(None if previous_chunk_id is None else int(previous_chunk_id)),
             gripper_closed_steps_by_group=grouped_gripper,
         )
         self.lanes[self._lane_index(chunk_id)] = lane
@@ -278,10 +268,7 @@ class ChunkTimelineView:
             return "latency-trimmed"
         committed_index = index - lane.trimmed_steps
         raw_cursor = lane.trimmed_steps + lane.cursor
-        if (
-            lane.latency_from_index is not None
-            and lane.latency_from_index <= index < raw_cursor
-        ):
+        if lane.latency_from_index is not None and lane.latency_from_index <= index < raw_cursor:
             return "latency"
         if committed_index < lane.cursor:
             return "executed"
@@ -399,56 +386,60 @@ class ChunkTimelineView:
             chunk = "—" if lane.chunk_id is None else f"#{lane.chunk_id}"
             lane_class = f"{html.escape(lane.state)} {'reverse' if index else ''}"
             cells_html = [
-                f'<span class="manimux-chunk-cell '
-                f'{self._cell_state(lane, cell)}"></span>'
+                f'<span class="manimux-chunk-cell {self._cell_state(lane, cell)}"></span>'
                 for cell in range(lane.horizon_steps)
             ]
             cells = "".join(cells_html)
             condition_range = self._condition_range_html(lane)
             if not cells:
                 cells = '<span class="manimux-chunk-empty">waiting for inference</span>'
-            gripper_strips = {
-                group_name: "".join(
-                    f'<i class="manimux-gripper-step group-{group_name}'
+            names = self.gripper_groups or {
+                name: name for name in lane.gripper_closed_steps_by_group
+            }
+            strips = []
+            for order, (name, label) in enumerate(names.items()):
+                flags = lane.gripper_closed_steps_by_group.get(name, ())
+                markers = "".join(
+                    f'<i class="manimux-gripper-step group-{html.escape(name)}'
                     f'{" closed" if cell < len(flags) and flags[cell] else ""}"></i>'
                     for cell in range(lane.horizon_steps)
                 )
-                for group_name, flags in (
-                    (
-                        "left",
-                        lane.gripper_closed_steps_by_group.get("left", ()),
-                    ),
-                    (
-                        "right",
-                        lane.gripper_closed_steps_by_group.get("right", ()),
-                    ),
+                position = "upper" if order == 0 else "lower"
+                offset = "" if order < 2 else f' style="bottom:-{(order - 1) * 7}px"'
+                strips.append(
+                    f'<div class="manimux-gripper-strip {position}"{offset} '
+                    f'title="{html.escape(label)} gripper · red closed, clear open">'
+                    f"{markers}</div>"
                 )
-            }
+            upper = strips[0] if strips else ""
+            lower = "".join(strips[1:])
             lane_html.append(
                 f"""
                 <div class="manimux-chunk-lane {lane_class}">
                   <div class="manimux-chunk-lane-head">
-                    <strong>{'A' if index == 0 else 'B'} · {chunk}</strong>
+                    <strong>{"A" if index == 0 else "B"} · {chunk}</strong>
                     <span>{html.escape(self._lane_summary(lane))}</span>
                   </div>
                   <div class="manimux-chunk-track">
-                    <div class="manimux-gripper-strip upper"
-                         title="Left gripper · red closed, clear open">
-                      {gripper_strips['left']}
-                    </div>
+                    {upper}
                     <div class="manimux-chunk-cells">{cells}{condition_range}</div>
-                    <div class="manimux-gripper-strip lower"
-                         title="Right gripper · red closed, clear open">
-                      {gripper_strips['right']}
-                    </div>
+                    {lower}
                   </div>
                 </div>
                 """
             )
-        runtime = html.escape(self.runtime.upper())
-        lanes_with_handoff = (
-            lane_html[0] + self._handoff_html() + lane_html[1]
+        labels = list(self.gripper_groups.values())
+        if not labels:
+            labels = list(
+                dict.fromkeys(
+                    name for lane in self.lanes for name in lane.gripper_closed_steps_by_group
+                )
+            )
+        gripper_legend = " · action · ".join(
+            f"{html.escape(label)} gripper state" for label in labels
         )
+        runtime = html.escape(self.runtime.upper())
+        lanes_with_handoff = lane_html[0] + self._handoff_html() + lane_html[1]
         return f"""
 <style>
   div:has(> .manimux-chunk-anchor) {{
@@ -611,7 +602,7 @@ class ChunkTimelineView:
     <span><i style="border:1px solid #4b5565"></i>future</span>
     <span class="manimux-gripper-legend">
       <span class="manimux-gripper-legend-icon"><i></i></span>
-      L gripper state · action · R gripper state
+      {gripper_legend}
     </span>
   </div>
 </section>

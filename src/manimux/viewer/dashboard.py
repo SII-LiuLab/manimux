@@ -20,13 +20,10 @@ from manimux.types import FloatArray, UInt8Array
 from .camera_panel import CameraPanel
 from .camera_panel import _camera_panel_html as _camera_panel_html
 from .chunk_timeline import ChunkTimelineView
-from .config import ViewerConfig, load_viewer_config
-from .protocol import PolicyPlan, RobotSnapshot
+from .communication import ControlServer, PolicyPlan, RobotSnapshot, ViewerReceiver
 from .reference_layouts import DEFAULT_LAYOUT_ROOT
-from .robots import available_robot_adapters, load_robot_adapter
-from .robots.base import RobotAdapter, RobotGroup
+from .robot_view import RobotGroup, RobotView
 from .top_overlay import TopViewOverlay
-from .transport import ControlServer, ViewerReceiver
 
 MAX_PLAN_HISTORY = 16
 ViewerStage = Literal["waiting", "setup", "preparing", "control", "evaluation", "complete"]
@@ -76,7 +73,7 @@ def _prefill_task(current: str, incoming: str) -> str:
 
 
 class PolicyViewer:
-    """Robot-independent dashboard backed by one selected robot adapter."""
+    """Robot-independent dashboard consuming an offline RobotModel view."""
 
     def __init__(
         self,
@@ -84,12 +81,12 @@ class PolicyViewer:
         port: int,
         bridge_endpoint: str,
         control_endpoint: str,
-        robot: RobotAdapter,
+        robot: RobotView,
         reference_root: Path = DEFAULT_LAYOUT_ROOT,
-        viewer_config: ViewerConfig | None = None,
+        viewer_config: dict | None = None,
     ) -> None:
         self.robot = robot
-        self.viewer_config = viewer_config or ViewerConfig()
+        self.viewer_config = viewer_config if viewer_config is not None else robot.options
         self.reference_root = reference_root
         self.server = viser.ViserServer(host=host, port=port, label="Universal Policy Viewer")
         self.server.gui.configure_theme(
@@ -135,7 +132,13 @@ class PolicyViewer:
         self.plan_history_handles: dict[str, deque[Any]] = {
             group.name: deque() for group in self.robot.groups
         }
-        self.chunk_timeline = ChunkTimelineView()
+        self.chunk_timeline = ChunkTimelineView(
+            {
+                name: style.get("label", name)
+                for name, style in self.robot.options.get("groups", {}).items()
+                if style.get("aperture")
+            }
+        )
         self._last_chunk_timeline_render = 0.0
         self.observe_only = False
         self.current_episode_dir: Path | None = None
@@ -218,19 +221,20 @@ class PolicyViewer:
 
     def _build_gui(self) -> None:
         self.camera_view = CameraPanel(
-            self.server.gui, self.viewer_config, self.robot.camera_slot,
+            self.server.gui,
+            self.viewer_config,
+            self.robot.camera_slot,
             lambda image: self.top_overlay.update(image),
         )
         with self.camera_view.display_container:
-            self.chunk_timeline_panel = self.server.gui.add_html(
-                self.chunk_timeline.render_html()
-            )
+            self.chunk_timeline_panel = self.server.gui.add_html(self.chunk_timeline.render_html())
         self.status = self.server.gui.add_markdown("🟠 **Waiting for policy executor**")
         self.instruction = self.server.gui.add_markdown(_instruction_markdown(""))
-        if self.robot.name == "tianji":
+        if self.robot.name in {"tianji", "tianji-taccap"}:
             self._build_recovery_gui()
         self.top_overlay = TopViewOverlay(
-            self.server.gui, self.reference_root,
+            self.server.gui,
+            self.reference_root,
             display_container=self.camera_view.display_container,
         )
         self.new_rollout_folder = self.server.gui.add_folder(
@@ -240,9 +244,7 @@ class PolicyViewer:
             self.rollout_setup_status = self.server.gui.add_markdown(
                 "⚪ Waiting for a ManiMux runtime service."
             )
-            self.task = self.server.gui.add_text(
-                "Task command", "", multiline=True, disabled=True
-            )
+            self.task = self.server.gui.add_text("Task command", "", multiline=True, disabled=True)
             self.layout_id = self.server.gui.add_text(
                 "Experiment layout / condition ID", "default", disabled=True
             )
@@ -259,17 +261,15 @@ class PolicyViewer:
             self.start_btn = self.server.gui.add_button(
                 "Start rollout", color="blue", disabled=True
             )
-            self.pause_btn = self.server.gui.add_button(
-                "Pause / Hold", color="gray", disabled=True
-            )
+            self.pause_btn = self.server.gui.add_button("Pause / Hold", color="gray", disabled=True)
             self.finish_btn = self.server.gui.add_button(
                 "Finish & Home", color="red", disabled=True
             )
-            if self.robot.name == "tianji":
+            if self.robot.name in {"tianji", "tianji-taccap"}:
                 self.finish_no_home_btn = self.server.gui.add_button(
                     "Finish without homing", color="gray", disabled=True
                 )
-        if self.robot.name != "tianji":
+        if self.robot.name not in {"tianji", "tianji-taccap"}:
             self._build_recovery_gui()
         self.run_folder = self.server.gui.add_folder("Live run", expand_by_default=True)
         with self.run_folder:
@@ -301,9 +301,7 @@ class PolicyViewer:
                 initial_value="3",
                 disabled=True,
             )
-            self.reviewer_id = self.server.gui.add_text(
-                "Reviewer", "operator", disabled=True
-            )
+            self.reviewer_id = self.server.gui.add_text("Reviewer", "operator", disabled=True)
             self.operator_note = self.server.gui.add_text(
                 "Operator note", "", multiline=True, disabled=True
             )
@@ -311,24 +309,16 @@ class PolicyViewer:
                 "replay_backtrack": self.server.gui.add_checkbox(
                     "Replay / backtrack", False, disabled=True
                 ),
-                "hold_stall": self.server.gui.add_checkbox(
-                    "Hold / stall", False, disabled=True
-                ),
-                "collision": self.server.gui.add_checkbox(
-                    "Collision", False, disabled=True
-                ),
-                "drop_spill": self.server.gui.add_checkbox(
-                    "Drop / spill", False, disabled=True
-                ),
+                "hold_stall": self.server.gui.add_checkbox("Hold / stall", False, disabled=True),
+                "collision": self.server.gui.add_checkbox("Collision", False, disabled=True),
+                "drop_spill": self.server.gui.add_checkbox("Drop / spill", False, disabled=True),
                 "perception": self.server.gui.add_checkbox(
                     "Perception error", False, disabled=True
                 ),
                 "policy_semantics": self.server.gui.add_checkbox(
                     "Policy / task error", False, disabled=True
                 ),
-                "safety_stop": self.server.gui.add_checkbox(
-                    "Safety stop", False, disabled=True
-                ),
+                "safety_stop": self.server.gui.add_checkbox("Safety stop", False, disabled=True),
                 "other": self.server.gui.add_checkbox("Other", False, disabled=True),
             }
             self.save_evaluation_btn = self.server.gui.add_button(
@@ -395,6 +385,7 @@ class PolicyViewer:
             self._finish_rollout(home=True)
 
         if hasattr(self, "drag_btn"):
+
             @self.finish_no_home_btn.on_click
             def _finish_no_home(_event: Any) -> None:
                 self._finish_rollout(home=False)
@@ -439,11 +430,13 @@ class PolicyViewer:
 
     def _build_recovery_gui(self) -> None:
         self.recovery_folder = self.server.gui.add_folder(
-            "Manual recovery" if self.robot.name == "tianji" else "Advanced recovery",
-            expand_by_default=self.robot.name == "tianji",
+            "Manual recovery"
+            if self.robot.name in {"tianji", "tianji-taccap"}
+            else "Advanced recovery",
+            expand_by_default=self.robot.name in {"tianji", "tianji-taccap"},
         )
         with self.recovery_folder:
-            if self.robot.name == "tianji":
+            if self.robot.name in {"tianji", "tianji-taccap"}:
                 self.recovery_status = self.server.gui.add_markdown(
                     "⚪ Waiting for a Tianji runtime service."
                 )
@@ -459,7 +452,7 @@ class PolicyViewer:
             self.home_btn = self.server.gui.add_button(
                 "Return Home (keep rollout open)", color="gray", disabled=True
             )
-            if self.robot.name == "tianji":
+            if self.robot.name in {"tianji", "tianji-taccap"}:
                 self.recovery_details_folder = self.server.gui.add_folder(
                     "Last error", expand_by_default=False, visible=False
                 )
@@ -472,7 +465,7 @@ class PolicyViewer:
                 return
             self.paused = True
             self.finish_requested = True
-            self.finish_home = home if self.robot.name == "tianji" else None
+            self.finish_home = home if self.robot.name in {"tianji", "tianji-taccap"} else None
             self.service_ready = False
             self._set_policy_controls_enabled(False)
             self._update_recovery_controls()
@@ -492,15 +485,15 @@ class PolicyViewer:
 
     def _can_stop_and_drag(self) -> bool:
         return (
-            self.episode_active and self.launch_mode == "serve"
-            and self.recovery_available and not self.observe_only
+            self.episode_active
+            and self.launch_mode == "serve"
+            and self.recovery_available
+            and not self.observe_only
             and not self.finish_btn.disabled
         )
 
     def _recovery_pending(self) -> bool:
-        return bool(
-            getattr(self, "recovery_request", "") or getattr(self, "recovery_busy", False)
-        )
+        return bool(getattr(self, "recovery_request", "") or getattr(self, "recovery_busy", False))
 
     def _request_recovery(self, action: str) -> None:
         with self.lock:
@@ -522,8 +515,7 @@ class PolicyViewer:
             self.recovery_request_id = uuid.uuid4().hex
             self.recovery_lease = action.startswith("drag:")
             self.recovery_status.content = (
-                "🟠 **Waiting for recovery control**"
-                if action != "stop" else "🟠 **Exiting drag**"
+                "🟠 **Waiting for recovery control**" if action != "stop" else "🟠 **Exiting drag**"
             )
             self._update_prepare_enabled()
             self._update_recovery_controls()
@@ -540,9 +532,11 @@ class PolicyViewer:
         self.stop_drag_btn.disabled = not (
             self.recovery_lease or self.recovery_state in {"starting", "active"}
         )
-        self.stop_drag_btn.label = "Cancel drag" if (
-            self.recovery_lease and self.recovery_state == "idle"
-        ) else "Exit drag"
+        self.stop_drag_btn.label = (
+            "Cancel drag"
+            if (self.recovery_lease and self.recovery_state == "idle")
+            else "Exit drag"
+        )
         if not self.episode_active:
             self.home_btn.disabled = not allowed
         self._render_recovery_status()
@@ -870,25 +864,22 @@ class PolicyViewer:
         self._last_chunk_timeline_render = now
 
     def _update_plan(self, message: dict[str, Any]) -> None:
-        # ``joint_actions`` keeps old local publishers readable during migration.
-        raw_actions = message.get("actions", message.get("joint_actions"))
-        if raw_actions is None:
-            raise ValueError("plan message is missing actions")
-        actions = np.asarray(raw_actions, dtype=np.float64)
         action_space = str(message.get("action_space", "joint_position"))
-        grouped_actions = self.robot.split_actions(actions, action_space)
+        if action_space != "joint_position":
+            raise ValueError("Viewer expects decoded joint_position plans")
+        grouped_actions = self.robot.validate_groups(message.get("groups"), sequence=True)
+        horizon = len(next(iter(grouped_actions.values())))
         metadata = dict(message.get("metadata") or {})
         gripper_by_group = self.robot.gripper_closed_steps_by_group(
             grouped_actions,
             previous_positions=getattr(self, "last_joint_positions", {}),
         )
         metadata["gripper_closed_steps_by_group"] = {
-            group_name: flags.tolist()
-            for group_name, flags in gripper_by_group.items()
+            group_name: flags.tolist() for group_name, flags in gripper_by_group.items()
         }
         message["metadata"] = metadata
         start_index = int(message.get("start_index", 0))
-        if start_index < 0 or start_index > len(actions):
+        if start_index < 0 or start_index > horizon:
             raise ValueError("plan start_index is outside the action horizon")
         chunk_id = int(message.get("chunk_id", 0))
         if self.plan_chunk_id is not None and chunk_id != self.plan_chunk_id:
@@ -904,7 +895,7 @@ class PolicyViewer:
         self.action_space.value = action_space
         self.latency.value = f"{float(message.get('inference_ms', 0.0)):.0f} ms"
         self.chunk_info.value = (
-            f"#{message.get('chunk_id', 0)} · {len(actions)} actions · "
+            f"#{message.get('chunk_id', 0)} · {horizon} actions · "
             f"{float(message.get('action_dt', 0.0)):.3f}s"
         )
         for group in self.robot.groups:
@@ -1015,8 +1006,7 @@ class PolicyViewer:
             self.camera_view.set_policy_map(metadata["camera_map"])
         if not self.episode_active and bool(metadata.get("episode_active", False)):
             self._update_event({"event": "episode_started", "metadata": metadata})
-        joint_positions = np.asarray(message.get("joint_positions", []), dtype=np.float64)
-        grouped_positions = self.robot.split_joint_positions(joint_positions)
+        grouped_positions = self.robot.validate_groups(message.get("groups"))
         self.last_joint_positions = {
             group_name: np.asarray(configuration, dtype=np.float64).copy()
             for group_name, configuration in grouped_positions.items()
@@ -1143,7 +1133,8 @@ class PolicyViewer:
                 self._reset_for_new_service()
             if new_service or first_service_announcement or "camera_map" in metadata:
                 self.camera_view.set_policy_map(
-                    metadata.get("camera_map"), reset=new_service or first_service_announcement,
+                    metadata.get("camera_map"),
+                    reset=new_service or first_service_announcement,
                 )
             if incoming_service_id:
                 self.service_id = incoming_service_id
@@ -1161,9 +1152,7 @@ class PolicyViewer:
             self.prepare_normal_btn.visible = True
             self.prepare_experiment_btn.visible = True
             if first_service_announcement:
-                self.layout_id.value = (
-                    str(metadata.get("default_layout_id", "")) or "default"
-                )
+                self.layout_id.value = str(metadata.get("default_layout_id", "")) or "default"
             self.rollout_setup_status.content = (
                 "Choose a normal rollout, or an experiment rollout that requires a label."
             )
@@ -1232,18 +1221,36 @@ class PolicyViewer:
         self.server.stop()
 
 
+def _demo_sample(robot: RobotView, elapsed_s: float, horizon: int):
+    states, plans = {}, {}
+    for name, style in robot.options.get("groups", {}).items():
+        q = robot.initial_positions(name).copy()
+        demo = style.get("demo", {})
+        amplitude = np.asarray(demo.get("amplitude", np.zeros_like(q)), dtype=float)
+        phase = elapsed_s + float(demo.get("phase", 0))
+        q += amplitude * np.sin(phase)
+        states[name] = q
+        plans[name] = np.stack(
+            [
+                robot.initial_positions(name) + amplitude * np.sin(phase + i / 30)
+                for i in range(horizon)
+            ]
+        )
+    return states, plans
+
+
 def _demo(viewer: PolicyViewer) -> None:
     elapsed_s = 0.0
     chunk_id = 0
     next_plan_s = 0.0
     while viewer.running:
-        joints, actions = viewer.robot.demo_sample(elapsed_s, horizon=25)
+        joints, actions = _demo_sample(viewer.robot, elapsed_s, horizon=25)
         if elapsed_s >= next_plan_s:
             viewer.on_message(
                 PolicyPlan(
                     policy="Synthetic demo",
                     instruction="Inspect a predicted action chunk",
-                    actions=actions,
+                    groups=actions,
                     action_dt=1 / 30,
                     inference_ms=824,
                     chunk_id=chunk_id,
@@ -1258,7 +1265,7 @@ def _demo(viewer: PolicyViewer) -> None:
         camera = np.stack((x, y, np.full_like(x, 0.3)), axis=-1)
         viewer.on_message(
             RobotSnapshot(
-                joint_positions=joints,
+                groups=joints,
                 cameras={"overview": (camera * 255).astype(np.uint8)},
                 step=int(elapsed_s * 30),
                 max_steps=1000,
@@ -1269,10 +1276,66 @@ def _demo(viewer: PolicyViewer) -> None:
         time.sleep(0.05)
 
 
+def load_viewer_config(path: Path | None = None, *, robot="tianji") -> dict:
+    from manimux.cli import read_yaml
+
+    source = (
+        path if path is not None else Path(__file__).parent / "robots" / robot / "viewer.yaml"
+    ).resolve()
+    config = read_yaml(source)
+    if "model" not in config:
+        raise ValueError("Viewer YAML must reference a RobotModel using model")
+    model_path = (source.parent / config["model"]).resolve()
+    if (
+        not model_path.is_file()
+        and source.is_relative_to(Path(__file__).parent / "robots")
+        and "configs/embodiment/" in str(config["model"])
+    ):
+        # The wheel bundles the same repository configuration, not a second model definition.
+        from importlib.resources import files
+
+        suffix = str(config["model"]).split("configs/embodiment/", 1)[1]
+        model_path = Path(str(files("manimux") / "configs" / "embodiment" / suffix))
+    if not model_path.is_file():
+        raise FileNotFoundError(model_path)
+    config["model"] = model_path
+    if config.get("camera_mode", "policy") not in {"policy", "manual"}:
+        raise ValueError("camera_mode must be policy or manual")
+    config.setdefault("camera_mode", "policy")
+    cameras = config.setdefault("cameras", [])
+    if not isinstance(cameras, list):
+        raise ValueError("cameras must be an ordered list")
+    slots = set()
+    for camera in cameras:
+        if (
+            not isinstance(camera, dict)
+            or not isinstance(camera.get("source"), str)
+            or not camera["source"].strip()
+        ):
+            raise ValueError("each camera needs a source")
+        camera.setdefault("label", camera["source"])
+        camera.setdefault("slot", camera["source"])
+        if any(
+            not isinstance(camera[key], str) or not camera[key].strip() for key in ("label", "slot")
+        ):
+            raise ValueError("camera label and slot must be non-empty strings")
+        if camera["slot"] in slots:
+            raise ValueError("camera slots must be unique")
+        slots.add(camera["slot"])
+    return config
+
+
+def load_robot_view(config: dict) -> RobotView:
+    from manimux.embodiments.robot.base import RobotModel
+
+    return RobotView(RobotModel.from_config(config["model"]), config)
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--config", type=Path,
+        "--config",
+        type=Path,
         help="Viewer YAML; defaults to following policy inputs, supports manual camera preview",
     )
     parser.add_argument("--host", default="0.0.0.0")
@@ -1282,25 +1345,13 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--reference-root", type=Path, default=DEFAULT_LAYOUT_ROOT)
     parser.add_argument(
         "--robot",
-        default="yam",
-        help="built-in name, installed entry point, or module:factory",
-    )
-    parser.add_argument(
-        "--robot-model-root",
-        type=Path,
-        help="optional model/dependency root forwarded to the robot adapter",
-    )
-    parser.add_argument(
-        "--robot-option",
-        action="append",
-        default=[],
-        metavar="KEY=VALUE",
-        help="adapter keyword argument, repeatable (e.g. end_effector=umi_follower)",
+        default="tianji",
+        help="body folder containing viewer.yaml (currently tianji)",
     )
     parser.add_argument(
         "--list-robots",
         action="store_true",
-        help="list bundled/discovered adapters and exit",
+        help="list body folders containing viewer.yaml and exit",
     )
     parser.add_argument("--demo", action="store_true", help="show synthetic data without hardware")
     return parser
@@ -1309,16 +1360,16 @@ def _parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = _parser().parse_args()
     if args.list_robots:
-        print("\n".join(available_robot_adapters()))
+        print(
+            "\n".join(
+                sorted(
+                    p.parent.name for p in (Path(__file__).parent / "robots").glob("*/viewer.yaml")
+                )
+            )
+        )
         return
-    viewer_config = load_viewer_config(args.config)
-    options = {}
-    for item in args.robot_option:
-        key, separator, value = item.partition("=")
-        if not separator or not key:
-            raise SystemExit(f"--robot-option expects KEY=VALUE, got {item!r}")
-        options[key] = value
-    robot = load_robot_adapter(args.robot, args.robot_model_root, options)
+    viewer_config = load_viewer_config(args.config, robot=args.robot)
+    robot = load_robot_view(viewer_config)
     viewer = PolicyViewer(
         args.host,
         args.port,
@@ -1333,8 +1384,8 @@ def main() -> None:
     stop = threading.Event()
     signal.signal(signal.SIGINT, lambda *_: stop.set())
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
-    print(f"Robot adapter: {robot.name} ({robot.label})")
-    print(f"Viewer camera mode: {viewer_config.camera_mode}")
+    print(f"Robot model: {robot.name} ({robot.label})")
+    print(f"Viewer camera mode: {viewer_config['camera_mode']}")
     print(f"Open http://localhost:{args.port}")
     try:
         while not stop.wait(0.25):

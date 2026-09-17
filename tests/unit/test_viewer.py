@@ -11,23 +11,42 @@ import pytest
 import viser
 
 from manimux.types import ActionChunk, ActionHorizon, RobotState, SensorFrame
-from manimux.viewer.bridge import ViewerBridge
 from manimux.viewer.camera_panel import CameraPanel
 from manimux.viewer.chunk_timeline import ChunkTimelineView
-from manimux.viewer.client import ViewerClient
-from manimux.viewer.config import ViewerConfig, load_viewer_config
+from manimux.viewer.communication import PolicyPlan, RobotSnapshot, RuntimeEvent
 from manimux.viewer.dashboard import (
     PolicyViewer,
     _camera_panel_html,
+    _demo_sample,
     _instruction_markdown,
     _prefill_task,
     _trajectory_colors,
+    load_robot_view,
+    load_viewer_config,
 )
-from manimux.viewer.protocol import PolicyPlan, RobotSnapshot, RuntimeEvent
+from manimux.viewer.publisher import ViewerBridge, ViewerClient
 from manimux.viewer.robots import available_robot_adapters, load_robot_adapter
-from manimux.viewer.robots.tianji import TianjiAdapter
 from manimux.viewer.robots.yam import DEFAULT_I2RT_ROOT, YamAdapter
 from manimux.viewer.top_overlay import TopViewOverlay
+
+
+def _camera_config(camera_mode="policy", **options):
+    return {
+        "camera_mode": camera_mode,
+        "cameras": [
+            {
+                "source": slot,
+                "label": {"left": "left side", "right": "right side"}.get(slot, slot),
+                "slot": slot,
+            }
+            for slot in ("top", "left", "right")
+        ],
+        **options,
+    }
+
+
+def _tianji_view():
+    return load_robot_view(load_viewer_config())
 
 
 @pytest.mark.parametrize("experiment_mode", [False, True])
@@ -150,12 +169,15 @@ class _CameraGui:
             if value is None and "options" in values:
                 value = values["options"][0]
             return _CameraHandle(value=value, **values)
+
         return add
 
 
 def _camera_viewer(config=None, robot=None):
     viewer = PolicyViewer.__new__(PolicyViewer)
     viewer.robot = robot or YamAdapter()
+    if not hasattr(viewer.robot, "validate_groups"):
+        viewer.robot.validate_groups = lambda groups: {k: np.asarray(v) for k, v in groups.items()}
     viewer.episode_active = True
     viewer.paused = True
     viewer.observe_only = False
@@ -164,16 +186,26 @@ def _camera_viewer(config=None, robot=None):
     viewer._update_group = lambda *_: None
     overlay_updates = []
     viewer.camera_view = CameraPanel(
-        _CameraGui(), config or ViewerConfig(), viewer.robot.camera_slot, overlay_updates.append,
+        _CameraGui(),
+        config or (viewer.robot.options if hasattr(viewer.robot, "options") else _camera_config()),
+        viewer.robot.camera_slot,
+        overlay_updates.append,
     )
     return viewer, overlay_updates
 
 
 def _camera_state(camera_map=None, frames=None, *, robot="yam"):
     return RobotSnapshot(
-        robot=robot, joint_positions=np.zeros(16 if robot == "tianji" else 14),
+        robot=robot,
+        groups={
+            name: np.zeros(8 if robot.startswith("tianji") else 7)
+            for name in (
+                ("left_arm", "right_arm") if robot.startswith("tianji") else ("left", "right")
+            )
+        },
         cameras=frames or {},
-        step=0, max_steps=100,
+        step=0,
+        max_steps=100,
         metadata={"camera_map": camera_map} if camera_map is not None else {},
     ).to_wire()
 
@@ -190,11 +222,12 @@ def _camera_state(camera_map=None, frames=None, *, robot="yam"):
 )
 @pytest.mark.parametrize("reverse_order", [False, True])
 def test_default_viewer_follows_pi05_and_sa_inputs_without_viewer_config(
-    config_path, reverse_order,
+    config_path,
+    reverse_order,
 ):
-    from manimux.config import load_config
+    from manimux.cli import load_config
 
-    camera_map = load_config(config_path).policy.options["camera_map"]
+    camera_map = load_config(config_path)["policy"]["options"]["camera_map"]
     colors = [(210, 30, 40), (40, 210, 60), (60, 80, 210)]
     frames = {
         physical: np.full((12, 16, 3), color, dtype=np.uint8)
@@ -221,9 +254,14 @@ def test_default_viewer_follows_pi05_and_sa_inputs_without_viewer_config(
 
 @pytest.mark.parametrize("view", ["top", "gemini305", "gemini335"])
 def test_manual_preview_stays_separate_and_still_reports_policy_inputs(view):
-    cfg = load_viewer_config(Path(f"configs/viewer/yam-{view}.yaml"))
+    from manimux.cli import read_yaml
+
+    old = read_yaml(Path(f"configs/viewer/yam-{view}.yaml"))
+    cfg = _camera_config(camera_mode="manual")
+    for camera in cfg["cameras"]:
+        camera["source"] = old["cameras"][camera["slot"]]
     viewer, _ = _camera_viewer(cfg)
-    physical_names = cfg.cameras.model_dump().values()
+    physical_names = [c["source"] for c in cfg["cameras"]]
     frames = {name: np.full((12, 16, 3), 90, np.uint8) for name in physical_names}
     camera_map = {"cam_head": "another_camera"}
     frames["another_camera"] = np.full((12, 16, 3), 210, np.uint8)
@@ -238,26 +276,23 @@ def test_manual_preview_stays_separate_and_still_reports_policy_inputs(view):
 @pytest.mark.parametrize("include_history", [False, True])
 @pytest.mark.parametrize("reverse_order", [False, True])
 @pytest.mark.parametrize("runtime_config", ["default", "rtc"])
-def test_tianji_wrist_views_keep_spatial_slots_and_black_top(
-    include_history, reverse_order, runtime_config,
+def test_tianji_wrist_views_keep_spatial_slots_without_agent_view(
+    include_history,
+    reverse_order,
+    runtime_config,
 ):
-    from manimux.config import load_config
+    from manimux.cli import load_config
 
     camera_map = load_config(
         f"configs/umi_dp/tianji/infra/pass_ball/{runtime_config}.yaml",
-    ).policy.options["camera_map"]
+    )["policy"]["options"]["camera_map"]
     if not include_history:
-        camera_map = {name: source for name, source in camera_map.items()
-                      if not source.endswith("_prev")}
+        camera_map = {
+            name: source for name, source in camera_map.items() if not source.endswith("_prev")
+        }
     if reverse_order:
         camera_map = dict(reversed(list(camera_map.items())))
-    viewer, overlay = _camera_viewer(robot=TianjiAdapter())
-    # Switching from a three-camera station must clear its old top frame.
-    viewer._update_state(_camera_state(
-        {"head": "top", "left": "left_camera", "right": "right_camera"},
-        {"top": np.full((12, 16, 3), 200, np.uint8)},
-        robot="tianji",
-    ))
+    viewer, overlay = _camera_viewer(robot=_tianji_view())
     panel = viewer.camera_view
     handles = tuple(panel.images)
     frames = {
@@ -271,23 +306,20 @@ def test_tianji_wrist_views_keep_spatial_slots_and_black_top(
     live_frames = {name: frame for name, frame in frames.items() if not name.endswith("_prev")}
     viewer._update_state(_camera_state(camera_map, live_frames, robot="tianji"))
 
-    assert all(a is b for a, b in zip(handles, panel.images[:3], strict=True))
-    assert all(handle.visible for handle in panel.images[:3])
-    assert panel.images[0].image.max() == 0
-    assert overlay[-1] is None
+    assert all(a is b for a, b in zip(handles, panel.images[:2], strict=True))
+    assert all(handle.visible for handle in panel.images[:2])
+    assert overlay == []
     assert "visibility: hidden" not in panel.panel.content
-    assert "<strong>top</strong>" in panel.panel.content
-    assert "未配置" in panel.details.content
-    np.testing.assert_allclose(panel.images[1].image[0, 0], (210, 30, 40), atol=3)
-    np.testing.assert_allclose(panel.images[2].image[0, 0], (40, 210, 60), atol=3)
+    assert "<strong>top</strong>" not in panel.panel.content
+    np.testing.assert_allclose(panel.images[0].image[0, 0], (210, 30, 40), atol=3)
+    np.testing.assert_allclose(panel.images[1].image[0, 0], (40, 210, 60), atol=3)
     assert panel.extra_folder.visible is include_history
     if include_history:
-        assert len(panel.images) == 5
-        assert all(handle.image.max() == 0 for handle in panel.images[3:])
+        assert len(panel.images) == 4
+        assert all(handle.image.max() == 0 for handle in panel.images[2:])
         viewer._update_state(_camera_state(camera_map, frames, robot="tianji"))
-        assert panel.images[0].image.max() == 0
-        assert overlay[-1] is None
-        for handle in panel.images[3:]:
+        assert overlay == []
+        for handle in panel.images[2:]:
             source = "left_wrist_prev" if "left" in handle.label else "right_wrist_prev"
             assert source in handle.label
             np.testing.assert_allclose(handle.image, frames[source], atol=3)
@@ -295,24 +327,35 @@ def test_tianji_wrist_views_keep_spatial_slots_and_black_top(
 
 @pytest.mark.parametrize(
     ("robot", "sources"),
-    [(YamAdapter(), ("front_camera", "left_camera", "right_camera")),
-     (TianjiAdapter(), ("left_wrist", "right_wrist"))],
+    [
+        (YamAdapter(), ("front_camera", "left_camera", "right_camera")),
+        (_tianji_view(), ("left_wrist", "right_wrist")),
+    ],
 )
 @pytest.mark.parametrize("camera_mode", ["policy", "manual"])
 def test_missing_metadata_uses_labeled_default_preview_and_robot_aliases(
-    robot, sources, camera_mode,
+    robot,
+    sources,
+    camera_mode,
 ):
-    viewer, _ = _camera_viewer(ViewerConfig(camera_mode=camera_mode), robot=robot)
-    frames = {name: np.full((12, 16, 3), 100, np.uint8)
-              for name in sources}
+    viewer, _ = _camera_viewer(
+        {
+            **(robot.options if hasattr(robot, "options") else _camera_config()),
+            "camera_mode": camera_mode,
+        },
+        robot=robot,
+    )
+    frames = {name: np.full((12, 16, 3), 60 + i * 50, np.uint8) for i, name in enumerate(sources)}
     viewer._update_state(_camera_state(frames=frames, robot=robot.name))
     title = "尚未获取模型输入配置" if camera_mode == "policy" else "手动预览"
     assert title in viewer.camera_view.details.content
-    assert "top" in viewer.camera_view.panel.content
-    assert "left side" in viewer.camera_view.panel.content
-    assert "right side" in viewer.camera_view.panel.content
-    for index, handle in enumerate(viewer.camera_view.images):
-        expected = 0 if robot.name == "tianji" and index == 0 else 100
+    if robot.name == "tianji-taccap":
+        assert viewer.camera_view.panel.content.count("<strong>wrist</strong>") == 2
+    else:
+        assert "left side" in viewer.camera_view.panel.content
+        assert "right side" in viewer.camera_view.panel.content
+    for i, handle in enumerate(viewer.camera_view.images):
+        expected = 60 + i * 50
         assert handle.visible
         np.testing.assert_allclose(handle.image, expected, atol=3)
 
@@ -346,17 +389,23 @@ def test_policy_switch_reuses_handles_clears_old_images_and_handles_arbitrary_in
 def test_camera_throttling_keeps_images_but_missing_selected_source_clears_them():
     viewer, overlay = _camera_viewer()
     camera_map = {"external": "gemini335"}
-    viewer._update_state(_camera_state(
-        camera_map, {"gemini335": np.full((12, 16, 3), 170, np.uint8)},
-    ))
+    viewer._update_state(
+        _camera_state(
+            camera_map,
+            {"gemini335": np.full((12, 16, 3), 170, np.uint8)},
+        )
+    )
     first_image = viewer.camera_view.images[0].image
     first_html = viewer.camera_view.panel.content
     viewer._update_state(_camera_state(camera_map))
     assert viewer.camera_view.images[0].image is first_image
     assert viewer.camera_view.panel.content == first_html
-    viewer._update_state(_camera_state(
-        camera_map, {"front_camera": np.zeros((12, 16, 3), np.uint8)},
-    ))
+    viewer._update_state(
+        _camera_state(
+            camera_map,
+            {"front_camera": np.zeros((12, 16, 3), np.uint8)},
+        )
+    )
     assert viewer.camera_view.images[0].image.max() == 0
     assert overlay[-1] is None
     assert "等待图像" in viewer.camera_view.details.content
@@ -365,8 +414,10 @@ def test_camera_throttling_keeps_images_but_missing_selected_source_clears_them(
 def test_more_than_three_inputs_are_displayed_and_hidden_after_switch():
     viewer, _ = _camera_viewer()
     camera_map = {f"view_{i}": f"physical_{i}" for i in range(5)}
-    frames = {name: np.full((12, 16, 3), 40 + 30 * i, np.uint8)
-              for i, name in enumerate(camera_map.values())}
+    frames = {
+        name: np.full((12, 16, 3), 40 + 30 * i, np.uint8)
+        for i, name in enumerate(camera_map.values())
+    }
     viewer._update_state(_camera_state(camera_map, frames))
     panel = viewer.camera_view
     assert len(panel.images) == 5
@@ -384,7 +435,7 @@ def test_more_than_three_inputs_are_displayed_and_hidden_after_switch():
 
 def test_reset_same_camera_map_clears_frames_and_escaped_labels_are_safe():
     viewer, overlay = _camera_viewer()
-    camera_map = {'<img src=x onerror=alert(1)>': 'camera"<x>'}
+    camera_map = {"<img src=x onerror=alert(1)>": 'camera"<x>'}
     frames = {next(iter(camera_map.values())): np.full((12, 16, 3), 180, np.uint8)}
     viewer._update_state(_camera_state(camera_map, frames))
     panel = viewer.camera_view
@@ -399,9 +450,12 @@ def test_reset_same_camera_map_clears_frames_and_escaped_labels_are_safe():
 @pytest.mark.parametrize("invalid_map", [{"view": None}, {"": "camera"}, ["camera"]])
 def test_invalid_policy_metadata_is_labeled_and_does_not_break_default_preview(invalid_map):
     viewer, _ = _camera_viewer()
-    viewer._update_state(_camera_state(
-        invalid_map, {"front_camera": np.full((12, 16, 3), 90, np.uint8)},
-    ))
+    viewer._update_state(
+        _camera_state(
+            invalid_map,
+            {"front_camera": np.full((12, 16, 3), 90, np.uint8)},
+        )
+    )
     assert "映射无效" in viewer.camera_view.details.content
     np.testing.assert_allclose(viewer.camera_view.images[0].image, 90, atol=3)
 
@@ -420,7 +474,6 @@ def test_clearing_live_image_does_not_keep_old_camera_under_reference(tmp_path):
     overlay.update(None)
     np.testing.assert_array_equal(overlay.image.image, 40)
     assert "仅显示参考图" in overlay.status.content
-
 
 
 def test_chunk_timeline_tracks_pending_rtc_overlap_and_execution() -> None:
@@ -457,7 +510,7 @@ def test_chunk_timeline_tracks_pending_rtc_overlap_and_execution() -> None:
         {
             "kind": "plan",
             "chunk_id": 1,
-            "actions": [[0.0]] * 13,
+            "groups": {"arm": [[0.0]] * 13},
             "inference_ms": 100.0,
             "metadata": {
                 "runtime": "rtc",
@@ -492,7 +545,7 @@ def test_chunk_timeline_aligns_grouped_gripper_steps_after_trim() -> None:
         {
             "kind": "plan",
             "chunk_id": 7,
-            "actions": [[0.0]] * 4,
+            "groups": {"arm": [[0.0]] * 4},
             "inference_ms": 90.0,
             "metadata": {
                 "runtime": "rtc",
@@ -522,7 +575,7 @@ def test_chunk_timeline_renders_left_and_right_grippers_independently() -> None:
         {
             "kind": "plan",
             "chunk_id": 8,
-            "actions": [[0.0]] * 4,
+            "groups": {"arm": [[0.0]] * 4},
             "inference_ms": 80.0,
             "metadata": {
                 "runtime": "manimux",
@@ -555,7 +608,7 @@ def test_chunk_timeline_renders_left_and_right_grippers_independently() -> None:
     )
     assert "manimux-gripper-legend" in rendered
     assert "manimux-gripper-legend-icon" in rendered
-    assert "L gripper state · action · R gripper state" in rendered
+    assert "left gripper state · action · right gripper state" in rendered
     assert "gripper open" not in rendered
 
 
@@ -625,7 +678,7 @@ def test_chunk_timeline_alternates_lanes_and_marks_superseded_tail() -> None:
         {
             "kind": "plan",
             "chunk_id": 1,
-            "actions": [[0.0]] * 10,
+            "groups": {"arm": [[0.0]] * 10},
             "inference_ms": 50.0,
             "metadata": {"runtime": "manimux", "raw_horizon_steps": 10},
         }
@@ -654,7 +707,7 @@ def test_chunk_timeline_alternates_lanes_and_marks_superseded_tail() -> None:
         {
             "kind": "plan",
             "chunk_id": 2,
-            "actions": [[0.0]] * 9,
+            "groups": {"arm": [[0.0]] * 9},
             "inference_ms": 60.0,
             "metadata": {
                 "runtime": "manimux",
@@ -688,7 +741,7 @@ def test_chunk_timeline_connects_rtc_condition_source_to_new_chunk() -> None:
         {
             "kind": "plan",
             "chunk_id": 18,
-            "actions": [[0.0]] * 46,
+            "groups": {"arm": [[0.0]] * 46},
             "inference_ms": 144.0,
             "metadata": {"runtime": "rtc", "raw_horizon_steps": 46},
         }
@@ -720,15 +773,15 @@ def test_chunk_timeline_connects_rtc_condition_source_to_new_chunk() -> None:
     pending_html = timeline.render_html()
     assert "condition · 30 steps" in pending_html
     assert "manimux-chunk-cell condition-source" in pending_html
-    assert 'manimux-chunk-condition-range source' in pending_html
-    assert 'manimux-chunk-condition-range target' in pending_html
+    assert "manimux-chunk-condition-range source" in pending_html
+    assert "manimux-chunk-condition-range target" in pending_html
     assert "Conditioned prefix: 30 actions" in pending_html
 
     timeline.update(
         {
             "kind": "plan",
             "chunk_id": 19,
-            "actions": [[0.0]] * 42,
+            "groups": {"arm": [[0.0]] * 42},
             "inference_ms": 145.0,
             "metadata": {
                 "runtime": "rtc",
@@ -752,7 +805,7 @@ def test_chunk_timeline_connects_rtc_condition_source_to_new_chunk() -> None:
     assert "condition · 30 steps" in rendered
     assert "manimux-chunk-cell latency" in rendered
     assert "manimux-chunk-cell latency-trimmed" in rendered
-    assert 'manimux-chunk-condition-range target' in rendered
+    assert "manimux-chunk-condition-range target" in rendered
     assert ">RTC link<" not in rendered
     assert ">removed<" not in rendered
 
@@ -763,7 +816,7 @@ def test_chunk_timeline_does_not_double_count_rtc_trim_in_latency_range() -> Non
         {
             "kind": "plan",
             "chunk_id": 3,
-            "actions": [[0.0]] * 46,
+            "groups": {"arm": [[0.0]] * 46},
             "metadata": {
                 "runtime": "rtc",
                 "raw_horizon_steps": 50,
@@ -792,7 +845,7 @@ def test_chunk_timeline_does_not_double_count_rtc_trim_in_latency_range() -> Non
         {
             "kind": "plan",
             "chunk_id": 4,
-            "actions": [[0.0]] * 46,
+            "groups": {"arm": [[0.0]] * 46},
             "metadata": {
                 "runtime": "rtc",
                 "raw_horizon_steps": 50,
@@ -811,9 +864,7 @@ def test_chunk_timeline_does_not_double_count_rtc_trim_in_latency_range() -> Non
     assert source.condition_from_index == 20
     assert source.latency_from_index == 20
     assert timeline._cell_state(source, 19) == "executed"
-    assert [timeline._cell_state(source, index) for index in range(20, 25)] == [
-        "latency"
-    ] * 5
+    assert [timeline._cell_state(source, index) for index in range(20, 25)] == ["latency"] * 5
 
 
 def test_chunk_timeline_replaces_old_target_frame_when_lane_becomes_source() -> None:
@@ -822,7 +873,7 @@ def test_chunk_timeline_replaces_old_target_frame_when_lane_becomes_source() -> 
         {
             "kind": "plan",
             "chunk_id": 18,
-            "actions": [[0.0]] * 46,
+            "groups": {"arm": [[0.0]] * 46},
             "metadata": {
                 "runtime": "rtc",
                 "raw_horizon_steps": 50,
@@ -976,23 +1027,23 @@ def test_runtime_heartbeat_loss_fails_closed_without_deleting_episode_state() ->
 
 def test_protocol_is_not_tied_to_yam_dimensions() -> None:
     actions = np.zeros((25, 6))
-    plan = PolicyPlan("example", "task", actions, 1 / 30, 500, 2, robot="custom")
+    plan = PolicyPlan("example", "task", {"arm": actions}, 1 / 30, 500, 2, robot="custom")
     wire = plan.to_wire()
-    assert wire["actions"] == actions.tolist()
+    assert wire["groups"] == {"arm": actions.tolist()}
     assert wire["robot"] == "custom"
-    assert wire["protocol_version"] == 1
+    assert wire["protocol_version"] == 2
 
 
 def test_protocol_rejects_malformed_actions() -> None:
-    with pytest.raises(ValueError, match="shape"):
-        PolicyPlan("example", "task", np.zeros(6), 1 / 30, 1, 0)
+    with pytest.raises(ValueError, match="1D|2D"):
+        PolicyPlan("example", "task", {"arm": np.zeros(6)}, 1 / 30, 1, 0)
     with pytest.raises(ValueError, match="finite"):
-        PolicyPlan("example", "task", np.array([[np.nan]]), 1 / 30, 1, 0)
+        PolicyPlan("example", "task", {"arm": np.array([[np.nan]])}, 1 / 30, 1, 0)
 
 
 def test_snapshot_encodes_generic_robot_state() -> None:
     state = RobotSnapshot(
-        np.zeros(4),
+        {"arm": np.zeros(4)},
         {},
         step=3,
         max_steps=10,
@@ -1001,7 +1052,7 @@ def test_snapshot_encodes_generic_robot_state() -> None:
         active_chunk_id=7,
     )
     wire = state.to_wire()
-    assert wire["joint_positions"] == [0.0] * 4
+    assert wire["groups"] == {"arm": [0.0] * 4}
     assert wire["robot"] == "custom"
     assert wire["active_chunk_id"] == 7
     assert wire["chunk_index"] == 2
@@ -1011,7 +1062,7 @@ def test_plan_can_start_inside_an_activated_async_chunk() -> None:
     plan = PolicyPlan(
         "example",
         "task",
-        np.zeros((10, 6)),
+        {"arm": np.zeros((10, 6))},
         1 / 30,
         250,
         4,
@@ -1022,7 +1073,7 @@ def test_plan_can_start_inside_an_activated_async_chunk() -> None:
         PolicyPlan(
             "example",
             "task",
-            np.zeros((10, 6)),
+            {"arm": np.zeros((10, 6))},
             1 / 30,
             250,
             4,
@@ -1067,7 +1118,7 @@ def test_viewer_client_observes_without_owning_policy_execution() -> None:
     client.episode_started(instruction="task", max_steps=100)
     client.inference_submitted(step=5, chunk_id=2, planned_switch_step=12)
     client.plan_activated(
-        actions=np.zeros((10, 6)),
+        groups={"arm": np.zeros((10, 6))},
         action_index=3,
         chunk_id=2,
         step=12,
@@ -1076,7 +1127,7 @@ def test_viewer_client_observes_without_owning_policy_execution() -> None:
         instruction="task",
     )
     client.step_executed(
-        joint_positions=np.zeros(6),
+        groups={"arm": np.zeros(6)},
         cameras={},
         step=13,
         max_steps=100,
@@ -1100,8 +1151,7 @@ def test_runtime_bridge_publishes_the_exact_committed_plan() -> None:
     publisher = _RecordingPublisher()
     bridge = ViewerBridge(
         enabled=False,
-        robot_adapter="custom",
-        group_order=["left", "right"],
+        robot="custom",
         policy="molmoact_http",
         instruction="task",
     )
@@ -1135,7 +1185,7 @@ def test_runtime_bridge_publishes_the_exact_committed_plan() -> None:
     message = publisher.messages[0]
     assert message["policy"] == "molmoact_http"
     assert message["instruction"] == "task"
-    assert message["actions"] == [[1.0, -1.0], [2.0, -2.0]]
+    assert message["groups"] == {"left": [[1.0], [2.0]], "right": [[-1.0], [-2.0]]}
     assert message["metadata"]["committed_start_time_ns"] == 20
     assert message["metadata"]["runtime"] == "rtc"
     assert message["metadata"]["trimmed_steps"] == 2
@@ -1145,8 +1195,7 @@ def test_runtime_bridge_publishes_managed_lifecycle_event() -> None:
     publisher = _RecordingPublisher()
     bridge = ViewerBridge(
         enabled=False,
-        robot_adapter="custom",
-        group_order=["arm"],
+        robot="custom",
         policy="policy",
     )
     bridge._enabled = True
@@ -1167,8 +1216,7 @@ def test_runtime_bridge_throttles_camera_encoding_off_the_control_rate() -> None
     publisher = _RecordingPublisher()
     bridge = ViewerBridge(
         enabled=False,
-        robot_adapter="custom",
-        group_order=["arm"],
+        robot="custom",
         camera_hz=1.0,
     )
     bridge._enabled = True
@@ -1188,6 +1236,13 @@ def test_runtime_bridge_throttles_camera_encoding_off_the_control_rate() -> None
 
     assert set(publisher.messages[0]["cameras_jpeg"]) == {"camera"}
     assert publisher.messages[1]["cameras_jpeg"] == {}
+    assert publisher.messages[0]["groups"] == {"arm": [0.0, 0.0]}
+    assert publisher.messages[0]["timestamp_ns"] == 1
+    assert publisher.messages[0]["sequence"] == 1
+    assert publisher.messages[0]["camera_metadata"] == {
+        "camera": {"timestamp_ns": 1, "sequence": 1}
+    }
+    assert publisher.messages[1]["camera_metadata"] == {}
     assert publisher.messages[0]["metadata"]["episode_active"] is True
     assert publisher.messages[1]["metadata"]["instruction"] == "task"
 
@@ -1220,140 +1275,73 @@ def test_yam_fk_and_assets_are_self_contained() -> None:
     assert np.isfinite(poses).all()
 
 
-def test_tianji_is_a_discovered_adapter() -> None:
-    assert "tianji" in available_robot_adapters()
-    assert isinstance(load_robot_adapter("tianji"), TianjiAdapter)
-
-
-def test_tianji_adapter_splits_arm_vectors_with_and_without_gripper() -> None:
-    adapter = TianjiAdapter()
-    for width, groups in ((7, {"left"}), (8, {"left"}), (14, {"left", "right"}),
-                          (16, {"left", "right"})):
-        assert set(adapter.split_actions(np.zeros((2, width)), "joint_position")) == groups
-    dual = adapter.split_joint_positions(np.arange(16.0))
-    np.testing.assert_array_equal(dual["right"], np.arange(8.0, 16.0))
-    with pytest.raises(ValueError, match="action_space"):
-        adapter.split_actions(np.zeros((2, 7)), "cartesian_delta")
-    with pytest.raises(ValueError, match="7, 8, 14 or 16"):
-        adapter.split_joint_positions(np.zeros(9))
-
-
-def test_tianji_urdf_joints_follow_the_dh_chain_on_both_arms() -> None:
-    yourdfpy = pytest.importorskip("yourdfpy")
-    adapter = TianjiAdapter()
-    joints = np.radians([12.0, -34.0, 56.0, -78.0, 9.0, -21.0, 43.0])
-    for group_name, suffix in (("left", "L"), ("right", "R")):
-        group = adapter.group(group_name)
-        robot = yourdfpy.URDF.load(group.urdf_path)
-        robot.update_cfg(adapter.visual_configuration(group_name, np.r_[joints, 0.5]))
-        urdf_link7 = robot.get_transform(f"Link7_{suffix}", f"Base_{suffix}")
-        # The URDF stops at Link7; the DH chain's static row adds the 95 mm flange.
-        flange_row = np.eye(4)
-        flange_row[:3, :3] = [[0.0, -1.0, 0.0], [0.0, 0.0, -1.0], [1.0, 0.0, 0.0]]
-        flange_row[:3, 3] = [0.0, -0.095, 0.0]
-        np.testing.assert_allclose(
-            urdf_link7 @ flange_row, adapter.kinematics.flange(joints), atol=1e-4
+def test_tianji_view_uses_shared_model_geometry_and_preserves_scene():
+    view = _tianji_view()
+    assert view.name == "tianji-taccap"
+    assert set(view.model.groups) == {"left_arm", "right_arm"}
+    assert len(view.static_meshes) == 1
+    (table,) = view.scene_boxes
+    assert tuple(table.dimensions) == (0.8, 1.2, 0.04)
+    assert tuple(table.position) == (0.65, 0, 0.68)
+    for name, group in view.model.groups.items():
+        q = view.initial_positions(name)
+        np.testing.assert_allclose(view.pose(name, q), group.kinematics.fk(q))
+        np.testing.assert_array_equal(
+            view.visual_configuration(name, q), group.visual_configuration(q)
         )
-        # The gripper chain ends at the same fingertip midpoint as the tool transform.
-        urdf_tcp = robot.get_transform("ee_tcp", f"Base_{suffix}")
-        np.testing.assert_allclose(urdf_tcp, adapter.pose(group_name, joints), atol=1e-4)
+        np.testing.assert_allclose(view.group(name).base_position, group.base_transform[:3, 3])
 
 
-def test_tianji_end_effector_follows_the_aperture_and_can_be_removed() -> None:
-    yourdfpy = pytest.importorskip("yourdfpy")
-    adapter = TianjiAdapter()
-    robot = yourdfpy.URDF.load(adapter.group("left").urdf_path)
-    assert robot.actuated_joint_names[-1] == "ee_joint1"
-    home = np.radians([90.0, -90.0, -90.0, -90.0, 0.0, 0.0, 0.0])
-    for aperture, angle in ((1.0, 0.0), (0.0, -0.44), (1.5, 0.0)):
-        configuration = adapter.visual_configuration("left", np.r_[home, aperture])
-        assert configuration.shape == (8,)
-        assert configuration[-1] == pytest.approx(angle)
-        robot.update_cfg(configuration)
-        assert robot.cfg[-1] == pytest.approx(angle)
-    # A state without the aperture draws the gripper at its rest (open) pose.
-    assert adapter.visual_configuration("left", home)[-1] == pytest.approx(0.0)
-
-    bare = load_robot_adapter("tianji", options={"end_effector": "none"})
-    assert set(bare.split_joint_positions(np.zeros(14))) == {"left", "right"}
-    with pytest.raises(ValueError, match="7 or 14"):
-        bare.split_joint_positions(np.zeros(16))
-    assert bare.visual_configuration("left", home).shape == (7,)
-    np.testing.assert_allclose(bare.pose("left", home), bare.kinematics.flange(home))
-    assert not bare.gripper_closed_steps(bare.split_actions(np.zeros((2, 14)))).any()
-
-
-def test_tianji_mounts_reproduce_the_measured_arm_to_arm_transform() -> None:
+def test_tianji_urdf_tcp_matches_model_and_mount_applied_once():
+    import yourdfpy
     from scipy.spatial.transform import Rotation
 
-    adapter = TianjiAdapter()
-
-    def world_from(group_name: str) -> np.ndarray:
-        group = adapter.group(group_name)
-        w, x, y, z = group.base_orientation
-        transform = np.eye(4)
-        transform[:3, :3] = Rotation.from_quat([x, y, z, w]).as_matrix()
-        transform[:3, 3] = group.base_position
-        return transform
-
-    left_from_right = np.linalg.inv(world_from("left")) @ world_from("right")
-    expected = np.eye(4)
-    expected[:3, :3] = Rotation.from_euler("x", 180, degrees=True).as_matrix()
-    expected[:3, 3] = [0.0, 0.0, -0.074]
-    np.testing.assert_allclose(left_from_right, expected, atol=1e-12)
-
-
-def test_tianji_stand_is_static_scene_geometry() -> None:
-    yourdfpy = pytest.importorskip("yourdfpy")
-    adapter = TianjiAdapter()
-    (stand,) = adapter.static_meshes
-    robot = yourdfpy.URDF.load(stand.urdf_path)
-    assert set(robot.link_map) == {"Link_Base", "Link_Stand"}
-    assert robot.actuated_joint_names == []
-    (table,) = adapter.scene_boxes
-    assert table.name == "table"
+    view = _tianji_view()
+    for name, mounted in view.model.groups.items():
+        q = view.initial_positions(name)
+        urdf = yourdfpy.URDF.load(view.group(name).urdf_path)
+        urdf.update_cfg(view.visual_configuration(name, q))
+        suffix = "L" if name == "left_arm" else "R"
+        local = urdf.get_transform("ee_tcp", f"Base_{suffix}")
+        np.testing.assert_allclose(view.pose(name, q), local, atol=1e-4)
+        group = view.group(name)
+        world = np.eye(4)
+        world[:3, :3] = Rotation.from_quat(
+            np.asarray(group.base_orientation)[[1, 2, 3, 0]]
+        ).as_matrix()
+        world[:3, 3] = group.base_position
+        np.testing.assert_allclose(
+            world @ view.pose(name, q), mounted.base_transform @ local, atol=1e-4
+        )
 
 
-def test_tianji_camera_slots_and_gripper_markers() -> None:
-    adapter = TianjiAdapter()
-    assert adapter.camera_slot("left_wrist") == "left"
-    assert adapter.camera_slot("right_wrist_rgb") == "right"
-    chunk = np.zeros((4, 16))
-    chunk[:, 7] = [1.0, 1.0, 0.4, 0.4]
-    chunk[:, 15] = 1.0
-    flags = adapter.gripper_closed_steps(adapter.split_actions(chunk, "joint_position"))
-    np.testing.assert_array_equal(flags, [False, False, True, True])
-    joints_only = adapter.split_actions(np.zeros((3, 14)), "joint_position")
-    assert not adapter.gripper_closed_steps(joints_only).any()
+def test_tianji_named_group_shapes_are_not_guessed_from_array_width():
+    view = _tianji_view()
+    assert set(view.validate_groups({"right_arm": np.zeros(8)})) == {"right_arm"}
+    with pytest.raises(ValueError):
+        view.validate_groups({"right_arm": np.zeros(7)})
+    with pytest.raises(ValueError):
+        view.validate_groups({"left": np.zeros(8)})
+    with pytest.raises(ValueError):
+        view.validate_groups(np.zeros(16))
+    with pytest.raises(ValueError):
+        view.validate_groups(
+            {"left_arm": np.zeros((2, 8)), "right_arm": np.zeros((3, 8))}, sequence=True
+        )
 
 
-def test_tianji_demo_and_home_pose_are_renderable() -> None:
-    adapter = TianjiAdapter()
-    state, chunk = adapter.demo_sample(1.0, 16)
-    assert state.shape == (16,) and chunk.shape == (16, 16)
-    for name, values in adapter.split_joint_positions(state).items():
-        assert np.isfinite(adapter.pose(name, values)).all()
-        np.testing.assert_array_equal(adapter.visual_configuration(name, values)[:7], values[:7])
-        assert adapter.initial_configuration(name).shape == (8,)
-
-
-def test_tianji_gripper_markers_are_independent_and_use_previous_state() -> None:
-    adapter = TianjiAdapter()
-    chunk = np.zeros((3, 16))
-    chunk[:, 7] = [0.8, 0.8, 0.95]
-    chunk[:, 15] = 1.0
-    previous = {"left": np.r_[np.zeros(7), 1.0], "right": np.r_[np.zeros(7), 1.0]}
-    flags = adapter.gripper_closed_steps_by_group(
-        adapter.split_actions(chunk), previous_positions=previous
-    )
-    assert set(flags) == {"left", "right"}
-    np.testing.assert_array_equal(flags["left"], [True, True, False])
-    np.testing.assert_array_equal(flags["right"], [False, False, False])
-    assert adapter.gripper_closed_steps_by_group(
-        adapter.split_actions(np.zeros((3, 14)))
-    ) == {}
-    bare = load_robot_adapter("tianji", options={"end_effector": "none"})
-    assert bare.gripper_closed_steps_by_group(bare.split_actions(np.zeros((3, 14)))) == {}
+def test_tianji_demo_and_gripper_markers_use_model_coordinate_names():
+    view = _tianji_view()
+    states, plans = _demo_sample(view, 1.0, 16)
+    view.validate_groups(states)
+    view.validate_groups(plans, sequence=True)
+    for name, q in states.items():
+        assert np.isfinite(view.pose(name, q)).all()
+    plans["left_arm"][:, -1] = 0.4
+    plans["right_arm"][:, -1] = 1.0
+    flags = view.gripper_closed_steps_by_group(plans, previous_positions=states)
+    assert flags["left_arm"].all()
+    assert not flags["right_arm"].any()
 
 
 def test_trajectory_gradient_uses_deep_to_light_purple() -> None:

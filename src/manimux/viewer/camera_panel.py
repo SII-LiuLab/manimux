@@ -11,15 +11,22 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
-from .config import ViewerConfig
-
 PANEL_SLOTS = ("top", "left", "right")
 
 
-def _camera_panel_html(labels: Mapping[str, tuple[str, str]] | None = None) -> str:
+def _camera_panel_html(
+    labels: Mapping[str, tuple[str, str]] | None = None, slots: tuple[str, ...] = PANEL_SLOTS
+) -> str:
     """Place stable Viser image handles in the scrollable left overlay."""
 
-    labels = labels if labels is not None else {slot: (slot, "") for slot in PANEL_SLOTS}
+    labels = (
+        labels
+        if labels is not None
+        else {
+            slot: ({"left": "left side", "right": "right side"}.get(slot, slot), "")
+            for slot in slots
+        }
+    )
     style = """
 <style>
   :root {
@@ -131,14 +138,54 @@ def _camera_panel_html(labels: Mapping[str, tuple[str, str]] | None = None) -> s
 <div class="manimux-camera-anchor"></div>
 <section class="manimux-camera-panel"></section>
 """
-    # Missing cameras retain their black image handles and fixed layout positions.
-    labels = {slot: labels.get(slot, (slot, "")) for slot in PANEL_SLOTS}
-    display_names = {"left": "left side", "right": "right side"}
+    # Keep the original three-camera CSS exactly; override positions only for
+    # explicitly smaller layouts. No empty agent/top preview is manufactured.
+    labels = {slot: labels.get(slot, (slot, "")) for slot in slots}
+    if slots != PANEL_SLOTS:
+        # The original sibling selectors assume three image handles. Remove
+        # unused selectors so they cannot position the following timeline as an image.
+        for count in range(3, len(slots), -1):
+            selector = "div:has(> .manimux-camera-anchor)" + " + div" * count
+            style = style.replace(selector, f".manimux-unused-camera-{count}")
+        rules = []
+        if "top" not in slots:
+            rules.append(
+                ":root { --manimux-camera-top-height: 0px; "
+                "--manimux-camera-height: clamp(104px, 7.3125vw + 9px, 149px); }"
+            )
+        if not slots:
+            rules.append(".manimux-camera-panel { display: none; }")
+        for index, slot in enumerate(slots):
+            selector = "div:has(> .manimux-camera-anchor)" + " + div" * (index + 1)
+            if slot == "top" or len(slots) == 1:
+                geometry = (
+                    "left:10px;top:10px;width:var(--manimux-camera-inner);"
+                    "height:var(--manimux-camera-top-height);aspect-ratio:16/9;"
+                )
+                if len(slots) == 1:
+                    rules.append(
+                        ":root { --manimux-camera-top-height: "
+                        "clamp(157.5px, calc(14.625vw - 11.25px), 247.5px); "
+                        "--manimux-camera-height: "
+                        "calc(var(--manimux-camera-top-height) + 20px); }"
+                    )
+            else:
+                left = (
+                    "10px" if slot == "left" else "calc(18px + var(--manimux-camera-small-width))"
+                )
+                top = "calc(18px + var(--manimux-camera-top-height))" if "top" in slots else "10px"
+                geometry = (
+                    f"left:{left};top:{top};width:var(--manimux-camera-small-width);"
+                    "height:auto;aspect-ratio:16/9;"
+                )
+            rules.append(f"{selector} {{{geometry}}}")
+        if "top" not in slots:
+            rules.append(".manimux-camera-label-left,.manimux-camera-label-right {top:10px;}")
+        style += "<style>" + "".join(rules) + "</style>"
     return style + "".join(
         f'<span class="manimux-camera-label manimux-camera-label-{slot}" '
-        f'title="{html.escape(display_names.get(slot, name))}">'
-        f'<strong>{html.escape(display_names.get(slot, name))}</strong></span>'
-        for slot, (name, _source) in labels.items() if slot in PANEL_SLOTS
+        f'title="{html.escape(name)}"><strong>{html.escape(name)}</strong></span>'
+        for slot, (name, _source) in labels.items()
     )
 
 
@@ -151,7 +198,10 @@ class CameraPanel:
     """
 
     def __init__(
-        self, gui: Any, config: ViewerConfig, normalize: Callable[[str], str],
+        self,
+        gui: Any,
+        config: dict,
+        normalize: Callable[[str], str],
         on_main_image: Callable[[np.ndarray | None], None],
     ) -> None:
         self._gui = gui
@@ -160,16 +210,33 @@ class CameraPanel:
         self._on_main_image = on_main_image
         self._policy_map: dict[str, str] = {}
         self._invalid_map = False
-        self._views: list[tuple[str, str] | None] = list(config.cameras.model_dump().items())
+        cameras = config.get("cameras", [])
+        self._slots = tuple(
+            slot for slot in PANEL_SLOTS if any(c.get("slot", c["source"]) == slot for c in cameras)
+        )
+        self._configured = [
+            next((c["label"], c["source"]) for c in cameras if c.get("slot", c["source"]) == slot)
+            for slot in self._slots
+        ]
+        self._configured += [
+            (c["label"], c["source"])
+            for c in cameras
+            if c.get("slot", c["source"]) not in PANEL_SLOTS
+        ]
+        self._views: list[tuple[str, str] | None] = list(self._configured)
         self._received: set[int] = set()
         self._sources: dict[int, str] = {}
         self._placeholder = np.zeros((90, 160, 3), dtype=np.uint8)
         self.display_container = gui.add_folder("")
         with self.display_container:
-            self.panel = gui.add_html(_camera_panel_html())
-            self.images = [self._add_image() for _ in PANEL_SLOTS]
+            self.panel = gui.add_html(_camera_panel_html(slots=self._slots))
+            self.images = [self._add_image() for _ in self._slots]
         self.details = gui.add_html("")
         self.extra_folder = gui.add_folder("更多输入相机", visible=False)
+        with self.extra_folder:
+            while len(self.images) < len(self._views):
+                self.images.append(self._add_image())
+        self.extra_folder.visible = len(self._views) > len(self._slots)
         self._render()
 
     def _add_image(self) -> Any:
@@ -178,7 +245,7 @@ class CameraPanel:
     def _clear_image(self, index: int) -> None:
         self.images[index].image = self._placeholder
         self._received.discard(index)
-        if index == 0:
+        if self._slots and self._slots[0] == "top" and index == 0:
             self._on_main_image(None)
 
     def clear_images(self) -> None:
@@ -187,13 +254,13 @@ class CameraPanel:
         self._render()
 
     def _policy_views(self, policy_map: Mapping[str, str]) -> list[tuple[str, str] | None]:
-        views: list[tuple[str, str] | None] = [None] * len(PANEL_SLOTS)
+        views: list[tuple[str, str] | None] = [None] * len(self._slots)
         unassigned = []
         extra = []
         for name, source in policy_map.items():
             slot = self._normalize(source)
-            if slot in PANEL_SLOTS:
-                index = PANEL_SLOTS.index(slot)
+            if slot in self._slots:
+                index = self._slots.index(slot)
                 if views[index] is None:
                     views[index] = (name, source)
                 else:
@@ -214,14 +281,17 @@ class CameraPanel:
 
     def set_policy_map(self, raw: object, *, reset: bool = False) -> None:
         valid = isinstance(raw, Mapping) and all(
-            isinstance(key, str) and bool(key.strip())
-            and isinstance(value, str) and bool(value.strip())
+            isinstance(key, str)
+            and bool(key.strip())
+            and isinstance(value, str)
+            and bool(value.strip())
             for key, value in raw.items()
         )
         policy_map = dict(raw) if valid else {}
         invalid = raw is not None and not valid
         if (
-            not reset and list(policy_map.items()) == list(self._policy_map.items())
+            not reset
+            and list(policy_map.items()) == list(self._policy_map.items())
             and invalid == self._invalid_map
         ):
             return
@@ -229,16 +299,16 @@ class CameraPanel:
         self._invalid_map = invalid
         self._views = (
             self._policy_views(policy_map)
-            if self._config.camera_mode == "policy" and policy_map
-            else list(self._config.cameras.model_dump().items())
+            if self._config.get("camera_mode", "policy") == "policy" and policy_map
+            else list(self._configured)
         )
         with self.extra_folder:
             while len(self.images) < len(self._views):
                 self.images.append(self._add_image())
-        self.extra_folder.visible = len(self._views) > len(PANEL_SLOTS)
+        self.extra_folder.visible = len(self._views) > len(self._slots)
         self._sources.clear()
         for index, handle in enumerate(self.images):
-            handle.visible = index < max(len(PANEL_SLOTS), len(self._views))
+            handle.visible = index < len(self._views)
             self._clear_image(index)
         self._render()
 
@@ -246,13 +316,24 @@ class CameraPanel:
         # Normal state heartbeats omit images between camera updates.
         if not payloads:
             return
-        follow_policy = self._config.camera_mode == "policy" and bool(self._policy_map)
-        resolved = {} if follow_policy else self._config.cameras.resolve(payloads, self._normalize)
+        follow_policy = self._config.get("camera_mode", "policy") == "policy" and bool(
+            self._policy_map
+        )
+        resolved = {}
+        if not follow_policy:
+            for _name, source in self._configured:
+                if source in payloads:
+                    resolved[source] = source
+                else:
+                    role = self._normalize(source)
+                    selected = next((key for key in payloads if self._normalize(key) == role), None)
+                    if selected is not None:
+                        resolved[source] = selected
         for index, view in enumerate(self._views):
             if view is None:
                 continue
             name, source = view
-            selected = source if follow_policy else resolved.get(name, source)
+            selected = source if follow_policy else resolved.get(source, source)
             self._sources[index] = selected
             if selected not in payloads:
                 if index in self._received:
@@ -264,19 +345,23 @@ class CameraPanel:
             )
             self.images[index].image = image
             self._received.add(index)
-            if index == 0:
+            if self._slots and self._slots[0] == "top" and index == 0:
                 self._on_main_image(image)
         self._render()
 
     def _render(self) -> None:
         labels = {
-            PANEL_SLOTS[index]: (view[0], self._sources.get(index, view[1]))
-            for index, view in enumerate(self._views[:3]) if view is not None
+            self._slots[index]: (
+                self._configured[index][0] if self._slots[index] != "top" else view[0],
+                self._sources.get(index, view[1]),
+            )
+            for index, view in enumerate(self._views[: len(self._slots)])
+            if view is not None
         }
-        panel_html = _camera_panel_html(labels)
+        panel_html = _camera_panel_html(labels, self._slots)
         if self.panel.content != panel_html:
             self.panel.content = panel_html
-        if self._config.camera_mode == "manual":
+        if self._config.get("camera_mode", "policy") == "manual":
             title = "手动预览 · 不改变模型输入"
         elif self._policy_map:
             title = "模型输入相机 · 实时预览"
@@ -287,7 +372,7 @@ class CameraPanel:
         rows = []
         for index, view in enumerate(self._views):
             if view is None:
-                rows.append(f"<tr><td>{PANEL_SLOTS[index]}</td><td>—</td><td>未配置</td></tr>")
+                rows.append(f"<tr><td>{self._slots[index]}</td><td>—</td><td>未配置</td></tr>")
                 continue
             name, source = view
             source = self._sources.get(index, source)
@@ -296,14 +381,14 @@ class CameraPanel:
                 f"<tr><td>{html.escape(name)}</td><td>{html.escape(source)}</td>"
                 f"<td>{status}</td></tr>"
             )
-            if index >= len(PANEL_SLOTS):
+            if index >= len(self._slots):
                 self.images[index].label = f"{name} ← {source} · {status}"
         details = (
             f"<strong>{title}</strong><table><thead><tr>"
             "<th>输入 / 预览位</th><th>相机来源</th><th>状态</th>"
             f"</tr></thead><tbody>{''.join(rows)}</tbody></table>"
         )
-        if self._config.camera_mode == "manual":
+        if self._config.get("camera_mode", "policy") == "manual":
             inputs = "；".join(
                 f"{html.escape(name)} ← {html.escape(source)}"
                 for name, source in self._policy_map.items()

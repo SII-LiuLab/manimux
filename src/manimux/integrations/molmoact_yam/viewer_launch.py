@@ -14,8 +14,28 @@ import sys
 from manimux.integrations.molmoact_yam.launch_yaml_eval_molmoact import (
     main as launch_molmoact,
 )
+from manimux.viewer.publisher import ViewerClient
 
-from ..client import ViewerClient
+
+class _MolmoObserver(ViewerClient):
+    @staticmethod
+    def _groups(values):
+        import numpy as np
+
+        array = np.asarray(values)
+        if array.shape[-1] not in (7, 14):
+            raise ValueError("MolmoAct YAM expects one or two seven-coordinate groups")
+        return {
+            name: array[..., i : i + 7]
+            for name, i in (("left", 0), ("right", 7))
+            if i < array.shape[-1]
+        }
+
+    def plan_activated(self, *, actions, **options):
+        super().plan_activated(groups=self._groups(actions), **options)
+
+    def step_executed(self, *, joint_positions, **options):
+        super().step_executed(groups=self._groups(joint_positions), **options)
 
 
 def main() -> None:
@@ -25,7 +45,7 @@ def main() -> None:
     known, remaining = parser.parse_known_args()
     sys.argv = [sys.argv[0], *remaining]
 
-    client = ViewerClient(
+    client = _MolmoObserver(
         robot="yam",
         policy="MolmoAct",
         endpoint=known.viewer_endpoint,

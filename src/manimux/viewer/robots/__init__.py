@@ -10,7 +10,7 @@ from typing import Any, cast
 
 from .base import RobotAdapter, RobotGroup, SceneBox, SceneView, StaticMesh
 
-BUILTIN_ROBOTS = ("tianji", "yam")
+BUILTIN_ROBOTS = ("yam",)
 
 
 def available_robot_adapters() -> tuple[str, ...]:
@@ -48,10 +48,6 @@ def load_robot_adapter(
         from .yam import YamAdapter
 
         adapter = YamAdapter(model_root=model_root, **kwargs)
-    elif name_or_reference == "tianji":
-        from .tianji import TianjiAdapter
-
-        adapter = TianjiAdapter(model_root=model_root, **kwargs)
     else:
         matching = [
             entry
