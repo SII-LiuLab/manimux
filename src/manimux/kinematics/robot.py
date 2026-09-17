@@ -17,8 +17,6 @@ class RobotKinematics:
     def __init__(self, models: Mapping[str, ManipulatorKinematicsBase]) -> None:
         if not models or any(not isinstance(k, str) or not k.strip() for k in models):
             raise ValueError("kinematic groups must have non-empty names")
-        if any(not isinstance(v, ManipulatorKinematicsBase) for v in models.values()):
-            raise TypeError("each group must provide complete manipulator kinematics")
         self._models = MappingProxyType(dict(models))
 
     @property

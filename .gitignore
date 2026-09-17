@@ -55,6 +55,20 @@ tests/
 /tests/integration/*
 !/tests/integration/test_umi_tianji_process_decoding.py
 !/tests/integration/test_tianji_rtc_process.py
+!/tests/integration/test_viewer_offline.py
+
+# Tianji embodiment migration and hardware-free component checks.
+!/tests/unit/test_tianji_embodiment_layout.py
+!/tests/unit/test_tianji_robot.py
+!/tests/unit/test_tianji_sdk_kinematics.py
+!/tests/unit/test_tianji_taccap_kinematics.py
+!/tests/unit/test_taccap_gripper.py
+!/tests/unit/test_composed_kinematics.py
+!/tests/unit/test_tool_geometry.py
+!/tests/unit/test_robot_assembly.py
+
+!/tests/unit/test_tianji_policy_assembly.py
+!/tests/unit/test_local_config.py
 
 # Private embodiment SDKs and robot assets stay on the local installation.
 /src/manimux/embodiments/**/sdk/

@@ -19,7 +19,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from scipy import sparse
 from scipy.spatial.transform import Rotation
 
-from manimux.kinematics.tianji import BD67_REAL, TianjiKinematics, j67_ok
+from manimux.embodiments.arm.tianji.kinematics import BD67_REAL, TianjiArmKinematics, j67_ok
+from manimux.kinematics.tianji import TianjiKinematics
 
 
 class DifferentialIKConfig(BaseModel):
@@ -166,7 +167,7 @@ class TianjiDifferentialIK:
     Within a chunk the reference warm-start/update sequence is preserved.
     """
 
-    def __init__(self, kinematics: TianjiKinematics, config: DifferentialIKConfig):
+    def __init__(self, kinematics: TianjiArmKinematics, config: DifferentialIKConfig):
         try:
             import osqp
         except ImportError as exc:
@@ -198,7 +199,9 @@ class TianjiDifferentialIK:
         self._a_data = marker.data.copy()
         self._a_c6 = int(np.flatnonzero(marker.data == -2.0)[0])
         self._a_c7 = int(np.flatnonzero(marker.data == -3.0)[0])
-        tool = kinematics.tool_transform
+        # 旧 TCP 接口在此去除工具偏移；新整机由公共组合层先转换为法兰目标，
+        # 传来的 arm 求解器不再持有末端信息，因此不能再次转换。
+        tool = kinematics.tool_transform if isinstance(kinematics, TianjiKinematics) else None
         self._tool_inverse = None if tool is None else np.linalg.inv(tool)
         self.reset()
 

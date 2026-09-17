@@ -21,6 +21,21 @@ from numpy.typing import NDArray
 FloatArray = NDArray[np.float64]
 
 
+def rigid_transform(value: FloatArray, name: str) -> FloatArray:
+    """Copy a finite rigid transform at the configuration/pose input boundary."""
+    pose = np.array(value, dtype=np.float64, copy=True)
+    if pose.shape != (4, 4) or not np.isfinite(pose).all():
+        raise ValueError(f"{name} must be a finite 4x4 matrix")
+    rotation = pose[:3, :3]
+    if (
+        not np.allclose(pose[3], [0, 0, 0, 1], atol=1e-9, rtol=0)
+        or not np.allclose(rotation.T @ rotation, np.eye(3), atol=1e-6, rtol=0)
+        or not np.isclose(np.linalg.det(rotation), 1, atol=1e-6, rtol=0)
+    ):
+        raise ValueError(f"{name} must be a rigid homogeneous transform")
+    return pose
+
+
 @dataclass(frozen=True, slots=True)
 class IKResult:
     """Outcome of an IK solve, never an instruction to move hardware.

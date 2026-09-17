@@ -1,0 +1,23 @@
+# Official Marvin component. Control bounds/ratios preserve the existing Tianji profile.
+type: arm
+implementation: manimux.embodiments.arm.tianji:TianjiArm
+options:
+  side: left
+hardware:
+  velocity_ratio: 32
+  acceleration_ratio: 100
+  joint_limits:
+  - - -2.8797932657906435
+    - -2.007128639793479
+    - -2.8797932657906435
+    - -2.443460952792061
+    - -2.8797932657906435
+    - -0.9599310885968813
+    - -1.4835298641951802
+  - - 2.8797932657906435
+    - 2.007128639793479
+    - 2.8797932657906435
+    - 0.9599310885968813
+    - 2.8797932657906435
+    - 0.9599310885968813
+    - 1.4835298641951802

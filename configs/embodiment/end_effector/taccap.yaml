@@ -1,0 +1,7 @@
+# 末端模型和控制参数；serial 由 local.robot.components 提供。
+type: end_effector
+implementation: manimux.embodiments.end_effector.taccap:TacCapGripper
+options: {}
+hardware:
+  kp: 8.0
+  kd: 0.3

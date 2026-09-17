@@ -7,11 +7,12 @@ import numpy as np
 import pytest
 from scipy.spatial.transform import Rotation
 
-from manimux.config import load_config
+from manimux.cli import load_config
 from manimux.integrations.umi_dp_tianji.history import HistoryStrategy
 from manimux.integrations.umi_dp_tianji.ik_config import bind_diff_ik_profile
 from manimux.kinematics.tianji import TianjiKinematics, j67_ok
 from manimux.kinematics.tianji_diff import DifferentialIKConfig, TianjiDifferentialIK
+from manimux.policies.base import action_interval
 
 pytest.importorskip("osqp")
 ROOT = Path(__file__).resolve().parents[2]
@@ -22,9 +23,9 @@ START = np.radians([50, -40, -30, -100, -65, 0, 40])
 def solver():
     kin = TianjiKinematics(end_effector="umi_follower")
     config = load_config(ROOT / "configs/umi_dp/tianji/infra/pass_ball/default.yaml")
-    config.policy.options["ik_backend"] = "diff"
+    config["policy"]["options"]["ik_backend"] = "diff"
     bind_diff_ik_profile(config)
-    return TianjiDifferentialIK(kin, DifferentialIKConfig(**config.policy.options["diff_ik"]))
+    return TianjiDifferentialIK(kin, DifferentialIKConfig(**config["policy"]["options"]["diff_ik"]))
 
 
 def test_flange_jacobian_matches_finite_difference():
@@ -173,15 +174,15 @@ def test_nullspace_objective_pushes_joint_toward_interior(solver):
 
 def test_diff_rate_profile_binding_and_runtime_stale_rejection():
     config = load_config(ROOT / "configs/umi_dp/tianji/infra/pass_ball/default.yaml")
-    config.policy.options["ik_backend"] = "diff"
+    config["policy"]["options"]["ik_backend"] = "diff"
     with pytest.raises(ValueError, match="max_velocity_rad_s"):
         HistoryStrategy(config)
-    config.execution.motion_limits.arm.max_velocity = 0.37
-    config.execution.motion_limits.arm.max_step_dt_s = 0.012
+    config["execution"]["motion_limits"]["arm"]["max_velocity"] = 0.37
+    config["execution"]["motion_limits"]["arm"]["max_step_dt_s"] = 0.012
     bind_diff_ik_profile(config)
-    assert config.policy.options["diff_ik"]["max_velocity_rad_s"] == 0.37
+    assert config["policy"]["options"]["diff_ik"]["max_velocity_rad_s"] == 0.37
     HistoryStrategy(config)
-    config.execution.motion_limits.arm.max_velocity = 0.31
+    config["execution"]["motion_limits"]["arm"]["max_velocity"] = 0.31
     with pytest.raises(ValueError, match="conflicts with the shared motion profile"):
         HistoryStrategy(config)
 
@@ -193,12 +194,12 @@ def test_cannot_relax_embodiment_margin_or_disable_umi_interference(solver):
     from manimux.integrations.umi_dp_tianji.policy_plugin import UmiDpTianjiAdapter
 
     runtime = load_config(ROOT / "configs/umi_dp/tianji/infra/pass_ball/default.yaml")
-    runtime.robot.driver = "mock"
-    runtime.policy.options["ik_backend"] = "diff"
+    runtime["robot"]["type"] = "mock"
+    runtime["policy"]["options"]["ik_backend"] = "diff"
     bind_diff_ik_profile(runtime)
-    runtime.policy.options["diff_ik"]["check_j67"] = False
+    runtime["policy"]["options"]["diff_ik"]["check_j67"] = False
     with pytest.raises(ValueError, match="requires the J6/J7 constraint"):
-        UmiDpTianjiAdapter(runtime.robot, runtime.policy)
+        UmiDpTianjiAdapter(runtime["robot"], runtime["policy"])
 
 
 @pytest.mark.parametrize("horizon,offset", [(16, 1 / 30), (64, 0.1)])
@@ -214,11 +215,11 @@ def test_real_diff_adapter_chunk_timing_and_atomic_rejection(horizon, offset):
     )
 
     config = load_config(ROOT / "configs/umi_dp/tianji/infra/pass_ball/default.yaml")
-    config.robot.driver = "mock"
-    config.policy.horizon_steps = horizon
-    config.policy.options.update(ik_backend="diff", first_action_offset_s=offset)
+    config["robot"]["type"] = "mock"
+    config["policy"]["horizon_steps"] = horizon
+    config["policy"]["options"].update(ik_backend="diff", first_action_offset_s=offset)
     bind_diff_ik_profile(config)
-    adapter = UmiDpTianjiAdapter(config.robot, config.policy)
+    adapter = UmiDpTianjiAdapter(config["robot"], config["policy"])
     state = RobotState({side + "_arm": np.r_[START, 0.8] for side in ("left", "right")}, 10**9, 1)
     previous = RobotState({key: value.copy() for key, value in state.groups.items()}, 900000000, 0)
     frames = {
@@ -243,8 +244,11 @@ def test_real_diff_adapter_chunk_timing_and_atomic_rejection(horizon, offset):
     for side in ("left", "right"):
         assert adapter.kin[side]._sdk is None
         delta = np.diff(np.vstack([START, chunk.groups[side + "_arm"][:, :7]]), axis=0)
-        dt = config.policy.effective_action_dt_s
-        assert np.max(np.abs(delta)) <= config.execution.motion_limits.arm.max_velocity * dt
+        dt = action_interval(config["policy"])
+        assert (
+            np.max(np.abs(delta))
+            <= config["execution"]["motion_limits"]["arm"]["max_velocity"] * dt
+        )
     # Failure in the right arm's last row must not return the completed left arm.
     adapter.prepare_request(InferenceRequest("test", 2, 10**9, 2 * 10**9, window))
     actions[-1]["right_ee_pose"][0] += 0.3
@@ -252,8 +256,8 @@ def test_real_diff_adapter_chunk_timing_and_atomic_rejection(horizon, offset):
         adapter.decode_action({"actions": actions}, ActionContext(2, 10**9, 10**9))
     assert 2 not in adapter.anchors
     # The report policy keeps that bounded, lagging chunk and records the lag.
-    config.policy.options["diff_ik"]["lag_policy"] = "report"
-    reporting = UmiDpTianjiAdapter(config.robot, config.policy)
+    config["policy"]["options"]["diff_ik"]["lag_policy"] = "report"
+    reporting = UmiDpTianjiAdapter(config["robot"], config["policy"])
     reporting.prepare_request(InferenceRequest("test", 3, 10**9, 2 * 10**9, window))
     chunk = reporting.decode_action({"actions": actions}, ActionContext(3, 10**9, 10**9))
     lag = chunk.metadata["diff_ik_lag"]

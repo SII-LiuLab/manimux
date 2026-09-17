@@ -1,0 +1,8 @@
+# 相机采集参数；camera_serial 由 local.robot.components 提供。
+type: sensor
+implementation: manimux.embodiments.sensor.taccap:TacCapSensor
+options: {}
+hardware:
+  width: 640
+  height: 480
+  fps: 30

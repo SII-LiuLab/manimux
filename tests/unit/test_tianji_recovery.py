@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from manimux.config import load_config
+from manimux.cli import load_config
 from manimux.robots.tianji import recovery, teleop_drag
 from manimux.session import RuntimeSessionService
 from manimux.viewer.dashboard import PolicyViewer
@@ -15,10 +15,10 @@ from manimux.viewer.dashboard import PolicyViewer
 
 def _config():
     config = load_config("configs/mock.yaml")
-    config.viewer.enabled = True
-    config.viewer.robot_adapter = "tianji"
-    config.robot.driver = "tianji_dual"
-    config.robot.options = {"execute": True, "robot_ip": "test-controller"}
+    config["viewer"]["enabled"] = True
+    config["viewer"]["robot"] = "tianji"
+    config["robot"]["type"] = "tianji_dual"
+    config["robot"]["options"] = {"execute": True, "robot_ip": "test-controller"}
     return config
 
 
@@ -85,7 +85,10 @@ def test_drag_uses_paired_umi_params_tracks_and_cleans_partial_startup(
         return True, driver.state()
 
     api = SimpleNamespace(
-        STATE_TORQUE=3, STATE_DISABLED=0, STATE_ERROR=100, send_joint_commands=send,
+        STATE_TORQUE=3,
+        STATE_DISABLED=0,
+        STATE_ERROR=100,
+        send_joint_commands=send,
         ensure_clear=ensure_clear,
     )
     conn = SimpleNamespace(
@@ -118,7 +121,7 @@ def test_drag_uses_paired_umi_params_tracks_and_cleans_partial_startup(
         tool = next(c[1] for c in calls if c[0] == "tool" and c[1]["arm"] == arm)
         assert tool["dynamicParams"] == [0.759 if arm == "A" else 0.739]
     assert calls[-1] == ("close",)
-    assert calls[:len(arms)] == [("checked_clear", arm) for arm in arms]
+    assert calls[: len(arms)] == [("checked_clear", arm) for arm in arms]
     assert sum(c[0] == "disable" for c in calls) == len(arms)
 
 
@@ -206,7 +209,7 @@ def test_recovery_home_uses_existing_driver_and_waits_for_close(monkeypatch):
     calls = []
     robot = SimpleNamespace(
         connect=lambda **kwargs: calls.append(("connect", kwargs)),
-        **{name: lambda n=name: calls.append(n) for name in ("home", "stop", "close")}
+        **{name: lambda n=name: calls.append(n) for name in ("home", "stop", "close")},
     )
     monkeypatch.setattr(recovery, "build_robot", lambda *_: robot)
     controller = recovery.TianjiRecovery(_config())
@@ -250,7 +253,7 @@ def test_recovery_reports_uncleared_error_without_homing_and_releases_driver(mon
 def test_recovery_respects_runtime_hardware_scope(monkeypatch, options, error):
     monkeypatch.setattr(recovery, "TeleopDragProcess", FakeDrag)
     config = _config()
-    config.robot.options = options
+    config["robot"]["options"] = options
     controller = recovery.TianjiRecovery(config)
     controller.update(
         {"recovery_request_id": "1", "recovery_request": "drag:AB", "recovery_lease": True}
@@ -333,11 +336,18 @@ def _viewer():
         setattr(viewer, name, SimpleNamespace(content=""))
     for name in ("policy_name", "runtime_name", "episode_path", "executor_info"):
         setattr(viewer, name, SimpleNamespace(value=""))
-    for name in ("new_rollout_folder", "policy_control_folder", "recovery_folder",
-                 "evaluation_folder", "overlay_folder", "run_folder"):
+    for name in (
+        "new_rollout_folder",
+        "policy_control_folder",
+        "recovery_folder",
+        "evaluation_folder",
+        "overlay_folder",
+        "run_folder",
+    ):
         setattr(viewer, name, SimpleNamespace(visible=False))
     viewer.camera_view = SimpleNamespace(
-        set_policy_map=lambda *_args, **_kwargs: None, clear_images=lambda: None,
+        set_policy_map=lambda *_args, **_kwargs: None,
+        clear_images=lambda: None,
     )
     viewer.current_episode_dir = None
     viewer.episode_finalized = False
@@ -388,8 +398,9 @@ def test_viewer_waits_for_ack_keeps_stop_available_and_locks_out_prepare():
     assert not viewer.home_btn.disabled and not viewer.prepare_normal_btn.disabled
 
 
-@pytest.mark.parametrize("stage", ["waiting", "setup", "preparing", "control",
-                                  "evaluation", "complete"])
+@pytest.mark.parametrize(
+    "stage", ["waiting", "setup", "preparing", "control", "evaluation", "complete"]
+)
 def test_recovery_panel_is_visible_at_every_stage(stage):
     viewer = _viewer()
     viewer._set_stage(stage)
@@ -442,7 +453,8 @@ def test_estop_failure_unlocks_recovery_even_when_failure_event_was_lost(event, 
     viewer.evaluation_saved = False
     viewer.paused = False
     metadata = {
-        "run_dir": "test-service", "last_failure_id": "failure-1",
+        "run_dir": "test-service",
+        "last_failure_id": "failure-1",
         "last_error": "RuntimeError: left_arm state 1 err_code 13 (emergency stop)",
         "recovery": {"available": True, "busy": False, "state": "idle"},
     }
@@ -454,11 +466,21 @@ def test_estop_failure_unlocks_recovery_even_when_failure_event_was_lost(event, 
     assert "physical E-stop" in viewer.recovery_status.content
     assert "before execution" not in viewer.status.content
     viewer._request_recovery("drag:AB")
-    viewer._update_event({"event": "runtime_service_ready", "metadata": {
-        **metadata,
-        "recovery": {"available": True, "busy": True, "state": "active", "arm": "AB",
-                     "ack": viewer.recovery_request_id},
-    }})
+    viewer._update_event(
+        {
+            "event": "runtime_service_ready",
+            "metadata": {
+                **metadata,
+                "recovery": {
+                    "available": True,
+                    "busy": True,
+                    "state": "active",
+                    "arm": "AB",
+                    "ack": viewer.recovery_request_id,
+                },
+            },
+        }
+    )
     assert viewer.recovery_lease
     assert "Drag AB" in viewer.recovery_status.content
     assert "Manual recovery" in viewer.status.content
@@ -466,26 +488,41 @@ def test_estop_failure_unlocks_recovery_even_when_failure_event_was_lost(event, 
 
 def test_repeated_failure_heartbeat_does_not_cancel_a_new_preparation():
     viewer = _viewer()
-    metadata = {"run_dir": "test-service", "last_failure_id": "failure-1",
-                "last_error": "emergency stop", "recovery": {"available": True}}
+    metadata = {
+        "run_dir": "test-service",
+        "last_failure_id": "failure-1",
+        "last_error": "emergency stop",
+        "recovery": {"available": True},
+    }
     viewer._update_event({"event": "runtime_service_ready", "metadata": metadata})
     viewer._prepare_rollout(experiment_mode=False)
     viewer._update_event({"event": "runtime_service_ready", "metadata": metadata})
     assert viewer.preparing_rollout and not viewer.service_ready
     # A fresh failure with the identical text must still unblock recovery.
-    viewer._update_event({"event": "runtime_service_ready", "metadata": {
-        **metadata, "last_failure_id": "failure-2",
-    }})
+    viewer._update_event(
+        {
+            "event": "runtime_service_ready",
+            "metadata": {
+                **metadata,
+                "last_failure_id": "failure-2",
+            },
+        }
+    )
     assert not viewer.preparing_rollout and not viewer.drag_btn.disabled
 
 
 @pytest.mark.parametrize("clear_ok, remaining_error", [(False, 13), (True, 13), (False, 0)])
 def test_uncleared_estop_never_enables_either_arm(clear_ok, remaining_error):
     calls = []
+
     def ensure_clear(conn, driver, arm):
         calls.append(("check", arm))
-        return ((True, {"cur": 0, "err": 0}) if arm == "A" else
-                (clear_ok, {"cur": 0, "err": remaining_error}))
+        return (
+            (True, {"cur": 0, "err": 0})
+            if arm == "A"
+            else (clear_ok, {"cur": 0, "err": remaining_error})
+        )
+
     api = SimpleNamespace(ensure_clear=ensure_clear, STATE_ERROR=100)
     conn = SimpleNamespace(close=lambda: calls.append(("close",)))
     with pytest.raises(RuntimeError, match="physical E-stop"):
@@ -495,9 +532,11 @@ def test_uncleared_estop_never_enables_either_arm(clear_ok, remaining_error):
 
 def test_drag_cancellation_during_error_check_does_not_enable_arm():
     stop = threading.Event()
+
     def ensure_clear(*_args):
         stop.set()
         return True, {"cur": 0, "err": 0}
+
     closed = []
     api = SimpleNamespace(ensure_clear=ensure_clear, STATE_ERROR=100)
     conn = SimpleNamespace(close=lambda: closed.append(True))

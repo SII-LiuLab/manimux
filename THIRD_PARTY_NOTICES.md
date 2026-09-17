@@ -31,7 +31,8 @@ License; see `licenses/i2rt-MIT.txt`.
 
 ## Tianji Marvin model assets
 
-`src/manimux/assets/tianji/` contains the vendor CAD exports of the Tianji
+`src/manimux/embodiments/arm/tianji/assets/` and
+`src/manimux/embodiments/robot/tianji_taccap/assets/` contain the vendor CAD exports of the Tianji
 Marvin left arm, right arm and stand (URDF and STL), as bundled in
 `SII-LiuLab/universal_viewer` at commit `a7278af`. The stand URDF keeps only
 the `Link_Base`/`Link_Stand` links of the vendor's full assembly, and link
@@ -54,7 +55,7 @@ for this derived code here.
 
 ## Marvin SDK
 
-`src/manimux/robots/tianji/vendor/marvin/` contains the Python bindings
+`src/manimux/embodiments/arm/tianji/sdk/marvin/` contains the Python bindings
 (`fx_robot.py`, `fx_kine.py`), Linux x86-64 libraries (`libMarvinSDK.so`,
 `libKine.so`) and the `ccs_m6_40.MvKDCfg` arm table from the vendor's
 `TJ_FX_ROBOT_CONTRL_SDK`, unmodified. The SDK is Copyright 2025 上海孚晞科技有限公司
@@ -62,7 +63,7 @@ under the Apache License 2.0; see the `LICENSE` file in that directory.
 
 ## UMI follower gripper assets
 
-`src/manimux/assets/end_effectors/umi_follower/` contains the XenseRobotics
+`src/manimux/embodiments/end_effector/taccap/assets/umi_follower/` contains the XenseRobotics
 UMI follower gripper CAD (从夹爪组件0720, URDF and STL) with colors replaced by
 the bundled YAM gripper palette. Its flange mount and TCP follow the
 derivation in `SII-LiuLab/tianji-control` commit `d1def56`.

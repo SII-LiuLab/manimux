@@ -12,7 +12,8 @@ import numpy as np
 import pytest
 import yaml
 
-from manimux.config import ControlProfileConfig, RobotConfig
+from manimux.cli import control_profile_parameters, load_config
+from manimux.embodiments.robot import robot_parameters
 from manimux.kinematics.tianji import DH_TABLE_M6_40, JOINT_LIMITS_DEG, TianjiKinematics
 from manimux.robots import build_robot
 from manimux.robots.tianji import driver as driver_module
@@ -272,10 +273,10 @@ def rig(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     )
 
 
-def robot_config(width: int = 8, **options: object) -> RobotConfig:
+def robot_config(width: int = 8, **options: object) -> dict:
     base: dict[str, object] = {"left_gripper_sn": "SN-L", "right_gripper_sn": "SN-R"}
     base.update(options)
-    return RobotConfig(
+    return robot_parameters(
         driver="tianji_dual", group_dims={"left_arm": width, "right_arm": width}, options=base
     )
 
@@ -343,29 +344,46 @@ def test_read_only_session_reads_state_and_never_moves_anything(rig: SimpleNames
 @pytest.mark.parametrize("control_hz", [100.0, 250.0])
 @pytest.mark.parametrize("finish_home", [None, False, True])
 def test_viewer_controls_reach_tianji_and_smooth_ticks_send_commands(
-    rig: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    rig: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
     control_hz: float,
     finish_home: bool | None,
 ) -> None:
-    from manimux.config import load_config
     from manimux.runtime import edge
     from manimux.types import ActionChunk, InferenceResponse
     from manimux.viewer import transport
 
-    controls = iter([
-        {"paused": True}, {"paused": False}, {"paused": False},
-        {"paused": True}, {"paused": False},
-        {"paused": True, "home_requested": True},
-        {"paused": True}, {"paused": False},
-        {"paused": True, "finish_requested": True, "finish_home": finish_home},
-    ])
+    controls = iter(
+        [
+            {"paused": True},
+            {"paused": False},
+            {"paused": False},
+            {"paused": True},
+            {"paused": False},
+            {"paused": True, "home_requested": True},
+            {"paused": True},
+            {"paused": False},
+            {"paused": True, "finish_requested": True, "finish_home": finish_home},
+        ]
+    )
     messages = []
-    monkeypatch.setattr(transport, "ControlClient", lambda: SimpleNamespace(
-        poll=lambda: next(controls), close=lambda: None,
-    ))
-    monkeypatch.setattr(transport, "ViewerPublisher", lambda: SimpleNamespace(
-        publish=lambda message: messages.append(message.to_wire()), close=lambda: None,
-    ))
+    monkeypatch.setattr(
+        transport,
+        "ControlClient",
+        lambda: SimpleNamespace(
+            poll=lambda: next(controls),
+            close=lambda: None,
+        ),
+    )
+    monkeypatch.setattr(
+        transport,
+        "ViewerPublisher",
+        lambda: SimpleNamespace(
+            publish=lambda message: messages.append(message.to_wire()),
+            close=lambda: None,
+        ),
+    )
 
     class InstantPolicy:
         is_alive = True
@@ -377,15 +395,23 @@ def test_viewer_controls_reach_tianji_and_smooth_ticks_send_commands(
         def submit_latest(self, request):
             # Constant FK-independent targets isolate GUI/control scheduling.
             chunk = ActionChunk(
-                plan_id=f"test-{request.request_seq}", request_seq=request.request_seq,
+                plan_id=f"test-{request.request_seq}",
+                request_seq=request.request_seq,
                 observation_time_ns=request.observation_time_ns,
-                created_time_ns=rig.clock.now_ns(), action_space="joint_position",
+                created_time_ns=rig.clock.now_ns(),
+                action_space="joint_position",
                 dt_ns=33_333_333,
-                groups={name: np.tile(values, (20, 1))
-                        for name, values in request.observation.state.groups.items()},
+                groups={
+                    name: np.tile(values, (20, 1))
+                    for name, values in request.observation.state.groups.items()
+                },
             )
             self.pending = InferenceResponse(
-                request.session_id, request.request_seq, rig.clock.now_ns(), 0.0, chunk,
+                request.session_id,
+                request.request_seq,
+                rig.clock.now_ns(),
+                0.0,
+                chunk,
                 observation_time_ns=request.observation_time_ns,
             )
 
@@ -398,16 +424,16 @@ def test_viewer_controls_reach_tianji_and_smooth_ticks_send_commands(
 
     monkeypatch.setattr(edge, "PolicyWorkerClient", lambda *_: InstantPolicy())
     config = load_config(REPO / "configs/mock.yaml")
-    config.robot = robot_config(execute=True, vel_ratio=32)
+    config["robot"] = robot_config(execute=True, vel_ratio=32)
     # Explicit Finish without homing must override even home_on_close=true.
-    config.robot.options["home_on_close"] = finish_home is False
-    config.robot.control_hz = control_hz
-    config.sensors = []
-    config.viewer.enabled = True
-    config.viewer.robot_adapter = "tianji"
-    config.execution.inference_schedule = "single_inflight"
-    config.execution.commit_lead_s = 0
-    config.run.max_steps = 20
+    config["robot"]["options"]["home_on_close"] = finish_home is False
+    config["robot"]["control_hz"] = control_hz
+    config["sensors"] = []
+    config["viewer"]["enabled"] = True
+    config["viewer"]["robot"] = "tianji"
+    config["execution"]["inference_schedule"] = "single_inflight"
+    config["execution"]["commit_lead_s"] = 0
+    config["run"]["max_steps"] = 20
     runtime = edge.EdgeRuntime(config, tmp_path, clock=rig.clock)
     sends, smoothing, homes = [], [], []
     original_send = runtime._robot.send_command
@@ -701,7 +727,8 @@ def home_rig(rig: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> SimpleNam
         rig.clock.now += round(seconds * 1e9)
 
     monkeypatch.setattr(
-        driver_module, "time",
+        driver_module,
+        "time",
         SimpleNamespace(monotonic=lambda: rig.clock.now_ns() / 1e9, sleep=sleep),
     )
     rig.grippers.positions = {"/dev/left": 0.0, "/dev/right": 0.1}
@@ -713,7 +740,6 @@ def test_return_home_recovers_estop_and_starts_at_measured_pose(
     home_rig: SimpleNamespace,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from manimux.config import load_config
     from manimux.robots.tianji import recovery
 
     rig = home_rig
@@ -723,8 +749,8 @@ def test_return_home_recovers_estop_and_starts_at_measured_pose(
     rig.controller.err_code = [13, 13]
     rig.controller.cur_state = [100, 100]
     config = load_config("configs/mock.yaml")
-    config.robot = robot_config(execute=True, vel_ratio=32, gripper_control=True)
-    config.viewer.robot_adapter = "tianji"
+    config["robot"] = robot_config(execute=True, vel_ratio=32, gripper_control=True)
+    config["viewer"]["robot"] = "tianji"
     monkeypatch.setattr(recovery, "SystemClock", lambda: rig.clock)
     controller = recovery.TianjiRecovery(config)
     controller.update({"recovery_request_id": "1", "recovery_request": "home"})
@@ -782,16 +808,16 @@ def test_home_aborts_on_new_fault_without_clearing_or_sending_more_targets(
 @pytest.mark.parametrize("stop_first", [False, True])
 @pytest.mark.parametrize("already_home", [False, True])
 def test_home_opens_grippers_only_after_both_arms_arrive(
-    home_rig: SimpleNamespace, monkeypatch: pytest.MonkeyPatch,
-    stop_first: bool, already_home: bool,
+    home_rig: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    stop_first: bool,
+    already_home: bool,
 ) -> None:
     rig = home_rig
     if not already_home:
         rig.controller.joints[0][0] -= 4.0
         rig.controller.joints[1][0] += 4.0
-    robot = build_robot(
-        robot_config(execute=True, vel_ratio=32, gripper_control=True), rig.clock
-    )
+    robot = build_robot(robot_config(execute=True, vel_ratio=32, gripper_control=True), rig.clock)
     robot.connect()
     try:
         if stop_first:
@@ -842,9 +868,7 @@ def test_home_does_not_open_grippers_if_joints_fail_to_arrive(home_rig: SimpleNa
     rig = home_rig
     rig.controller.joints[1][0] += 1.0  # below tracking limit, outside home tolerance
     rig.controller.follow = False
-    robot = build_robot(
-        robot_config(execute=True, vel_ratio=32, gripper_control=True), rig.clock
-    )
+    robot = build_robot(robot_config(execute=True, vel_ratio=32, gripper_control=True), rig.clock)
     robot.connect()
     try:
         with pytest.raises(RuntimeError, match="joints did not reach home"):
@@ -857,12 +881,11 @@ def test_home_does_not_open_grippers_if_joints_fail_to_arrive(home_rig: SimpleNa
 
 
 def test_home_waits_for_both_grippers_and_times_out_if_one_is_stuck(
-    home_rig: SimpleNamespace, monkeypatch: pytest.MonkeyPatch,
+    home_rig: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     rig = home_rig
-    robot = build_robot(
-        robot_config(execute=True, vel_ratio=32, gripper_control=True), rig.clock
-    )
+    robot = build_robot(robot_config(execute=True, vel_ratio=32, gripper_control=True), rig.clock)
     robot.connect()
     original_target = robot._grippers.set_target
 
@@ -886,12 +909,12 @@ def test_home_waits_for_both_grippers_and_times_out_if_one_is_stuck(
 
 @pytest.mark.parametrize("fault", ["torque", "stale", "controller"])
 def test_home_opening_stops_on_fault(
-    home_rig: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, fault: str,
+    home_rig: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    fault: str,
 ) -> None:
     rig = home_rig
-    robot = build_robot(
-        robot_config(execute=True, vel_ratio=32, gripper_control=True), rig.clock
-    )
+    robot = build_robot(robot_config(execute=True, vel_ratio=32, gripper_control=True), rig.clock)
     robot.connect()
     original_target = robot._grippers.set_target
 
@@ -922,9 +945,7 @@ def test_home_opening_stops_on_fault(
 
 def test_home_does_not_restart_grippers_after_a_latched_fault(home_rig: SimpleNamespace) -> None:
     rig = home_rig
-    robot = build_robot(
-        robot_config(execute=True, vel_ratio=32, gripper_control=True), rig.clock
-    )
+    robot = build_robot(robot_config(execute=True, vel_ratio=32, gripper_control=True), rig.clock)
     robot.connect()
     try:
         rig.grippers.torque = 2.0
@@ -948,19 +969,19 @@ def test_bare_arms_skip_the_gripper_sdk(rig: SimpleNamespace) -> None:
 
 
 def test_control_profile_envelopes_are_consistent() -> None:
-    profile = ControlProfileConfig.model_validate(
-        yaml.safe_load((REPO / "configs/robots/tianji/common.yaml").read_text())
+    profile = control_profile_parameters(
+        **yaml.safe_load((REPO / "configs/robots/tianji/common.yaml").read_text())
     )
-    assert profile.robot.options["execute"] is False
+    assert profile["robot"]["options"]["execute"] is False
     build_robot(
-        RobotConfig(
-            driver=profile.robot.driver,
-            group_dims=profile.robot.group_dims,
-            options=profile.robot.options,
+        robot_parameters(
+            driver=profile["robot"].driver,
+            group_dims=profile["robot"]["group_dims"],
+            options=profile["robot"]["options"],
         ),
         FakeClock(),
     )
-    safety, motion = profile.command_safety, profile.motion_limits
+    safety, motion = profile["command_safety"], profile["motion_limits"]
     assert safety is not None and motion is not None
     assert motion.arm.mode == "isotropic"
     assert motion.arm.max_step_dt_s == 0.016

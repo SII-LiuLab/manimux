@@ -18,22 +18,9 @@ from manimux.kinematics.robot import RobotKinematics
 from manimux.kinematics.tool import FixedToolGeometry, ToolGeometryBase
 from manimux.plugins import load_plugin
 
-
-def _yam_factory(**options: object) -> ArmKinematics:
-    from manimux.kinematics.yam import YamKinematics
-
-    return YamKinematics(**options)  # type: ignore[arg-type]
-
-
-def _tianji_factory(**options: object) -> ArmKinematics:
-    from manimux.kinematics.tianji import TianjiKinematics
-
-    return TianjiKinematics(**options)  # type: ignore[arg-type]
-
-
-_BUILTINS: dict[str, Callable[..., ArmKinematics]] = {
-    "tianji": _tianji_factory,
-    "yam": _yam_factory,
+_BUILTINS: dict[str, Callable[..., ArmKinematics] | str] = {
+    "tianji": "manimux.kinematics.tianji:TianjiKinematics",
+    "yam": "manimux.kinematics.yam:YamKinematics",
 }
 
 

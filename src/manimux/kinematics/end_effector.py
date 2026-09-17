@@ -1,7 +1,7 @@
 """Swappable end effectors mounted on an arm flange.
 
 A gripper, hand or tool is described once under
-``assets/end_effectors/<name>/`` as a standalone URDF plus
+the owning component's ``assets/<name>/`` as a standalone URDF plus
 ``end_effector.yaml``, independent of the arm that carries it. The same
 description yields both the tool transform (flange -> TCP) that pose-space
 kinematics use and the combined arm + end-effector URDF the viewer renders, so
@@ -42,7 +42,9 @@ from scipy.spatial.transform import Rotation
 
 from manimux.kinematics.base import FloatArray
 
-DEFAULT_END_EFFECTOR_ROOT = Path(__file__).resolve().parents[1] / "assets" / "end_effectors"
+DEFAULT_END_EFFECTOR_ROOT = (
+    Path(__file__).resolve().parents[1] / "embodiments" / "end_effector" / "taccap" / "assets"
+)
 SPEC_FILENAME = "end_effector.yaml"
 
 # Names of end-effector links and joints inside a combined URDF.
@@ -174,8 +176,6 @@ def load_end_effector(name_or_path: str | Path, root: Path | str | None = None) 
         )
     spec = EndEffectorSpec.model_validate(yaml.safe_load(spec_path.read_text()) or {})
     urdf_path = directory / spec.urdf
-    if not urdf_path.is_file():
-        raise FileNotFoundError(f"{spec.name}: URDF not found at {urdf_path}")
     robot = ET.parse(urdf_path).getroot()
     if spec.root_link not in {link.get("name") for link in robot.findall("link")}:
         raise ValueError(f"{spec.name}: root_link {spec.root_link!r} is not a link of {urdf_path}")

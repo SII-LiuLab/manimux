@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 
-from manimux.kinematics.base import FloatArray, KinematicCoordinate
+from manimux.kinematics.base import FloatArray, KinematicCoordinate, rigid_transform
 
 
 class ToolGeometryBase(ABC):
@@ -75,24 +75,10 @@ class FixedToolGeometry(ToolGeometryBase):
         base_frame: str = "tool_base",
         tcp_frame: str = "tcp",
     ) -> None:
-        pose = np.array(transform, dtype=np.float64, copy=True)
-        if pose.shape != (4, 4) or not np.isfinite(pose).all():
-            raise ValueError("tool transform must be a finite 4x4 matrix")
-        if not np.allclose(pose[3], [0, 0, 0, 1], atol=1e-9, rtol=0):
-            raise ValueError("tool transform must have homogeneous last row")
-        rotation = pose[:3, :3]
-        if not np.allclose(rotation.T @ rotation, np.eye(3), atol=1e-6, rtol=0) or not np.isclose(
-            np.linalg.det(rotation), 1.0, atol=1e-6, rtol=0
-        ):
-            raise ValueError("tool transform must contain a proper rotation")
+        pose = rigid_transform(transform, "tool transform")
         layout = tuple(coordinates)
-        if any(not isinstance(item, KinematicCoordinate) for item in layout):
-            raise ValueError("tool coordinates must be KinematicCoordinate instances")
         if len({item.name for item in layout}) != len(layout):
             raise ValueError("tool coordinate names must be unique")
-        for frame in (base_frame, tcp_frame):
-            if not isinstance(frame, str) or not frame.strip():
-                raise ValueError("tool frame names must be non-empty strings")
         self._transform = pose
         self._coordinates = layout
         self._base_frame = base_frame

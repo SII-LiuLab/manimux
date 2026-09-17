@@ -12,10 +12,37 @@ import numpy as np
 import pytest
 import yaml
 
+from manimux.embodiments.sensor.taccap import TacCapCamera, find_camera_device
 from manimux.sensors.camera_server import server as camera_server
-from manimux.sensors.taccap import TacCapCamera, find_camera_device
 
 REPO = Path(__file__).resolve().parents[2]
+
+
+def test_sensor_defers_opening_and_preserves_capture_metadata(by_id):
+    from manimux.embodiments.sensor.base import SensorBase
+    from manimux.embodiments.sensor.taccap import TacCapSensor
+
+    sensor = TacCapSensor(name="wrist", camera_serial="XCA28Z0041s", by_id_root=by_id)
+    assert isinstance(sensor, SensorBase)
+    assert not FakeCamera.instances
+    with pytest.raises(RuntimeError, match="not started"):
+        sensor.read()
+    try:
+        sensor.start()
+        sensor.start()
+        assert len(FakeCamera.instances) == 1
+        FakeCamera.instances[0].stop()
+        first = sensor.read()
+        second = sensor.read()
+        assert first.name == "wrist"
+        assert first.capture_monotonic_ns == second.capture_monotonic_ns
+        assert first.sequence == second.sequence
+        assert first.data[0, 0].tolist() == [0, 0, 255]
+        first.data[:] = 0
+        assert sensor.read().data[0, 0].tolist() == [0, 0, 255]
+    finally:
+        sensor.close()
+        sensor.close()
 
 
 class FakeCamera:
@@ -66,6 +93,57 @@ def test_camera_is_resolved_by_serial(by_id: Path) -> None:
         find_camera_device("XCA-missing", by_id)
 
 
+def test_sensor_retains_camera_when_start_and_cleanup_fail(by_id, monkeypatch):
+    from manimux.embodiments.sensor.taccap import TacCapSensor
+
+    def fail_start(self, callback):
+        raise RuntimeError("start failed")
+
+    def fail_stop(self):
+        raise RuntimeError("stop failed")
+
+    real_start, real_stop = FakeCamera.start, FakeCamera.stop
+    monkeypatch.setattr(FakeCamera, "start", fail_start)
+    monkeypatch.setattr(FakeCamera, "stop", fail_stop)
+    sensor = TacCapSensor(name="wrist", camera_serial="XCA28Z0041s", by_id_root=by_id)
+    with pytest.raises(ExceptionGroup, match="startup and cleanup failed"):
+        sensor.start()
+    assert sensor._camera._camera is FakeCamera.instances[0]
+    with pytest.raises(RuntimeError, match="cleanup incomplete"):
+        sensor.start()
+    with pytest.raises(RuntimeError, match="not started"):
+        sensor.read()
+    monkeypatch.setattr(FakeCamera, "stop", real_stop)
+    sensor.close()
+    assert sensor._camera is None
+    monkeypatch.setattr(FakeCamera, "start", real_start)
+    try:
+        sensor.start()
+        assert sensor.read().sequence >= 0
+    finally:
+        sensor.close()
+
+
+def test_sensor_close_failure_can_be_retried(by_id, monkeypatch):
+    from manimux.embodiments.sensor.taccap import TacCapSensor
+
+    sensor = TacCapSensor(name="wrist", camera_serial="XCA28Z0041s", by_id_root=by_id)
+    sensor.start()
+    camera = FakeCamera.instances[0]
+    real_stop = camera.stop
+
+    def fail_stop():
+        raise RuntimeError("stop failed")
+
+    monkeypatch.setattr(camera, "stop", fail_stop)
+    with pytest.raises(RuntimeError, match="stop failed"):
+        sensor.close()
+    assert sensor._camera._camera is camera
+    monkeypatch.setattr(camera, "stop", real_stop)
+    sensor.close()
+    assert camera.stopped and sensor._camera is None
+
+
 def test_camera_serves_rgb_frames_and_detects_stalls(by_id: Path) -> None:
     camera = TacCapCamera("XCA28Z0041s", by_id_root=by_id, max_frame_age_sec=0.2)
     try:
@@ -95,10 +173,11 @@ def test_server_builds_cameras_by_type(by_id: Path, monkeypatch: pytest.MonkeyPa
 
 @pytest.mark.parametrize("backend", ["taccap", "realsense"])
 def test_server_preserves_frame_timestamp_when_capture_advances(
-    monkeypatch: pytest.MonkeyPatch, backend: str,
+    monkeypatch: pytest.MonkeyPatch,
+    backend: str,
 ) -> None:
+    from manimux.embodiments.sensor.taccap import sensor as taccap_module
     from manimux.sensors.realsense.camera import RealSenseCamera
-    from manimux.sensors.taccap import camera as taccap_module
 
     camera = object.__new__(TacCapCamera if backend == "taccap" else RealSenseCamera)
     camera._camera_serial = "test"
@@ -107,9 +186,14 @@ def test_server_preserves_frame_timestamp_when_capture_advances(
     camera._latest_frame_timestamp = 10.0
     original = camera._latest_color_image
     if backend == "realsense":
-        monkeypatch.setitem(sys.modules, "cv2", SimpleNamespace(
-            COLOR_BGR2RGB=4, cvtColor=lambda image, _code: image[..., ::-1].copy(),
-        ))
+        monkeypatch.setitem(
+            sys.modules,
+            "cv2",
+            SimpleNamespace(
+                COLOR_BGR2RGB=4,
+                cvtColor=lambda image, _code: image[..., ::-1].copy(),
+            ),
+        )
         camera._frame_ready = threading.Event()
         camera._frame_ready.set()
         camera._read_wait_timeout_sec = 0.1
