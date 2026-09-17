@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline proof that both XR-1 paths apply RTC inside the Euler sampler."""
+"""Offline proof that the XPolicyLab XR-1 path applies RTC inside the Euler sampler."""
 
 from __future__ import annotations
 
@@ -53,15 +53,12 @@ def _check_sampler(model_class: type[Any]) -> dict[str, object]:
 
 
 def main() -> int:
-    from manimux.integrations.xr1_yam.mibot.models.VLA.XR1 import xr1 as NativeXR1
-
     sys.path.insert(0, str(XPOLICY_XR1_ROOT))
     from mibot.models.VLA.xr1 import xr1 as XPolicyXR1
 
     print(
         json.dumps(
             {
-                "native": _check_sampler(NativeXR1),
                 "xpolicy": _check_sampler(XPolicyXR1),
                 "model_constructed": False,
                 "gpu_used": False,

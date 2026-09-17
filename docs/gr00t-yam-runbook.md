@@ -151,7 +151,7 @@ Pi05 命名，但其实现使用传入配置构建通用 YAM policy/adapter，�
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/manimux run --config configs/groot/yam/infra/manimux.yaml
+envs/yam/.venv/bin/manimux serve --config configs/groot/yam/infra/manimux.yaml
 ```
 
 真机 runtime 连接后会用 `3.5 s` 移动到配置起始位；正常 `Ctrl-C` 退出时会用 `3.5 s`

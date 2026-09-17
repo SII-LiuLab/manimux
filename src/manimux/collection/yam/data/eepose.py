@@ -143,8 +143,6 @@ def add_eepose_buffers(
             (arm, joint_pos_key(arm), gripper_pos_key(arm)),
             (f"action-{arm}", action_joint_key(arm), action_gripper_key(arm)),
         ):
-            if prefix == arm and not station.record_achieved:
-                continue
             pose = fk.batch(out[joint_key], out[gripper_key])
             for suffix, values in pose.items():
                 out[f"{prefix}-{suffix}"] = values
@@ -182,7 +180,7 @@ def add_eepose_buffers(
             },
         },
         "prefixes": {
-            **({"<arm>-*": "observed follower state"} if station.record_achieved else {}),
+            "<arm>-*": "observed follower state",
             "action-<arm>-*": "commanded action target",
         },
     }

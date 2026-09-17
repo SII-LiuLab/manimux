@@ -13,11 +13,12 @@
 git clone --recursive https://github.com/SII-LiuLab/manimux.git
 cd manimux
 uv sync --dev
-uv run manimux run --config configs/mock.yaml
+uv run python scripts/validation/run_headless.py --config configs/mock.yaml
 ```
 
 mock 使用模拟机器人、相机与 policy，运行 120 个控制 tick，记录写入 `data/`。
-它不连接 CAN、实体相机或机器人。
+该验证脚本仅接受 mock / Meshcat 机器人和 mock 相机，且不启用 Viewer。
+真机运行统一使用 `manimux serve`，在 Viewer 中选择普通或实验 rollout。
 
 独立 Viewer 演示：
 

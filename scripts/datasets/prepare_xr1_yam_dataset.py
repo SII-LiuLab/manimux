@@ -18,7 +18,7 @@ from typing import Any
 import numpy as np
 import yaml
 
-from manimux.integrations.xr1_yam.mibot.utils.io import (
+from manimux.integrations.xr1_yam.codec import (
     ACTION_DIM,
     ACTION_PARTS,
     STATE_DIM,

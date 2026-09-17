@@ -109,15 +109,14 @@ def test_sapolicy_rtc_profiles_build_with_process_decoding_without_hardware(tmp_
 
 
 def test_policy_plugins_only_send_a_condition_when_one_is_present() -> None:
-    import json_numpy
-
     from manimux.policies import build_policy_model
+    from manimux.types import SensorFrame
 
-    config = load_config("configs/abc/yam/infra/manimux.yaml")
+    config = load_config("configs/pi05/yam/infra/manimux.yaml")
+    config.policy.horizon_steps = 30
     model = build_policy_model(config.policy)
     model._session_id = "s"
 
-    frame_shape = (4, 5, 3)
     snapshot = ObservationSnapshot(
         state=RobotState(
             groups={"left_arm": np.zeros(7), "right_arm": np.zeros(7)},
@@ -125,67 +124,52 @@ def test_policy_plugins_only_send_a_condition_when_one_is_present() -> None:
             sequence=1,
         ),
         frames={
-            name: __import__("manimux.types", fromlist=["SensorFrame"]).SensorFrame(
+            name: SensorFrame(
                 name=name,
-                data=np.zeros(frame_shape, dtype=np.uint8),
+                data=np.zeros((4, 5, 3), dtype=np.uint8),
                 capture_monotonic_ns=1,
                 sequence=1,
             )
             for name in ("left_camera", "front_camera", "right_camera")
         },
     )
-
     captured: dict[str, object] = {}
 
-    class _Response:
-        status_code = 200
-        text = json_numpy.dumps({"actions": np.zeros((30, 14), dtype=np.float32)})
+    class Client:
+        def infer(self, observation: object, *, sampling: dict[str, object]) -> object:
+            captured["sampling"] = sampling
+            return {"actions": []}
 
-    def _post(url: str, **kwargs: object) -> _Response:
-        captured["payload"] = json_numpy.loads(kwargs["data"])
-        return _Response()
+    model._client = Client()
+    plain = InferenceRequest(
+        session_id="s",
+        request_seq=1,
+        observation_time_ns=0,
+        deadline_ns=2**62,
+        observation=snapshot,
+        instruction="task",
+    )
+    model.infer(plain)
+    assert captured["sampling"] == {"mode": "default"}
 
-    import sys
-    import types as pytypes
-
-    stub = pytypes.ModuleType("requests")
-    stub.post = _post  # type: ignore[attr-defined]
-    original = sys.modules.get("requests")
-    sys.modules["requests"] = stub
-    try:
-        plain = InferenceRequest(
+    model.infer(
+        RtcInferenceRequest(
             session_id="s",
-            request_seq=1,
+            request_seq=2,
             observation_time_ns=0,
             deadline_ns=2**62,
             observation=snapshot,
             instruction="task",
+            action_condition=np.zeros((30, 14)),
+            condition_weights=soft_mask(30, 15, 4),
+            rtc_beta=5.0,
         )
-        model.infer(plain)
-        assert "action_condition" not in captured["payload"]
-
-        model.infer(
-            RtcInferenceRequest(
-                session_id="s",
-                request_seq=2,
-                observation_time_ns=0,
-                deadline_ns=2**62,
-                observation=snapshot,
-                instruction="task",
-                action_condition=np.zeros((30, 14)),
-                condition_weights=soft_mask(30, 15, 4),
-                rtc_beta=5.0,
-            )
-        )
-        payload = captured["payload"]
-        assert payload["action_condition"].shape == (30, 14)
-        assert payload["action_condition_weights"].shape == (30,)
-        assert payload["rtc_beta"] == 5.0
-    finally:
-        if original is None:
-            del sys.modules["requests"]
-        else:
-            sys.modules["requests"] = original
+    )
+    sampling = captured["sampling"]
+    assert sampling["mode"] == "rtc"
+    np.testing.assert_array_equal(sampling["action_condition"], np.zeros((30, 14)))
+    np.testing.assert_allclose(sampling["condition_weights"], soft_mask(30, 15, 4))
+    assert sampling["beta"] == 5.0
 
 
 # ----------------------------------------------------------------- runtime wiring
@@ -202,7 +186,7 @@ def test_default_runtime_is_unchanged() -> None:
 
 
 def test_rtc_runtime_is_selected_by_config(tmp_path: Path) -> None:
-    config = load_config("configs/abc/yam/infra/manimux.yaml")
+    config = load_config("configs/mock.yaml")
     config.execution.runtime = "rtc"
     runtime = build_runtime(config, tmp_path)
 
@@ -334,7 +318,7 @@ def test_runtime_package_binds_to_factories_not_to_a_policy_or_a_body() -> None:
 
 
 def test_execution_horizon_respects_the_feasibility_window(tmp_path: Path) -> None:
-    config = load_config("configs/abc/yam/infra/manimux.yaml")
+    config = load_config("configs/mock.yaml")
     config.execution.runtime = "rtc"
     config.execution.rtc.min_execute_steps = 15
     runtime = build_runtime(config, tmp_path)

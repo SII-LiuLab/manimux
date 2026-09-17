@@ -178,7 +178,7 @@ achieved-state, start-pose and emergency-stop checks. Only the operator starts t
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/manimux run \
+envs/yam/.venv/bin/manimux serve \
   --config configs/pi05/yam/infra/pick-red-ball-box/paint-step1000.yaml
 ```
 

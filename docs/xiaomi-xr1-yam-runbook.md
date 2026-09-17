@@ -6,13 +6,76 @@
 XPolicyLab 原本自带；模型加载、预处理和 denoise 仍完整运行在 XPolicy 标准 server
 内。ManiMux 只负责 wire codec、YAM FK/IK 和执行，不提供平行的 native model server。
 
-该链路运行时，机械臂收到的是官方 `Xiaomi-Robotics-1-5B` 经过完整 forward 和 denoise
+## 瓶子任务：YAM finetune step30000
+
+本地已下载瓶子任务的 30,000 步模型，目录为
+`checkpoints/finetuned/ziyang/xiaomi-xr1-put-bottles-b64-step30000/`。
+server 明确读取 `epoch=7-step=30000.ckpt/checkpoint/mp_rank_00_model_states.pt`。
+同目录的 `norm_stats.json` 从这次训练保存的
+`config.yaml:data.params.train_datasets` 原样导出 `mean/std/q01/q99`，
+形状分别为 `30×60 / 30×60 / 1×60 / 1×60`；来源和校验值记录在
+`norm_stats.provenance.json`，不使用 base 或螺丝刀任务的统计。
+
+| 用途 | 配置 |
+| --- | --- |
+| 模型服务 | [server/put-bottles/step30000.yaml](../configs/xiaomi-xr1/yam/server/put-bottles/step30000.yaml) |
+| ManiMux 异步调度 | [infra/put-bottles/manimux-step30000.yaml](../configs/xiaomi-xr1/yam/infra/put-bottles/manimux-step30000.yaml) |
+| Serial，每次执行前 12 步 | [infra/put-bottles/serial-step30000.yaml](../configs/xiaomi-xr1/yam/infra/put-bottles/serial-step30000.yaml) |
+| RTC 对照 | [infra/put-bottles/rtc-step30000.yaml](../configs/xiaomi-xr1/yam/infra/put-bottles/rtc-step30000.yaml) |
+
+三份 infra 都连接 `ws://127.0.0.1:8501`，校验任务、checkpoint 和归一化来源。
+观察使用 `front_camera / left_camera / right_camera`，对应共享的
+`configs/cameras.yaml`。沿用已有 Xiaomi/YAM 的 30 Hz 动作间隔、30 步 EE-relative
+chunk、5 步 denoise、FK/IK、起始姿态和运动限制；Serial 只改变调度及执行步数。
+这份训练配置本身没有记录采样 Hz，因此 30 Hz 仍是沿用的部署设置。
+
+模型服务，在一个终端运行：
+
+```bash
+cd /home/ubuntu/manimux
+envs/xr1/.venv/bin/python scripts/servers/xiaomi_xr1_yam_server.py \
+  --config configs/xiaomi-xr1/yam/server/put-bottles/step30000.yaml
+```
+
+YAM 运行，在另一个终端启动 Viewer 控制的会话服务，三种 infra 任选一种：
+
+```bash
+cd /home/ubuntu/manimux
+envs/yam/.venv/bin/manimux serve \
+  --config configs/xiaomi-xr1/yam/infra/put-bottles/manimux-step30000.yaml
+```
+
+Viewer 中先选择 `Prepare normal rollout` 或 `Prepare experiment rollout`，
+再点击 `Start rollout`；结束时点击 `Finish & Home`。实验模式需要人工标注后
+才能准备下一条。普通调试使用 `Prepare normal rollout`，启动入口统一为 `serve`。
+ManiMux / Serial / RTC 调度由所选 infra 配置决定，与普通／实验模式选择独立。
+
+只检查本地配置、权重容器和 processor/stats 路径时：
+
+```bash
+envs/yam/.venv/bin/python scripts/servers/xiaomi_xr1_yam_server.py \
+  --config configs/xiaomi-xr1/yam/server/put-bottles/step30000.yaml --check
+```
+
+需要仅通过模型服务做一次无硬件推理时，可在模型服务启动后运行：
+
+```bash
+envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
+  --config configs/xiaomi-xr1/yam/infra/put-bottles/manimux-step30000.yaml \
+  --instruction "Put the bottles into the bin."
+```
+
+此次配置准备只做静态及离线契约验证，未启动模型、相机或机器人；
+该 3w checkpoint 的真实 GPU forward、RTC conditioned forward 和真机效果尚未验证。
+以下 base 权重的历史结果不代表这份瓶子权重的评测结果。
+
+## Base 权重边界
+
+base 链路运行时，机械臂收到的是官方 `Xiaomi-Robotics-1-5B` 经过完整 forward 和 denoise
 产生的动作，不是启动姿态、预录轨迹或 mock。XPolicy 负责真实模型推理；ManiMux 负责将
 原生 EE delta 转为 YAM joint position 并调度执行。
 
-## 当前权重边界
-
-本地 `model_states.pt` 来自官方
+`server/base.yaml` 使用的本地 `model_states.pt` 来自官方
 [`Xiaomi-Robotics-1-5B`](https://huggingface.co/XiaomiRobotics/Xiaomi-Robotics-1-5B)。
 官方 model card 将它定位为继续 post-training 的起点，不是 YAM 策略。
 官方另外发布的 RoboCasa / RoboCasa365 / VLABench 权重也都是特定仿真本体，
@@ -117,7 +180,7 @@ probe 必须返回有限的 `native_shape: [30, 60]` 与 `canonical_shape: [30, 
 通过后再启动相机，并由操作者运行：
 
 ```bash
-envs/yam/.venv/bin/manimux run \
+envs/yam/.venv/bin/manimux serve \
   --config configs/xiaomi-xr1/yam/infra/manimux.yaml
 ```
 
@@ -183,7 +246,7 @@ done
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/manimux run \
+envs/yam/.venv/bin/manimux serve \
   --config configs/xiaomi-xr1/yam/infra/manimux.yaml
 ```
 
@@ -203,14 +266,14 @@ envs/xr1/.venv/bin/python scripts/validation/check_xr1_rtc_sampler.py
 通过后，才使用同一个 server 做 RTC 对照：
 
 ```bash
-envs/yam/.venv/bin/manimux run --config configs/xiaomi-xr1/yam/infra/manimux-assemble-screwdriver-step15000.yaml
-envs/yam/.venv/bin/manimux run --config configs/xiaomi-xr1/yam/infra/rtc-assemble-screwdriver-step15000.yaml
+envs/yam/.venv/bin/manimux serve --config configs/xiaomi-xr1/yam/infra/manimux-assemble-screwdriver-step15000.yaml
+envs/yam/.venv/bin/manimux serve --config configs/xiaomi-xr1/yam/infra/rtc-assemble-screwdriver-step15000.yaml
 ```
 
 不要同时运行 ManiMux 与 RTC。相机、Viewer、CAN 检查和停止顺序参考
-[MolmoAct + YAM](molmoact-yam-runbook.md)。
+[统一启动指南](guideline.md)。
 
-## 当前边界
+## Base 权重的历史验证边界
 
 已验证配置、权重/processor/stats 路径、GPU normal forward、XPolicy WS、动作 codec、
 FK/IK normal action conversion、RTC condition round-trip、payload 和两条 sampler

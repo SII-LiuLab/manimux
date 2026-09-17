@@ -27,36 +27,6 @@ def _identity_adapter_factory(
     return FakePolicyAdapter()
 
 
-def _molmoact_http_factory(config: PolicyConfig) -> PolicyModel:
-    from manimux.integrations.molmoact_yam.policy_plugin import build_model
-
-    return build_model(config)
-
-
-def _molmoact_yam_adapter_factory(
-    robot: RobotConfig,
-    policy: PolicyConfig,
-) -> PolicyAdapter:
-    from manimux.integrations.molmoact_yam.policy_plugin import build_adapter
-
-    return build_adapter(robot, policy)
-
-
-def _abc_http_factory(config: PolicyConfig) -> PolicyModel:
-    from manimux.integrations.abc_yam.policy_plugin import build_model
-
-    return build_model(config)
-
-
-def _abc_yam_adapter_factory(
-    robot: RobotConfig,
-    policy: PolicyConfig,
-) -> PolicyAdapter:
-    from manimux.integrations.abc_yam.policy_plugin import build_adapter
-
-    return build_adapter(robot, policy)
-
-
 def _xr1_yam_adapter_factory(
     robot: RobotConfig,
     policy: PolicyConfig,
@@ -110,14 +80,10 @@ def _openwam_yam_adapter_factory(
 
 _MODEL_BUILTINS: dict[str, PolicyModelFactory] = {
     "fake": _fake_model_factory,
-    "molmoact_http": _molmoact_http_factory,
-    "abc_http": _abc_http_factory,
     "xpolicylab_ws": _xpolicylab_ws_factory,
 }
 _ADAPTER_BUILTINS: dict[str, PolicyAdapterFactory] = {
     "identity": _identity_adapter_factory,
-    "molmoact_yam": _molmoact_yam_adapter_factory,
-    "abc_yam": _abc_yam_adapter_factory,
     "xr1_yam": _xr1_yam_adapter_factory,
     "sapolicy_yam": _sapolicy_yam_adapter_factory,
     "lingbot_vla2_yam": _lingbot_vla2_yam_adapter_factory,

@@ -90,29 +90,37 @@ not edit the shared profile or change any learned policy's deployment interval.
 After installing this UI/code update, restart the existing GUI once to load it.
 Subsequent frequency changes use **Apply Hz** without restarting the process.
 
-The GUI shows configured and actual loop Hz. These are application target updates,
-not guaranteed per-motor CAN transmission or firmware control rates. The SDK still
-sends its latest target through its own communication loop. Repeated joint values
-are possible when motion is small or a newer feedback sample is not yet available.
+The GUI shows the configured target frequency and two measured rates over the
+trailing **2 seconds**, calculated as successful events divided by 2 seconds:
+
+- **主→从新目标** counts each source target sequence once, after submission to
+  both follower SDKs succeeds. A newly sampled target with unchanged joint values
+  counts; a target overwritten before submission does not.
+- **SDK 下发** counts all successful dual-arm submissions, including threaded
+  executor repeats of the same source target. Failed/partial submissions and pause
+  hold commands do not count. This is application-to-SDK frequency, not CAN frame
+  frequency or proof that every target was executed by the motors.
+- **更新间隔 P95** measures gaps between successful first submissions of source
+  targets. The tooltip includes repeated-submission count and time since the last
+  successful submission. Rates include stalls in the denominator and reach a full
+  startup window after 2 seconds. The API's `collection_actual_hz` now means the
+  delivered fresh-target rate; `collection_command_rates` exposes both counts and
+  rates. The old per-loop reciprocal EMA is no longer used for the GUI frequency.
+
+The separate work-P95 panel still measures the latest 200 teleop-loop iterations.
+In threaded mode this includes waiting on the executor, rather than timing its
+background submissions directly. A configured 100 Hz does not establish achieved
+100 Hz updates; inspect the delivered rate and gaps together.
 
 With a numeric `collection_hz`, schema v2 saves independent streams:
-
-The current station sets `record_achieved: false` for timing trials. It saves
-commands, controller targets, videos and timing diagnostics, while omitting
-follower joint/gripper arrays, feedback timestamps, achieved EE poses and trace
-`feedback` values. Control still reads feedback for bilateral force feedback and
-safety. The EE pose option continues to save action EE poses. Metadata explicitly
-records `extra.record_achieved: false`. Set `record_achieved: true` to restore
-measured trajectories; this is also required for native feedback, ABC/LeRobot
-recording and command-versus-achieved replay. Existing episodes are unchanged.
 
 | Saved stream | Rate / timestamp |
 | --- | --- |
 | `action-<arm>-joint/gripper.npy` | One latest leader target per control tick |
-| `<arm>-joint_pos/gripper_pos.npy` | Follower feedback snapshot; only with `record_achieved: true` |
+| `<arm>-joint_pos/gripper_pos.npy` | Follower feedback snapshot read before that tick's target |
 | `controller-<arm>-joint.npy` | Executor target before driver joint-limit clipping |
 | `controller-<arm>-timestamp-ns.npy` | Host command submission time, not CAN transmit time |
-| `<arm>-feedback-timestamp-ns.npy` | Host driver snapshot time; only with `record_achieved: true` |
+| `<arm>-feedback-timestamp-ns.npy` | Host driver snapshot time, not per-motor CAN receive time |
 | `tick-timestamp-ns.npy`, `tick-monotonic-ns.npy` | Common control tick clocks |
 | `<role>-images-rgb.mp4`, `<role>-timestamp.npy` | Each new camera capture, nominally 30 FPS |
 | `<role>-frame-index.npy` | Latest capture at/before each control tick; −1 before the first image |
@@ -136,20 +144,13 @@ than three nominal periods and leaves the original 30 FPS videos unchanged.
 ### Per-command teleop timing diagnostics
 
 The **Lead target · 分段耗时** panel shows the latest 200 cycles, including wall
-time and the calling thread's CPU time. Synchronous teleop now reads one dual-arm
-snapshot per normal cycle. The first observation contains `state_read` and the
-left/right SDK wrapper calls; the other observation and `precommand` contain
-`state_reuse`. Observations, bilateral feedback and the executor use that same
-snapshot, with its original read timestamp. State and command validation remain
-in place, and the driver still checks health before submission. Snapshots expire
-at the end of each cycle. Alignment, pause and faults invalidate them; alignment
-and standalone backend calls retain independent reads. A cycle interrupted by an
-alignment or pause callback skips publishing its pre-callback observations.
+time and the calling thread's CPU time. Three separate state-read scopes identify
+the existing synchronous reads: `observation_left_arm`, `observation_right_arm`
+and `precommand`. Each contains the left/right SDK wrapper calls; the reads,
+their order, command values, force feedback and safety checks are unchanged.
 `submit.left_sdk_submit` and `submit.right_sdk_submit` locate each arm's submission
 inside the full `backend.follower_sdk_submit` span, which includes the target
-sequence plus `feedback_monotonic_ns`, `feedback_sequence` and `feedback_age_ns`
-(snapshot read to submission). This age measures use of the cached snapshot, not
-sensor age on the CAN bus. Exceptions are recorded and propagated normally.
+sequence. Exceptions are recorded and propagated normally.
 
 Complete diagnostics are buffered independently of **Record**. **Pause** saves
 them in a background thread under
@@ -163,7 +164,8 @@ Diagnostic shutdown saving does not change any robot recovery behavior.
 
 Schema 2 uses monotonic nanoseconds for each cycle and span offset/duration.
 `previous_pacing` identifies the preceding cycle explicitly and records requested
-sleep, actual sleep, excess sleep and the GUI's smoothed frequency. This avoids
+sleep, actual sleep, excess sleep and the legacy loop-frequency EMA (retained as
+`display_actual_hz` for diagnostic-file compatibility, not used by the GUI). This avoids
 changing an episode row after it has been frozen for saving. The final cycle's
 sleep may have no following row; missing pacing is not zero sleep. Each episode
 also retains its own `control-timing.jsonl` for its recorded samples.
@@ -239,6 +241,219 @@ not make the follower execute 100 Hz leader updates; that is a separate control
 experiment. Existing 30 Hz-only episodes cannot supply the missing reference.
 
 <a id="synchronized-viser-replay-video-linear-100-hz-held-30-hz"></a>
+
+### Synchronized Viser replay: video and three joint trajectories
+
+Use the existing Viewer entry point to inspect a finalized collection episode:
+
+```bash
+envs/yam/.venv/bin/manimux-viewer \
+  --robot yam --host 127.0.0.1 --port 8087 \
+  --replay-episode /absolute/path/to/episode \
+  --replay-source feedback --replay-camera top
+```
+
+Open **http://127.0.0.1:8087**. Playback starts paused. The original camera video
+appears in the side panel. The default **叠加** layout places the original feedback
+sampled at 100 Hz (opaque blue) and the 30→100 Hz reconstruction (transparent
+orange wireframe) on the exact same bases, orientations and geometry scale. Adjust
+**虚影不透明度** or select **30 Hz 保持** as the ghost comparison. **并排** retains
+all three trajectories side by side. The panel shows the current maximum joint
+angle difference for each arm. The ghost renders its front-face wireframe at
+55% opacity by default so it remains visible over the solid model at matching
+poses. **显示原始实体** and **显示对照虚影** independently toggle the layers,
+including while paused. Geometry is never inflated or offset.
+The video and trajectories share one clock, frame slider,
+Play/Pause, speed selector, ±10 ms and start/end buttons. All recorded camera
+names come from episode metadata and can be selected in the panel, including
+Gemini views when present. Frame indices start at zero within the common valid
+replay interval; the adjacent episode time retains the original time origin.
+
+For legacy schema v1 recordings, `feedback` requires a complete native-joint sidecar. The
+reference samples each follower joint directly from native feedback at 100 Hz,
+using the latest packet at or before each tick, bypassing the 30 Hz samples.
+The other two trajectories first sample the same native feedback at 30 Hz, then
+compare holding those samples against linear interpolation onto the same 100 Hz
+grid. It reuses the offline analysis sampling phase and 50 ms gap mask;
+there is no low-pass filter. Feedback replay begins and ends on valid sample times
+common to the 30 and 100 Hz grids (every 0.1 s with phase zero). This makes endpoint
+poses identical by using the same measured sample in both trajectories. It only
+trims the displayed time interval: no joint offsets, trajectory warping or new
+endpoint constraints are applied, and existing analysis outputs remain unchanged.
+Interior gaps remain at their original times, with affected virtual arms hidden
+and identified.
+All three views use identical saved low-rate gripper values; native gripper data is
+not available. The scene uses the existing YAM adapter's URDF, joint order, gripper
+mapping and illustrative base placements.
+
+To inspect training action targets instead, replace `--replay-source feedback`
+with `--replay-source command`. This uses `action-<arm>-joint.npy` and the recorded
+controller submission timestamps, retaining the actual irregular timing of the
+nominal 30 Hz command stream. It compares holding against linear interpolation,
+and masks command gaps over 100 ms. It does **not** create an original 100 Hz
+command reference or predict the follower's physical response to new commands.
+Consequently command mode has two virtual trajectories and the original video;
+only feedback mode has the third, directly sampled 100 Hz reference. Command
+overlay uses held targets as the opaque reference and interpolation as the ghost.
+Its irregular timestamps are retained; equal endpoints are not assumed. Command
+samples are discrete submitted targets. A stair-step line shows the last target
+held until the next submission; straight-line interpolation between targets is
+a different reconstruction, and neither is measured follower motion.
+
+For schema v2, feedback replay can instead use the saved control-rate joint snapshots
+when native sidecars are absent; command replay uses the saved control-rate targets.
+Both compare the saved stream sampled at 100 Hz with the same stream sampled at
+30 Hz and then held or interpolated. The legend identifies the reference source.
+This offline comparison does not change the live command path.
+
+#### Achieved replay: original, 10→60 and 30→60 Hz
+
+Use a finalized schema-v2 episode. `feedback` reads each follower's saved
+`<arm>-joint_pos.npy` with its own feedback timestamp array. A recording configured
+at 100 Hz but actually saved near 55–60 Hz is valid: source frequency is reported
+separately from the 60 Hz comparison grid. Sampling takes the latest observation
+at or before each grid time; it does not take every kth original input row.
+The lower-rate knots retain every sixth/second comparison point and linearly
+reconstruct six joints. All methods share endpoint knots; gaps exceeding 100 ms
+remain missing. No low-pass or anti-alias filter is added.
+
+```bash
+envs/yam/.venv/bin/manimux-viewer --robot yam \
+  --replay-episode /absolute/path/to/episode \
+  --replay-source feedback --replay-camera top \
+  --replay-target-hz 60 --replay-low-hz 10 30 \
+  --host 127.0.0.1 --port 8087
+```
+
+This displays all three trajectories (blue original, orange 10→60, green 30→60)
+overlaid by default; side-by-side layout, frame stepping and a per-joint values
+table are available. Grippers in offline visualization retain the same saved
+measured values. Export all 12 joint charts, common-frame metrics, original sample
+indices, CSV data, and an HTML with embedded Top video using:
+
+```bash
+envs/yam/.venv/bin/python -m manimux.collection.yam.data.replay_report \
+  /absolute/path/to/episode --output .local/analysis/achieved-comparison
+```
+
+These are reconstruction errors, not measured controller gaps.
+
+#### Command replay: 60 Hz reference, 10→60 and 30→60 Hz
+
+The physical comparison uses **saved controller commands** as its source. It
+reads `controller-<arm>-joint.npy` and `controller-<arm>-timestamp-ns.npy`, checking
+them against `manimux-control.jsonl`'s `command` and `unix_ns` fields. Achieved
+feedback is recorded separately for tracking analysis and is never substituted
+as the physical replay target source. All three variants share these command
+samples; grippers remain fixed at their initially observed positions during
+physical execution.
+
+Source timestamps determine sampling even if the recording was configured at
+100 Hz and actual submissions were near 55–60 Hz. `original` means causal command
+sampling onto the 60 Hz comparison grid, not exact replay of every irregular
+original timestamp. The 10/30 Hz variants linearly reconstruct the six arm joints.
+The source gap limit is 100 ms; missing commands are not replaced with feedback.
+
+Preview those command variants offline with the Viewer command above, replacing
+`--replay-source feedback` with `--replay-source command`. The physical entry is:
+
+```bash
+envs/yam/.venv/bin/python -m manimux.collection.yam.joint_replay \
+  --episode /absolute/path/to/episode \
+  --config configs/collection/yam/station.yaml \
+  --cameras configs/collection/yam/cameras.yaml --camera top \
+  --save-root /absolute/path/to/replay-results --method all --execute
+```
+
+Physical replay freezes recording, then attempts Home with grippers held after
+normal completion, software errors, or Ctrl+C, provided both control loops remain
+healthy. Data encoding runs after recovery. This does not establish that the
+previous motor communication failure is fixed; offline tests do not validate
+physical recovery or guarantee that a disconnected joint can hold its posture.
+
+Only the operator runs this command. Without `--execute`, it validates source and
+config files without connecting to hardware. The physical mode opens followers
+and the selected camera; it does not open leaders. For each method, the first
+Enter initiates a 5-second transition to the common starting pose; the second
+Enter starts recording and replay. Preparation is excluded from the trial.
+All three methods use the configured Direct executor, 60 Hz wall-clock scheduling,
+and an additional 1-second final hold. The next iteration waits at least one
+60 Hz period (16.667 ms) after the previous submission returns. This prevents a
+late iteration from sending again immediately at the next grid boundary. Processing
+time can lower the achieved rate; source frames still follow elapsed wall time
+at 1x speed, with expired frames skipped. Actual submission rate, skipped source frames, start pose error
+and timing are recorded, not assumed from the requested frequency. Grippers do
+not follow the old recording and are never interpolated during physical replay.
+After each trial, recording freezes and, if healthy, the driver returns both
+arms to zero Home while retaining the gripper positions. Home is outside the
+comparison video/data. Replay checks measured joints (within 0.05 rad, allowing
+up to 2 seconds of settling) and resets collection state from current feedback
+before another trial or normal shutdown. The manifest records the Home result.
+If either control loop is unhealthy, Home fails, or measured joints do not reach
+Home, replay sends hold targets only to still-responsive arms and waits for
+physical support. It never sends a hold target to a stopped arm, reconnects it,
+or retries Home automatically. After supporting both arms, the operator must
+type `RELEASE` to allow driver closure. Enter, repeated Ctrl+C/SIGTERM, and
+terminal EOF do not authorize release. A disconnected joint may already have
+lost torque; keeping the process alive is not a substitute for physical support.
+Before final closure, replay rechecks Home using feedback; failure during video
+encoding also requires support confirmation. The final manifest includes the
+shutdown decision. These guards apply after successful backend connection;
+SDK initialization and forced process/power termination remain outside them.
+
+Outputs are separate canonical schema-v2 collection episodes plus
+`replay-experiment.json` and native per-motor CAN feedback sidecars. The manifest
+records source episode, source interval, joint-array hashes, method, held gripper
+positions, replay start clocks, per-tick source frame, submission time and completion
+status. Ctrl+C marks the trial interrupted and freezes available data, attempts
+Home if control is healthy, then saves. Saving or manifest-writing errors cannot
+bypass the guarded shutdown path. Compare feedback at its own timestamp to the most recently submitted
+target: the collection observation in a row precedes that row's new command.
+A software snapshot timestamp is not a per-motor CAN receive timestamp.
+
+Replay warms the camera before connecting followers, so camera SDK initialization
+does not run after the motor control threads have started. i2rt motor/server
+liveness is checked before accepting feedback or submitting commands, and while
+waiting for Enter. A stopped loop aborts even if the SDK still exposes finite
+cached positions. This blocks stale-state replay; it does not clear or recover a
+motor communication fault. The configured SDK may still calibrate gripper limits
+during connection; replay's fixed gripper target is sampled after that connection.
+
+Both collection and command replay submit through `YamDualArmDriver.send_command`
+and the existing YAM wrapper into i2rt's `MotorChainRobot.command_joint_pos`.
+ManiMux does not construct an alternate motor command protocol for replay. The
+saved controller target is the executor output before SDK joint-limit clipping;
+it is not a raw CAN packet recording. New physical results use `command_replay_*`
+task directories and manifest `source: command`, distinct from earlier
+`achieved_replay_*` trials.
+
+The original image for each tick is selected by its saved Unix-millisecond capture
+timestamp, not by `video_frame / 30`. The panel shows the original video ordinal
+and image age; repeated captures keep their original timestamp. Image timestamps
+and joint reception timestamps share a host clock but are not hardware exposure
+synchronization. The 100 Hz figure describes trajectory samples, not guaranteed
+browser rendering FPS; slow motion and stepping let you inspect every sample.
+
+Replay only reads saved files and serves Viser. It starts no policy transport,
+rollout control endpoint, camera device or CAN connection, and leaves recordings
+unchanged. Close it with Ctrl+C. This is a kinematic trajectory comparison, not a
+physics replay of the bottle or a test of 30 Hz versus 100 Hz controller tracking.
+
+In the GUI, set the task and use **Start Teleop → Start Recording**. The station
+default is `put_bottles_into_the_bin`; the GUI can restore the last selected task,
+so check the task field before recording. Use the recording button again to stop
+and save the episode. Output defaults to `data/collection/episodes/<task>/<episode>/`.
+For a custom roster, select it with `--cameras`. If its contents change while the
+GUI is idle, reconnect previews and refresh the page before Start Teleop so the
+editable camera form uses the updated roster.
+
+After reinstalling the editable package, `manimux-collect` is the equivalent entry
+point. Mock regression tests and a local live YAM collection have been exercised;
+this does not establish timing or hardware equivalence for every configuration.
+Do not run the original collection GUI concurrently. The new GUI shares ManiMux's
+`yam` ownership lock with inference, but the original GUI does not honor that lock.
+
+<a id="start-teleop-troubleshooting"></a>
 
 ## Start Teleop appears unresponsive
 

@@ -12,7 +12,6 @@ import logging
 import threading
 import time
 from collections.abc import Callable
-from contextlib import ExitStack
 
 from ..camera.interface import CameraDriver, CameraFrame
 from ..camera.worker import CameraWorker
@@ -40,11 +39,6 @@ class ControlLoop:
                 f"(followers-only build). Reset Session and Start Teleop to rebuild them."
             )
         self.units = units
-        self._feedback_backends = list(dict.fromkeys(
-            backend for u in units
-            if (backend := getattr(u.robot, "backend", None)) is not None
-            and callable(getattr(backend, "feedback_cycle", None))
-        ))
         self.cameras = cameras
         # Cameras may arrive as raw drivers (the loop owns capture — CLI path) or
         # as already-running CameraWorkers owned elsewhere (the GUI session, which
@@ -136,9 +130,7 @@ class ControlLoop:
         """Ease every follower to its leader before mirroring (mock no-op). Passes
         the E-STOP event so a stop aborts the ramp; bails between arms too. Holds
         _io_lock so the ramp can't overlap _step()'s CAN access on another thread."""
-        with self.timings.cycle(self.dt, kind="alignment"), self._io_lock, ExitStack() as scopes:
-            for backend in self._feedback_backends:
-                scopes.enter_context(backend.feedback_cycle(reuse=False))
+        with self.timings.cycle(self.dt, kind="alignment"), self._io_lock:
             for u in self.units:
                 if self._estop_event.is_set():
                     return
@@ -150,10 +142,7 @@ class ControlLoop:
             with stage("cycle_lock_wait"):
                 self.cycle_lock.acquire()
             try:
-                with ExitStack() as scopes:
-                    for backend in self._feedback_backends:
-                        scopes.enter_context(backend.feedback_cycle())
-                    self._step_once()
+                self._step_once()
             finally:
                 self.cycle_lock.release()
 
@@ -196,12 +185,6 @@ class ControlLoop:
         with stage("button_callbacks"):
             self._handle_button_edges(self.buttons)
         self._last_obs = obs
-
-        # A handle callback can pause or run an entire alignment ramp. Its old
-        # observations must not reach bilateral feedback, commands or recording.
-        if any(not backend.feedback_cycle_valid() for backend in self._feedback_backends):
-            self._last_action = {}
-            return
 
         if self._estopped or not self.sync_enabled:
             # Drop the cached action; a stale vector reads as a live command in the per-arm feed.

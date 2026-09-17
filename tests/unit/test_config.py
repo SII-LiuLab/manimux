@@ -33,7 +33,7 @@ def test_yam_control_profile_preserves_executor_choices(action_variant):
     assert inference.execution.smooth.max_acceleration is None
     assert inference.execution.smooth.gripper.max_velocity is None
     assert inference.execution.smooth.gripper.max_acceleration is None
-    assert inference.execution.smooth.gripper.max_closing_velocity == 1.0
+    assert inference.execution.smooth.gripper.max_closing_velocity is None
     assert inference.execution.smooth.cutoff_hz == 8.0
     server = yaml.safe_load(Path(
         f"configs/pi05/yam/server/put-bottles/{action_variant}-step30000.yaml"
@@ -56,7 +56,7 @@ def test_yam_control_profile_preserves_executor_choices(action_variant):
     ("policy.trajectory_duration_s", 0.1),
     ("execution.smooth.max_velocity", 0.25),
     ("execution.smooth.gripper.max_velocity", 1.0),
-    ("execution.smooth.gripper.max_closing_velocity", None),
+    ("execution.smooth.gripper.max_closing_velocity", 1.0),
 ])
 def test_control_profile_rejects_local_conflicts(tmp_path, field, value):
     raw = load_config("configs/collection/yam/control.yaml").model_dump(mode="json")
@@ -194,12 +194,14 @@ def test_mock_config_loads() -> None:
 
 
 def test_total_trajectory_duration_overrides_point_spacing() -> None:
-    config = load_config(Path("configs/molmoact2/yam/infra/manimux.yaml"))
+    config = load_config(Path("configs/mock.yaml"))
+    config.policy.action_dt_s = 0.05
+    config.policy.horizon_steps = 30
 
     assert config.policy.trajectory_duration_s is None
     assert config.policy.effective_action_dt_s == pytest.approx(0.05)
-    assert config.execution.smooth.max_velocity == 0.25
-    assert config.execution.smooth.max_acceleration == 0.5
+    config.policy.trajectory_duration_s = 2.9
+    assert config.policy.effective_action_dt_s == pytest.approx(0.1)
 
 
 def test_unknown_config_field_fails() -> None:

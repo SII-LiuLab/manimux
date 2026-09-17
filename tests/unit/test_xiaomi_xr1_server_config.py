@@ -63,14 +63,37 @@ def test_xr1_base_config_does_not_claim_task_capability() -> None:
     assert report["norm_stats_role"] == "yam_projection_only_not_checkpoint_matched"
 
 
-def test_xr1_screwdriver_finetune_has_checkpoint_matched_contract() -> None:
+@pytest.mark.parametrize(
+    ("config_name", "checkpoint_variant"),
+    [
+        (
+            "finetune-assemble-screwdriver-step12000.yaml",
+            "xiaomi_xr1_yam_assemble_screwdriver_step_12000",
+        ),
+        (
+            "put-bottles/step30000.yaml",
+            "xiaomi_xr1_yam_put_bottles_into_the_bin_step_30000",
+        ),
+    ],
+)
+def test_xr1_finetune_has_checkpoint_matched_contract(
+    config_name: str, checkpoint_variant: str
+) -> None:
     config = xr1_server._load_config(
         xr1_server.REPO_ROOT
-        / "configs/xiaomi-xr1/yam/server/finetune-assemble-screwdriver-step12000.yaml"
+        / "configs/xiaomi-xr1/yam/server"
+        / config_name
     )
     report = _validate(config)
 
-    assert report["checkpoint_variant"] == "xiaomi_xr1_yam_assemble_screwdriver_step_12000"
+    assert report["checkpoint_variant"] == checkpoint_variant
     assert report["checkpoint_role"] == "yam_finetuned_policy"
     assert report["policy_status"] == "yam_finetune_not_evaluated"
     assert report["norm_stats_role"] == "checkpoint_matched_yam_finetune"
+
+
+def test_xr1_declared_finetune_rejects_base_projection_stats() -> None:
+    config = xr1_server._load_config(xr1_server.DEFAULT_CONFIG)
+    config["checkpoint_role"] = "yam_finetuned_policy"
+    with pytest.raises(ValueError, match="checkpoint-matched normalization"):
+        _validate(config)

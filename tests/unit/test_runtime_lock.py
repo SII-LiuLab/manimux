@@ -16,7 +16,7 @@ def test_runtime_lock_rejects_a_second_owner_and_can_be_reacquired(tmp_path: Pat
     )
     second = RuntimeInstanceLock(
         "yam",
-        mode="run",
+        mode="serve",
         config_path=Path("configs/mock.yaml"),
         lock_dir=tmp_path,
     )

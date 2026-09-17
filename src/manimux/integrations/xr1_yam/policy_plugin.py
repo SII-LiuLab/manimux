@@ -1,12 +1,12 @@
 """ManiMux policy plugins for the Xiaomi Robotics 1 (XR-1) checkpoint.
 
-The model plugin only speaks the ``/act`` HTTP protocol. Everything that is
-embodiment knowledge lives in the adapter, and for XR-1 that is more than a
+The model runs through XPolicyLab's WebSocket worker. Everything that is
+embodiment knowledge lives in this adapter, and for XR-1 that is more than a
 column split: the model emits Cartesian deltas, so the adapter runs forward
 kinematics on the measured joints, reconstructs absolute end-effector targets,
 and solves IK back to the joint groups the executors command.
 
-Action layout (``mibot.utils.io.ACTION_PARTS``), 60 columns per step::
+Action layout (``codec.ACTION_PARTS``), 60 columns per step::
 
      0: 3  left  end-effector position delta, in the current left EE frame
      3: 6  left  end-effector rotation delta, axis-angle, same frame
@@ -45,7 +45,6 @@ from manimux.types import (
 
 log = logging.getLogger("manimux.policies.xr1")
 
-DEFAULT_SERVER = "http://127.0.0.1:8400"
 DEFAULT_GROUP_ORDER = ("left_arm", "right_arm")
 DEFAULT_CAMERA_MAP = {
     "top_cam": "front_camera",
@@ -71,7 +70,7 @@ def joint_condition_to_xr1_actions(
     kinematics: Any,
 ) -> np.ndarray:
     """Encode joint-position waypoints as XR-1's anchor-relative 60-D actions."""
-    from manimux.integrations.xr1_yam.mibot.utils.io import rotm2aa_batch
+    from manimux.integrations.xr1_yam.codec import rotm2aa_batch
 
     condition = np.asarray(condition, dtype=np.float64)
     expected_dim = sum(np.asarray(anchor_groups[name]).size for name in group_order)

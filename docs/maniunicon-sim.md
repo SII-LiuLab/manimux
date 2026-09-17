@@ -20,8 +20,8 @@ cp configs/robots/maniunicon_meshcat_dual.example.yaml \
 The destination is gitignored. Then run:
 
 ```bash
-uv run manimux run --config configs/maniunicon_meshcat.example.yaml
-uv run manimux run --config configs/maniunicon_meshcat.example.yaml --executor mpc
+uv run python scripts/validation/run_headless.py --config configs/maniunicon_meshcat.example.yaml
+uv run python scripts/validation/run_headless.py --config configs/maniunicon_meshcat.example.yaml --executor mpc
 ```
 
 ManiUniCon currently imports Torch eagerly at package import time even though the

@@ -85,8 +85,7 @@ function renderLeadTiming(s) {
     bilateral_sdk_submit: "leader 力反馈提交", state_read_validate: "下发前状态读取/校验",
     executor: "执行器生成 command", command_validate: "command 校验",
     follower_sdk_submit: "follower SDK 提交",
-    state_read: "双臂状态读取", state_reuse: "复用本轮双臂快照",
-    state_validate: "状态校验", lock_wait: "状态读取锁等待",
+    state_read: "双臂状态读取", state_validate: "状态校验", lock_wait: "状态读取锁等待",
     target_lock_wait: "目标批次锁等待", left_sdk_state: "左臂 SDK 状态读取",
     right_sdk_state: "右臂 SDK 状态读取", left_sdk_submit: "左臂 SDK 提交",
     right_sdk_submit: "右臂 SDK 提交", trace_buffer: "command 日志缓冲",
@@ -95,7 +94,7 @@ function renderLeadTiming(s) {
   };
   const budget = 1000 / Number(s.collection_hz);
   hint.textContent = `${timing.samples} 轮 · 预算 ${budget.toFixed(2)} ms · ` +
-    `工作 P95 ${(timing.stages_ms.work?.p95 || 0).toFixed(2)} ms` +
+    `遥操循环工作 P95 ${(timing.stages_ms.work?.p95 || 0).toFixed(2)} ms` +
     (s.teleop_running ? " · 正在下发" : " · 未同步，仅读取") +
     (timing.latest?.error ? ` · ${timing.latest.error}` : "");
   const rows = Object.entries(timing.stages_ms).map(([key, stats]) => {
@@ -470,12 +469,28 @@ function connectWS() {
     $("btn-teleop").title = autonomy ? autonomyWhy :
       (s.estopped ? `${s.last_error || "E-stopped"}. Reset Session before starting again.` : "");
     const configuredHz = Number(s.collection_hz);
-    const measuredHz = Number(s.collection_actual_hz);
-    $("collection-rate").textContent = autonomy || !configuredHz ? ""
-      : `Target ${configuredHz} Hz` + (s.teleop_running
-        ? ` · actual ${measuredHz.toFixed(1)} Hz` : "");
-    $("collection-rate").title = "Leader target updates and command/joint recording. " +
-      "Camera capture rates are configured separately.";
+    const rates = s.collection_command_rates;
+    let rateText = `目标 ${configuredHz} Hz`;
+    if (s.teleop_running) {
+      if (rates) {
+        const gap = rates.fresh_target_interval_ms?.p95;
+        rateText += ` · 主→从新目标 ${Number(rates.fresh_target_hz).toFixed(1)} Hz` +
+          ` · SDK 下发 ${Number(rates.submitted_hz).toFixed(1)} Hz` +
+          ` · 更新间隔 P95 ${gap == null ? "—" : Number(gap).toFixed(2) + " ms"}` +
+          ` · 近 ${rates.window_s} 秒`;
+      } else {
+        // A refreshed browser can still be connected to the old Python process.
+        // Never present its loop-frequency EMA as a measured command rate.
+        rateText += " · 下发频率待服务重启后统计";
+      }
+    }
+    $("collection-rate").textContent = autonomy || !configuredHz ? "" : rateText;
+    $("collection-rate").title =
+      "最近 2 秒成功次数 ÷ 2 秒；启动后需满 2 秒形成完整窗口。" +
+      "主→从新目标：新采样目标首次成功提交给左右从臂 SDK，数值相同也计数；" +
+      "被覆盖而未下发的目标不计数。SDK 下发包含旧目标重复提交，不代表 CAN 帧率。" +
+      (rates ? ` 本窗口重复 ${rates.repeated_count} 次；距上次成功下发 ` +
+        `${rates.last_submit_age_ms == null ? "—" : Number(rates.last_submit_age_ms).toFixed(1) + " ms"}。` : "");
     renderCollectionTiming(s);
     renderLeadTiming(s);
     // Recording is available once the system is live (devices up), not only when synced.

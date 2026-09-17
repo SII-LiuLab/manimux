@@ -45,7 +45,7 @@ def test_mock_run_records_async_episode(tmp_path: Path) -> None:
     assert first_plan["committed/left_arm"].shape[1] == 6
     metadata = json.loads((result.episode_dir / "meta.json").read_text(encoding="utf-8"))
     assert metadata["policy_backend"] == {}
-    assert metadata["launch_mode"] == "run"
+    assert metadata["launch_mode"] == "embedded"
     events = [
         json.loads(line)
         for line in (result.episode_dir / "events.jsonl").read_text(encoding="utf-8").splitlines()

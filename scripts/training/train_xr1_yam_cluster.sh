@@ -4,21 +4,33 @@ set -euo pipefail
 mode=${1:-train}
 run_name=${2:-yam-v1-s0-4xh100-3k}
 
-ROOT=${YAM_TRAIN_ROOT:-/inspire/hdd2/project/liu-ming-huan/public/ziyang/yam_fintune_data}
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+ROOT=${YAM_TRAIN_ROOT:-${REPO_ROOT}/data/training}
+source "${REPO_ROOT}/scripts/training/_batch.sh"
 WORKSPACE=${XR1_WORKSPACE:-${REPO_ROOT}}
 POLICY=${WORKSPACE}/XPolicyLab/policy/Xiaomi_Robotics_1
 XR1=${POLICY}/xiaomi_robotics_1/xr1
 VENV=${ROOT}/envs/xr1/.venv
-DATASET=${XR1_DATASET_PATH:-}
+DATASET=${XR1_DATASET_PATH:?Set XR1_DATASET_PATH in the task recipe}
 BASE_MODEL=${XR1_BASE_MODEL_PATH:-${ROOT}/weights/base/xiaomi/model_states.pt}
 PROCESSOR=${XR1_PROCESSOR_PATH:-${ROOT}/weights/base/xiaomi/qwen3_vl_4b_processor}
 OUTPUT=${ROOT}/weights/finetuned/xiaomi-xr1/${run_name}
 LOG_DIR=${ROOT}/runs/xiaomi-xr1
 GPU_IDS=${XR1_GPU_IDS:-0,1,2,3}
-DATA_CONFIG_NAME=${XR1_DATA_CONFIG_NAME:-}
-TASK_NAME=${XR1_TASK_NAME:-}
-INSTRUCTION=${XR1_INSTRUCTION:-}
+DATA_CONFIG_NAME=${XR1_DATA_CONFIG_NAME:?Set XR1_DATA_CONFIG_NAME in the task recipe}
+TASK_NAME=${XR1_TASK_NAME:?Set XR1_TASK_NAME in the task recipe}
+INSTRUCTION=${XR1_INSTRUCTION:?Set XR1_INSTRUCTION in the task recipe}
+GPU_COUNT=$(training_gpu_count "${GPU_IDS}")
+# The vendored torchrun launcher reads RESOURCE_GPU, even if inherited from an image.
+export RESOURCE_GPU=${GPU_COUNT}
+export XR1_MICRO_BATCH_SIZE=${XR1_MICRO_BATCH_SIZE:-1}
+export XR1_GRAD_ACCUM_STEPS=${XR1_GRAD_ACCUM_STEPS:-$(training_default_accum "${XR1_MICRO_BATCH_SIZE}" "${GPU_COUNT}")}
+training_positive_int XR1_MICRO_BATCH_SIZE "${XR1_MICRO_BATCH_SIZE}"
+training_positive_int XR1_GRAD_ACCUM_STEPS "${XR1_GRAD_ACCUM_STEPS}"
+training_check_batch XR1 "${mode}" "$((XR1_MICRO_BATCH_SIZE * GPU_COUNT * XR1_GRAD_ACCUM_STEPS))" "${GPU_COUNT}" \
+  "micro_batch=${XR1_MICRO_BATCH_SIZE} accumulation=${XR1_GRAD_ACCUM_STEPS}"
+training_plan "${mode}" "entry=${POLICY}/train.sh" "dataset=${DATASET}" "config=${DATA_CONFIG_NAME}" "output=${OUTPUT}" \
+  "prepare=YAM recordings -> XR1 JSON, norm_stats.json and Hydra config" "steps=${XR1_MAX_STEPS:-3000} (optimizer updates)"
 
 export PATH="${ROOT}/envs/bin:${PATH}"
 export HF_HOME=${ROOT}/cache/huggingface
@@ -27,8 +39,6 @@ export TRANSFORMERS_CACHE=${HF_HOME}/transformers
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 export UV_CACHE_DIR=${ROOT}/cache/uv
-export UV_INDEX_URL=${UV_INDEX_URL:-http://nexus.sii.shaipower.online/repository/pypi/simple}
-export UV_INSECURE_HOST=${UV_INSECURE_HOST:-nexus.sii.shaipower.online}
 export PYTORCH_INDEX_URL=${PYTORCH_INDEX_URL:-https://download.pytorch.org/whl/cu128}
 export TORCH_HOME=${ROOT}/cache/torch
 export XR1_QWEN_VL_CONFIG_SOURCE=${PROCESSOR}
@@ -179,8 +189,8 @@ case "${mode}" in
     prepare_data
     preflight
     if [[ "${mode}" == smoke ]]; then
-      max_steps=${XR1_MAX_STEPS:-2}
-      save_interval=${XR1_SAVE_INTERVAL:-2}
+      max_steps=1
+      save_interval=1
     else
       max_steps=${XR1_MAX_STEPS:-3000}
       save_interval=${XR1_SAVE_INTERVAL:-500}
@@ -200,11 +210,14 @@ case "${mode}" in
     XR1_LOGGER="${XR1_LOGGER}" \
     bash "${POLICY}/train.sh" \
       RoboDojo_real "${TASK_NAME}" yam_dual ee 0 "${GPU_IDS}" \
+      data.params.train_datasets.batch_size="${XR1_MICRO_BATCH_SIZE}" \
       trainer.accumulate_grad_batches="${XR1_GRAD_ACCUM_STEPS:-8}" \
+      +trainer.strategy.params.stage=2 \
+      +trainer.strategy.params.offload_optimizer=false \
       2>&1 | tee "${LOG_DIR}/${run_name}.log"
     ;;
   *)
-    echo "Usage: $0 [prepare|smoke|train|gate-train] [run_name]" >&2
+    echo "Usage: $0 [plan|prepare|smoke|train|gate-train] [run_name]" >&2
     exit 2
     ;;
 esac

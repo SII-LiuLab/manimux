@@ -9,7 +9,8 @@ robot:
   control_hz: 100.0
   options:
     right_config: configs/robots/yam_right.yaml
-    move_to_start_on_connect: true
+    # Stay where you are on Prepare; Home separately if needed, then Start.
+    move_to_start_on_connect: false
     start_joints: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
     start_duration_s: 2.0
     home_duration_s: 2.0

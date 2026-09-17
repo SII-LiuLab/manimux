@@ -11,6 +11,11 @@
 /exchange_ball_v0.tgz
 /exp_dinov2lfrz_yam_bottles_realsim_top_tcp_dit_4gpu_bs256.yaml
 
+# Training task directories contain local data paths and experiment settings.
+# Shared entrypoints and the portable example remain public.
+/scripts/training/*/
+!/scripts/training/example/
+
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
@@ -39,13 +44,18 @@ tests/
 !/tests/unit/
 /tests/unit/*
 !/tests/unit/test_yam_collection.py
+!/tests/unit/test_native_joint_recording.py
 !/tests/unit/test_selected_camera_requests.py
 !/tests/unit/test_sapolicy_xpl_model.py
 !/tests/unit/test_sapolicy_xpl_transport.py
 !/tests/unit/test_sapolicy_decode_timing.py
 !/tests/unit/test_viewer_config.py
+!/tests/unit/test_collection_replay.py
+!/tests/unit/test_joint_replay_execution.py
+!/tests/unit/test_collection_timing.py
 !/tests/unit/test_tianji_driver.py
 !/tests/unit/test_taccap_camera.py
 
 !/tests/unit/test_umi_dp_tianji.py
 !/tests/unit/test_tianji_diff_ik.py
+!/tests/unit/test_training_task_scripts.py

@@ -284,9 +284,9 @@ Start/Resume、Pause/Hold、Finish & Home、相机、预测轨迹和 achieved tr
 
 Viser 永远不下载模型、不启动 Policy Server、不切换 checkpoint，也不任意修改真机 config。保存路径
 由 `manimux serve --config ...` 决定，UI 只显示路径并向已经结束的 episode 写 evaluation sidecar。
-原 `manimux run` 继续作为单 episode CLI 使用。
+运行入口统一为 `manimux serve`；单条调试也通过 Viewer 的 `Prepare normal rollout` 开始。
 
-当前 V1 已支持显式实验模式开关。OFF 用于普通部署与 debug，不要求 reward；ON 用于正式采集，
+当前 V1 通过两个 Prepare 按钮选择普通或实验 rollout。普通模式用于部署与 debug，不要求 reward；实验模式用于正式采集，
 每条 finalized rollout 必须保存人工标签后才能 Prepare 下一条。task command 和 layout ID 在 Prepare
 时冻结到该 rollout。完整操作与数据契约见 [experiment infrastructure](experiment-infra.md)。
 

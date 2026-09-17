@@ -1,17 +1,18 @@
 # Utility scripts
 
-Unified training entry: `python scripts/training/train.py --list`.
-Use `--recipe <name>` or `--config <job.json>` to plan preparation + training;
-add `--execute` only on the training machine to run it. See
-[training entrypoints](../docs/training-entrypoints.md) for supported models,
-data preparation chains and one-command examples. Existing cluster scripts
-remain available for the recorded experiments.
+Training tasks: [training/README.md](training/README.md) explains shared model
+launchers, ignored task folders, native batch parameters and data preparation. Run a
+task with `plan` to inspect it without starting work. The optional
+`python scripts/training/train.py --list` planner remains documented in
+[training entrypoints](../docs/training-entrypoints.md).
 
 The scripts are grouped by responsibility:
 
 - `servers/`: launch model-side policy services.
 - `datasets/`: convert datasets, compute statistics, and prepare model assets.
 - `validation/`: offline probes, configuration checks, and diagnostic audits.
+  `validation/run_headless.py` runs one mock / Meshcat episode without physical devices;
+  robot deployment uses `manimux serve` and the Viewer Prepare buttons.
 - `media/`: viewer recording and other presentation helpers.
 - `training/`: cluster launchers for dataset stats, smoke runs, and formal training.
 

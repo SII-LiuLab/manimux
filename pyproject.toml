@@ -18,6 +18,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+collection-analysis = [
+  "matplotlib>=3.8",
+]
 tianji-diff-ik = [
   "osqp>=1,<2",
 ]
@@ -30,22 +33,9 @@ collection = [
   "httpx>=0.27",
   "h5py>=3.11",
 ]
-molmoact-yam = [
-  "fastapi>=0.116",
-  "h5py>=3.11",
-  "hf-transfer>=0.1.8",
-  "huggingface-hub>=0.36",
-  "json-numpy>=2.1.0",
-  "omegaconf>=2.3",
+cameras = [
   "opencv-python>=4.10",
   "pyrealsense2>=2.55",
-  "requests>=2.32",
-  "torch==2.5.1",
-  "torchvision==0.20.1",
-  "tqdm>=4.66",
-  "transformers>=4.57,<4.58",
-  "tyro>=1.0.13",
-  "uvicorn[standard]>=0.35",
 ]
 
 # No torch, no model code: the policy runs inside XPolicyLab's own environment
@@ -54,32 +44,6 @@ xpolicylab = [
   "msgpack>=1.0.8",
   "msgpack-numpy>=0.4.8",
   "websockets>=14",
-]
-
-# torch is deliberately absent: the ABC checkpoint is validated against the
-# CUDA-12.8 build, which lives on a different index than the pinned cu121 wheels
-# used by molmoact-yam. Install it into envs/abc first, then this group.
-abc-yam = [
-  "fastapi>=0.116",
-  "ftfy>=6.2",
-  "json-numpy>=2.1.0",
-  "regex>=2024.5.15",
-  "requests>=2.32",
-  "uvicorn[standard]>=0.35",
-]
-
-# torch is deliberately absent: XR-1 is validated against torch 2.8 / CUDA 12.6
-# plus a matching flash-attn build. Install those into envs/xr1 first.
-xr1-yam = [
-  "accelerate>=1.11",
-  "fastapi>=0.116",
-  "json-numpy>=2.1.0",
-  "liger-kernel==0.6.5",
-  "mmengine==0.10.7",
-  "requests>=2.32",
-  "safetensors>=0.6",
-  "transformers==4.57.1",
-  "uvicorn[standard]>=0.35",
 ]
 
 [dependency-groups]
@@ -94,10 +58,7 @@ dev = [
 manimux = "manimux.cli:main"
 manimux-collect = "manimux.collection.cli:main"
 manimux-viewer = "manimux.viewer.dashboard:main"
-manimux-molmoact-yam = "manimux.viewer.integrations.molmoact_yam:main"
 manimux-camera-server = "manimux.sensors.camera_server.server:main"
-manimux-molmoact-server = "manimux.integrations.molmoact_yam.host_server_yam:main"
-manimux-abc-server = "manimux.integrations.abc_yam.host_server_abc:main"
 
 [project.entry-points."manimux.viewer.robots"]
 tianji = "manimux.viewer.robots.tianji:TianjiAdapter"
@@ -107,15 +68,6 @@ yam = "manimux.viewer.robots.yam:YamAdapter"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-[tool.uv.sources]
-torch = { index = "pytorch-cu121" }
-torchvision = { index = "pytorch-cu121" }
-
-[[tool.uv.index]]
-name = "pytorch-cu121"
-url = "https://download.pytorch.org/whl/cu121"
-explicit = true
-
 [tool.hatch.build.targets.wheel]
 packages = ["src/manimux"]
 
@@ -123,9 +75,7 @@ packages = ["src/manimux"]
 "THIRD_PARTY_NOTICES.md" = "manimux/THIRD_PARTY_NOTICES.md"
 "licenses/MolmoAct2-APACHE-2.0.txt" = "manimux/licenses/MolmoAct2-APACHE-2.0.txt"
 "licenses/i2rt-MIT.txt" = "manimux/licenses/i2rt-MIT.txt"
-"src/manimux/integrations/abc_yam/abc_minimal/third_party/clip/LICENSE" = "manimux/licenses/abc-clip-MIT.txt"
-"src/manimux/integrations/abc_yam/abc_minimal/third_party/dinov3/LICENSE.md" = "manimux/licenses/abc-dinov3.md"
-"src/manimux/integrations/xr1_yam/mibot/LICENSE" = "manimux/licenses/xiaomi-robotics-1-APACHE-2.0.txt"
+"licenses/Xiaomi-Robotics-1-APACHE-2.0.txt" = "manimux/licenses/xiaomi-robotics-1-APACHE-2.0.txt"
 "src/manimux/robots/tianji/vendor/marvin/LICENSE" = "manimux/licenses/marvin-sdk-APACHE-2.0.txt"
 
 [tool.pytest.ini_options]
@@ -152,7 +102,7 @@ typeCheckingMode = "off"
 python_version = "3.11"
 strict = true
 packages = ["manimux"]
-exclude = ["src/manimux/integrations/molmoact_yam", "src/manimux/robots/tianji/vendor"]
+exclude = ["src/manimux/robots/tianji/vendor"]
 
 [[tool.mypy.overrides]]
 module = [

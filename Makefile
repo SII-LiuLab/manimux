@@ -18,4 +18,4 @@ test-integration:
 	uv run pytest tests/integration
 
 mock-run:
-	uv run manimux run --config configs/mock.yaml
+	uv run python scripts/validation/run_headless.py --config configs/mock.yaml

@@ -1,7 +1,7 @@
 # YAM 三个模型训练流程
 
-通用单命令入口与模型清单见 [统一训练入口](training-entrypoints.md)。
-下文保留历史实验命令和参数，不作为新数据集的默认配置。
+当前通用入口、被忽略的任务目录和数据准备步骤见 [训练目录说明](../scripts/training/README.md)。
+下文保留历史实验命令和参数，不作为新数据集的默认配置；旧命令基于当时的默认参数，新任务请使用训练目录说明中的任务脚本。
 
 本文记录从 YAM 遥操作数据到 Pi05、LingBot-VLA2、Xiaomi Robotics 1（XR-1）训练的完整命令。
 训练命令在训练服务器执行；`/inspire/.../yam_fintune_data` 是共享训练盘，训练 checkout
@@ -110,7 +110,7 @@ joint + EEF native-depth 使用独立 dataset/stats：
 
 ```bash
 cd "$CODE"
-bash scripts/training/train_lingbot_vla2_yam_joint_ee_cluster.sh \
+bash scripts/training/assemble_screwdriver/lingbot_vla2_joint_ee.sh \
   prepare assemble-screwdriver-lingbot-joint-ee-native-depth
 ```
 
@@ -145,7 +145,7 @@ cd "$CODE"
 OPENPI_GPU_IDS=0,1,2,3,4,5,6,7 \
 OPENPI_FSDP_DEVICES=8 OPENPI_BATCH_SIZE=64 \
 OPENPI_NUM_TRAIN_STEPS=15000 OPENPI_SAVE_INTERVAL=1000 OPENPI_MAX_TO_KEEP=15 \
-PI05_WORKSPACE="$CODE" bash scripts/training/train_pi05_yam_joint_ee_cluster.sh \
+PI05_WORKSPACE="$CODE" bash scripts/training/assemble_screwdriver/pi05_joint_ee.sh \
   train assemble-screwdriver-joint-ee-v1-s0-8xh100-15k
 ```
 
@@ -167,7 +167,7 @@ joint + EEF 使用官方 native-depth 辅助任务，并保持 8 卡、global ba
 
 ```bash
 cd "$CODE"
-bash scripts/training/train_lingbot_vla2_yam_joint_ee_cluster.sh \
+bash scripts/training/assemble_screwdriver/lingbot_vla2_joint_ee.sh \
   train assemble-screwdriver-lingbot-joint-ee-native-depth-8xh100-b64-15k
 ```
 

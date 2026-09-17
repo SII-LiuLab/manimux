@@ -19,8 +19,6 @@ cameras_config: configs/collection/yam/cameras.yaml
 save_root: data/collection/episodes
 task_name: put_bottles_into_the_bin
 data_format: default
-# Timing trial: retain commands/videos/timings; omit achieved state from files.
-record_achieved: false
 # Leader targets + command/joint records; cameras keep their configured FPS.
 # Set null to restore profile timing and the legacy recording format.
 collection_hz: 100

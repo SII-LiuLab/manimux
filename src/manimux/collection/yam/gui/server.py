@@ -182,7 +182,6 @@ def create_app(
             "control_hz": c.control_hz,
             "task_name": c.task_name,
             "data_format": c.data_format,
-            "record_achieved": c.record_achieved,
             "save_root": c.save_root,
             # Station default for the Deploy tab's "home pose" field (None = don't home).
             "deploy_home_pose": c.deploy_home_pose,

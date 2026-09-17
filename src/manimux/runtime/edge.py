@@ -96,7 +96,7 @@ class EdgeRuntime:
         *,
         clock: Clock | None = None,
         strategy: InferenceStrategy | None = None,
-        launch_mode: str = "run",
+        launch_mode: str = "embedded",
     ) -> None:
         self._config = config
         self._run_dir = run_dir

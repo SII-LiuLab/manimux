@@ -92,7 +92,7 @@ XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
 完成相机、CAN 和 preflight 检查后，真机 ManiMux 由操作者运行：
 
 ```bash
-envs/yam/.venv/bin/manimux run \
+envs/yam/.venv/bin/manimux serve \
   --config configs/pi05/yam/infra/pick-red-ball-box/manimux-step1000.yaml
 ```
 
@@ -290,7 +290,7 @@ done
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/manimux run --config configs/pi05/yam/infra/manimux.yaml
+envs/yam/.venv/bin/manimux serve --config configs/pi05/yam/infra/manimux.yaml
 ```
 
 这个 ManiMux 基线将 16 个绝对关节点按约 0.50 秒执行。机器人控制环也是 30Hz，避免
@@ -300,7 +300,7 @@ ManiMux 负责。
 50ms 拉伸对照把同一组点按约 0.75 秒执行：
 
 ```bash
-envs/yam/.venv/bin/manimux run --config configs/pi05/yam/infra/stretched-50ms.yaml
+envs/yam/.venv/bin/manimux serve --config configs/pi05/yam/infra/stretched-50ms.yaml
 ```
 
 两份配置是独立对照实验，不要同时运行。2026-08-20 的 50ms 真实运行中，模型请求和
@@ -382,7 +382,7 @@ Viewer trail；不会继承上一条 rollout 的推理状态。camera/model/view
 只需要单条 rollout 或用于脚本兼容时，原 CLI 入口仍保留：
 
 ```bash
-envs/yam/.venv/bin/manimux run \
+envs/yam/.venv/bin/manimux serve \
   --config configs/pi05/yam/infra/pick-red-ball-box/rtc-step1000.yaml
 ```
 

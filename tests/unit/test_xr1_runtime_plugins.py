@@ -57,15 +57,15 @@ def test_xr1_run_config_swaps_only_the_policy_layer() -> None:
     from manimux.robots.yam import YamDualArmDriver
 
     xr1 = load_config("configs/xiaomi-xr1/yam/infra/manimux.yaml")
-    molmoact = load_config("configs/molmoact2/yam/infra/manimux.yaml")
+    pi05 = load_config("configs/pi05/yam/infra/manimux.yaml")
 
     assert isinstance(build_robot(xr1.robot, SystemClock()), YamDualArmDriver)
     assert isinstance(build_sensor(xr1.sensors[0], SystemClock()), CameraServerSensorDriver)
     assert isinstance(build_policy_model(xr1.policy), XPolicyLabWsPolicyModel)
 
-    assert xr1.robot.driver == molmoact.robot.driver
-    assert xr1.sensors[0].driver == molmoact.sensors[0].driver
-    assert xr1.viewer.robot_adapter == molmoact.viewer.robot_adapter
+    assert xr1.robot.driver == pi05.robot.driver
+    assert xr1.sensors[0].driver == pi05.sensors[0].driver
+    assert xr1.viewer.robot_adapter == pi05.viewer.robot_adapter
 
 
 def test_zero_delta_holds_the_measured_pose(adapter: XR1YamAdapter) -> None:

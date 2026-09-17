@@ -81,6 +81,11 @@ from 14D to 32D, whereas joint+EEF targets are padded from 26D to 32D.
 
 ## Training entry point (not submitted by preparation)
 
+The commands below retain the historical batch-32 example. Current task scripts
+are ignored local profiles under `scripts/training/put_bottles_into_the_bin/`
+and default to batch 64 / 30k updates. See [the current task guide](../scripts/training/README.md).
+Set `YAM_EXPECTED_GLOBAL_BATCH_SIZE=32` explicitly when reproducing this example.
+
 The conversion environment is **not** the Pi05 GPU training environment.
 The dedicated training environment and official Pi05 base checkpoint are staged
 separately below. On the approved GPU node, verify these paths are mounted:
@@ -95,17 +100,17 @@ export OPENPI_NUM_TRAIN_STEPS=15000
 export OPENPI_SAVE_INTERVAL=500
 export OPENPI_MAX_TO_KEEP=10
 
-bash "$PI05_WORKSPACE/scripts/training/train_pi05_yam_bottles_joint_ee_cluster.sh" \
+bash "$PI05_WORKSPACE/scripts/training/put_bottles_into_the_bin/pi05_joint_ee.sh" \
   prepare put-bottles-joint-ee-v1-s0-15k
 
 # Run only after the compute project, GPU resources and job payload are approved:
-bash "$PI05_WORKSPACE/scripts/training/train_pi05_yam_bottles_joint_ee_cluster.sh" \
+bash "$PI05_WORKSPACE/scripts/training/put_bottles_into_the_bin/pi05_joint_ee.sh" \
   train put-bottles-joint-ee-v1-s0-15k
 
 # Separate job, with the same resource and hyperparameter settings:
-bash "$PI05_WORKSPACE/scripts/training/train_pi05_yam_bottles_joint_cluster.sh" \
+bash "$PI05_WORKSPACE/scripts/training/put_bottles_into_the_bin/pi05_joint.sh" \
   prepare put-bottles-joint-v1-s0-15k
-bash "$PI05_WORKSPACE/scripts/training/train_pi05_yam_bottles_joint_cluster.sh" \
+bash "$PI05_WORKSPACE/scripts/training/put_bottles_into_the_bin/pi05_joint.sh" \
   train put-bottles-joint-v1-s0-15k
 ```
 

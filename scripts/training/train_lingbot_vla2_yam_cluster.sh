@@ -4,13 +4,14 @@ set -euo pipefail
 mode=${1:-train}
 run_name=${2:-yam-v1-s0-4xh100-3k}
 
-ROOT=${YAM_TRAIN_ROOT:-/inspire/hdd2/project/liu-ming-huan/public/ziyang/yam_fintune_data}
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+ROOT=${YAM_TRAIN_ROOT:-${REPO_ROOT}/data/training}
+source "${REPO_ROOT}/scripts/training/_batch.sh"
 WORKSPACE=${LINGBOT_VLA2_WORKSPACE:-${REPO_ROOT}}
 POLICY=${WORKSPACE}/XPolicyLab/policy/LingBot_VLA2
 SOURCE=${POLICY}/lingbot_vla_v2
 VENV=${ROOT}/envs/lingbot-vla2/.venv
-DATASET=${LINGBOT_VLA2_DATASET_PATH:-}
+DATASET=${LINGBOT_VLA2_DATASET_PATH:?Set LINGBOT_VLA2_DATASET_PATH in the task recipe}
 DATASET_NAME=${LINGBOT_VLA2_DATASET_NAME:-${DATASET##*/}}
 MODEL=${LINGBOT_VLA2_MODEL_PATH:-${ROOT}/weights/base/lingbot-vla-v2-6b}
 TOKENIZER=${LINGBOT_VLA2_TOKENIZER_PATH:-${ROOT}/weights/base/xiaomi/qwen3_vl_4b_processor}
@@ -25,15 +26,28 @@ RESOLVED_TRAINING_CONFIG=${LINGBOT_VLA2_RESOLVED_TRAINING_CONFIG:-${STATS_DIR}/t
 OUTPUT=${ROOT}/weights/finetuned/lingbot-vla2/${run_name}
 LOG_DIR=${ROOT}/runs/lingbot-vla2
 GPU_IDS=${LINGBOT_VLA2_GPU_IDS:-0,1,2,3}
+GPU_COUNT=$(training_gpu_count "${GPU_IDS}")
+export LINGBOT_VLA2_DP_SHARD_SIZE=${GPU_COUNT}
+export LINGBOT_VLA2_MICRO_BATCH_SIZE=${LINGBOT_VLA2_MICRO_BATCH_SIZE:-1}
+export LINGBOT_VLA2_GRAD_ACCUM_STEPS=${LINGBOT_VLA2_GRAD_ACCUM_STEPS:-$(training_default_accum "${LINGBOT_VLA2_MICRO_BATCH_SIZE}" "${GPU_COUNT}")}
+training_positive_int LINGBOT_VLA2_MICRO_BATCH_SIZE "${LINGBOT_VLA2_MICRO_BATCH_SIZE}"
+training_positive_int LINGBOT_VLA2_GRAD_ACCUM_STEPS "${LINGBOT_VLA2_GRAD_ACCUM_STEPS}"
+EFFECTIVE_BATCH=$((LINGBOT_VLA2_MICRO_BATCH_SIZE * GPU_COUNT * LINGBOT_VLA2_GRAD_ACCUM_STEPS))
+export LINGBOT_VLA2_GLOBAL_BATCH_SIZE=${LINGBOT_VLA2_GLOBAL_BATCH_SIZE:-${EFFECTIVE_BATCH}}
+[[ "${LINGBOT_VLA2_GLOBAL_BATCH_SIZE}" == "${EFFECTIVE_BATCH}" ]] || {
+  echo "LingBot global_batch_size disagrees with micro batch × GPUs × accumulation" >&2; exit 2;
+}
+training_check_batch LingBot "${mode}" "${EFFECTIVE_BATCH}" "${GPU_COUNT}" \
+  "micro_batch=${LINGBOT_VLA2_MICRO_BATCH_SIZE} accumulation=${LINGBOT_VLA2_GRAD_ACCUM_STEPS}"
+training_plan "${mode}" "entry=${POLICY}/train.sh" "config=${TRAINING_CONFIG}" "robot=${ROBOT_NAME}" \
+  "dataset=${DATASET}" "stats=${STATS}" "output=${OUTPUT}" \
+  "prepare=converted LeRobot required; resolve config and compute LingBot norm stats" "steps=${LINGBOT_VLA2_MAX_STEPS:-3000} (optimizer updates)"
 
 export PATH="${ROOT}/envs/bin:${PATH}"
 export HF_HOME=${ROOT}/cache/huggingface
 export HF_HUB_CACHE=${HF_HOME}/hub
 export TRANSFORMERS_CACHE=${HF_HOME}/transformers
 export UV_CACHE_DIR=${ROOT}/cache/uv
-export UV_INDEX_URL=${UV_INDEX_URL:-http://nexus.sii.shaipower.online/repository/pypi/simple}
-export UV_INSECURE_HOST=${UV_INSECURE_HOST:-nexus.sii.shaipower.online}
-export PYTORCH_INDEX_URL=${PYTORCH_INDEX_URL:-${UV_INDEX_URL}}
 export LINGBOT_VLA2_LEROBOT_SPEC=${LINGBOT_VLA2_LEROBOT_SPEC:-lerobot==0.4.2}
 export MAX_JOBS=${MAX_JOBS:-16}
 export TORCH_HOME=${ROOT}/cache/torch
@@ -45,8 +59,6 @@ export LINGBOT_VLA2_NORM_STATS_PATH=${STATS}
 export LINGBOT_VLA2_ACTION_HORIZON=${LINGBOT_VLA2_ACTION_HORIZON:-50}
 export LINGBOT_VLA2_NATIVE_HZ=${LINGBOT_VLA2_NATIVE_HZ:-30}
 export LINGBOT_VLA2_TRAIN_WORKERS=${LINGBOT_VLA2_TRAIN_WORKERS:-8}
-export LINGBOT_VLA2_MICRO_BATCH_SIZE=${LINGBOT_VLA2_MICRO_BATCH_SIZE:-1}
-export LINGBOT_VLA2_GRAD_ACCUM_STEPS=${LINGBOT_VLA2_GRAD_ACCUM_STEPS:-8}
 export LINGBOT_VLA2_USE_WANDB=false
 export LINGBOT_VLA2_ENABLE_RESUME=false
 
@@ -220,39 +232,17 @@ PY
 }
 
 run_training() {
-  local train_args=(
-    tasks/vla/train_lingbotvla.py "${RESOLVED_TRAINING_CONFIG}"
-    --model.model_path "${MODEL}"
-    --model.tokenizer_path "${TOKENIZER}"
-    --data.data_name "${ROBOT_NAME}"
-    --data.train_path "${DATASET}"
-    --data.robot_config_root "${ROBOT_CONFIG_ROOT}"
-    --data.norm_stats_file "${STATS}"
-    --data.num_workers "${LINGBOT_VLA2_TRAIN_WORKERS:-8}"
-    --train.output_dir "${OUTPUT}"
-    --train.seed 0
-    --train.chunk_size "${LINGBOT_VLA2_ACTION_HORIZON}"
-    --train.micro_batch_size "${LINGBOT_VLA2_MICRO_BATCH_SIZE}"
-    --train.gradient_accumulation_steps "${LINGBOT_VLA2_GRAD_ACCUM_STEPS}"
-    --train.max_steps "${LINGBOT_VLA2_MAX_STEPS:-60000}"
-    --train.save_steps "${LINGBOT_VLA2_SAVE_STEPS:-1000}"
-    --train.enable_resume false
-    --train.use_wandb false
-  )
-  if [[ -n "${LINGBOT_VLA2_GLOBAL_BATCH_SIZE:-}" ]]; then
-    train_args+=(--train.global_batch_size "${LINGBOT_VLA2_GLOBAL_BATCH_SIZE}")
+  if [[ -d "${OUTPUT}" && -n "$(ls -A "${OUTPUT}")" ]]; then
+    echo "Refusing to overwrite existing run: ${OUTPUT}" >&2; exit 2
   fi
-
-  (
-    cd "${SOURCE}"
-    CUDA_VISIBLE_DEVICES=${GPU_IDS} PATH="${VENV}/bin:${PATH}" \
-      PYTHONPATH="${WORKSPACE_PYTHONPATH}" \
-      bash -o pipefail train.sh "${train_args[@]}"
-  ) 2>&1 | tee "${LOG_DIR}/${run_name}.log"
-
-  cp -f "${STATS}" "${OUTPUT}/norm_stats.json"
-  cp -f "${DEPLOY_ROBOT_CONFIG}" "${OUTPUT}/robot_config.yaml"
-  cp -f "${TRAINING_ROBOT_CONFIG}" "${OUTPUT}/training_robot_config.yaml"
+  LINGBOT_VLA2_TRAINING_CONFIG="${RESOLVED_TRAINING_CONFIG}" \
+  LINGBOT_VLA2_ROBOT_CONFIG_ROOT="${ROBOT_CONFIG_ROOT}" \
+  LINGBOT_VLA2_ROBOT_NAME="${ROBOT_NAME}" \
+  LINGBOT_VLA2_DEPLOY_ROBOT_CONFIG="${DEPLOY_ROBOT_CONFIG}" \
+  LINGBOT_VLA2_CHECKPOINT_DIR="${OUTPUT}" \
+  PYTHONPATH="${WORKSPACE_PYTHONPATH}" \
+    bash "${POLICY}/train.sh" RoboDojo_real "${DATASET_NAME}" yam_dual joint 0 "${GPU_IDS}" \
+    2>&1 | tee "${LOG_DIR}/${run_name}.log"
 }
 
 case "${mode}" in
@@ -277,8 +267,8 @@ case "${mode}" in
     compute_stats
     preflight
     if [[ "${mode}" == "smoke" ]]; then
-      export LINGBOT_VLA2_MAX_STEPS=${LINGBOT_VLA2_MAX_STEPS:-1}
-      export LINGBOT_VLA2_SAVE_STEPS=${LINGBOT_VLA2_SAVE_STEPS:-1}
+      export LINGBOT_VLA2_MAX_STEPS=1
+      export LINGBOT_VLA2_SAVE_STEPS=1
     else
       export LINGBOT_VLA2_MAX_STEPS=${LINGBOT_VLA2_MAX_STEPS:-3000}
       export LINGBOT_VLA2_SAVE_STEPS=${LINGBOT_VLA2_SAVE_STEPS:-500}
@@ -286,7 +276,7 @@ case "${mode}" in
     run_training
     ;;
   *)
-    echo "Usage: $0 [prepare|smoke|train|gate-train] [run_name]" >&2
+    echo "Usage: $0 [plan|prepare|smoke|train|gate-train] [run_name]" >&2
     exit 2
     ;;
 esac

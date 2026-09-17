@@ -18,7 +18,7 @@ class RtcRuntime(EdgeRuntime):
         run_dir: Path,
         *,
         strategy: RtcInferenceStrategy | None = None,
-        launch_mode: str = "run",
+        launch_mode: str = "embedded",
     ) -> None:
         strategy = strategy or RtcInferenceStrategy(config)
         super().__init__(config, run_dir, strategy=strategy, launch_mode=launch_mode)

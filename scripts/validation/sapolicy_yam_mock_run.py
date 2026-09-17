@@ -95,10 +95,10 @@ def main() -> int:
             server = _start_server(args.server_config.expanduser().resolve())
             _wait_for_server(server, DEFAULT_HOST, DEFAULT_PORT, timeout_s=20.0)
 
-    from manimux.cli import _run
+    from scripts.validation.run_headless import run_headless
 
     try:
-        return _run(args.config.expanduser().resolve())
+        return run_headless(args.config.expanduser().resolve())
     finally:
         if server is not None and server.poll() is None:
             server.terminate()

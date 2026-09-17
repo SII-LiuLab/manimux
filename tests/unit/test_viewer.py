@@ -1024,7 +1024,7 @@ def test_runtime_bridge_publishes_the_exact_committed_plan() -> None:
         enabled=False,
         robot_adapter="custom",
         group_order=["left", "right"],
-        policy="molmoact_http",
+        policy="xpolicylab_ws",
         instruction="task",
     )
     bridge._enabled = True
@@ -1055,7 +1055,7 @@ def test_runtime_bridge_publishes_the_exact_committed_plan() -> None:
 
     assert len(publisher.messages) == 1
     message = publisher.messages[0]
-    assert message["policy"] == "molmoact_http"
+    assert message["policy"] == "xpolicylab_ws"
     assert message["instruction"] == "task"
     assert message["actions"] == [[1.0, -1.0], [2.0, -2.0]]
     assert message["metadata"]["committed_start_time_ns"] == 20

@@ -14,12 +14,20 @@ Apache License 2.0; see `PRM-as-a-Judge/LICENSE`.
 
 ## MolmoAct2
 
-`src/manimux/integrations/molmoact_yam/` is derived from the YAM evaluation
-example in `allenai/molmoact2` at commit
-`3d15be665dec918d6b3fe0cf606284adc4677bba`. ManiMux reorganizes it as an
-internal package and adds asynchronous rollout observation, viewer events,
-runtime configuration, and shutdown behavior. The upstream project is under
-Apache License 2.0; see `licenses/MolmoAct2-APACHE-2.0.txt`.
+The retired native YAM integration was derived from the evaluation example in
+`allenai/molmoact2` at commit `3d15be665dec918d6b3fe0cf606284adc4677bba`.
+Shared hardware support extracted from that integration remains in ManiMux;
+the model implementation and its standalone server have been removed. The
+upstream license is retained at `licenses/MolmoAct2-APACHE-2.0.txt`.
+
+## Xiaomi Robotics 1 action codec
+
+The action layout and rotation conversion in
+`src/manimux/integrations/xr1_yam/codec.py` were extracted from
+`XiaomiRobotics/Xiaomi-Robotics-1`'s `mibot/utils/io.py`,
+Copyright (C) 2026 Xiaomi Corporation. This NumPy-only embodiment helper is
+retained after removing the duplicate native model source; the learned model
+runs in XPolicyLab. See `licenses/Xiaomi-Robotics-1-APACHE-2.0.txt`.
 
 ## i2rt YAM model assets
 

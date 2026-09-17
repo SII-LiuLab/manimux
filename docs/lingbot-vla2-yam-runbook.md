@@ -94,7 +94,7 @@ source:  XPolicyLab/policy/LingBot_VLA2/lingbot_vla_v2/  # vendored upstream sou
 check:   scripts/validation/check_lingbot_vla2_yam.py
 audit:   scripts/validation/lingbot_vla2_yam_audit.py
 prepare: scripts/datasets/prepare_lingbot_vla2_base_assets.py
-joint+EEF train: scripts/training/train_lingbot_vla2_yam_joint_ee_cluster.sh
+joint+EEF train: scripts/training/assemble_screwdriver/lingbot_vla2_joint_ee.sh
 joint+EEF profile: configs/lingbot-vla2/yam/robot_configs/yam_dual_joint_ee_relative.yaml
 stats:   src/manimux/integrations/lingbot_vla2_yam/norm_stats/yam_60ep.json
 ```
@@ -339,7 +339,7 @@ done
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/manimux run \
+envs/yam/.venv/bin/manimux serve \
   --config configs/lingbot-vla2/yam/infra/manimux.yaml
 ```
 
@@ -383,7 +383,7 @@ bash XPolicyLab/policy/LingBot_VLA2/setup_eval_policy_server.sh \
 # 使用现场已经验证过的 camera server 命令。
 
 # terminal 3: ManiMux
-envs/yam/.venv/bin/manimux run \
+envs/yam/.venv/bin/manimux serve \
   --config configs/lingbot-vla2/yam/infra/manimux.yaml
 ```
 

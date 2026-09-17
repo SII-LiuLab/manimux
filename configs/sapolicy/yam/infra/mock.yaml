@@ -4,7 +4,7 @@
 #   python scripts/validation/sapolicy_yam_mock_run.py
 #
 # Or, with envs/yam (mink/i2rt present):
-#   envs/yam/.venv/bin/manimux run --config configs/sapolicy/yam/infra/mock.yaml
+#   envs/yam/.venv/bin/python scripts/validation/sapolicy_yam_mock_run.py --no-server
 
 run:
   task: put the plastic bottles in the bin

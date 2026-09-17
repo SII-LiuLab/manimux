@@ -33,7 +33,7 @@ from pathlib import Path
 
 import numpy as np
 
-from manimux.integrations.xr1_yam.mibot.utils.io import (
+from manimux.integrations.xr1_yam.codec import (
     ACTION_DIM,
     ACTION_PARTS,
     STATE_DIM,

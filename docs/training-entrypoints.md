@@ -1,4 +1,10 @@
-# Unified training entry
+# Optional training planner
+
+For finalized YAM task commands, native batch settings and data preparation,
+start with [scripts/training/README.md](../scripts/training/README.md). Task settings live in ignored subdirectories and call the shared model
+launchers; using this planner is
+optional. Its generic built-in recipes retain their own development defaults
+and do not reproduce the task recipes automatically.
 
 The launcher composes existing data scripts and native XPolicy trainers. It
 does not implement model losses, start inference services, allocate cluster

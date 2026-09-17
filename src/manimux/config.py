@@ -261,6 +261,11 @@ class RtcConfig(StrictModel):
     initial_delay_steps: int = Field(default=4, ge=0)
     delay_buffer_size: int = Field(default=10, gt=0)
     beta: float = Field(default=5.0, gt=0)
+    # Ablation only: floor discard as max(latency, N steps). Bumps source_offset.
+    discard_prefix_steps: int = Field(default=0, ge=0)
+    # Ablation only: always drop N more rows on top of latency trim (no source_offset
+    # bump). e.g. 3 ≈ +0.1 s after the usual age-based trim.
+    extra_discard_prefix_steps: int = Field(default=0, ge=0)
     # RTC changes only *when* to infer and *what* to condition on. How a chunk
     # is executed -- timeline, smoothing, limits -- stays the default runtime's,
     # configured by ``execution.executor`` and ``execution.smooth`` as usual.

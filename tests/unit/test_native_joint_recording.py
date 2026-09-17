@@ -160,7 +160,6 @@ def test_gui_native_option_records_sidecars_without_changing_camera_rate(tmp_pat
     from manimux.collection.yam.gui.server import create_app
 
     cfg = build_station_config("configs/collection/yam/station.yaml")
-    cfg.record_achieved = True  # this test explicitly exercises feedback recording
     cfg.save_root = str(tmp_path / "episodes")
     cfg.cameras = [CameraConfig("top", "mock", "top", width=64, height=48)]
     app = create_app(cfg, mock=True)

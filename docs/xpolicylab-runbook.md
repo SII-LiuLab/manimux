@@ -92,8 +92,9 @@ uv pip install --python envs/yam/.venv/bin/python -e ".[xpolicylab]"
 训练适配与 sampler 留在 XPolicyLab；ManiMux 只保留硬件/动作适配、配置、轻量启动入口与
 公共 runtime。不能只在 XPolicyLab 加一个代理壳，仍把真正的模型实现放在 ManiMux native server。
 
-已有 `molmoact_http`、`abc_http` 暂为兼容路径，目标同样是迁入 XPolicyLab。
-先验证替代实现，再切换配置和移除旧入口；不把“有一个模型目录”当成迁移完成。
+旧 `molmoact_http`、`abc_http` 入口及部署配置已移除，XR-1 的重复 native 模型源码也已删除。
+XR-1 继续使用 XPolicyLab 服务和 ManiMux 本体适配。MolmoAct2 的旧 YAM 部署尚未验证
+替代路径，ABC 暂无替代部署；不能把删除旧实现当成迁移完成。
 
 每个模型必须有独立 server config、infra config 和 runbook。需要确认：
 

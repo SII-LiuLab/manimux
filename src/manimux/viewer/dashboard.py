@@ -799,7 +799,7 @@ class PolicyViewer:
             self._reset_plan_overlay()
             self._clear_achieved_tails()
             self.episode_active = True
-            self.launch_mode = str(metadata.get("launch_mode", "run"))
+            self.launch_mode = str(metadata.get("launch_mode", "unknown"))
             incoming_service_id = str(metadata.get("run_dir", ""))
             if incoming_service_id:
                 self.service_id = incoming_service_id
@@ -858,11 +858,7 @@ class PolicyViewer:
                 self.evaluation_status.content = (
                     "🟡 Select the task result and smoothness score, then save."
                 )
-                self.status.content = (
-                    "⚪ **Rollout finished · awaiting human reward**"
-                    if self.launch_mode == "serve"
-                    else "⚪ **One-shot run finished · awaiting human reward**"
-                )
+                self.status.content = "⚪ **Rollout finished · awaiting human reward**"
             else:
                 self.evaluation_status.content = (
                     "⚪ Experiment mode was OFF; no human reward is required."
@@ -870,7 +866,7 @@ class PolicyViewer:
                 self.status.content = (
                     "⚪ **Rollout finished · preparing for the next rollout**"
                     if self.launch_mode == "serve"
-                    else "⚪ **One-shot run finished · use `manimux serve` for UI rollouts**"
+                    else "⚪ **Rollout finished**"
                 )
         elif event == "runtime_service_ready":
             self.last_service_time = time.time()
@@ -1044,11 +1040,37 @@ def _parser() -> argparse.ArgumentParser:
         help="list bundled/discovered adapters and exit",
     )
     parser.add_argument("--demo", action="store_true", help="show synthetic data without hardware")
+    parser.add_argument(
+        "--replay-episode", type=Path,
+        help="read-only YAM replay: video, native feedback at 100 Hz, linear 100 Hz, held 30 Hz",
+    )
+    parser.add_argument(
+        "--replay-source", choices=("feedback", "command"), default="feedback",
+        help="replay native follower feedback (default) or the saved low-rate commands",
+    )
+    parser.add_argument("--replay-camera", help="recorded camera name; defaults to top when present")
+    parser.add_argument(
+        "--replay-target-hz", type=float,
+        help="comparison grid Hz (e.g. 60); feedback uses actual saved timestamps",
+    )
+    parser.add_argument(
+        "--replay-low-hz", type=float, nargs="+",
+        help="lower sample rates to reconstruct on the comparison grid (e.g. 10 30)",
+    )
     return parser
 
 
 def main() -> None:
     args = _parser().parse_args()
+    custom_replay = args.replay_target_hz is not None or args.replay_low_hz is not None
+    if custom_replay and (
+        args.replay_episode is None
+        or args.replay_target_hz is None or args.replay_low_hz is None
+    ):
+        raise SystemExit(
+            "Custom replay requires --replay-episode, "
+            "--replay-target-hz and --replay-low-hz"
+        )
     if args.list_robots:
         print("\n".join(available_robot_adapters()))
         return
@@ -1060,6 +1082,20 @@ def main() -> None:
             raise SystemExit(f"--robot-option expects KEY=VALUE, got {item!r}")
         options[key] = value
     robot = load_robot_adapter(args.robot, args.robot_model_root, options)
+    if args.replay_episode is not None:
+        if args.demo:
+            raise SystemExit("--demo and --replay-episode cannot be used together")
+        from .replay import serve_collection_replay
+
+        rate_options = (
+            {"target_hz": args.replay_target_hz, "low_rates_hz": tuple(args.replay_low_hz)}
+            if custom_replay else {}
+        )
+        serve_collection_replay(
+            args.replay_episode, robot, source=args.replay_source, camera=args.replay_camera,
+            host=args.host, port=args.port, **rate_options,
+        )
+        return
     viewer = PolicyViewer(
         args.host,
         args.port,

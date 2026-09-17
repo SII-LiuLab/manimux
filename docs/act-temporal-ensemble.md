@@ -49,7 +49,7 @@ scheduling**，不是未经改动的官方 rollout loop。
 模型服务命令与原 ManiMux 实验相同，只切换 infra config：
 
 ```bash
-envs/yam/.venv/bin/manimux run \
+envs/yam/.venv/bin/manimux serve \
   --config configs/pi05/yam/infra/act-temporal-ensemble.yaml
 ```
 
@@ -62,6 +62,6 @@ envs/yam/.venv/bin/manimux run \
 checkpoint 混用：
 
 ```bash
-envs/yam/.venv/bin/manimux run \
+envs/yam/.venv/bin/manimux serve \
   --config configs/pi05/yam/infra/pick-red-ball-box/act-temporal-ensemble-step1000.yaml
 ```

@@ -220,7 +220,7 @@ operator may run:
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/manimux run \
+envs/yam/.venv/bin/manimux serve \
   --config configs/pi05/yam/infra/pick-red-ball-box/dvac-step1000.yaml
 ```
 

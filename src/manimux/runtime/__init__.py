@@ -30,7 +30,7 @@ def build_runtime(
     config: ManiMuxConfig,
     run_dir: Path,
     *,
-    launch_mode: str = "run",
+    launch_mode: str = "embedded",
 ) -> EdgeRuntime:
     from manimux.runtime.edge import EdgeRuntime
 

@@ -81,7 +81,12 @@ def _validate(config: dict[str, Any]) -> dict[str, Any]:
         raise ValueError(f"XR-1 normalization shapes must be {expected}, got {shapes}")
 
     checkpoint_variant = str(config.get("checkpoint_variant", "yam_finetuned"))
-    is_yam_finetuned = checkpoint_variant in YAM_FINETUNED_VARIANTS
+    is_yam_finetuned = (
+        config.get("checkpoint_role") == "yam_finetuned_policy"
+        or checkpoint_variant in YAM_FINETUNED_VARIANTS
+    )
+    if is_yam_finetuned and config.get("norm_stats_role") != "checkpoint_matched_yam_finetune":
+        raise ValueError("YAM finetuned checkpoints require checkpoint-matched normalization")
     return {
         "contract_status": "ready",
         "runtime_status": (

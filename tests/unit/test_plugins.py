@@ -67,6 +67,21 @@ def test_unknown_plugin_fails_before_runtime_touches_hardware() -> None:
         )
 
 
+@pytest.mark.parametrize("worker", ["molmoact_http", "abc_http"])
+def test_retired_native_workers_are_not_registered(worker: str) -> None:
+    with pytest.raises(PluginError, match="unknown manimux.policies.models plugin"):
+        build_policy_model(PolicyConfig(worker=worker, adapter="identity"))
+
+
+@pytest.mark.parametrize("adapter", ["molmoact_yam", "abc_yam"])
+def test_retired_native_adapters_are_not_registered(adapter: str) -> None:
+    with pytest.raises(PluginError, match="unknown manimux.policies.adapters plugin"):
+        build_policy_adapter(
+            RobotConfig(driver="mock_dual_arm", group_dims={"arm": 1}),
+            PolicyConfig(worker="fake", adapter=adapter),
+        )
+
+
 def test_original_one_argument_policy_adapter_remains_compatible() -> None:
     chunk = ActionChunk(
         plan_id="legacy",

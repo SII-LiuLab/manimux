@@ -86,24 +86,17 @@ RTC, PAINT and other specialized sampling modes may be advertised only when thei
 hooks are actually implemented in the model sampler. Keep capability negotiation and backend
 identity checks; never disable them to make a mismatched checkpoint or unsupported mode run.
 
-## Existing native integrations
+## Retired native integrations
 
-`molmoact_http` and `abc_http` are legacy compatibility paths, not templates for new work.
-The target for both is XPolicyLab. Check and reuse `XPolicyLab/policy/MolmoACT2/` for MolmoAct2;
-do not assume that an existing directory already covers the local checkpoint and action contract.
+The native MolmoAct2 and ABC servers, workers and deployment configs have been removed,
+as has ManiMux's duplicate XR-1 model source. Do not restore parallel native model stacks.
+XR-1 retains its embodiment adapter and NumPy action codec; its model runs in XPolicyLab.
 
-When migrating a legacy model:
-
-1. Move its model-side source and reproduction logic into the appropriate XPolicyLab policy.
-2. Validate the real adapter and shared server independently of the old native server.
-3. Compare checkpoint, transforms, observation/action contracts, timing and reset behavior
-   against the old path; do not silently change runtime or control settings during migration.
-4. Add matching server/infra configs, tests and documented commands before switching defaults.
-5. Retire the native implementation only after the replacement is validated and the migration
-   is in scope. Until then, identify it as legacy and do not claim migration is complete.
-
-Do not break an existing working deployment merely to enforce a new directory layout.
-Fixing a legacy bug does not authorize migrating unrelated models or stopping live services.
+MolmoAct2 has source under `XPolicyLab/policy/MolmoACT2/`, but that alone does not validate
+the former YAM checkpoint and action contract. ABC has no replacement deployment here.
+Their previous implementations remain in Git history; removal is not a claim of migration.
+Reintroducing either deployment requires the XPolicyLab integration, paired configs, tests
+and documented validation of checkpoint, transforms, timing and observation/action contracts.
 
 ## Validation and delivery
 

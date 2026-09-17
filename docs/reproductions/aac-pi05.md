@@ -164,7 +164,7 @@ emergency-stop checks, only the operator runs:
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/manimux run \
+envs/yam/.venv/bin/manimux serve \
   --config configs/pi05/yam/infra/pick-red-ball-box/aac-step1000.yaml
 ```
 

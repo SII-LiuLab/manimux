@@ -18,7 +18,7 @@
 
 不要把这组 `7D` 动作直接发送给 YAM。YAM 需要单独微调的 checkpoint、匹配的 stats，
 以及经过验证的 Isaac-to-YAM action adapter。在这些条件满足前，本接入只做模型服务和
-离线 forward 验证，不提供 `manimux run/serve` 真机配置。
+离线 forward 验证，不提供 `manimux serve` 真机配置。
 
 ## 固定版本
 

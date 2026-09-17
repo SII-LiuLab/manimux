@@ -6,12 +6,12 @@ import math
 import threading
 import time
 from contextlib import contextmanager
-from contextvars import ContextVar
 from pathlib import Path
 
 import numpy as np
 
 from manimux.clock import SystemClock
+from manimux.collection.yam.data.command_rates import CommandRates
 from manimux.collection.yam.data.control_timing import arm_scope, stage
 from manimux.config import load_config
 from manimux.robots import build_robot
@@ -89,59 +89,7 @@ class CollectionBackend:
         self._last_command = None
         self._command_unix_ns = 0
         self._trace = None
-        self._trace_feedback = True
-        # A snapshot belongs to one calling thread/context and one teleop step.
-        # Lifecycle changes invalidate even a suspended context on another thread.
-        self._feedback_generation = 0
-        self._feedback_unix_ns = 0
-        self._feedback_cycle = ContextVar("collection_feedback_cycle", default=None)
-
-    @contextmanager
-    def feedback_cycle(self, *, reuse=True):
-        """Share one synchronous feedback read until this step exits.
-
-        Alignment uses reuse=False so its repeated commands keep reading fresh
-        state. Neither context changes the independent threaded executor path.
-        """
-        with self._mutex:
-            if not reuse:
-                self._feedback_generation += 1
-            frame = (
-                {"generation": self._feedback_generation, "state": None}
-                if reuse and self.execution_mode == "synchronous" else None
-            )
-        token = self._feedback_cycle.set(frame)
-        try:
-            yield
-        finally:
-            self._feedback_cycle.reset(token)
-            if not reuse:
-                with self._mutex:
-                    self._feedback_generation += 1
-
-    def feedback_cycle_valid(self):
-        frame = self._feedback_cycle.get()
-        return frame is None or frame["generation"] == self._feedback_generation
-
-    def _read_feedback(self):
-        """Called under _mutex; retain the driver's original read timestamp."""
-        frame = self._feedback_cycle.get()
-        if frame is not None:
-            if frame["generation"] != self._feedback_generation:
-                frame.update(generation=self._feedback_generation, state=None)
-            if frame["state"] is not None:
-                state = frame["state"]
-                with stage("state_reuse", feedback_monotonic_ns=state.monotonic_ns,
-                           feedback_sequence=state.sequence):
-                    self._feedback_unix_ns = frame["timestamp_ns"]
-                    return state
-        with stage("state_read"):
-            state = self.driver.get_state()
-        self._feedback_unix_ns = time.time_ns() - (self.clock.now_ns() - state.monotonic_ns)
-        if frame is not None:
-            frame["state"] = state
-            frame["timestamp_ns"] = self._feedback_unix_ns
-        return state
+        self.command_rates = CommandRates()
 
     def connect(self, *, start_thread=True):
         self.lease.__enter__()
@@ -243,8 +191,8 @@ class CollectionBackend:
             if not 0 <= value[-1] <= 1:
                 raise ValueError(f"invalid leader gripper for {name}")
         if not self._enabled:
-            with arm_scope("initial"):
-                self._state = self._read_feedback()
+            with arm_scope("initial"), stage("state_read"):
+                self._state = self.driver.get_state()
             self.executor.reset(self._state)
             self.safety.reset(self._state)
         self._target = copy_group_vector(command.groups)
@@ -274,7 +222,8 @@ class CollectionBackend:
         with self._mutex:
             self._check()
             with stage("backend.state_read_validate"), arm_scope("precommand"):
-                self._state = self._read_feedback()
+                with stage("state_read"):
+                    self._state = self.driver.get_state()
                 with stage("state_validate"):
                     self.safety.validate_state(self._state)
             if not self._enabled:
@@ -297,11 +246,9 @@ class CollectionBackend:
             with stage("backend.command_validate"):
                 self.safety.validate_command(command)
             with stage("backend.follower_sdk_submit", sequence=self._sequence,
-                       source_monotonic_ns=self._target_ns,
-                       feedback_monotonic_ns=self._state.monotonic_ns,
-                       feedback_age_ns=self.clock.now_ns() - self._state.monotonic_ns,
-                       feedback_sequence=self._state.sequence), arm_scope("submit"):
+                       source_monotonic_ns=self._target_ns), arm_scope("submit"):
                 self.driver.send_command(command)
+            self.command_rates.record(self._sequence)
             self._last_command = command
             self._command_unix_ns = time.time_ns()
             if self._trace is not None:
@@ -318,15 +265,14 @@ class CollectionBackend:
                             "command": {
                                 name: value.tolist() for name, value in command.groups.items()
                             },
-                            **({"feedback": {
+                            "feedback": {
                                 name: value.tolist() for name, value in self._state.groups.items()
-                            }} if self._trace_feedback else {}),
+                            },
                         }
                     )
 
     def _stop_on_error(self, error):
         with self._mutex:
-            self._feedback_generation += 1
             self._fault = str(error)
             self._halted = True
             self._enabled = False
@@ -349,14 +295,12 @@ class CollectionBackend:
         with arm_scope(f"observation_{group}"), timed_lock(self._mutex, "lock_wait"):
             self._check()
             if self.execution_mode == "synchronous":
-                self._state = self._read_feedback()
+                with stage("state_read"):
+                    self._state = self.driver.get_state()
                 with stage("state_validate"):
                     self.safety.validate_state(self._state)
             values = self._state.groups[group].copy()
-            timestamp = (
-                self._feedback_unix_ns if self.execution_mode == "synchronous"
-                else time.time_ns() - (self.clock.now_ns() - self._state.monotonic_ns)
-            )
+            timestamp = time.time_ns() - (self.clock.now_ns() - self._state.monotonic_ns)
             return {
                 "joint_pos": values[:6],
                 "gripper_pos": values[6:],
@@ -374,7 +318,6 @@ class CollectionBackend:
 
     def pause(self, *, halt=False):
         with self._mutex:
-            self._feedback_generation += 1
             if not self._connected:
                 return
             self._enabled = False
@@ -392,10 +335,9 @@ class CollectionBackend:
             self.executor.reset(self._state)
             self.safety.reset(self._state)
 
-    def start_trace(self, *, record_feedback=True):
+    def start_trace(self):
         with self._mutex:
             self._trace = []
-            self._trace_feedback = record_feedback
 
     def finish_trace(self):
         with self._mutex:
@@ -428,7 +370,6 @@ class CollectionBackend:
         with self._mutex:
             if not self._connected:
                 return
-            self._feedback_generation += 1
             self.driver.close()
             self._connected = False
             self.lease.__exit__(None, None, None)

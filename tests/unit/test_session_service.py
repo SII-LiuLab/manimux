@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from manimux.cli import _create_run_dir, _handle_termination, build_parser
 from manimux.config import load_config
 from manimux.runtime import RunResult
@@ -94,10 +96,12 @@ def test_session_service_waits_for_viewer_then_runs_one_isolated_episode(tmp_pat
     assert ready["metadata"]["camera_map"] == config.policy.options["camera_map"]
 
 
-def test_cli_keeps_run_and_adds_serve() -> None:
+def test_cli_exposes_only_viewer_controlled_serve() -> None:
     parser = build_parser()
-    assert parser.parse_args(["run", "--config", "configs/mock.yaml"]).command == "run"
     assert parser.parse_args(["serve", "--config", "configs/mock.yaml"]).command == "serve"
+    with pytest.raises(SystemExit) as error:
+        parser.parse_args(["run", "--config", "configs/mock.yaml"])
+    assert error.value.code == 2
 
 
 def test_sigterm_uses_keyboard_interrupt_cleanup_path() -> None:
@@ -142,9 +146,7 @@ def test_session_service_builds_a_fresh_runtime_for_every_episode(tmp_path: Path
         index = len(runtimes)
         episode_dir = run_dir / f"episode-{index}"
         episode_dir.mkdir()
-        runtime = _FakeRuntime(
-            RunResult(episode_dir, 1, 1, 0, True, "viewer_finish_requested")
-        )
+        runtime = _FakeRuntime(RunResult(episode_dir, 1, 1, 0, True, "viewer_finish_requested"))
         runtimes.append(runtime)
         return runtime
 
@@ -164,9 +166,13 @@ def test_session_service_builds_a_fresh_runtime_for_every_episode(tmp_path: Path
     assert [runtime.run_count for runtime in runtimes] == [1, 1]
 
 
-def test_viewer_request_selects_task_and_experiment_metadata(tmp_path: Path) -> None:
+@pytest.mark.parametrize("experiment_mode", [False, True])
+def test_viewer_request_selects_task_and_experiment_metadata(
+    tmp_path: Path, experiment_mode: bool
+) -> None:
     config = load_config("configs/mock.yaml")
     config.viewer.enabled = True
+    config.run.experiment_mode = not experiment_mode
     run_dir = tmp_path / "session"
     run_dir.mkdir()
     captured = []
@@ -186,7 +192,7 @@ def test_viewer_request_selects_task_and_experiment_metadata(tmp_path: Path) -> 
                 {
                     "new_rollout_requested": True,
                     "task_command": "fold the towel",
-                    "experiment_mode": True,
+                    "experiment_mode": experiment_mode,
                     "layout_id": "layout-03",
                 }
             ]
@@ -198,9 +204,10 @@ def test_viewer_request_selects_task_and_experiment_metadata(tmp_path: Path) -> 
     service.serve(max_rollout_attempts=1)
 
     assert captured[0].run.task == "fold the towel"
-    assert captured[0].run.experiment_mode is True
+    assert captured[0].run.experiment_mode is experiment_mode
     assert captured[0].run.layout_id == "layout-03"
     assert config.run.task != "fold the towel"
+    assert config.run.experiment_mode is not experiment_mode
 
 
 def test_session_service_survives_one_failed_rollout_attempt(tmp_path: Path) -> None:

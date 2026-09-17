@@ -91,50 +91,43 @@ both training and the post-training artifact check use the resume directory.
 No environment installation is performed. Select an existing interpreter with
 `OPENWAM_PYTHON`; a missing executable fails before data preparation.
 
-### QZ hdd3 put-bottles profile
+### Put-bottles training recipe
 
-The fixed, non-submitting QZ profile is
-`scripts/training/train_openwam_yam_bottles_cluster.sh`. It uses the 50-episode,
-35,118-frame, 30 Hz `put_bottles_into_the_bin` dataset, four visible GPUs,
-30,000 OpenWAM global/micro-steps, and checkpoints every 5,000 global steps.
-Per-GPU batch is 1 with gradient accumulation 8 (effective optimizer batch 32),
-so 30,000 global steps correspond to 3,750 optimizer updates. W&B is disabled
-through both the environment and Hydra; stdout/checkpoints remain the source of
-truth.
-
-Before any job is created, run its CPU-only readiness gate on a QZ notebook:
+The local task entry (ignored by Git) is `scripts/training/put_bottles_into_the_bin/openwam.sh`.
+Set `YAM_TRAIN_ROOT` (or `OPENWAM_TRAIN_ROOT`) to the prepared storage root;
+`OPENWAM_WORKSPACE` defaults to this checkout. The recipe selects the 50-episode,
+35,118-frame, 30 Hz dataset. It defaults to four GPUs, micro batch 1 and
+accumulation 16, giving effective global batch 64. The native schedule remains
+30,000 micro steps with saves every 5,000 micro steps; this contains 1,875 full
+accumulation windows, not 30,000 optimizer updates.
 
 ```bash
-bash scripts/training/setup_openwam_qz_env.sh
-bash scripts/training/train_openwam_yam_bottles_cluster.sh ready
+bash scripts/training/put_bottles_into_the_bin/openwam.sh plan my-new-run
 ```
 
-The QZ setup script creates an isolated venv but deliberately inherits the
-CUDA/Torch stack supplied by the QZ image. It pins NumPy 1.x for that Torch
-ABI, uses headless OpenCV (no `libGL.so.1` dependency), and ends with both
-`pip check` and an import check. It does not install another CUDA wheel.
+`plan` checks arithmetic and prints paths without model imports, installation
+or artifact writes. Data conversion and the native statistics stage are
+listed in [the training task guide](../scripts/training/README.md#data-preparation).
+For the existing training image, `scripts/training/setup_openwam_env.sh` builds
+an isolated environment reusing its CUDA/Torch stack. It ends with `pip check`
+and an import check; it does not submit work.
 
-`ready` verifies the exact dataset manifest/counts, hashes the 24 GB foundation
-weight, requires its self-contained tokenizer, runs the native OpenWAM dataset
-preparation/statistics/sample check, and prints the exact four-GPU command via
-`--dry-run`. It does not initialize CUDA, create a QZ job, or start training.
-
-After resource/job approval, the command used inside the allocated job is:
+On a prepared machine, `ready` checks the dataset manifest and foundation
+hash, prepares native stats, and prints the native command. After the training
+resources are allocated, use:
 
 ```bash
-bash scripts/training/train_openwam_yam_bottles_cluster.sh gate-train
+bash scripts/training/put_bottles_into_the_bin/openwam.sh gate-train my-new-run
 ```
 
-`gate-train` first produces a one-step smoke checkpoint and only then enters the
-30k run. Do not call it from a login/notebook shell.
+The smoke covers one accumulation window and checks its checkpoint before the
+formal run. This is separate from deployment and task-success validation.
 
-The prepared QZ request is
-`configs/openwam/qz/put-bottles-4xh200.json`. It pins the `embodied-world-model`
-project, its private training workspace, the official PyTorch 25.06 image, and
-the predefined 4xH200/80-CPU/900-GiB specification. Keeping the JSON in the
-repository does not submit it. Re-check identity, duplicate job names, hashes,
-and resource availability, then obtain explicit approval before invoking
-`qz train CreateJob`.
+The September 10 historical job used micro batch 1, accumulation 8 and effective
+batch 32. Its unchanged request is now local-only at
+`.local/training/archive/20260914/put-bottles-4xh200.json`; it records historical
+resources and is not a current submission template. New machine profiles and
+scheduler requests live under `.local/training/` and call the ignored task script. Include that task folder when synchronizing code.
 
 ## Inference and evaluation
 
@@ -211,7 +204,7 @@ Only after real-checkpoint offline validation and robot setup, run the ordinary
 ManiMux runtime for task evaluation, recording and viewer output:
 
 ```bash
-manimux run --config /path/to/deployment/openwam.yaml
+manimux serve --config /path/to/deployment/openwam.yaml
 ```
 
 For RoboDojo simulation, use the policy's standard `eval.sh` and

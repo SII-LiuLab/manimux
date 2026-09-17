@@ -359,7 +359,7 @@ checks in `docs/gr00t-yam-runbook.md`:
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/manimux run --config configs/groot/yam/infra/aac.yaml
+envs/yam/.venv/bin/manimux serve --config configs/groot/yam/infra/aac.yaml
 ```
 
 First run is an infrastructure characterization, not a task-success claim. Record:

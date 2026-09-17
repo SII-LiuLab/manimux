@@ -32,7 +32,7 @@ robot state + cameras
 V1 不实现 Control Plane、Inference Gateway 或 Data Service。一个 CLI launcher 启动三个顶层运行单元：
 
 ```text
-manimux run --config configs/my_run.yaml
+manimux serve --config configs/my_run.yaml
 │
 ├── edge-agent
 │   ├── RobotDriver / SensorDriver
@@ -451,7 +451,7 @@ evaluator_version
 
 ```text
 src/manimux/
-  cli.py                    # manimux run/list/replay
+  cli.py                    # manimux serve
   config.py                 # single YAML schema
   types.py                  # shared typed dataclasses
   runtime/
@@ -482,7 +482,7 @@ src/manimux/
     dashboard.py             # Viser UI
     robots/                  # robot adapter contract + YAM
   integrations/
-    molmoact_yam/            # async launcher, policy/camera servers, recording
+    xr1_yam/                 # embodiment action codec and FK/IK adapter, no model
     xpolicylab/              # XPolicy wire client + embodiment mapping
   assets/
     i2rt/robot_models/       # bundled YAM viewer geometry

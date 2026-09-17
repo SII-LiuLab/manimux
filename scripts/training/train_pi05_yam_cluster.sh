@@ -2,19 +2,20 @@
 set -euo pipefail
 
 mode=${1:-train}
-run_name=${2:-assemble-screwdriver-v1-s0-4xh100-3k}
+run_name=${2:-pi05-yam}
 
-ROOT=${YAM_TRAIN_ROOT:-/inspire/hdd2/project/liu-ming-huan/public/ziyang/yam_fintune_data}
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+ROOT=${YAM_TRAIN_ROOT:-${REPO_ROOT}/data/training}
+source "${REPO_ROOT}/scripts/training/_batch.sh"
 WORKSPACE=${PI05_WORKSPACE:-${REPO_ROOT}}
 POLICY=${WORKSPACE}/XPolicyLab/policy/Pi_05
 OPENPI=${POLICY}/openpi
 export PYTHONPATH="${OPENPI}/src:${OPENPI}/packages/openpi-client/src:${WORKSPACE}:${PYTHONPATH:-}"
 VENV=${OPENPI_ENV_DIR:-${ROOT}/envs/pi05/.venv}
-DATASET_NAME=${OPENPI_LEROBOT_REPO_ID:-yam_assemble_screwdriver_20260825_v1}
+DATASET_NAME=${OPENPI_LEROBOT_REPO_ID:?Set OPENPI_LEROBOT_REPO_ID in the task recipe}
 LEROBOT_HOME=${OPENPI_LEROBOT_HOME:-${ROOT}/datasets/lerobot}
 DATASET=${LEROBOT_HOME}/${DATASET_NAME}
-TASK_NAME=${OPENPI_TASK_NAME:-assemble_the_screwdriver}
+TASK_NAME=${OPENPI_TASK_NAME:?Set OPENPI_TASK_NAME in the task recipe}
 TRAIN_CONFIG_NAME=${OPENPI_TRAIN_CONFIG_NAME:-pi05_yam}
 EE_AUX=${PI05_EE_AUX:-false}
 BASE_PARAMS=${OPENPI_BASE_PARAMS:-${ROOT}/weights/base/pi05_base/params}
@@ -23,6 +24,14 @@ NORM_STATS=${ASSETS_BASE}/${TRAIN_CONFIG_NAME}/${DATASET_NAME}/norm_stats.json
 OUTPUT=${ROOT}/weights/finetuned/pi05/${run_name}
 LOG_DIR=${ROOT}/runs/pi05
 GPU_IDS=${OPENPI_GPU_IDS:-0,1,2,3}
+GPU_COUNT=$(training_gpu_count "${GPU_IDS}")
+export OPENPI_BATCH_SIZE=${OPENPI_BATCH_SIZE:-64}
+if [[ "${mode}" == smoke ]]; then
+  export OPENPI_NUM_TRAIN_STEPS=1 OPENPI_SAVE_INTERVAL=1 OPENPI_MAX_TO_KEEP=1
+fi
+training_check_batch Pi05 "${mode}" "${OPENPI_BATCH_SIZE}" "${GPU_COUNT}" "OPENPI_BATCH_SIZE=${OPENPI_BATCH_SIZE} (global)"
+training_plan "${mode}" "entry=${POLICY}/train.sh" "dataset=${DATASET}" "stats=${NORM_STATS}" "output=${OUTPUT}" \
+  "prepare=converted LeRobot required; compute OpenPI norm stats" "steps=${OPENPI_NUM_TRAIN_STEPS:-3000} (optimizer updates)"
 
 export PATH="${ROOT}/envs/bin:${PATH}"
 export UV_CACHE_DIR=${ROOT}/cache/uv
@@ -37,7 +46,7 @@ export OPENPI_TRAIN_CONFIG_NAME=${TRAIN_CONFIG_NAME}
 export OPENPI_LEROBOT_REPO_ID=${DATASET_NAME}
 export OPENPI_BASE_PARAMS=${BASE_PARAMS}
 export OPENPI_ASSETS_BASE_DIR=${ASSETS_BASE}
-export OPENPI_FSDP_DEVICES=${OPENPI_FSDP_DEVICES:-4}
+export OPENPI_FSDP_DEVICES=${OPENPI_FSDP_DEVICES:-$((GPU_COUNT < 4 ? GPU_COUNT : 4))}
 export OPENPI_NUM_WORKERS=${OPENPI_NUM_WORKERS:-0}
 export OPENPI_WANDB_ENABLED=false
 
@@ -129,10 +138,10 @@ PY
 
 case "${mode}" in
   gate-train)
-    OPENPI_BATCH_SIZE=4 OPENPI_NUM_TRAIN_STEPS=1 OPENPI_SAVE_INTERVAL=1 \
+    OPENPI_BATCH_SIZE=${GPU_COUNT} OPENPI_NUM_TRAIN_STEPS=1 OPENPI_SAVE_INTERVAL=1 \
       OPENPI_MAX_TO_KEEP=1 bash "$0" smoke "${run_name}"
     require_file "${ROOT}/weights/finetuned/pi05/${run_name}-smoke/1/params/manifest.ocdbt"
-    OPENPI_BATCH_SIZE=${OPENPI_BATCH_SIZE:-32} \
+    OPENPI_BATCH_SIZE=${OPENPI_BATCH_SIZE:-64} \
       OPENPI_NUM_TRAIN_STEPS=${OPENPI_NUM_TRAIN_STEPS:-3000} \
       OPENPI_SAVE_INTERVAL=${OPENPI_SAVE_INTERVAL:-500} OPENPI_MAX_TO_KEEP=${OPENPI_MAX_TO_KEEP:-10} \
       bash "$0" train "${run_name}"
@@ -153,7 +162,7 @@ case "${mode}" in
       export OPENPI_MAX_TO_KEEP=${OPENPI_MAX_TO_KEEP:-1}
       export OPENPI_CHECKPOINT_DIR=${OUTPUT}-smoke
     else
-      export OPENPI_BATCH_SIZE=${OPENPI_BATCH_SIZE:-32}
+      export OPENPI_BATCH_SIZE=${OPENPI_BATCH_SIZE:-64}
       export OPENPI_NUM_TRAIN_STEPS=${OPENPI_NUM_TRAIN_STEPS:-3000}
       export OPENPI_SAVE_INTERVAL=${OPENPI_SAVE_INTERVAL:-500}
       export OPENPI_MAX_TO_KEEP=${OPENPI_MAX_TO_KEEP:-10}
@@ -168,7 +177,7 @@ case "${mode}" in
       2>&1 | tee "${LOG_DIR}/${run_name}-${mode}.log"
     ;;
   *)
-    echo "Usage: $0 [prepare|smoke|train|gate-train] [run_name]" >&2
+    echo "Usage: $0 [plan|prepare|smoke|train|gate-train] [run_name]" >&2
     exit 2
     ;;
 esac

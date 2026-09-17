@@ -12,7 +12,7 @@ Policy × Runtime × Embodiment
 [![Component: PRM-as-a-Judge](https://img.shields.io/badge/Component-PRM--as--a--Judge-9333EA?style=flat-square&logo=github&logoColor=white)](PRM-as-a-Judge/)
 [![Python 3.11 and 3.12](https://img.shields.io/badge/Python-3.11%20%7C%203.12-3776AB?style=flat-square&logo=python&logoColor=white)](pyproject.toml)
 <br/>
-[![Policies: 10 integrations, including 2 model-only paths](https://img.shields.io/badge/Policies-10%20Integrations-2EA043?style=flat-square)](docs/README.md#support-counts)
+[![Policies: 8 integrations, including 2 model-only paths](https://img.shields.io/badge/Policies-8%20Integrations-2EA043?style=flat-square)](docs/README.md#support-counts)
 [![Embodiments: 1 real robot and 1 simulation integration](https://img.shields.io/badge/Embodiments-1%20Real%20%2B%201%20Sim-2563EB?style=flat-square)](docs/README.md#support-counts)
 [![Inference: 8 modes](https://img.shields.io/badge/Inference-8%20Modes-F97316?style=flat-square)](docs/README.md#support-counts)
 <br/>
@@ -21,7 +21,7 @@ Policy × Runtime × Embodiment
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
-[**Features**](#features) · [**Video**](#demo) · [**Architecture**](#architecture) · [**Quick Start**](#quick-start) · [**Documentation**](docs/README.md) · [**Citation**](#citation)
+[**Features**](#features) · [**Video**](#demo) · [**Architecture**](#architecture) · [**Quick Start**](#quick-start) · [**Collection**](#collection-start) · [**Documentation**](docs/README.md) · [**Citation**](#citation)
 
 </div>
 
@@ -91,8 +91,6 @@ flowchart LR
     subgraph THINK["<b>PREDICT</b>"]
         direction TB
         XPOLICY["<b>XPolicyLab</b><br/>Pi05 · XR-1 · GR00T<br/>LingBot · OpenWAM"]:::xpolicy
-        NATIVE["<b>Legacy native</b><br/>MolmoAct2 · ABC"]:::native
-        XPOLICY ~~~ NATIVE
     end
 
     PLAN["<b>ADAPT & SCHEDULE</b><br/>Async · RTC · PAINT<br/>Serial · adaptive<br/><br/>Adapter → Timeline"]:::handoff
@@ -110,15 +108,14 @@ flowchart LR
     classDef side fill:#FFFFFF,stroke:#8C959F,stroke-dasharray:4 3,color:#57606A
     classDef robot fill:#1F2328,stroke:#1F2328,color:#FFFFFF
     classDef xpolicy fill:#8957E5,stroke:#6633B8,color:#FFFFFF
-    classDef native fill:#2F6FEB,stroke:#1B4DB1,color:#FFFFFF
     classDef collection fill:#1A7F55,stroke:#125C3D,color:#FFFFFF
     style THINK fill:#FFFFFF,stroke:#8C959F,stroke-dasharray:5 4,color:#1F2328
 ```
 
 Model servers never command hardware. Teleoperation bypasses chunk scheduling and reuses the
 execution interfaces, while retaining its own collection GUI and recording format.
-New model integrations must follow the [XPolicyLab-only route](AGENTS.md#model-integration-xpolicylab-only);
-the native paths shown here remain for compatibility pending migration.
+Learned models follow the [XPolicyLab-only route](AGENTS.md#model-integration-xpolicylab-only);
+ManiMux retains embodiment adapters, not a second model implementation.
 
 **GitHub:** [ManiMux](https://github.com/SII-LiuLab/manimux) · [XPolicyLab](https://github.com/Cuzyoung/XPolicyLab) · [PRM-as-a-Judge](https://github.com/YuyangLiu2003/PRM-as-a-Judge)
 
@@ -154,6 +151,59 @@ envs/yam/.venv/bin/manimux serve \
 Open **http://127.0.0.1:8086**, then **Prepare → Start rollout → Finish & Home**.
 Normal rollouts need no label; experiment rollouts require a human label before the next trial.
 Keep the server and runtime configs paired: this example uses **joint**, not **joint+EE**.
+
+<a id="collection-start"></a>
+
+## 🎥 YAM Teleop Collection · Five Cameras
+
+Saved demonstrations also support [synchronized Viser replay](docs/yam-collection.md#synchronized-viser-replay-video-linear-100-hz-held-30-hz):
+original camera video, native follower feedback sampled directly at 100 Hz,
+30 Hz joint samples interpolated to 100 Hz, and those same 30 Hz samples held.
+The default overlay shows the original as solid blue and interpolation as an
+orange wireframe ghost on the same bases; opacity, layer visibility and comparison
+trajectory are selectable.
+Use `manimux-viewer --replay-episode /path/to/episode`
+for offline inspection. Legacy 30 Hz episodes need native feedback sidecars;
+schema v2 episodes can also use the saved control-rate joint snapshots.
+
+From the repository root, use the existing YAM environment:
+
+```bash
+envs/yam/.venv/bin/python -u -m manimux.collection \
+  --config configs/collection/yam/station.yaml \
+  --cameras configs/collection/yam/cameras.yaml \
+  --host 0.0.0.0 --port 8043
+```
+
+The camera config includes **Top, left wrist, right wrist, Gemini305 and Gemini335**,
+all configured for RGB at **640×480, 30 FPS**. `--cameras` selects the entire camera
+roster; a three-camera override will omit both Gemini views. Adjust device serials
+for your station. When switching from inference, finish the rollout and exit its
+runtime, then stop any camera server holding these devices. The collection GUI
+opens cameras directly; it does not need a separate inference camera server.
+
+The current station selects **`collection_hz: 100`**: latest leader positions go
+directly to follower targets every nominal 10 ms, with command/joint recording
+on the same loop. Cameras save their own 30 FPS streams. No intermediate 30 Hz
+sampling or interpolation is applied. The GUI displays actual loop Hz and episode
+metadata retains timing statistics. Enter a positive **Hz** value and click **Apply Hz**
+(or press Enter) in the Teleop
+controls to switch online while keeping devices connected and gripper progress intact.
+Frequency changes are locked during recording/saving. The selection lasts for the
+current GUI process; `collection_hz` sets the next startup default, and `null`
+restores the legacy 30 Hz profile and recording format.
+See [independent timelines and export](docs/yam-collection.md#direct-100-hz-teleoperation-with-30-fps-video).
+
+Open **http://127.0.0.1:8043**, set the task, then use **Start Teleop → Start Recording**.
+The default task is `put_bottles_into_the_bin`; completed episodes go under
+`data/collection/episodes/<task>/<episode>/`. Starting the GUI enables previews;
+**Start Teleop** connects the arms and begins leader–follower alignment.
+
+If **Start Teleop appears to do nothing**, check the GUI process's terminal/log.
+A motor communication exception can return HTTP 500 without a visible frontend
+error. For `motor 1 ... can_left`, see the
+[startup troubleshooting steps](docs/yam-collection.md#start-teleop-troubleshooting).
+Camera previews alone do not confirm that teleoperation has started.
 
 ## 📚 Guides
 

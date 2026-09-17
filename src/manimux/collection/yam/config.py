@@ -275,7 +275,6 @@ class StationConfig:
     save_root: str = "data/episodes"
     task_name: str = "pick_and_place"
     data_format: str = "default"  # default on-disk format for new episodes
-    record_achieved: bool = True  # persist measured follower state; control still reads it
     record_native_joints: bool = False  # independent per-motor feedback sidecars
     # Pose the followers ramp to before a policy takes over, so its first observation
     # is in-distribution. Per-arm ``[joints..., gripper]`` concatenated in ``robots``
@@ -289,8 +288,6 @@ class StationConfig:
             raise ValueError("YAM station requires collector: yam")
         if not isinstance(self.record_native_joints, bool):
             raise ValueError("record_native_joints must be true or false")
-        if not isinstance(self.record_achieved, bool):
-            raise ValueError("record_achieved must be true or false")
         if self.execution_mode not in {"synchronous", "threaded"}:
             raise ValueError("execution_mode must be synchronous or threaded")
         if not math.isfinite(self.control_hz) or self.control_hz <= 0:

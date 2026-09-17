@@ -8,32 +8,31 @@ This document defines the operational contract for repeated real-robot evaluatio
 camera services and hardware preflight remain in each model runbook; the experiment layer does not
 start or modify them.
 
-## 1. Two runtime entry points
+## 1. Runtime entry point
 
 ```bash
-# One rollout, controlled from the terminal
-manimux run --config <experiment.yaml>
-
 # Persistent runtime service, controlled from Viewer
 manimux serve --config <experiment.yaml>
 ```
 
-`run` preserves the original CLI workflow. `serve` keeps the selected config available while Viewer
-creates isolated rollouts. It does not launch a Policy Server, camera server or Viewer.
+`serve` is the runtime CLI entry point. It keeps the selected config available while Viewer
+creates isolated rollouts after an operator chooses Prepare. It does not launch a Policy Server,
+camera server or Viewer. The former `run` command has been removed; use a normal rollout for
+deployment and debugging.
 
 ## 2. Viewer modes
 
-Viewer exposes a prominent `Experiment mode` switch before each rollout:
+Viewer offers two Prepare buttons before each rollout:
 
 | Mode | Intended use | Human reward |
 |---|---|---|
-| **OFF** | Deployment, debugging and demonstrations | Optional; the next rollout is not blocked |
-| **ON** | Formal pilot or benchmark collection | Required after every finalized rollout |
+| **Prepare normal rollout** | Deployment, debugging and demonstrations | Not required; the next rollout is not blocked |
+| **Prepare experiment rollout** | Formal pilot or benchmark collection | Required after every finalized rollout |
 
-The switch is locked after `Prepare new rollout` so one rollout cannot change modes midway. When
-experiment mode is ON, also set a readable `Layout / condition ID` such as `red-ball-left-01`.
+The choice is locked after Prepare so one rollout cannot change modes midway. For an experiment
+rollout, also set a readable `Layout / condition ID` such as `red-ball-left-01`.
 
-The task text shown in Viewer is not decorative: the value present when `Prepare new rollout` is
+The task text shown in Viewer is not decorative: the value present when either Prepare button is
 clicked is copied into that rollout config and sent to the policy.
 
 ## 3. Operator flow

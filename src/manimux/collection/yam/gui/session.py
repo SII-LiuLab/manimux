@@ -777,6 +777,11 @@ class CollectSession:
 
     def status(self) -> dict:
         loop, rec, dep = self.loop, self.recorder, self.deploy_loop
+        units = self.units
+        command_rates = (
+            units[0].robot.backend.command_rates.snapshot()
+            if loop and units else None
+        )
         return {
             "live": self.live,
             # Live for autonomy: no leaders, no teleop loop. The GUI greys out the
@@ -788,10 +793,15 @@ class CollectSession:
             "saving_episode": bool(rec and rec.is_saving),
             "record_eepose": self.record_eepose,
             "record_native_joints": self.record_native_joints,
-            "record_achieved": self.cfg.record_achieved,
             "collection_hz": self.cfg.control_hz,
             "collection_timing_error": self.collection_timing_error(),
-            "collection_actual_hz": loop.actual_hz if loop else 0.0,
+            # A fresh leader target must reach both SDKs successfully to count.
+            # Threaded executor repeats do not inflate this rate.
+            "collection_actual_hz": (
+                command_rates["fresh_target_hz"]
+                if command_rates and loop.sync_enabled else 0.0
+            ),
+            "collection_command_rates": command_rates,
             "collection_overruns": loop.overruns if loop else 0,
             "lead_timing": loop.timings.snapshot() if loop else None,
             "teleop_diagnostics": loop.timings.output_status() if loop else None,

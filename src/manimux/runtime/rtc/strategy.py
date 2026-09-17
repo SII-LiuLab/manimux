@@ -35,6 +35,8 @@ class RtcInferenceStrategy:
         self._min_execute_steps = rtc.min_execute_steps
         self._initial_delay_steps = int(rtc.initial_delay_steps)
         self._delay_buffer_size = int(rtc.delay_buffer_size)
+        self._discard_prefix_steps = int(rtc.discard_prefix_steps)
+        self._extra_discard_prefix_steps = int(rtc.extra_discard_prefix_steps)
         self._delay_forecast: deque[int]
         self._active_rows: np.ndarray | None
         self._active_offset: int
@@ -166,7 +168,42 @@ class RtcInferenceStrategy:
         now_ns: int,
     ) -> ActionChunk:
         del response, now_ns
-        return chunk
+        floor_drop = self._discard_prefix_steps
+        extra_drop = self._extra_discard_prefix_steps
+        drop = floor_drop + extra_drop
+        if drop <= 0:
+            return chunk
+        if chunk.horizon_steps - drop < 2:
+            raise ValueError(
+                f"RTC discard_prefix_steps={floor_drop} + "
+                f"extra_discard_prefix_steps={extra_drop} leaves fewer than 2 rows "
+                f"(horizon={chunk.horizon_steps})"
+            )
+        remaining = chunk.horizon_steps - drop
+        hold_from_step = {
+            name: step - drop
+            for name, step in chunk.hold_from_step.items()
+            if step >= drop and step - drop < remaining
+        }
+        metadata = dict(chunk.metadata)
+        if floor_drop:
+            metadata["discard_prefix_steps"] = floor_drop
+        if extra_drop:
+            metadata["extra_discard_prefix_steps"] = extra_drop
+        # Floor discard bumps source_offset (max with latency). Extra does not,
+        # so age-based trim still stacks on top → latency + extra.
+        return ActionChunk(
+            plan_id=chunk.plan_id,
+            request_seq=chunk.request_seq,
+            observation_time_ns=chunk.observation_time_ns,
+            created_time_ns=chunk.created_time_ns,
+            action_space=chunk.action_space,
+            dt_ns=chunk.dt_ns,
+            groups={name: values[drop:].copy() for name, values in chunk.groups.items()},
+            source_offset_steps=chunk.source_offset_steps + floor_drop,
+            metadata=metadata,
+            hold_from_step=hold_from_step,
+        )
 
     def on_plan_accepted(
         self,

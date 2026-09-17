@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# QZ-ready OpenWAM/YAM launcher. This script never allocates QZ resources; it
-# runs inside an already allocated shell/job and exposes a CPU-only ready gate.
+# OpenWAM/YAM launcher for an existing training environment.
 mode=${1:-ready}
 run=${2:-yam-openwam}
 REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+source "${REPO}/scripts/training/_batch.sh"
 WORKSPACE=${OPENWAM_WORKSPACE:-${REPO}}
 POLICY=${WORKSPACE}/XPolicyLab/policy/OpenWAM
-TRAIN_ROOT=${OPENWAM_TRAIN_ROOT:-${WORKSPACE}}
+TRAIN_ROOT=${OPENWAM_TRAIN_ROOT:-${YAM_TRAIN_ROOT:-${REPO}/data/training}}
 
 export OPENWAM_PYTHON=${OPENWAM_PYTHON:-${TRAIN_ROOT}/envs/openwam/.venv/bin/python}
 export OPENWAM_DATASET_DIR=${OPENWAM_DATASET_DIR:?Set OPENWAM_DATASET_DIR to prepared native HDF5}
@@ -19,8 +19,18 @@ CHECKPOINT_SOURCE=${OPENWAM_RESUME_CKPT_PATH:-${OPENWAM_FINETUNE_CKPT_PATH:-}}
 GPU_IDS=${OPENWAM_GPU_IDS:-0,1,2,3}
 steps=${OPENWAM_MAX_STEPS:-30000}
 save=${OPENWAM_SAVE_INTERVAL:-5000}
+training_positive_int OPENWAM_MAX_STEPS "${steps}"
+training_positive_int OPENWAM_SAVE_INTERVAL "${save}"
 batch=${OPENWAM_BATCH_SIZE:-1}
-accum=${OPENWAM_GRADIENT_ACCUMULATION_STEPS:-8}
+GPU_COUNT=$(training_gpu_count "${GPU_IDS}")
+accum=${OPENWAM_GRADIENT_ACCUMULATION_STEPS:-$(training_default_accum "${batch}" "${GPU_COUNT}")}
+training_positive_int OPENWAM_BATCH_SIZE "${batch}"
+training_positive_int OPENWAM_GRADIENT_ACCUMULATION_STEPS "${accum}"
+training_check_batch OpenWAM "${mode}" "$((batch * GPU_COUNT * accum))" "${GPU_COUNT}" "micro_batch=${batch} accumulation=${accum}"
+training_plan "${mode}" "entry=${POLICY}/train.sh" "dataset=${OPENWAM_DATASET_DIR}" \
+  "output=${OPENWAM_OUTPUT_ROOT:-${TRAIN_ROOT}/weights/finetuned/openwam}/${run}" \
+  "prepare=converted native HDF5 required; policy/process_data.sh computes stats" \
+  "steps=${steps} (micro steps; $((steps / accum)) complete optimizer updates)"
 keep=${OPENWAM_KEEP_LAST_K_CKPTS:-6}
 zero=${OPENWAM_ZERO_STAGE:-2}
 if [[ -n "${OPENWAM_RESUME_CKPT_PATH:-}" ]]; then
@@ -180,7 +190,7 @@ case "${mode}" in
   smoke|train)
     preflight
     prepare
-    if [[ "${mode}" == smoke ]]; then steps=1; save=1; run="${run}-smoke"; fi
+    if [[ "${mode}" == smoke ]]; then steps=${accum}; save=${accum}; run="${run}-smoke"; fi
     export OPENWAM_CHECKPOINT_DIR=${OPENWAM_OUTPUT_ROOT:-${TRAIN_ROOT}/weights/finetuned/openwam}/${run}
     if [[ -n "${OPENWAM_RESUME_CKPT_PATH:-}" ]]; then
         export OPENWAM_CHECKPOINT_DIR=${OPENWAM_RESUME_CKPT_PATH}
@@ -191,5 +201,5 @@ case "${mode}" in
       --config "${WORKSPACE}/configs/openwam/yam/server/finetune.yaml" \
       --checkpoint "${deploy_checkpoint_dir}" --check
     ;;
-  *) echo "Usage: $0 [prepare|dry-run|ready|smoke|train|gate-train] [run_name]" >&2; exit 2 ;;
+  *) echo "Usage: $0 [plan|prepare|dry-run|ready|smoke|train|gate-train] [run_name]" >&2; exit 2 ;;
 esac

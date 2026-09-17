@@ -13,7 +13,7 @@
 - 不要设置 `UV_PROJECT_ENVIRONMENT` 指向它们。
 
 原因：`uv sync` 是**声明式**的 —— 它会把目标环境校准成 `uv.lock` 描述的样子，
-**卸掉一切未声明的包**。而这三个环境里最关键的依赖恰恰都不在 lock 里
+**卸掉一切未声明的包**。而这些环境里最关键的依赖恰恰都不在 lock 里
 （`i2rt`、各自的 `torch`、`flash-attn` 都是 `uv pip install` 手动装的）。
 
 实测（`--dry-run`，未真正执行）：
@@ -30,21 +30,23 @@ Would uninstall 72 packages
 
 ## 各环境的分工
 
-| 目录 | torch | 跑什么 |
-|---|---|---|
-| `../.venv` | 无 | uv 托管：`make` 目标、mock 运行、viewer demo。只有 core + dev，不装任何 extra |
-| `yam/.venv` | 2.5.1+cu121 | **一切真机进程** —— MolmoAct 服务、相机服务、viewer、runtime（唯一装了 `i2rt`） |
-| `abc/.venv` | 2.11.0+cu128 | 只跑 `manimux-abc-server`；runtime 仍从 `yam` 起 |
-| `xr1/.venv` | 2.8.0+cu126 | 只跑 `manimux-xr1-server`（含 flash-attn）；runtime 仍从 `yam` 起 |
-| `lingbot-vla2/.venv` | 2.8.0+cu128 | 只跑 LingBot-VLA2 XPolicy 模型服务；runtime 仍从 `yam` 起 |
-| `umi_dp/.venv` | 2.7.1+cu128 | UMI DP XPolicyLab 模型/训练；用 `XPolicyLab/policy/UMI_DP/install.sh` 创建，硬件 runtime 不导入模型依赖 |
+| 目录 | 跑什么 |
+|---|---|
+| `../.venv` | uv 托管：开发、mock 运行、Viewer demo；不需要模型依赖 |
+| `yam/.venv` | YAM 相机、Viewer、数采和 runtime，含 `i2rt`；不运行模型 |
+| `xr1/.venv` | XR-1 XPolicyLab 模型服务；runtime 仍从 `yam` 起 |
+| `lingbot-vla2/.venv` | LingBot-VLA2 XPolicyLab 模型服务；runtime 仍从 `yam` 起 |
+| `umi_dp/.venv` | UMI DP XPolicyLab 模型/训练；用 `XPolicyLab/policy/UMI_DP/install.sh` 创建 |
+
+模型的 torch / CUDA 版本由对应 XPolicyLab policy 的安装说明管理，不再由 ManiMux
+extras 安装。旧 ABC / MolmoAct2 native 入口已移除；本地已有环境不因此自动删除。
 
 ## 正确的操作方式
 
 安装或增补依赖时，用 `uv pip install --python` 显式指定解释器，不要用项目命令：
 
 ```bash
-uv pip install --python envs/yam/.venv/bin/python -e ".[molmoact-yam]"
+uv pip install --python envs/yam/.venv/bin/python -e ".[cameras,collection,xpolicylab]"
 uv pip install --python envs/yam/.venv/bin/python \
   "git+https://github.com/i2rt-robotics/i2rt.git@5d47b358bafb30c65e397f2ece506550a0db4594"
 
@@ -56,16 +58,15 @@ uv pip install --python envs/xr1/.venv/bin/python -e XPolicyLab
 
 ```bash
 Y=envs/yam/.venv/bin
-$Y/manimux-molmoact-server --host 127.0.0.1 --port 8202
-$Y/manimux run --config configs/molmoact2/yam/infra/manimux.yaml
+$Y/manimux serve --config configs/pi05/yam/infra/put-bottles/rtc-joint-step30000.yaml
 ```
 
-需要跑完整测试（不 skip）时也用这里，它同时装了 `i2rt` 和开发工具：
+模型、相机和 Viewer 必须按[统一启动指南](../docs/guideline.md)在各自终端启动。
+运行需要已安装 SDK 的离线测试时，显式使用该环境：
 
 ```bash
 envs/yam/.venv/bin/pytest tests/unit tests/integration
 ```
 
-各环境的完整建立步骤见 [../docs/molmoact-yam-runbook.md](../docs/molmoact-yam-runbook.md)、
-[../docs/abc-yam-runbook.md](../docs/abc-yam-runbook.md)、
-[../docs/xr1-yam-runbook.md](../docs/xr1-yam-runbook.md)。
+模型环境步骤见 [Pi05](../docs/pi05-yam-runbook.md)、
+[XR-1](../docs/xiaomi-xr1-yam-runbook.md) 和 [XPolicyLab](../docs/xpolicylab-runbook.md)。

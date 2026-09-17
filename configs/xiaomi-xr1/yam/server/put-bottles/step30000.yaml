@@ -1,0 +1,32 @@
+# Locally trained XR-1/YAM checkpoint for putting bottles into the bin.
+policy_name: Xiaomi_Robotics_1
+protocol: ws
+host: 127.0.0.1
+port: 8501
+
+bench_name: RoboDojo_real
+task_name: put_bottles_into_the_bin
+env_cfg_type: yam_dual
+action_type: ee
+eval_batch: false
+checkpoint_variant: xiaomi_xr1_yam_put_bottles_into_the_bin_step_30000
+checkpoint_role: yam_finetuned_policy
+
+train_config_name: xiaomi_xr1_yam_posttrain
+observation_profile: yam_native_three_rgb
+repo_id: RoboDojo_real-put_bottles_into_the_bin-yam_dual-ee
+model_path: /home/ubuntu/manimux/checkpoints/finetuned/ziyang/xiaomi-xr1-put-bottles-b64-step30000
+checkpoint_path: /home/ubuntu/manimux/checkpoints/finetuned/ziyang/xiaomi-xr1-put-bottles-b64-step30000/epoch=7-step=30000.ckpt/checkpoint/mp_rank_00_model_states.pt
+checkpoint_source: local_xiaomi_xr1_yam_put_bottles_into_the_bin_step_30000
+norm_stats_path: /home/ubuntu/manimux/checkpoints/finetuned/ziyang/xiaomi-xr1-put-bottles-b64-step30000/norm_stats.json
+norm_stats_source: checkpoint_matched_yam_put_bottles_into_the_bin_step_30000_training_config
+norm_stats_role: checkpoint_matched_yam_finetune
+vlm_processor_path: /home/ubuntu/manimux/checkpoints/pretrained/qwen3_vl_4b_processor
+
+output_format: packed_ee_delta
+action_length: 30
+action_horizon: 30
+num_steps: 5
+image_factor: 32
+image_max_pixels: 160000
+default_prompt: Put the bottles into the bin.

@@ -10,7 +10,7 @@
 - [Experiment workflow](experiment-infra.md): persistent services, normal/experiment modes and saved evidence.
 - [YAM collection](yam-collection.md): the original-style collection GUI with ManiMux follower control.
 - [Architecture](architecture.md): policy, adapter, strategy, executor and robot boundaries.
-- [Agent guide](../AGENTS.md): XPolicyLab-only model integration, legacy migration and validation rules.
+- [Agent guide](../AGENTS.md): XPolicyLab-only model integration and validation rules.
 
 ## Components
 
@@ -37,20 +37,22 @@ Use each runbook's checkpoint, environment and action contract together. An avai
 does not mean every checkpoint or inference-method combination has passed a real-robot trial.
 
 - [Pi05 / OpenPI](pi05-yam-runbook.md), including paired put-bottles joint / joint+EE 30k configurations.
-- [MolmoAct2](molmoact-yam-runbook.md) · [ABC](abc-yam-runbook.md).
 - [GR00T N1.7](gr00t-yam-runbook.md) · [LingBot-VLA2](lingbot-vla2-yam-runbook.md).
 - [Xiaomi XR-1](xiaomi-xr1-yam-runbook.md) · [OpenWAM](openwam-yam-runbook.md).
 - [SAPolicy](sapolicy-yam-runbook.md) · [Shared XPolicyLab bridge](xpolicylab-runbook.md).
 - Offline / simulation paths: [Cosmos3](cosmos3-offline-runbook.md),
   [Isaac 0.5](isaac05-offline-runbook.md), [ManiUniCon](maniunicon-sim.md).
 
+Retired native deployments: [MolmoAct2](molmoact-yam-runbook.md) · [ABC](abc-yam-runbook.md).
+These are removal notices, not runnable deployment guides.
+
 ## Support counts
 
 The README badges count integration coverage, not task success, hardware validation of every
 checkpoint, or support for every policy × embodiment × inference combination.
 
-- **10 policy integrations:** eight model families have YAM deployment configurations:
-  Pi05, MolmoAct2, ABC, GR00T, LingBot-VLA2, Xiaomi XR-1, OpenWAM and SAPolicy.
+- **8 policy integrations:** six model families have YAM deployment configurations:
+  Pi05, GR00T, LingBot-VLA2, Xiaomi XR-1, OpenWAM and SAPolicy.
   Cosmos3 and Isaac 0.5 add two model-only / offline paths, not two more YAM-ready policies.
   Checkpoint variants, the generic XPolicyLab bridge and the collection leader policy are not counted separately.
 - **1 real + 1 simulation embodiment integration:** the dual-YAM driver and the

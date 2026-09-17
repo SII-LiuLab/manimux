@@ -12,7 +12,7 @@ Policy × Runtime × Embodiment
 [![组件：PRM-as-a-Judge](https://img.shields.io/badge/Component-PRM--as--a--Judge-9333EA?style=flat-square&logo=github&logoColor=white)](PRM-as-a-Judge/)
 [![Python 3.11 和 3.12](https://img.shields.io/badge/Python-3.11%20%7C%203.12-3776AB?style=flat-square&logo=python&logoColor=white)](pyproject.toml)
 <br/>
-[![Policy：10 个接入，含 2 个仅模型路径](https://img.shields.io/badge/Policies-10%20Integrations-2EA043?style=flat-square)](docs/README.md#support-counts)
+[![Policy：8 个接入，含 2 个仅模型路径](https://img.shields.io/badge/Policies-8%20Integrations-2EA043?style=flat-square)](docs/README.md#support-counts)
 [![本体：1 个真机与 1 个仿真接入](https://img.shields.io/badge/Embodiments-1%20Real%20%2B%201%20Sim-2563EB?style=flat-square)](docs/README.md#support-counts)
 [![推理：8 种模式](https://img.shields.io/badge/Inference-8%20Modes-F97316?style=flat-square)](docs/README.md#support-counts)
 <br/>
@@ -21,7 +21,7 @@ Policy × Runtime × Embodiment
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
-[**Features**](#features) · [**视频**](#demo) · [**架构**](#architecture) · [**快速启动**](#quick-start) · [**文档**](docs/README.md) · [**引用**](#citation)
+[**Features**](#features) · [**视频**](#demo) · [**架构**](#architecture) · [**快速启动**](#quick-start) · [**数采**](#collection-start) · [**文档**](docs/README.md) · [**引用**](#citation)
 
 </div>
 
@@ -88,8 +88,6 @@ flowchart LR
     subgraph THINK["<b>PREDICT</b>"]
         direction TB
         XPOLICY["<b>XPolicyLab</b><br/>Pi05 · XR-1 · GR00T<br/>LingBot · OpenWAM"]:::xpolicy
-        NATIVE["<b>Legacy native</b><br/>MolmoAct2 · ABC"]:::native
-        XPOLICY ~~~ NATIVE
     end
 
     PLAN["<b>ADAPT & SCHEDULE</b><br/>Async · RTC · PAINT<br/>Serial · adaptive<br/><br/>Adapter → Timeline"]:::handoff
@@ -107,15 +105,14 @@ flowchart LR
     classDef side fill:#FFFFFF,stroke:#8C959F,stroke-dasharray:4 3,color:#57606A
     classDef robot fill:#1F2328,stroke:#1F2328,color:#FFFFFF
     classDef xpolicy fill:#8957E5,stroke:#6633B8,color:#FFFFFF
-    classDef native fill:#2F6FEB,stroke:#1B4DB1,color:#FFFFFF
     classDef collection fill:#1A7F55,stroke:#125C3D,color:#FFFFFF
     style THINK fill:#FFFFFF,stroke:#8C959F,stroke-dasharray:5 4,color:#1F2328
 ```
 
 模型 server 不直接控制硬件。数采绕过 chunk 推理调度、复用执行接口，
 同时保留自己的采集 GUI 与保存格式。
-新模型必须走 [XPolicyLab 统一接入路径](AGENTS.md#model-integration-xpolicylab-only)；
-图中的 native 仅为迁移前保留的兼容入口。
+模型统一走 [XPolicyLab 接入路径](AGENTS.md#model-integration-xpolicylab-only)；
+ManiMux 保留本体适配，不再维护第二份模型实现。
 
 **GitHub：**[ManiMux](https://github.com/SII-LiuLab/manimux) · [XPolicyLab](https://github.com/Cuzyoung/XPolicyLab) · [PRM-as-a-Judge](https://github.com/YuyangLiu2003/PRM-as-a-Judge)
 
@@ -150,6 +147,52 @@ envs/yam/.venv/bin/manimux serve \
 打开 **http://127.0.0.1:8086**，按 **Prepare → Start rollout → Finish & Home** 操作。
 正常 rollout 不强制打分，实验 rollout 需人工标注后再进入下一条。
 server 与 runtime 的配置必须配套：这里是 **joint**，不是 **joint+EE**。
+
+<a id="collection-start"></a>
+
+## 🎥 YAM 双臂遥操作数采 · 五路相机
+
+已保存的数据支持 [Viser 四路同步回放](docs/yam-collection.md#synchronized-viser-replay-video-linear-100-hz-held-30-hz)：
+原始相机视频、原始从臂反馈直接取到 100 Hz、先取 30 Hz 再插值到 100 Hz、
+同一组 30 Hz joint 直接保持。
+默认将原始反馈的蓝色实体与插值后的橙色线框虚影重叠在同一底座，
+可调不透明度、独立开关两层、切换虚影轨迹或改用并排布局；实测回放首尾取共同采样点。
+使用 `manimux-viewer --replay-episode /path/to/episode` 离线查看；
+旧版 30 Hz 数据的实测 joint 对比需要采集时启用 **Native joint rate**；
+新版数据也可直接使用保存的控制频率 joint。
+
+从仓库根目录，使用已有的 YAM 环境运行：
+
+```bash
+envs/yam/.venv/bin/python -u -m manimux.collection \
+  --config configs/collection/yam/station.yaml \
+  --cameras configs/collection/yam/cameras.yaml \
+  --host 0.0.0.0 --port 8043
+```
+
+这份相机配置包含 **Top、左腕、右腕、Gemini305、Gemini335**，均配置为
+**640×480、30 FPS RGB**。`--cameras` 指定完整相机列表；若传入三路配置，
+两个 Gemini 就不会启用。设备序列号须匹配本机。由推理切换到数采时，结束当前
+rollout 并退出其 runtime，再停止占用这些设备的相机服务。数采 GUI 直接打开相机，
+无需另起推理用的 camera server。
+
+当前 `station.yaml` 设置 **`collection_hz: 100`**：每 10 ms 读取最新主臂位置，
+直接更新从臂目标，并保存 command 与从臂 joint；五路视频仍独立按 30 FPS 保存。
+没有先降到 30 Hz 再插值的步骤。GUI 显示设定/实际循环频率，录制元数据保留
+时间戳和频率统计。GUI 的 Teleop 区域可直接输入 **Hz → Apply Hz（或回车）** 在线切换，
+保留机械臂、相机连接和夹爪进度；录制或保存期间禁止切换。选择在当前进程内生效，
+`collection_hz` 配置决定下次启动的默认频率；设为 `null` 恢复原来的
+30 Hz 配置和旧录制格式。详见[独立时间线与导出](docs/yam-collection.md#direct-100-hz-teleoperation-with-30-fps-video)。
+
+打开 **http://127.0.0.1:8043**，设置任务，然后按 **Start Teleop → Start Recording** 操作。
+默认任务为 `put_bottles_into_the_bin`，完成的 episode 保存到
+`data/collection/episodes/<task>/<episode>/`。启动 GUI 后可预览相机；
+点击 **Start Teleop** 才连接机械臂并进行主从臂对齐。
+
+如果 **Start Teleop 看起来没反应**，先查看 GUI 启动终端或日志：电机通信异常
+可能返回 HTTP 500，而前端没有显示错误。遇到 `motor 1 ... can_left` 时，见
+[启动故障排查](docs/yam-collection.md#start-teleop-troubleshooting)。
+相机画面正常不代表遥操作已经启动。
 
 ## 📚 使用指南
 
