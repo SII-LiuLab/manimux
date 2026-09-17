@@ -1,0 +1,16 @@
+# 模型服务基础参数；任务由实验选择，地址和 checkpoint 路径由 local 绑定。
+policy_name: UMI_DP
+protocol: ws
+bench_name: ManiMux
+ckpt_name: null
+env_cfg_type: tianji_umi
+seed: 0
+action_type: ee
+gpu_id: 0
+eval_batch: false
+checkpoint_file: checkpoints/latest.ckpt
+device: cuda:0
+source_fps: 30
+observation_tolerance_s: 0.04
+rtc_guidance: pigdm
+expected_artifacts: null

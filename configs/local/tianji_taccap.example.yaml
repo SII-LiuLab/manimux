@@ -1,0 +1,22 @@
+# 复制到 .local/ 后填写实际设备。192.0.2.10 是示例地址。
+# paths.checkpoint 可填写模型目录；相对路径以此 local 文件为基准。
+# 服务部署在别的主机时，endpoint 写可达地址，bind_host/bind_endpoint 可单独指定。
+robot:
+  hardware:
+    ip: 192.0.2.10
+  components:
+    left_end_effector:
+      serial: REPLACE_LEFT_GRIPPER
+    right_end_effector:
+      serial: REPLACE_RIGHT_GRIPPER
+    left_wrist_camera:
+      camera_serial: REPLACE_LEFT_CAMERA
+    right_wrist_camera:
+      camera_serial: REPLACE_RIGHT_CAMERA
+services:
+  camera:
+    endpoint: tcp://127.0.0.1:5556
+    request_endpoint: tcp://127.0.0.1:5555
+  policy:
+    endpoint: ws://127.0.0.1:8560
+paths: {}

@@ -45,6 +45,7 @@ from typing import Any
 import yaml
 import zmq
 
+from manimux.cli import read_experiment, read_yaml
 from manimux.sensors.taccap.camera import V4L_BY_ID
 
 logger = logging.getLogger("camera_server")
@@ -59,6 +60,28 @@ DEFAULT_REP_ENDPOINT = "tcp://127.0.0.1:5555"
 DEFAULT_PUB_ENDPOINT = "tcp://127.0.0.1:5556"
 DEFAULT_PUB_PERIOD_SEC = 1.0 / 30.0
 DEFAULT_HEARTBEAT_SEC = 10.0
+
+
+def camera_config(experiment: dict) -> dict:
+    """将实验中的相机流名绑定到整机组件，复用 runtime 的设备参数。"""
+    assembly_path = Path(experiment["robot"]["config"])
+    assembly = read_yaml(assembly_path)
+    overrides = experiment["robot"].get("options", {}).get("component_hardware", {})
+    cameras = {}
+    for stream_name, camera in experiment["camera_server"]["cameras"].items():
+        name = camera["component"]
+        entry = assembly["components"][name]
+        component = read_yaml(assembly_path.parent / entry["config"])
+        # 明确按组件名绑定，不依靠字典顺序或设备扫描顺序推断左右。
+        cameras[stream_name] = {
+            "type": camera["type"],
+            **component.get("options", {}),
+            **entry.get("options", {}),
+            **component.get("hardware", {}),
+            **entry.get("hardware", {}),
+            **overrides.get(name, {}),
+        }
+    return {"sensors": {"cameras": cameras}}
 
 
 class CameraServer:
@@ -252,6 +275,11 @@ def _build_cameras_from_config(
     """
     with Path(cfg_path).open(encoding="utf-8") as handle:
         cfg = yaml.safe_load(handle)
+    return _build_cameras(cfg, by_id_root=by_id_root)
+
+
+def _build_cameras(cfg: dict, *, by_id_root: Path = V4L_BY_ID) -> dict[str, Any]:
+    """旧相机 YAML 和新实验/local 入口共用原有采集实现。"""
     camera_cfg = cfg["sensors"]["cameras"]
     kinds: dict[str, str] = {}
     for name, spec in camera_cfg.items():
@@ -345,23 +373,36 @@ def _open_rgbd(name: str, spec: dict[str, Any]) -> Any:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="ManiMux multi-camera server (ZMQ).")
-    parser.add_argument(
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument(
         "--config",
-        required=True,
         type=Path,
         help="Path to a cameras YAML whose sensors.cameras block lists the devices "
         "(type: realsense by default, or orbbec/taccap).",
     )
-    parser.add_argument("--rep-endpoint", default=DEFAULT_REP_ENDPOINT)
+    source.add_argument("--experiment", type=Path, help="Experiment with named camera components")
+    parser.add_argument("--local", type=Path, help="Same local bindings used by the runtime")
+    parser.add_argument("--rep-endpoint")
     parser.add_argument(
         "--pub-endpoint",
-        default=DEFAULT_PUB_ENDPOINT,
         help="ZMQ PUB endpoint. Pass empty string to disable the PUB stream.",
     )
     parser.add_argument("--pub-period-sec", type=float, default=DEFAULT_PUB_PERIOD_SEC)
     parser.add_argument("--heartbeat-sec", type=float, default=DEFAULT_HEARTBEAT_SEC)
     parser.add_argument("--log-level", default="INFO")
     args = parser.parse_args(argv)
+    if args.local is not None and args.experiment is None:
+        parser.error("--local requires --experiment")
+    resolved_cameras = None
+    service = {}
+    if args.experiment is not None:
+        experiment = read_experiment(args.experiment, local=args.local)
+        resolved_cameras = camera_config(experiment)
+        service = experiment["camera_server"]
+    # 显式 CLI 地址优先；未提供时使用与 runtime 同一份 local 的服务绑定。
+    args.rep_endpoint = args.rep_endpoint or service.get("rep_endpoint", DEFAULT_REP_ENDPOINT)
+    if args.pub_endpoint is None:
+        args.pub_endpoint = service.get("pub_endpoint", DEFAULT_PUB_ENDPOINT)
 
     logging.basicConfig(
         level=args.log_level.upper(),
@@ -395,7 +436,11 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         signal.signal(signal.SIGINT, _handle)
         signal.signal(signal.SIGTERM, _handle)
-        server.cameras = _build_cameras_from_config(args.config)
+        server.cameras = (
+            _build_cameras(resolved_cameras)
+            if resolved_cameras is not None
+            else _build_cameras_from_config(args.config)
+        )
         server.run()
     finally:
         server.shutdown()
