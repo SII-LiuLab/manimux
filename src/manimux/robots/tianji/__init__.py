@@ -1,9 +1,16 @@
-"""Tianji Marvin dual-arm robot driver.
+"""Tianji adapters built directly on the bundled official SDK."""
 
-Importing this package loads no vendor SDK; the Marvin and TacCap SDKs are
-loaded when the driver connects.
-"""
+from manimux.robots.tianji.kinematics import TianjiSDKKinematics
+from manimux.robots.tianji.tianji import TianjiArmConfig, TianjiRobot
+from manimux.robots.tianji.tianji_taccap_kinematics import (
+    build_tianji_taccap_kinematics,
+    umi_follower_mount,
+)
 
-from manimux.robots.tianji.driver import TianjiDualArmDriver, build_robot
-
-__all__ = ["TianjiDualArmDriver", "build_robot"]
+__all__ = [
+    "TianjiArmConfig",
+    "TianjiRobot",
+    "TianjiSDKKinematics",
+    "build_tianji_taccap_kinematics",
+    "umi_follower_mount",
+]

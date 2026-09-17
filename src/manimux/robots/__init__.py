@@ -5,7 +5,7 @@ from collections.abc import Callable
 from manimux.clock import Clock
 from manimux.config import RobotConfig
 from manimux.plugins import load_plugin
-from manimux.robots.base import RobotDriver
+from manimux.robots.base import RobotBase, RobotDriver
 from manimux.robots.maniunicon import ManiUniConMeshcatDualArmDriver
 from manimux.robots.mock import MockDualArmDriver
 
@@ -58,6 +58,7 @@ def build_robot(config: RobotConfig, clock: Clock) -> RobotDriver:
 __all__ = [
     "ManiUniConMeshcatDualArmDriver",
     "MockDualArmDriver",
+    "RobotBase",
     "RobotDriver",
     "RobotFactory",
     "build_robot",

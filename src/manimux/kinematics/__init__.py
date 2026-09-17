@@ -6,7 +6,16 @@ every pose-space policy reuses it.
 
 from collections.abc import Callable
 
-from manimux.kinematics.base import ArmKinematics
+from manimux.kinematics.base import (
+    ArmKinematics,
+    FlangeKinematicsBase,
+    IKResult,
+    KinematicCoordinate,
+    ManipulatorKinematicsBase,
+)
+from manimux.kinematics.composed import ComposedManipulatorKinematics
+from manimux.kinematics.robot import RobotKinematics
+from manimux.kinematics.tool import FixedToolGeometry, ToolGeometryBase
 from manimux.plugins import load_plugin
 
 
@@ -33,4 +42,15 @@ def build_kinematics(name: str, **options: object) -> ArmKinematics:
     return factory(**options)
 
 
-__all__ = ["ArmKinematics", "build_kinematics"]
+__all__ = [
+    "ArmKinematics",
+    "ComposedManipulatorKinematics",
+    "FlangeKinematicsBase",
+    "FixedToolGeometry",
+    "IKResult",
+    "KinematicCoordinate",
+    "ManipulatorKinematicsBase",
+    "RobotKinematics",
+    "ToolGeometryBase",
+    "build_kinematics",
+]
