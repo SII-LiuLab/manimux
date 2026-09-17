@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Wrapper for scripts/goto_dp_start.py -- restore a recorded diffusion-policy
+# start pose from data/<name>.yaml (default data/dp_start_20260910.yaml).
+#   goto-dp-start          -> both arms in the pose file (∩ config.ARMS)
+#   goto-dp-start A        -> just arm A
+#   goto-dp-start AB       -> both arms, explicit
+#   goto-dp-start --pose dp_start_20260910 --speed 3 --yes
+# Anything starting with '-' (e.g. -h/--help) is passed straight through.
+set -euo pipefail
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+case "${1:-}" in
+    ''|-*)
+        exec "$DIR/.venv/bin/python3" "$DIR/scripts/goto_dp_start.py" "$@"
+        ;;
+    [AaBb]|[AaBb][AaBb])
+        ARMS="$(tr '[:lower:]' '[:upper:]' <<< "$1")"
+        shift
+        exec "$DIR/.venv/bin/python3" "$DIR/scripts/goto_dp_start.py" --arms "$ARMS" "$@"
+        ;;
+    *)
+        echo "goto-dp-start: unrecognized arm spec '$1' (expected A, B, or AB)" >&2
+        exit 1
+        ;;
+esac

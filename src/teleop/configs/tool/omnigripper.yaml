@@ -1,0 +1,54 @@
+# drivers.tool_config.ToolConfig -- Marvin_Robot.set_tool() parameters for
+# the OmniGripper (DM4310, 达妙) mounted on the flange, driven by
+# drivers/gripper.py. Fed to set_state.py --state drag/release --tool
+# omnigripper so the controller's torque-mode gravity feedforward accounts
+# for the gripper's weight, instead of treating it as an unmodeled load --
+# see docs/scripts.md's gravity-compensation section for why that matters.
+#
+# Per-arm (`arms.A`/`arms.B`): the gripper's mount isn't guaranteed
+# symmetric between the two arms, so each arm needs its own entry. An arm
+# with no entry here fails to load instead of silently defaulting to 0 --
+# see drivers.tool_config.load_tool_config. Don't copy one arm's numbers
+# to the other without confirming the mount is actually mirrored.
+
+name: omnigripper
+
+arms:
+  B:
+    mass_kg: 0.693282164459326
+    com_mm: [-3.6872961019482386, -1.4519945573446507, 64.14757077538239]
+    # [ixx,ixy,ixz,iyy,iyz,izz] about the center of mass, from the same
+    # identify_tool_dyn() call as mass_kg/com_mm above.
+    inertia: [0.001, 0.0, 0.0, 0.001, 0.0, 0.0021554365678823416]
+    kine_offset: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    source: >-
+      Marvin_Kine.identify_tool_dyn(robot_type=1, ipath=...) run offline
+      (2026-08-16), no live robot involved -- against SDK-bundled
+      pre-collected data at TJ_FX_ROBOT_CONTRL_SDK/CommonConfig/
+      LoadData_ccs/LoadData/omini-gripper-tool-parameter/right-arm/
+      {LoadData,NoLoadData}.csv. This is vendor reference-unit data for
+      the same DM4310 OmniGripper model, NOT collected against this
+      project's specific physical robot -- treat as a good estimate, not
+      a guaranteed match; sanity-check mass_kg against a scale if
+      convenient. Also note: the identification call's own printed debug
+      summary (ixx=-0.002 iyy=-0.005 izz=0.002) disagreed with the
+      return value used here for inertia -- an unexplained SDK
+      inconsistency, flagged rather than silently picked one side of.
+
+  A:
+    mass_kg: 0.6818344515426503
+    com_mm: [-9.766771379294207, -15.034666379334388, 71.83827707203966]
+    # [ixx,ixy,ixz,iyy,iyz,izz] about the center of mass, from the same
+    # identify_tool_dyn() call as mass_kg/com_mm above.
+    inertia: [0.0019348987047612784, 0.0, 0.0, 0.001, 0.0, 0.00042765729713012553]
+    kine_offset: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    source: >-
+      Marvin_Kine.identify_tool_dyn(robot_type=1, ipath=...) run offline
+      (2026-08-17) against data/tool_calib/omnigripper/A/{LoadData,
+      NoLoadData}.csv, itself collected LIVE on this project's own arm A
+      via scripts/tool_calib_collect.py --arm A --tool omnigripper
+      (no-load pass with the gripper physically removed, load pass with
+      it mounted, both homed to all-zero joints first) -- unlike arms.B
+      below, this is measured against the actual physical robot/gripper,
+      not vendor reference data. Sanity-check mass_kg against a scale if
+      convenient.

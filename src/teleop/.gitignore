@@ -1,0 +1,25 @@
+__pycache__/
+*.pyc
+logs/*
+!logs/.gitkeep
+bench/results/*
+!bench/results/.gitkeep
+.venv/
+
+# Raw tool-calibration backups: local provenance only, ~45MB of duplicate CSV
+data/tool_calib_backup/
+
+# Raw identification passes (~55k samples, ~7MB per CSV): local only. The
+# identified mass/COM lives in configs/tool/*.yaml; CfgFile/ stays tracked.
+data/tool_calib/**/*.csv
+
+# Vendored CAD/URDF exports + the two URDFs build_full.py generates from them:
+# 57MB of meshes (plus __MACOSX junk) that no code path reads at runtime. The
+# follower kine_offset derived from it is recorded in configs/tool/umi.yaml's
+# kine_offset_source, which is the part worth keeping.
+generated_urdf/
+
+# Local recordings and station start poses are not part of the ManiMux snapshot.
+data/traj_*.jsonl
+data/dp_start_*.yaml
+.claude/

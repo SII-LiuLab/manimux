@@ -1,0 +1,39 @@
+# algos.solver_config.ImpedanceConfig -- ARM_STATE=3 (torque) + impedance
+# type/K/D, passed to drivers.arm_driver.ArmDriver.prepare(). Cartesian
+# impedance variant -- select with --control-mode impedance
+# --impedance-type cartesian. See impedance_joint.yaml (the default) for
+# why joint impedance is tried first: easier to isolate a problem to one
+# joint than to reason about a Jacobian-coupled Cartesian response,
+# especially the first few times this control path is software-driven.
+#
+# Same K/D values as impedance_joint.yaml (both files are the same GUI
+# panel, saved together, screenshot 2026-08-14) -- only `type` differs.
+# cart_k[0:3]=3000 exceeds the vendor SDK doc's stated translation-
+# stiffness range (0~1200); the GUI confirmed this value runs correctly
+# on real hardware, so the doc's range is not trustworthy here (see
+# docs/algos.md#impedanceconfig) -- not a typo, don't "fix" it down to
+# fit the doc without new evidence.
+
+type: 2  # cartesian impedance -- keep in sync with --impedance-type cartesian
+
+# Not active while type=2, but set unconditionally (see arm_driver.py).
+joint_k: [5, 5, 5, 4, 3, 3, 2]
+joint_d: [0.3, 0.3, 0.3, 0.2, 0.2, 0.2, 0.2]
+
+cart_k: [3000, 3000, 3000, 100, 100, 100, 20]
+cart_d: [0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2]
+
+# rot_type/cart_ctrl_para: end-effector orientation reference definition,
+# separate from K/D (softness) -- see docs/algos.md#impedanceconfig. Sent
+# via Marvin_Robot.set_EefCart_control_params (OnSetEefRot_A/B) -- a call
+# our original code never made at all, which is the likely root cause of
+# the "other joints doing something unexplained" symptom. rot_type=2
+# ("system auto-calculated") + all-zero cart_ctrl_para is the combination
+# taken from a real, runnable vendor demo
+# (DEMO_C++/showcase_eef_cart_impedance.cpp), the only one with real
+# evidence behind it -- don't change without new evidence (see
+# docs/algos.md#impedanceconfig for why the alternative documented values
+# aren't trustworthy: two different vendor docstrings for this parameter
+# disagree with each other on what the numbers even mean).
+rot_type: 2
+cart_ctrl_para: [0, 0, 0, 0, 0, 0, 0]

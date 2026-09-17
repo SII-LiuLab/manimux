@@ -1,0 +1,24 @@
+# algos.solver_config.ImpedanceConfig -- ARM_STATE=3 (torque) + impedance
+# type/K/D, passed to drivers.arm_driver.ArmDriver.prepare(). Joint
+# impedance variant -- run_teleop.py's default for --control-mode
+# impedance (--impedance-type joint, the default). See
+# impedance_cartesian.yaml for the other variant.
+#
+# Values below are the MarvinPlatform GUI's "Impedance parameter settings"
+# panel for the left arm (both joint and Cartesian rows), confirmed by
+# manual GUI operation to run correctly on real hardware (screenshot,
+# 2026-08-14) -- NOT yet driven by this project's own software.
+# cart_k/cart_d are carried along unchanged (same GUI panel, saved
+# together) even though type=1 means they're inactive here -- see
+# impedance_cartesian.yaml, which is the same file with type flipped.
+
+type: 1  # joint impedance -- keep in sync with --impedance-type joint
+# rot_type/cart_ctrl_para (schema defaults: 2, [0]*7) are Cartesian-only --
+# irrelevant here, omitted rather than set to something meaningless.
+
+joint_k: [5, 5, 5, 4, 3, 3, 2]
+joint_d: [0.3, 0.3, 0.3, 0.2, 0.2, 0.2, 0.2]
+
+# Not active while type=1, but set unconditionally (see arm_driver.py).
+cart_k: [3000, 3000, 3000, 100, 100, 100, 20]
+cart_d: [0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2]

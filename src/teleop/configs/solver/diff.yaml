@@ -1,0 +1,32 @@
+# algos.diff_ik.DiffIKSolver tuning. See docs/algos.md#diff_ikpy for what
+# each parameter does and the reasoning behind these specific values.
+#
+# Validated offline (bench/compare_ik.py against data/traj_b.jsonl,
+# data/traj_c.jsonl, --synth, 2026-08-14), then on real hardware -- the
+# --dry-run-only gate that used to guard this was removed in 48d0816
+# (docs/core.md). scripts/umi_replay.py now defaults to this solver;
+# run_teleop.py still defaults to analytic (docs/scripts.md#umi_replaypy
+# for why they differ).
+
+w_pos: 1.0
+w_rot: 1.0
+lam: 0.001
+
+# J6/J7 self-interference: linearized hard QP constraint (not a cost
+# term -- this is a real mechanical limit, see docs/algos.md#diff_ikpy
+# for why constraint vs. cost was a deliberate choice). Leave true.
+check_j67: true
+
+# Null-space joint-limit avoidance (soft cost, off by default in the
+# solver itself -- explicitly enabled here). 1000 is the value used in
+# algos/diff_ik.py's own self-test and in bench/compare_ik.py; real
+# effect is configuration-dependent (near ~0 for joints without null-
+# space leverage at the current pose, e.g. J6 -- see docs/algos.md).
+mu_nullspace: 1000.0
+nullspace_activation_deg: 25.0
+
+# limit_margin_deg / j67_margin_deg intentionally omitted -- both default
+# to config.LIMIT_MARGIN_DEG (single source of truth for the margin
+# already used everywhere else in this codebase). Uncomment to override:
+# limit_margin_deg: 3.0
+# j67_margin_deg: 3.0

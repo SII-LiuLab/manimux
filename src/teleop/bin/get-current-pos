@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Thin wrapper so `get-current-pos` works from any cwd once bin/ is on PATH
+# -- see docs/scripts.md#get_current_pospy. Resolves the repo root from this
+# script's own location (not a hardcoded machine path), so it stays correct
+# across clones/checkouts.
+set -euo pipefail
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec "$DIR/.venv/bin/python3" "$DIR/scripts/get_current_pos.py" "$@"

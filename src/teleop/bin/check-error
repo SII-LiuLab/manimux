@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Wrapper for scripts/check_errors.py -- see docs/scripts.md#check_errorspy.
+#   check-error        -> both arms (config.ARMS default)
+#   check-error A      -> just arm A
+#   check-error AB     -> both arms, explicit
+# Read-only + clear_error; never enables a servo or moves the arm.
+# Anything starting with '-' (e.g. -h/--help) is passed straight through.
+set -euo pipefail
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+case "${1:-}" in
+    ''|-*)
+        exec "$DIR/.venv/bin/python3" "$DIR/scripts/check_errors.py" "$@"
+        ;;
+    [AaBb]|[AaBb][AaBb])
+        ARMS="$(tr '[:lower:]' '[:upper:]' <<< "$1")"
+        shift
+        exec "$DIR/.venv/bin/python3" "$DIR/scripts/check_errors.py" --arms "$ARMS" "$@"
+        ;;
+    *)
+        echo "check-error: unrecognized arm spec '$1' (expected A, B, or AB)" >&2
+        exit 1
+        ;;
+esac

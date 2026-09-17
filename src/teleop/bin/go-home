@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Wrapper for scripts/home_now.py -- see docs/scripts.md#home_nowpy.
+#   go-home        -> both arms (config.ARMS default)
+#   go-home A      -> just arm A
+#   go-home AB     -> both arms, explicit
+# Anything starting with '-' (e.g. -h/--help) is passed straight through.
+set -euo pipefail
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+case "${1:-}" in
+    ''|-*)
+        exec "$DIR/.venv/bin/python3" "$DIR/scripts/home_now.py" "$@"
+        ;;
+    [AaBb]|[AaBb][AaBb])
+        ARMS="$(tr '[:lower:]' '[:upper:]' <<< "$1")"
+        shift
+        exec "$DIR/.venv/bin/python3" "$DIR/scripts/home_now.py" --arms "$ARMS" "$@"
+        ;;
+    *)
+        echo "go-home: unrecognized arm spec '$1' (expected A, B, or AB)" >&2
+        exit 1
+        ;;
+esac

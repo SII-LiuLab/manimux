@@ -1,0 +1,125 @@
+# drivers.tool_config.ToolConfig -- Marvin_Robot.set_tool() parameters for
+# the UMI gripper (Universal Manipulation Interface, 卡内基梅隆 UMI 夹爪)
+# mounted on the flange, driven by drivers/gripper.py. Fed to
+# set_state.py --state drag/release --tool umi so the controller's torque-mode
+# gravity feedforward accounts for the gripper's weight, instead of treating
+# it as an unmodeled load -- see docs/scripts.md's gravity-compensation
+# section for why that matters.
+#
+# Per-arm (`arms.A`/`arms.B`): the gripper's mount isn't guaranteed
+# symmetric between the two arms, so each arm needs its own entry. An arm
+# with no entry here fails to load instead of silently defaulting to 0 --
+# see drivers.tool_config.load_tool_config. Don't copy one arm's numbers
+# to the other without confirming the mount is actually mirrored.
+#
+# `kine_offset` has a SECOND reader now: algos.tool_frame.ToolFrame, which
+# uses it as the flange -> fingertip-midpoint transform so that UMI replay
+# and scripts/umi_filter.py retarget at the fingertip instead of at the
+# flange -- a recorded UMI pose IS a fingertip midpoint (the leader
+# gripper's TCP), so following it at the flange swings the real fingertips
+# through an arc the demonstrator never made. See
+# docs/algos.md#tool_framepy. Measure it with scripts/tip_calib.py; all-zero
+# means NOT MEASURED and those tools fall back to the flange with a warning.
+
+name: umi
+
+arms:
+  A:
+    mass_kg: 0.7592901345868115
+    com_mm: [-26.297010972083665, -5.114926721017194, 79.87115777180252]
+    # [ixx,ixy,ixz,iyy,iyz,izz] about the center of mass, from the same
+    # identify_tool_dyn() call as mass_kg/com_mm above.
+    inertia: [0.008816778161434263, 0.0, 0.0, 0.001, 0.0, 0.0008785353008534495]
+    # flange -> fingertip midpoint, [x,y,z,a,b,c] mm/deg.
+    # Derived from the FOLLOWER gripper's own CAD, not borrowed from the
+    # leader any more. A and B are identical: one follower part number, the
+    # same mount clocking, and an identical DH table (flange row [90,0,95,90]
+    # for both arms).
+    # kine_offset: [-36.745, 0.0, 169.450,
+                  # 0.0, 90.0, 180.0]
+    # kine_offset: [169.450, 0.0, -36.745, 0.0, -90.0, 180.0] 
+    kine_offset: [-36.745, 0.0, 169.450, 0.0, -90.0, 180.0] 
+    
+    kine_offset_verification: cad
+    kine_offset_source: >-
+      Derived 2026-09-09 from the follower CAD, replacing the provisional
+      reuse of the leader Tracker->EE values (which were 194-195 mm long and
+      pointed the wrong way; this transform is 173.388 mm).
+      Chain: (1) follower base_link -> EE = t (118.950, 0, -20.995) mm,
+      R = I, from 二指数采夹爪URDF/从夹爪组件0720 -- EE origin is the midpoint
+      of the two tactile pads (the same 1426.9 mm2 pad part appears on the
+      leader and follower Link1, so the bodies are homologous), and R = I is
+      fixed by taccap_gripper/README.md's regression check "EE axes when flat:
+      X forward, Y left, Z up", cross-validated by back-projecting the leader
+      Tracker->EE: only R = I puts the tracker behind and above the head
+      (left (-77.6,-28.8,+54.9), right (-79.2,+29.2,+55.7) mm in base_link,
+      mirrored, inside the body envelope) -- the other three axis-aligned
+      candidates put it 279 mm past the fingertips or 87 mm below the body.
+      (2) mount: Oe34/Oe27 spigot 8 mm long off the x = -38.5 face on the
+      base_link -X side, axis through (y=0, z=15.75), + the 12.000 mm
+      天机人形臂转接法兰 (Oe34 socket y=4..12, 4x Oe6.5 on a Oe50 bolt circle at
+      45 deg matching Link7's 4x M6) => flange face at base_link x = -50.5.
+      (3) clocking: the spigot carries exactly 4 radial screw holes at
+      0/90/180/270 deg from base_link +Y at x = -43.5 (found by ray-casting
+      the wall at r = 15.4 mm), mating the adapter's 4 radial screws, so the
+      roll is quantised to 4 positions. At HOME_JOINTS with the gripper level
+      and the wrist camera upright (confirmed on both arms 2026-09-09) only
+      theta = 90 deg reproduces X forward / Y left / Z up.
+      Verified: SDK xyzabc_to_mat4x4 on this row reproduces the derived
+      matrix to 4.6e-10; the URDF FK behind the derivation reproduces
+      config.py's recorded UMI_START flange [+464.6 +198.8 +177.4] /
+      [+464.6 -198.8 +177.4] exactly.
+      CAVEAT: the z component (169.450) carries about +-3 mm. The jaws pivot
+      rather than translate, so the pad midpoint slides 115.288..120.616 mm
+      along base_link +X over the stroke; 118.950 is the closed-jaw value and
+      the opening at which Xense drew their EE frame is unknown. x and y are
+      exact. Ask Xense which jaw opening the CAD EE frame sits at, or pin it
+      with scripts/tip_calib.py.
+    source: >-
+      Marvin_Kine.identify_tool_dyn(robot_type=1, ipath=...) run offline
+      (2026-08-23) against data/tool_calib/umi/A/{LoadData,NoLoadData}.csv,
+      collected LIVE on this project's own arm A via
+      scripts/tool_calib_collect.py --arm A --tool umi (no-load pass with
+      the UMI gripper physically removed, load pass with it mounted, both
+      homed to all-zero joints first). Left arm currently carries the UMI
+      gripper, NOT the Tianji OmniGripper -- omnigripper.yaml remains the
+      Tianji data and was backed up to data/tool_calib_backup/ on
+      2026-08-23. Sanity-check mass_kg against a scale if convenient.
+
+  B:
+    mass_kg: 0.7388190421557731
+    com_mm: [-31.69050032486985, -7.5863175968931635, 82.72853176515602]
+    # [ixx,ixy,ixz,iyy,iyz,izz] about the center of mass, from the same
+    # identify_tool_dyn() call as mass_kg/com_mm above.
+    inertia: [0.004192653302493302, 0.0, 0.0, 0.001, 0.0, 0.0026402611847252235]
+    # flange -> fingertip midpoint, [x,y,z,a,b,c] mm/deg.
+    # Identical to arm A on purpose -- see A's kine_offset_source. One
+    # follower part number, same clocking (theta = 90 deg), same DH table.
+    # This is NOT the mirrored pair the leader values were: the leader
+    # numbers differed per side because each side's Tracker mount was
+    # measured separately; the follower mount has no such asymmetry.
+    # kine_offset: [-36.745, 0.0, 169.450,
+    #               0.0, -90.0, 180.0]
+    # kine_offset: [-169.450, 0.0, 36.745, 0.0, 0.0, 90.0]
+    kine_offset: [-36.745, 0.0, 169.450, 0.0, -90.0, 180.0]
+    kine_offset_verification: cad
+    kine_offset_source: >-
+      Same derivation as arm A (2026-09-09, follower CAD); see the arms.A
+      entry for the full chain, cross-checks and the +-3 mm caveat on the
+      z component. Confirmed on the real robot 2026-09-09 that arm B's
+      gripper is also level with the wrist camera upright at HOME, which is
+      what selects theta = 90 deg for this side too.
+    source: >-
+      Marvin_Kine.identify_tool_dyn(robot_type=1, ipath=...) run offline
+      (2026-08-23) against data/tool_calib/umi/B/{LoadData,NoLoadData}.csv,
+      collected LIVE on this project's own arm B via
+      scripts/tool_calib_collect.py --arm B --tool umi (no-load pass with
+      the UMI gripper physically removed, load pass with it mounted, both
+      homed to all-zero joints first). THIRD collection 2026-08-23, after
+      an E-stop incident during release-mode verification (exit failed to
+      confirm disable, arm remained energized). Mass is stable across runs
+      (0.725 / 0.746 / 0.739 kg) while COM varies with each mounting
+      (x -26..-32, y -3..-8, z 82..88 mm) -- mounting pose clearly matters.
+      Earlier passes backed up at data/tool_calib_backup/umi_B_first_20260823/
+      and umi_B_second_20260823/. Right arm carries the UMI gripper as of
+      2026-08-23. Sanity-check mass_kg against a scale if convenient.

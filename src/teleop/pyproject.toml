@@ -1,0 +1,26 @@
+[project]
+name = "teleop"
+version = "0.1.0"
+description = "PICO -> dual-arm teleop: retargeting, IK, safety gate, control loop"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2.0",
+    "scipy>=1.14",
+    "osqp>=1.0",
+    "matplotlib>=3.9",
+    "pyyaml>=6.0",
+    "pydantic>=2.0",
+    "pyarrow>=25.0.1",
+]
+
+[project.optional-dependencies]
+# --viewer needs pyzmq to talk to universal_viewer's ZMQ bridge (see
+# viewer_bridge.py / docs/viewer.md). universal_policy_viewer itself is
+# NOT a dependency here -- viewer_bridge.py imports it lazily via
+# UNIVERSAL_VIEWER_SRC, only when --viewer is actually passed.
+viewer = ["pyzmq>=26"]
+
+# The vendor arm/kinematics SDK (SDK_PYTHON.fx_kine, fx_robot) is loaded via
+# ctypes against libKine.so / libMarvinSDK.so at MARVIN_SDK (see algos/ and
+# drivers/ module docstrings) -- it is not a pip package and has no ABI
+# dependency on the interpreter, so any Python 3.12+ venv here works.

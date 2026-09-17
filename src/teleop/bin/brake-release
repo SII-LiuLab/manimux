@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Wrapper for scripts/brake_release.py -- see control.md#brake-release.
+#   brake-release A    -> force-release arm A's brakes, Enter re-applies them
+#   brake-release B    -> same for arm B
+# The arm drops as soon as the brakes release: hold it first.
+set -euo pipefail
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec "$DIR/.venv/bin/python3" "$DIR/scripts/brake_release.py" "$@"

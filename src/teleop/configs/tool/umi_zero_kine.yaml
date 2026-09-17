@@ -1,0 +1,26 @@
+# UMI dynamic parameters with kine_offset deliberately zeroed.
+#
+# This file is an A/B diagnostic for drag/release only.  kine_offset is the
+# flange->TCP geometry used by Cartesian targeting; it does not change the
+# dynamicParams (mass/COM/inertia) used for gravity feedforward.  Keep the
+# measured UMI dynamic values identical to configs/tool/umi.yaml.
+name: umi_zero_kine
+
+arms:
+  A:
+    mass_kg: 0.7592901345868115
+    com_mm: [-26.297010972083665, -5.114926721017194, 79.87115777180252]
+    inertia: [0.008816778161434263, 0.0, 0.0, 0.001, 0.0, 0.0008785353008534495]
+    kine_offset: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    source: >-
+      Diagnostic copy of configs/tool/umi.yaml: dynamic parameters inherited
+      unchanged; kine_offset intentionally zero for drag A/B comparison.
+
+  B:
+    mass_kg: 0.7388190421557731
+    com_mm: [-31.69050032486985, -7.5863175968931635, 82.72853176515602]
+    inertia: [0.004192653302493302, 0.0, 0.0, 0.001, 0.0, 0.0026402611847252235]
+    kine_offset: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    source: >-
+      Diagnostic copy of configs/tool/umi.yaml: dynamic parameters inherited
+      unchanged; kine_offset intentionally zero for drag A/B comparison.

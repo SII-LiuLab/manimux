@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Wrapper for scripts/set_state.py -- see docs/scripts.md#set_statepy.
+#   set-state <A|B> <position|impedance|drag|release|disabled> [extra flags...]
+# Examples:
+#   set-state A position
+#   set-state A impedance --impedance-type cartesian
+#   set-state B drag --drag-space X
+#   set-state A drag --tool omnigripper
+#   set-state A release --tool omnigripper
+#   set-state A disabled
+# No args, or a first arg starting with '-' (e.g. -h/--help), is passed
+# straight through to set_state.py's own argparse instead of being treated
+# as an arm spec.
+set -euo pipefail
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if [[ -z "${1:-}" || "${1:-}" == -* ]]; then
+    exec "$DIR/.venv/bin/python3" "$DIR/scripts/set_state.py" "$@"
+fi
+
+if [[ $# -lt 2 ]]; then
+    echo "set-state: usage: set-state <A|B> <position|impedance|drag|release|disabled> [flags...]" >&2
+    exit 1
+fi
+
+ARM="$(tr '[:lower:]' '[:upper:]' <<< "$1")"
+STATE="$(tr '[:upper:]' '[:lower:]' <<< "$2")"
+shift 2
+
+case "$ARM" in
+    A|B) ;;
+    *) echo "set-state: unrecognized arm '$ARM' (expected A or B)" >&2; exit 1 ;;
+esac
+case "$STATE" in
+    position|impedance|drag|release|disabled) ;;
+    *) echo "set-state: unrecognized state '$STATE' (expected position|impedance|drag|release|disabled)" >&2; exit 1 ;;
+esac
+
+exec "$DIR/.venv/bin/python3" "$DIR/scripts/set_state.py" --arm "$ARM" --state "$STATE" "$@"

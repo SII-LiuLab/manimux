@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Thin wrapper so `tip-calib` works from any cwd once bin/ is on PATH -- see
+# docs/scripts.md#tip_calibpy. Read-only on the robot; meant to be run in a
+# second terminal next to `set-state <arm> release --tool umi`, same as
+# get-current-pos. Resolves the repo root from this script's own location
+# (not a hardcoded machine path), so it stays correct across clones.
+set -euo pipefail
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec "$DIR/.venv/bin/python3" "$DIR/scripts/tip_calib.py" "$@"

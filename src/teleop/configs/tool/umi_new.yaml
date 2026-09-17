@@ -1,0 +1,36 @@
+# UMI tool parameters from the 2026-09-07 mounted-tool recheck.
+#
+# Collection method: the preserved UMI no-load pass was reused, because the
+# grippers could not be removed today; a fresh mounted-tool PVT pass was then
+# collected after moving each arm to the all-zero joint configuration.
+# Keep this file separate from configs/tool/umi.yaml until drag/release
+# validation confirms the result.
+
+name: umi_new
+
+arms:
+  A:
+    mass_kg: 0.7610705811054581
+    com_mm: [-57.507171126686266, -29.88125429044906, 93.66540336309059]
+    inertia: [0.014551614557514313, 0.0, 0.0, 0.001, 0.0, 0.013564776031112374]
+    # Geometry is intentionally left at zero for this dynamics recheck.
+    kine_offset: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    source: >-
+      Marvin_Kine.identify_tool_dyn(robot_type=1, ipath=...) against
+      data/tool_calib/umi_new/A, using the preserved
+      data/tool_calib/umi/A/NoLoadData.csv and a fresh mounted-tool
+      LoadData.csv collected 2026-09-07 after all-zero homing. This is a
+      historical-no-load + new-load comparison, not a same-session pair.
+
+  B:
+    mass_kg: 0.8294283058003044
+    com_mm: [-25.326720029860645, -3.469942953302449, 70.32645014113851]
+    inertia: [0.006909067196893015, 0.0, 0.0, 0.001, 0.0, 0.0011648948370963127]
+    # Geometry is intentionally left at zero for this dynamics recheck.
+    kine_offset: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    source: >-
+      Marvin_Kine.identify_tool_dyn(robot_type=1, ipath=...) against
+      data/tool_calib/umi_new/B, using the preserved
+      data/tool_calib/umi/B/NoLoadData.csv and a fresh mounted-tool
+      LoadData.csv collected 2026-09-07 after all-zero homing. This is a
+      historical-no-load + new-load comparison, not a same-session pair.
