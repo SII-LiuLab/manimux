@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import numpy as np
 
-from manimux.config import MPCConfig
 from manimux.runtime.executors.base import ExecutorError
 from manimux.runtime.executors.limits import ScalarLimits, limit_step
 from manimux.types import (
@@ -17,20 +16,20 @@ from manimux.types import (
 class MPCExecutor:
     """Small linear receding-horizon controller for the V1 simulation path."""
 
-    def __init__(self, config: MPCConfig, control_dt_s: float) -> None:
+    def __init__(self, config: dict, control_dt_s: float) -> None:
         self._config = config
         self._dt_s = control_dt_s
         self._limits = ScalarLimits(
-            max_velocity=config.max_velocity,
-            max_acceleration=config.max_acceleration,
-            position_limit_abs=config.position_limit_abs,
+            max_velocity=config["max_velocity"],
+            max_acceleration=config["max_acceleration"],
+            position_limit_abs=config["position_limit_abs"],
         )
         self._previous: GroupVector | None = None
         self._previous_velocity: GroupVector | None = None
 
     @property
     def horizon_steps(self) -> int:
-        return self._config.horizon_steps
+        return self._config["horizon_steps"]
 
     def reset(self, state: RobotState) -> None:
         self._previous = copy_group_vector(state.groups)
@@ -44,9 +43,9 @@ class MPCExecutor:
         previous_command: np.ndarray,
         reference: np.ndarray,
     ) -> np.ndarray:
-        horizon = min(self._config.horizon_steps, reference.shape[0])
+        horizon = min(self._config["horizon_steps"], reference.shape[0])
         reference = reference[:horizon]
-        a = self._config.dynamics_a
+        a = self._config["dynamics_a"]
         b_matrix = np.zeros((horizon, horizon), dtype=np.float64)
         for row in range(horizon):
             for column in range(row + 1):
@@ -57,8 +56,8 @@ class MPCExecutor:
         boundary = np.zeros((horizon, current.size), dtype=np.float64)
         boundary[0] = previous_command
 
-        tracking = self._config.tracking_weight
-        delta = self._config.command_delta_weight
+        tracking = self._config["tracking_weight"]
+        delta = self._config["command_delta_weight"]
         system = (
             tracking * (b_matrix.T @ b_matrix)
             + delta * (difference.T @ difference)
@@ -78,8 +77,6 @@ class MPCExecutor:
     ) -> RobotCommand:
         if self._previous is None or self._previous_velocity is None:
             self.reset(state)
-        assert self._previous is not None
-        assert self._previous_velocity is not None
         target: GroupVector = {}
         for name, values in reference.groups.items():
             solution = self._solve_group(state.groups[name], self._previous[name], values)
@@ -94,3 +91,19 @@ class MPCExecutor:
         self._previous = copy_group_vector(output)
         self._previous_velocity = copy_group_vector(velocities)
         return RobotCommand(groups=output, monotonic_ns=now_ns, plan_id=reference.plan_id)
+
+
+def mpc_parameters(**options) -> dict:
+    """保留 MPC 时域、动力学与代价权重的默认值。"""
+
+    values = {
+        "max_velocity": 2.0,
+        "max_acceleration": 8.0,
+        "position_limit_abs": 3.14,
+        "horizon_steps": 15,
+        "dynamics_a": 0.85,
+        "tracking_weight": 10.0,
+        "command_delta_weight": 1.0,
+        **options,
+    }
+    return values

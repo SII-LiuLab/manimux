@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from copy import deepcopy
+
 import numpy as np
 import pytest
-from pydantic import ValidationError
 
-from manimux.config import ManiMuxConfig, load_config
+from manimux.cli import load_config, prepare_experiment
+from manimux.policies.base import action_interval
 from manimux.policies.fake import FakePolicyAdapter
 from manimux.runtime.inference import RequestState, build_inference_strategy
 from manimux.runtime.safety import RuntimeState
@@ -31,8 +33,8 @@ def _chunk(
     )
 
 
-def _act_config(*, query_interval_steps: int = 4) -> ManiMuxConfig:
-    payload = load_config("configs/mock.yaml").model_dump(mode="python")
+def _act_config(*, query_interval_steps: int = 4) -> dict:
+    payload = deepcopy(load_config("configs/mock.yaml"))
     payload["execution"].pop("inference_schedule")
     payload["execution"].pop("refill_threshold_s")
     payload["execution"]["runtime"] = "act_temporal_ensemble"
@@ -41,7 +43,7 @@ def _act_config(*, query_interval_steps: int = 4) -> ManiMuxConfig:
         "coefficient": 0.01,
         "query_interval_steps": query_interval_steps,
     }
-    return ManiMuxConfig.model_validate(payload)
+    return prepare_experiment(**payload)
 
 
 def test_temporal_ensemble_matches_official_act_weighting() -> None:
@@ -73,7 +75,7 @@ def test_temporal_ensemble_queries_in_policy_steps_not_control_ticks() -> None:
     strategy = build_inference_strategy(config)
     snapshot = ObservationSnapshot(
         state=RobotState(
-            groups={name: np.zeros(dim) for name, dim in config.robot.group_dims.items()},
+            groups={name: np.zeros(dim) for name, dim in config["robot"]["group_dims"].items()},
             monotonic_ns=1_000_000_000,
             sequence=1,
         )
@@ -87,7 +89,7 @@ def test_temporal_ensemble_queries_in_policy_steps_not_control_ticks() -> None:
         "session_id": "session",
         "snapshot": snapshot,
         "adapter": FakePolicyAdapter(),
-        "timeline": ActionTimeline(config.robot.group_dims),
+        "timeline": ActionTimeline(config["robot"]["group_dims"]),
         "request_state": request_state,
         "runtime_state": RuntimeState.RUNNING,
     }
@@ -95,52 +97,45 @@ def test_temporal_ensemble_queries_in_policy_steps_not_control_ticks() -> None:
     first = strategy.build_submission(request_seq=1, now_ns=1_000_000_000, **kwargs)
     assert first is not None
     assert first.event_fields["query_interval_ms"] == pytest.approx(200.0)
-    assert (
-        strategy.build_submission(request_seq=2, now_ns=1_199_999_999, **kwargs)
-        is None
-    )
-    assert (
-        strategy.build_submission(request_seq=2, now_ns=1_200_000_000, **kwargs)
-        is not None
-    )
+    assert strategy.build_submission(request_seq=2, now_ns=1_199_999_999, **kwargs) is None
+    assert strategy.build_submission(request_seq=2, now_ns=1_200_000_000, **kwargs) is not None
 
 
 def test_temporal_ensemble_rejects_double_blending_and_nonoverlap() -> None:
-    payload = _act_config().model_dump(mode="python")
+    payload = deepcopy(_act_config())
     payload["execution"].pop("inference_schedule")
     payload["execution"].pop("refill_threshold_s")
     payload["execution"]["blend_steps"] = 2
-    with pytest.raises(ValidationError, match="blend_steps=0"):
-        ManiMuxConfig.model_validate(payload)
+    with pytest.raises(ValueError, match="blend_steps=0"):
+        prepare_experiment(**payload)
 
-    payload = _act_config().model_dump(mode="python")
+    payload = deepcopy(_act_config())
     payload["execution"].pop("inference_schedule")
     payload["execution"].pop("refill_threshold_s")
-    payload["execution"]["temporal_ensemble"]["query_interval_steps"] = payload[
-        "policy"
-    ]["horizon_steps"]
-    with pytest.raises(ValidationError, match="consecutive chunks overlap"):
-        ManiMuxConfig.model_validate(payload)
+    payload["execution"]["temporal_ensemble"]["query_interval_steps"] = payload["policy"][
+        "horizon_steps"
+    ]
+    with pytest.raises(ValueError, match="consecutive chunks overlap"):
+        prepare_experiment(**payload)
 
 
 def test_pi05_temporal_ensemble_config_loads_with_four_step_queries() -> None:
     config = load_config("configs/pi05/yam/infra/act-temporal-ensemble.yaml")
 
-    assert config.execution.runtime == "act_temporal_ensemble"
-    assert config.execution.temporal_ensemble.coefficient == pytest.approx(0.01)
-    assert config.execution.temporal_ensemble.query_interval_steps == 4
-    assert config.execution.blend_steps == 0
-    assert config.policy.effective_action_dt_s * 4 == pytest.approx(0.13333333333333333)
+    assert config["execution"]["runtime"] == "act_temporal_ensemble"
+    assert config["execution"]["temporal_ensemble"]["coefficient"] == pytest.approx(0.01)
+    assert config["execution"]["temporal_ensemble"]["query_interval_steps"] == 4
+    assert config["execution"]["blend_steps"] == 0
+    assert action_interval(config["policy"]) * 4 == pytest.approx(0.13333333333333333)
 
 
 def test_pi05_step1000_temporal_ensemble_preserves_checkpoint_contract() -> None:
     config = load_config(
-        "configs/pi05/yam/infra/"
-        "act-temporal-ensemble-pick-red-ball-box-step1000.yaml"
+        "configs/pi05/yam/infra/pick-red-ball-box/act-temporal-ensemble-step1000.yaml"
     )
 
-    assert config.execution.runtime == "act_temporal_ensemble"
-    assert config.execution.temporal_ensemble.query_interval_steps == 4
-    assert config.policy.horizon_steps == 50
-    assert config.robot.control_hz == pytest.approx(100.0)
-    assert config.run.task == "Pick the red ball up and place it into the box."
+    assert config["execution"]["runtime"] == "act_temporal_ensemble"
+    assert config["execution"]["temporal_ensemble"]["query_interval_steps"] == 4
+    assert config["policy"]["horizon_steps"] == 50
+    assert config["robot"]["control_hz"] == pytest.approx(100.0)
+    assert config["run"]["task"] == "Pick the red ball up and place it into the box."

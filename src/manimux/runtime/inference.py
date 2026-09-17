@@ -4,7 +4,6 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from manimux.config import ManiMuxConfig
 from manimux.plugins import load_plugin
 from manimux.policies.base import PolicyAdapter
 from manimux.runtime.safety import RuntimeState
@@ -99,7 +98,7 @@ class InferenceStrategy(Protocol):
 class DefaultChunkStrategy:
     """Original ManiMux latest-chunk scheduling, isolated from the control loop."""
 
-    def __init__(self, config: ManiMuxConfig) -> None:
+    def __init__(self, config: dict) -> None:
         self._config = config
 
     @property
@@ -129,13 +128,16 @@ class DefaultChunkStrategy:
         request_state: RequestState,
         runtime_state: RuntimeState,
     ) -> InferenceSubmission | None:
-        schedule = self._config.execution.inference_schedule
+        schedule = self._config["execution"]["inference_schedule"]
         if schedule == "serial":
-            if (runtime_state != RuntimeState.RUNNING or request_state.in_flight
-                    or timeline.remaining_ns(now_ns) > 0):
+            if (
+                runtime_state != RuntimeState.RUNNING
+                or request_state.in_flight
+                or timeline.remaining_ns(now_ns) > 0
+            ):
                 return None
         else:
-            refill_ns = int(self._config.execution.refill_threshold_s * 1_000_000_000)
+            refill_ns = int(self._config["execution"]["refill_threshold_s"] * 1_000_000_000)
             request_expired = now_ns > request_state.last_deadline_ns
             request_ready = (
                 not request_state.in_flight
@@ -144,14 +146,14 @@ class DefaultChunkStrategy:
             )
             if timeline.remaining_ns(now_ns) >= refill_ns or not request_ready:
                 return None
-        deadline_ns = now_ns + int(self._config.policy.timeout_s * 1_000_000_000)
+        deadline_ns = now_ns + int(self._config["policy"]["timeout_s"] * 1_000_000_000)
         request = InferenceRequest(
             session_id=session_id,
             request_seq=request_seq,
             observation_time_ns=snapshot.state.monotonic_ns,
             deadline_ns=deadline_ns,
             observation=adapter.build_observation(snapshot),
-            instruction=self._config.run.task,
+            instruction=self._config["run"]["task"],
         )
         return InferenceSubmission(request=request)
 
@@ -165,7 +167,7 @@ class DefaultChunkStrategy:
         del response, last_command
         return CommitSettings(
             current_command=copy_group_vector(measured),
-            blend_steps=self._config.execution.blend_steps,
+            blend_steps=self._config["execution"]["blend_steps"],
             anchor_source="measured_state",
         )
 
@@ -201,59 +203,23 @@ class DefaultChunkStrategy:
         del steps, loop_ms, control_dt_ns
 
 
-InferenceStrategyFactory = Callable[[ManiMuxConfig], InferenceStrategy]
+InferenceStrategyFactory = Callable[[dict], InferenceStrategy]
 
 
-def _rtc_strategy_factory(config: ManiMuxConfig) -> InferenceStrategy:
-    from manimux.runtime.rtc.strategy import RtcInferenceStrategy
-
-    return RtcInferenceStrategy(config)
-
-
-def _act_temporal_ensemble_factory(config: ManiMuxConfig) -> InferenceStrategy:
-    from manimux.runtime.temporal_ensemble import ACTTemporalEnsembleStrategy
-
-    return ACTTemporalEnsembleStrategy(config)
-
-
-def _aac_strategy_factory(config: ManiMuxConfig) -> InferenceStrategy:
-    from manimux.runtime.aac import AacInferenceStrategy
-
-    return AacInferenceStrategy(config)
-
-
-def _paint_strategy_factory(config: ManiMuxConfig) -> InferenceStrategy:
-    from manimux.runtime.paint import PaintInferenceStrategy
-
-    return PaintInferenceStrategy(config)
-
-
-def _autohorizon_strategy_factory(config: ManiMuxConfig) -> InferenceStrategy:
-    from manimux.runtime.autohorizon import AutoHorizonInferenceStrategy
-
-    return AutoHorizonInferenceStrategy(config)
-
-
-def _dvac_strategy_factory(config: ManiMuxConfig) -> InferenceStrategy:
-    from manimux.runtime.dvac import DvacInferenceStrategy
-
-    return DvacInferenceStrategy(config)
-
-
-_STRATEGY_BUILTINS: dict[str, InferenceStrategyFactory] = {
+_STRATEGY_BUILTINS: dict[str, InferenceStrategyFactory | str] = {
     "manimux": DefaultChunkStrategy,
-    "rtc": _rtc_strategy_factory,
-    "act_temporal_ensemble": _act_temporal_ensemble_factory,
-    "aac": _aac_strategy_factory,
-    "paint": _paint_strategy_factory,
-    "autohorizon": _autohorizon_strategy_factory,
-    "dvac": _dvac_strategy_factory,
+    "rtc": "manimux.runtime.rtc.strategy:RtcInferenceStrategy",
+    "act_temporal_ensemble": "manimux.runtime.temporal_ensemble:ACTTemporalEnsembleStrategy",
+    "aac": "manimux.runtime.aac:AacInferenceStrategy",
+    "paint": "manimux.runtime.paint:PaintInferenceStrategy",
+    "autohorizon": "manimux.runtime.autohorizon:AutoHorizonInferenceStrategy",
+    "dvac": "manimux.runtime.dvac:DvacInferenceStrategy",
 }
 
 
-def build_inference_strategy(config: ManiMuxConfig) -> InferenceStrategy:
+def build_inference_strategy(config: dict) -> InferenceStrategy:
     factory = load_plugin(
-        config.execution.runtime,
+        config["execution"]["runtime"],
         group="manimux.inference_strategies",
         builtins=_STRATEGY_BUILTINS,
     )
@@ -271,7 +237,4 @@ def prepare_strategy_chunk(
     method = getattr(strategy, "prepare_chunk", None)
     if not callable(method):
         return chunk
-    prepared = method(chunk=chunk, response=response, now_ns=now_ns)
-    if not isinstance(prepared, ActionChunk):
-        raise TypeError("inference strategy prepare_chunk must return ActionChunk")
-    return prepared
+    return method(chunk=chunk, response=response, now_ns=now_ns)

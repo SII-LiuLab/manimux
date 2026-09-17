@@ -5,7 +5,6 @@ import uuid
 
 import numpy as np
 
-from manimux.config import PolicyConfig, RobotConfig
 from manimux.policies.capabilities import PolicyCapabilities
 from manimux.types import ActionChunk, ActionContext, InferenceRequest, ObservationSnapshot
 
@@ -20,10 +19,10 @@ class FakePolicyAdapter:
             raise TypeError("identity adapter requires an ActionChunk")
         return raw
 
-    def validate(self, robot: RobotConfig, policy: PolicyConfig) -> None:
-        if not robot.group_dims:
+    def validate(self, robot: dict, policy: dict) -> None:
+        if not robot["group_dims"]:
             raise ValueError("fake policy requires robot groups")
-        if policy.horizon_steps < 2:
+        if policy["horizon_steps"] < 2:
             raise ValueError("fake policy requires at least two horizon steps")
 
 

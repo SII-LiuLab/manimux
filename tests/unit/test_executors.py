@@ -1,53 +1,83 @@
 from __future__ import annotations
 
+from copy import deepcopy
+
 import numpy as np
 import pytest
 
-from manimux.config import GripperHysteresisConfig, MotionLimitsConfig, MPCConfig, SmoothConfig
 from manimux.runtime.executors import DirectExecutor, MPCExecutor, SmoothExecutor
+from manimux.runtime.executors.limits import motion_limits_parameters
+from manimux.runtime.executors.mpc import mpc_parameters
+from manimux.runtime.executors.smooth import (
+    gripper_grasp_guard_parameters,
+    gripper_hysteresis_parameters,
+    gripper_release_guard_parameters,
+    smooth_parameters,
+)
 from manimux.runtime.safety import SafetyGuard
 from manimux.types import ActionHorizon, RobotCommand, RobotState
 
 
 def _mode_executor(kind: str, mode: str, *, acceleration=None, max_step_dt_s=None):
-    motion = MotionLimitsConfig(
-        arm={"mode": mode, "max_velocity": 2.0, "max_acceleration": acceleration,
-             "max_step_dt_s": max_step_dt_s},
+    motion = motion_limits_parameters(
+        arm={
+            "mode": mode,
+            "max_velocity": 2.0,
+            "max_acceleration": acceleration,
+            "max_step_dt_s": max_step_dt_s,
+        },
         gripper={"group_indices": {"left_arm": 3, "right_arm": 1}},
     )
     if kind == "direct":
         return DirectExecutor(motion, control_dt_s=0.01)
-    return SmoothExecutor(SmoothConfig(
-        **motion.arm.model_dump(), tracking_mode=kind,
-        gripper=GripperHysteresisConfig(mode="continuous", **motion.gripper.model_dump()),
-    ), control_dt_s=0.01)
+    return SmoothExecutor(
+        smooth_parameters(
+            **deepcopy(motion["arm"]),
+            tracking_mode=kind,
+            gripper=gripper_hysteresis_parameters(mode="continuous", **deepcopy(motion["gripper"])),
+        ),
+        control_dt_s=0.01,
+    )
 
 
 @pytest.mark.parametrize("kind", ["direct", "legacy", "braking"])
 def test_isotropic_scaling_is_per_arm_and_excludes_grippers(kind):
     executor = _mode_executor(kind, "isotropic")
     state = RobotState({"left_arm": np.zeros(4), "right_arm": np.zeros(4)}, 0, 0)
-    reference = ActionHorizon(0, 10_000_000, "ratios", {
-        "left_arm": np.tile([0.1, 0.2, 0.8, 1.0], (2, 1)),
-        "right_arm": np.tile([0.1, 1.0, -0.2, 0.4], (2, 1)),
-    })
+    reference = ActionHorizon(
+        0,
+        10_000_000,
+        "ratios",
+        {
+            "left_arm": np.tile([0.1, 0.2, 0.8, 1.0], (2, 1)),
+            "right_arm": np.tile([0.1, 1.0, -0.2, 0.4], (2, 1)),
+        },
+    )
     command = executor.step(0, state, reference)
     # Different arm peak -> independent scale. Even a fast gripper cannot shrink it.
     np.testing.assert_allclose(command.groups["left_arm"], [0.0025, 0.005, 0.02, 1.0])
     np.testing.assert_allclose(command.groups["right_arm"], [0.005, 1.0, -0.01, 0.02])
 
 
-@pytest.mark.parametrize("mode,expected", [
-    ("per_joint", [0.01, 0.02, 0.02]),
-    ("isotropic", [0.0025, 0.005, 0.02]),
-])
+@pytest.mark.parametrize(
+    "mode,expected",
+    [
+        ("per_joint", [0.01, 0.02, 0.02]),
+        ("isotropic", [0.0025, 0.005, 0.02]),
+    ],
+)
 def test_direct_mode_selects_the_requested_clamping_geometry(mode, expected):
     executor = _mode_executor("direct", mode)
     state = RobotState({"left_arm": np.zeros(4), "right_arm": np.zeros(4)}, 0, 0)
-    reference = ActionHorizon(0, 10_000_000, "geometry", {
-        "left_arm": np.tile([0.01, 0.02, 0.08, 0.0], (2, 1)),
-        "right_arm": np.zeros((2, 4)),
-    })
+    reference = ActionHorizon(
+        0,
+        10_000_000,
+        "geometry",
+        {
+            "left_arm": np.tile([0.01, 0.02, 0.08, 0.0], (2, 1)),
+            "right_arm": np.zeros((2, 4)),
+        },
+    )
     np.testing.assert_allclose(executor.step(0, state, reference).groups["left_arm"][:3], expected)
 
 
@@ -62,9 +92,15 @@ def test_modes_obey_velocity_and_acceleration_through_reversal_and_reset(kind, m
             executor.reset(state)
             previous, previous_velocity = np.zeros(3), np.zeros(3)
         goal = [0.1, 0.2, 0.8, 1.0] if tick < 50 else [-0.5, 0.3, -0.2, 0.0]
-        reference = ActionHorizon(0, 10_000_000, "reverse", {
-            "left_arm": np.tile(goal, (2, 1)), "right_arm": np.zeros((2, 4)),
-        })
+        reference = ActionHorizon(
+            0,
+            10_000_000,
+            "reverse",
+            {
+                "left_arm": np.tile(goal, (2, 1)),
+                "right_arm": np.zeros((2, 4)),
+            },
+        )
         output = executor.step(tick * 10_000_000, state, reference).groups["left_arm"][:3]
         velocity = (output - previous) / 0.01
         assert np.max(np.abs(velocity)) <= 2.0 + 1e-9
@@ -80,15 +116,20 @@ def test_modes_obey_velocity_and_acceleration_through_reversal_and_reset(kind, m
 @pytest.mark.parametrize("dt_s", [1 / 250, 0.1])
 @pytest.mark.parametrize("mode", ["per_joint", "isotropic"])
 def test_motion_step_budget_caps_time_without_changing_tick_timing(dt_s, mode):
-    motion = MotionLimitsConfig(
+    motion = motion_limits_parameters(
         arm={"mode": mode, "max_velocity": 2.0, "max_step_dt_s": 0.016},
         gripper={"group_indices": {"arm": 2}},
     )
     executor = DirectExecutor(motion, control_dt_s=dt_s)
     state = RobotState({"arm": np.zeros(3)}, 0, 0)
-    reference = ActionHorizon(0, int(dt_s * 1e9), "budget", {
-        "arm": np.tile([1.0, 2.0, 1.0], (2, 1)),
-    })
+    reference = ActionHorizon(
+        0,
+        int(dt_s * 1e9),
+        "budget",
+        {
+            "arm": np.tile([1.0, 2.0, 1.0], (2, 1)),
+        },
+    )
     output = executor.step(0, state, reference).groups["arm"]
     budget = 2 * min(dt_s, 0.016)
     expected = [budget / 2, budget, 1] if mode == "isotropic" else [budget, budget, 1]
@@ -97,8 +138,12 @@ def test_motion_step_budget_caps_time_without_changing_tick_timing(dt_s, mode):
 
 def test_optional_safety_acceleration_preserves_position_and_velocity_rejection():
     guard = SafetyGuard(
-        {"arm": 1}, None, position_lower={"arm": [-1.0]},
-        position_upper={"arm": [1.0]}, max_velocity={"arm": [2.0]}, control_dt_s=0.1,
+        {"arm": 1},
+        None,
+        position_lower={"arm": [-1.0]},
+        position_upper={"arm": [1.0]},
+        max_velocity={"arm": [2.0]},
+        control_dt_s=0.1,
     )
     guard.reset(RobotState({"arm": np.zeros(1)}, 0, 0))
     # Instant reversal remains speed-bounded, with no second-difference constraint.
@@ -133,9 +178,14 @@ def _reference(target: float, horizon_steps: int = 20) -> ActionHorizon:
 @pytest.mark.parametrize("tracking_mode", ["legacy", "braking"])
 @pytest.mark.parametrize("velocity,acceleration", [(None, None), (1.0, None), (None, 2.0)])
 def test_smooth_optional_limits_are_finite_and_hold(tracking_mode, velocity, acceleration):
-    executor = SmoothExecutor(SmoothConfig(
-        tracking_mode=tracking_mode, max_velocity=velocity, max_acceleration=acceleration,
-    ), control_dt_s=0.01)
+    executor = SmoothExecutor(
+        smooth_parameters(
+            tracking_mode=tracking_mode,
+            max_velocity=velocity,
+            max_acceleration=acceleration,
+        ),
+        control_dt_s=0.01,
+    )
     state = _state()
     previous = state.groups["left_arm"].copy()
     previous_velocity = np.zeros(2)
@@ -161,13 +211,19 @@ def test_smooth_optional_limits_are_finite_and_hold(tracking_mode, velocity, acc
 
 
 def test_smooth_without_limits_keeps_filter_and_gripper_position_bounds():
-    executor = SmoothExecutor(SmoothConfig(
-        max_velocity=None, max_acceleration=None,
-        gripper=GripperHysteresisConfig(
-            mode="continuous", group_indices={"left_arm": 1, "right_arm": 1},
-            max_velocity=None, max_acceleration=None,
+    executor = SmoothExecutor(
+        smooth_parameters(
+            max_velocity=None,
+            max_acceleration=None,
+            gripper=gripper_hysteresis_parameters(
+                mode="continuous",
+                group_indices={"left_arm": 1, "right_arm": 1},
+                max_velocity=None,
+                max_acceleration=None,
+            ),
         ),
-    ), control_dt_s=0.01)
+        control_dt_s=0.01,
+    )
     command = executor.step(0, _state(), _reference(2.0))
     assert 0.1 < command.groups["left_arm"][0] < 2.0
     assert command.groups["left_arm"][1] == 1.0
@@ -176,18 +232,26 @@ def test_smooth_without_limits_keeps_filter_and_gripper_position_bounds():
 
 @pytest.mark.parametrize("executor_name", ["direct", "smooth"])
 def test_common_motion_limits_separate_arm_and_gripper(executor_name):
-    motion = MotionLimitsConfig(
+    motion = motion_limits_parameters(
         arm={"max_velocity": 0.5, "max_acceleration": 2.0},
-        gripper={"group_indices": {"left_arm": 1, "right_arm": 1},
-                 "max_velocity": 2.0, "max_acceleration": 10.0},
+        gripper={
+            "group_indices": {"left_arm": 1, "right_arm": 1},
+            "max_velocity": 2.0,
+            "max_acceleration": 10.0,
+        },
     )
     if executor_name == "direct":
         executor = DirectExecutor(motion, control_dt_s=0.01)
     else:
-        executor = SmoothExecutor(SmoothConfig(
-            **motion.arm.model_dump(),
-            gripper=GripperHysteresisConfig(mode="continuous", **motion.gripper.model_dump()),
-        ), control_dt_s=0.01)
+        executor = SmoothExecutor(
+            smooth_parameters(
+                **deepcopy(motion["arm"]),
+                gripper=gripper_hysteresis_parameters(
+                    mode="continuous", **deepcopy(motion["gripper"])
+                ),
+            ),
+            control_dt_s=0.01,
+        )
     state = _state()
     previous = np.zeros(2)
     previous_velocity = np.zeros(2)
@@ -203,8 +267,9 @@ def test_common_motion_limits_separate_arm_and_gripper(executor_name):
 
 
 def test_direct_null_limits_preserve_exact_targets():
-    motion = MotionLimitsConfig(
-        arm={}, gripper={"group_indices": {"left_arm": 1, "right_arm": 1}},
+    motion = motion_limits_parameters(
+        arm={},
+        gripper={"group_indices": {"left_arm": 1, "right_arm": 1}},
     )
     executor = DirectExecutor(motion, control_dt_s=1 / 30)
     for target in [0.123456789, -0.412378967, 2.7]:
@@ -217,8 +282,9 @@ def test_direct_null_limits_preserve_exact_targets():
 @pytest.mark.parametrize("executor_name", ["direct", "smooth"])
 @pytest.mark.parametrize("frequency", [30, 100])
 def test_yam_gripper_closes_in_one_second_and_opens_immediately(executor_name, frequency):
-    motion = MotionLimitsConfig(
-        arm={}, gripper={
+    motion = motion_limits_parameters(
+        arm={},
+        gripper={
             "group_indices": {"left_arm": 1, "right_arm": 1},
             "max_closing_velocity": 1.0,
         },
@@ -226,13 +292,19 @@ def test_yam_gripper_closes_in_one_second_and_opens_immediately(executor_name, f
     if executor_name == "direct":
         executor = DirectExecutor(motion, control_dt_s=1 / frequency)
     else:
-        executor = SmoothExecutor(SmoothConfig(
-            **motion.arm.model_dump(),
-            gripper=GripperHysteresisConfig(mode="continuous", **motion.gripper.model_dump()),
-        ), control_dt_s=1 / frequency)
+        executor = SmoothExecutor(
+            smooth_parameters(
+                **deepcopy(motion["arm"]),
+                gripper=gripper_hysteresis_parameters(
+                    mode="continuous", **deepcopy(motion["gripper"])
+                ),
+            ),
+            control_dt_s=1 / frequency,
+        )
     state = RobotState(
         groups={"left_arm": np.array([0.0, 1.0]), "right_arm": np.array([0.0, 1.0])},
-        monotonic_ns=0, sequence=0,
+        monotonic_ns=0,
+        sequence=0,
     )
     reference = _reference(0.0)
     for index in range(frequency):
@@ -247,7 +319,7 @@ def test_yam_gripper_closes_in_one_second_and_opens_immediately(executor_name, f
 
 def test_smooth_executor_obeys_acceleration_and_velocity_limits() -> None:
     executor = SmoothExecutor(
-        SmoothConfig(
+        smooth_parameters(
             cutoff_hz=100.0,
             max_velocity=1.0,
             max_acceleration=2.0,
@@ -265,12 +337,12 @@ def test_smooth_executor_obeys_acceleration_and_velocity_limits() -> None:
 
 def test_smooth_executor_latches_gripper_closed_across_noisy_open_requests() -> None:
     executor = SmoothExecutor(
-        SmoothConfig(
+        smooth_parameters(
             cutoff_hz=100.0,
             max_velocity=1.0,
             max_acceleration=2.0,
             position_limit_abs=3.0,
-            gripper=GripperHysteresisConfig(
+            gripper=gripper_hysteresis_parameters(
                 group_indices={"left_arm": 1, "right_arm": 1},
                 close_threshold=0.55,
                 open_threshold=0.85,
@@ -314,22 +386,32 @@ def test_smooth_executor_latches_gripper_closed_across_noisy_open_requests() -> 
 
 def _close_latch_executor(*, tracking_mode="legacy", **options):
     gripper = {
-        "mode": "close_latch", "group_indices": {"left_arm": 1, "right_arm": 1},
-        "close_threshold": 0.6, "open_threshold": 0.75, "closed_value": 0.2,
-        "max_velocity": None, "max_acceleration": None,
+        "mode": "close_latch",
+        "group_indices": {"left_arm": 1, "right_arm": 1},
+        "close_threshold": 0.6,
+        "open_threshold": 0.75,
+        "closed_value": 0.2,
+        "max_velocity": None,
+        "max_acceleration": None,
     }
     gripper.update(options)
     return SmoothExecutor(
-        SmoothConfig(tracking_mode=tracking_mode, gripper=GripperHysteresisConfig(**gripper)),
+        smooth_parameters(
+            tracking_mode=tracking_mode, gripper=gripper_hysteresis_parameters(**gripper)
+        ),
         control_dt_s=0.01,
     )
 
 
 def _gripper_reference(left, right=None, *, plan_id="plan", hold_groups=()):
     return ActionHorizon(
-        0, 10_000_000, plan_id,
-        {"left_arm": np.tile([0.0, left], (2, 1)),
-         "right_arm": np.tile([0.0, left if right is None else right], (2, 1))},
+        0,
+        10_000_000,
+        plan_id,
+        {
+            "left_arm": np.tile([0.0, left], (2, 1)),
+            "right_arm": np.tile([0.0, left if right is None else right], (2, 1)),
+        },
         hold_groups=hold_groups,
     )
 
@@ -341,10 +423,13 @@ def test_close_latch_thresholds_raw_open_and_independent_arms_across_plans():
     expected = [(0.6, 0.2), (0.2, 0.2), (0.2, 0.75), (0.75, 0.65), (0.65, 0.2)]
     for tick, ((left, right), targets) in enumerate(zip(inputs, expected, strict=True)):
         command = executor.step(
-            tick * 10_000_000, state, _gripper_reference(left, right, plan_id=str(tick)),
+            tick * 10_000_000,
+            state,
+            _gripper_reference(left, right, plan_id=str(tick)),
         )
         np.testing.assert_allclose(
-            [command.groups[name][1] for name in state.groups], targets,
+            [command.groups[name][1] for name in state.groups],
+            targets,
         )
 
 
@@ -355,9 +440,16 @@ def test_close_latch_ignores_future_rows_and_held_arm_signals():
     reference.groups["left_arm"][1, 1] = 0.1  # Unexecuted future close.
     reference.groups["right_arm"][1, 1] = 1.0  # Unexecuted future reopen.
     executor.step(0, state, reference)
-    held = executor.step(10_000_000, state, _gripper_reference(
-        0.59, 0.9, plan_id="replacement", hold_groups=("right_arm",),
-    ))
+    held = executor.step(
+        10_000_000,
+        state,
+        _gripper_reference(
+            0.59,
+            0.9,
+            plan_id="replacement",
+            hold_groups=("right_arm",),
+        ),
+    )
     np.testing.assert_allclose([held.groups[name][1] for name in state.groups], [0.2, 0.2])
     resumed = executor.step(20_000_000, state, _gripper_reference(0.7))
     assert all(values[1] == pytest.approx(0.2) for values in resumed.groups.values())
@@ -390,9 +482,12 @@ def test_close_latch_reopen_honors_optional_hold_and_confirmation_times():
     state = _state()
     executor.step(0, state, _gripper_reference(0.59))
     for now, desired, expected in (
-        (90_000_000, 0.9, 0.2), (100_000_000, 0.9, 0.2),
-        (110_000_000, 0.74, 0.2), (120_000_000, 0.8, 0.2),
-        (130_000_000, 0.8, 0.2), (140_000_000, 0.8, 0.8),
+        (90_000_000, 0.9, 0.2),
+        (100_000_000, 0.9, 0.2),
+        (110_000_000, 0.74, 0.2),
+        (120_000_000, 0.8, 0.2),
+        (130_000_000, 0.8, 0.2),
+        (140_000_000, 0.8, 0.8),
     ):
         command = executor.step(now, state, _gripper_reference(desired))
         assert command.groups["left_arm"][1] == pytest.approx(expected)
@@ -401,7 +496,9 @@ def test_close_latch_reopen_honors_optional_hold_and_confirmation_times():
 @pytest.mark.parametrize("initial", [0.0, 0.1, 0.35, 1.0])
 def test_close_latch_retains_motion_limits_even_below_closed_setpoint(initial):
     executor = _close_latch_executor(
-        max_velocity=3.0, max_acceleration=12.0, max_closing_velocity=1.0,
+        max_velocity=3.0,
+        max_acceleration=12.0,
+        max_closing_velocity=1.0,
     )
     state = _state()
     for values in state.groups.values():
@@ -420,12 +517,12 @@ def test_close_latch_retains_motion_limits_even_below_closed_setpoint(initial):
 
 def test_smooth_executor_continuous_gripper_has_independent_limits() -> None:
     executor = SmoothExecutor(
-        SmoothConfig(
+        smooth_parameters(
             cutoff_hz=100.0,
             max_velocity=0.25,
             max_acceleration=0.5,
             position_limit_abs=3.0,
-            gripper=GripperHysteresisConfig(
+            gripper=gripper_hysteresis_parameters(
                 mode="continuous",
                 group_indices={"left_arm": 1, "right_arm": 1},
                 max_velocity=1.0,
@@ -602,7 +699,7 @@ def test_command_safety_checks_velocity_and_acceleration_after_reset() -> None:
 
 def test_mpc_executor_tracks_reference_with_bounded_first_step() -> None:
     executor = MPCExecutor(
-        MPCConfig(
+        mpc_parameters(
             horizon_steps=10,
             dynamics_a=0.85,
             tracking_weight=10.0,
@@ -621,231 +718,309 @@ def test_mpc_executor_tracks_reference_with_bounded_first_step() -> None:
     assert np.max(np.abs(command.groups["left_arm"])) <= 0.0008 + 1e-12
 
 
-@pytest.mark.parametrize('velocity,acceleration', [(0.25, 0.5), (0.8, 3.0), (1.0, 4.0)])
-@pytest.mark.parametrize('target', [0.001, 0.1, -0.1, 2.0])
+@pytest.mark.parametrize("velocity,acceleration", [(0.25, 0.5), (0.8, 3.0), (1.0, 4.0)])
+@pytest.mark.parametrize("target", [0.001, 0.1, -0.1, 2.0])
 def test_braking_tracker_reaches_static_target_without_overshoot(velocity, acceleration, target):
-    executor = SmoothExecutor(SmoothConfig(
-        tracking_mode='braking', max_velocity=velocity, max_acceleration=acceleration,
-    ), 0.01)
+    executor = SmoothExecutor(
+        smooth_parameters(
+            tracking_mode="braking",
+            max_velocity=velocity,
+            max_acceleration=acceleration,
+        ),
+        0.01,
+    )
     state = _state()
     executor.reset(state)
     commands = [np.zeros(2), np.zeros(2)]
     for i in range(1200):
-        commands.append(executor.step(i * 10_000_000, state, _reference(target)).groups['left_arm'])
+        commands.append(executor.step(i * 10_000_000, state, _reference(target)).groups["left_arm"])
     q = np.asarray(commands)
-    v = np.diff(q, axis=0) / .01
+    v = np.diff(q, axis=0) / 0.01
     assert np.max(np.abs(v)) <= velocity + 1e-9
-    assert np.max(np.abs(np.diff(v, axis=0) / .01)) <= acceleration + 1e-8
+    assert np.max(np.abs(np.diff(v, axis=0) / 0.01)) <= acceleration + 1e-8
     assert np.all(q * np.sign(target) >= -1e-12)
     assert np.max(q * np.sign(target)) <= abs(target) + 1e-12
     np.testing.assert_allclose(q[-1], target, atol=1e-6)
 
 
 def test_braking_tracker_tracks_motion_across_plans_and_brakes_through_gap():
-    executor = SmoothExecutor(SmoothConfig(
-        tracking_mode='braking', max_velocity=.8, max_acceleration=3,
-        gripper=GripperHysteresisConfig(mode='continuous', group_indices={'arm': 1}),
-    ), .01)
-    state = RobotState({'arm': np.array([0., .4])}, 0, 0)
+    executor = SmoothExecutor(
+        smooth_parameters(
+            tracking_mode="braking",
+            max_velocity=0.8,
+            max_acceleration=3,
+            gripper=gripper_hysteresis_parameters(mode="continuous", group_indices={"arm": 1}),
+        ),
+        0.01,
+    )
+    state = RobotState({"arm": np.array([0.0, 0.4])}, 0, 0)
     executor.reset(state)
-    q = [0., 0.]
+    q = [0.0, 0.0]
     for i in range(200):
-        ref = ActionHorizon(i * 10_000_000, 10_000_000, f'plan-{i // 25}',
-                            {'arm': np.array([[.3*i*.01, .4], [.3*(i+1)*.01, .4]])})
+        ref = ActionHorizon(
+            i * 10_000_000,
+            10_000_000,
+            f"plan-{i // 25}",
+            {"arm": np.array([[0.3 * i * 0.01, 0.4], [0.3 * (i + 1) * 0.01, 0.4]])},
+        )
         cmd = executor.step(i * 10_000_000, state, ref)
-        q.append(cmd.groups['arm'][0])
+        q.append(cmd.groups["arm"][0])
         if i > 100:
-            assert abs(q[-1] - .3*(i+1)*.01) < .005
+            assert abs(q[-1] - 0.3 * (i + 1) * 0.01) < 0.005
     # Deliberately lagging feedback must not reset the continuous command.
     before_gap = q[-1]
     for i in range(50):
-        cmd = executor.brake_hold((200+i)*10_000_000, state)
-        q.append(cmd.groups['arm'][0])
-        assert cmd.groups['arm'][1] == pytest.approx(.4)
+        cmd = executor.brake_hold((200 + i) * 10_000_000, state)
+        q.append(cmd.groups["arm"][0])
+        assert cmd.groups["arm"][1] == pytest.approx(0.4)
         assert cmd.plan_id is None
     assert q[-1] >= before_gap
-    assert q[-1] < before_gap + .02
+    assert q[-1] < before_gap + 0.02
     assert q[-1] == pytest.approx(q[-2])
-    v = np.diff(q)/.01
-    assert np.max(abs(v)) <= .8 + 1e-9
-    assert np.max(abs(np.diff(v)/.01)) <= 3 + 1e-8
+    v = np.diff(q) / 0.01
+    assert np.max(abs(v)) <= 0.8 + 1e-9
+    assert np.max(abs(np.diff(v) / 0.01)) <= 3 + 1e-8
 
 
 def test_braking_tracker_handles_unreachable_reversal_without_command_jump():
-    executor = SmoothExecutor(SmoothConfig(
-        tracking_mode='braking', max_velocity=.8, max_acceleration=3,
-    ), .01)
+    executor = SmoothExecutor(
+        smooth_parameters(
+            tracking_mode="braking",
+            max_velocity=0.8,
+            max_acceleration=3,
+        ),
+        0.01,
+    )
     state = _state()
     executor.reset(state)
-    q = [0., 0.]
+    q = [0.0, 0.0]
     for i in range(500):
-        target = 1. if i < 30 else -.1
+        target = 1.0 if i < 30 else -0.1
         ref = _reference(target)
-        ref.plan_id = 'first' if i < 30 else 'reversal'
-        q.append(executor.step(i*10_000_000, state, ref).groups['left_arm'][0])
-    v = np.diff(q)/.01
-    assert np.max(abs(v)) <= .8 + 1e-9
-    assert np.max(abs(np.diff(v)/.01)) <= 3 + 1e-8
-    assert q[-1] == pytest.approx(-.1, abs=1e-6)
+        ref.plan_id = "first" if i < 30 else "reversal"
+        q.append(executor.step(i * 10_000_000, state, ref).groups["left_arm"][0])
+    v = np.diff(q) / 0.01
+    assert np.max(abs(v)) <= 0.8 + 1e-9
+    assert np.max(abs(np.diff(v) / 0.01)) <= 3 + 1e-8
+    assert q[-1] == pytest.approx(-0.1, abs=1e-6)
 
 
 def test_braking_tracker_stops_at_position_bound_even_with_outward_feedforward():
-    executor = SmoothExecutor(SmoothConfig(
-        tracking_mode='braking', max_velocity=.8, max_acceleration=3, position_limit_abs=1,
-    ), .01)
+    executor = SmoothExecutor(
+        smooth_parameters(
+            tracking_mode="braking",
+            max_velocity=0.8,
+            max_acceleration=3,
+            position_limit_abs=1,
+        ),
+        0.01,
+    )
     state = _state()
     executor.reset(state)
-    q = [0., 0.]
+    q = [0.0, 0.0]
     for i in range(500):
-        ref = _reference(2., horizon_steps=2)
-        ref.groups['left_arm'][1] = 3.
-        q.append(executor.step(i*10_000_000, state, ref).groups['left_arm'][0])
-    assert max(q) <= 1. + 1e-12
-    assert q[-1] == pytest.approx(1., abs=1e-6)
-    assert max(abs(np.diff(q, n=2)/.01**2)) <= 3 + 1e-8
+        ref = _reference(2.0, horizon_steps=2)
+        ref.groups["left_arm"][1] = 3.0
+        q.append(executor.step(i * 10_000_000, state, ref).groups["left_arm"][0])
+    assert max(q) <= 1.0 + 1e-12
+    assert q[-1] == pytest.approx(1.0, abs=1e-6)
+    assert max(abs(np.diff(q, n=2) / 0.01**2)) <= 3 + 1e-8
 
 
 def test_independent_hold_brakes_one_arm_freezes_gripper_and_resumes_continuously():
-    config = SmoothConfig(tracking_mode='braking', max_velocity=.8, max_acceleration=3,
-        gripper=GripperHysteresisConfig(mode='continuous', group_indices={'left_arm': 1, 'right_arm': 1},
-                                      max_velocity=1, max_acceleration=12))
-    executor = SmoothExecutor(config, .01)
-    state = RobotState({name: np.array([0., .5]) for name in ('left_arm', 'right_arm')}, 0, 0)
-    groups = {name: np.array([[1., .8], [1., .8]]) for name in state.groups}
+    config = smooth_parameters(
+        tracking_mode="braking",
+        max_velocity=0.8,
+        max_acceleration=3,
+        gripper=gripper_hysteresis_parameters(
+            mode="continuous",
+            group_indices={"left_arm": 1, "right_arm": 1},
+            max_velocity=1,
+            max_acceleration=12,
+        ),
+    )
+    executor = SmoothExecutor(config, 0.01)
+    state = RobotState({name: np.array([0.0, 0.5]) for name in ("left_arm", "right_arm")}, 0, 0)
+    groups = {name: np.array([[1.0, 0.8], [1.0, 0.8]]) for name in state.groups}
     commands = []
     for i in range(100):
-        hold = ('right_arm',) if 25 <= i < 70 else ()
+        hold = ("right_arm",) if 25 <= i < 70 else ()
         ref = ActionHorizon(i * 10_000_000, 10_000_000, str(i), groups, hold_groups=hold)
         commands.append(executor.step(i * 10_000_000, state, ref).groups)
-    right = np.array([c['right_arm'] for c in commands])
-    left = np.array([c['left_arm'] for c in commands])
-    velocity = np.diff(np.r_[0., right[:, 0]]) / .01
-    assert np.max(np.abs(velocity)) <= .8 + 1e-10
-    assert np.max(np.abs(np.diff(np.r_[0., velocity]))) <= .03 + 1e-10
+    right = np.array([c["right_arm"] for c in commands])
+    left = np.array([c["left_arm"] for c in commands])
+    velocity = np.diff(np.r_[0.0, right[:, 0]]) / 0.01
+    assert np.max(np.abs(velocity)) <= 0.8 + 1e-10
+    assert np.max(np.abs(np.diff(np.r_[0.0, velocity]))) <= 0.03 + 1e-10
     np.testing.assert_allclose(right[25:70, 1], right[24, 1], atol=0, rtol=0)
-    assert left[69, 0] > left[25, 0] + .2
+    assert left[69, 0] > left[25, 0] + 0.2
     assert abs(velocity[60]) < 1e-10
-    assert right[99, 0] > right[69, 0] + .1
+    assert right[99, 0] > right[69, 0] + 0.1
 
 
 def test_release_guard_uses_measured_pose_and_unblended_target_then_allows_opening(monkeypatch):
     import manimux.kinematics
-    from manimux.config import GripperReleaseGuardConfig
+
     class Kin:
         num_arm_joints = 1
         state_dim = 2
+
         def fk(self, joints, gripper):
-            p = np.eye(4); p[0,3] = joints[0]; return p
-    monkeypatch.setattr(manimux.kinematics, 'build_kinematics', lambda *a, **kw: Kin())
-    cfg = SmoothConfig(tracking_mode='braking', max_velocity=.6, max_acceleration=1.5,
-        gripper=GripperHysteresisConfig(mode='continuous', group_indices={'right_arm':1},
-                                      max_velocity=1, max_acceleration=12),
-        release_guard=GripperReleaseGuardConfig(position_tolerance_m=.02))
-    e = SmoothExecutor(cfg, .01)
-    st = RobotState({'right_arm':np.array([0., 0.])}, 0, 0)
-    ref = ActionHorizon(0, 10_000_000, 'a', {'right_arm':np.array([[0.,1.],[0.,1.]])},
-                        tracking_groups={'right_arm':np.array([.1,1.])})
-    cmd = e.step(0,st,ref)
-    assert cmd.groups['right_arm'][1] == 0
-    assert e.gripper_diagnostics['right_arm']['release_blocked']
+            p = np.eye(4)
+            p[0, 3] = joints[0]
+            return p
+
+    monkeypatch.setattr(manimux.kinematics, "build_kinematics", lambda *a, **kw: Kin())
+    cfg = smooth_parameters(
+        tracking_mode="braking",
+        max_velocity=0.6,
+        max_acceleration=1.5,
+        gripper=gripper_hysteresis_parameters(
+            mode="continuous", group_indices={"right_arm": 1}, max_velocity=1, max_acceleration=12
+        ),
+        release_guard=gripper_release_guard_parameters(position_tolerance_m=0.02),
+    )
+    e = SmoothExecutor(cfg, 0.01)
+    st = RobotState({"right_arm": np.array([0.0, 0.0])}, 0, 0)
+    ref = ActionHorizon(
+        0,
+        10_000_000,
+        "a",
+        {"right_arm": np.array([[0.0, 1.0], [0.0, 1.0]])},
+        tracking_groups={"right_arm": np.array([0.1, 1.0])},
+    )
+    cmd = e.step(0, st, ref)
+    assert cmd.groups["right_arm"][1] == 0
+    assert e.gripper_diagnostics["right_arm"]["release_blocked"]
     # A reached commanded pose alone cannot authorize release: feedback must catch up.
-    e._previous['right_arm'][0] = .1
-    assert e.step(10_000_000,st,ref).groups['right_arm'][1] == 0
-    st.groups['right_arm'][0] = .09
-    assert e.step(20_000_000,st,ref).groups['right_arm'][1] > 0
-    assert not e.gripper_diagnostics['right_arm']['release_blocked']
+    e._previous["right_arm"][0] = 0.1
+    assert e.step(10_000_000, st, ref).groups["right_arm"][1] == 0
+    st.groups["right_arm"][0] = 0.09
+    assert e.step(20_000_000, st, ref).groups["right_arm"][1] > 0
+    assert not e.gripper_diagnostics["right_arm"]["release_blocked"]
     # Closing still follows the original continuous rule even while far from target.
-    e.reset(RobotState({'right_arm':np.array([0.,1.])},0,0))
-    ref.groups['right_arm'][:,1] = 0
-    assert e.step(30_000_000,st,ref).groups['right_arm'][1] < 1
+    e.reset(RobotState({"right_arm": np.array([0.0, 1.0])}, 0, 0))
+    ref.groups["right_arm"][:, 1] = 0
+    assert e.step(30_000_000, st, ref).groups["right_arm"][1] < 1
     # In the non-opening branch NumPy comparisons must not leak numpy.bool
     # into recorder.event(), which uses the standard JSON encoder.
     import json
-    assert json.loads(json.dumps(e.gripper_diagnostics))['right_arm']['release_blocked'] is False
+
+    assert json.loads(json.dumps(e.gripper_diagnostics))["right_arm"]["release_blocked"] is False
 
 
-@pytest.mark.parametrize('use_gap', [False, True])
-def test_latched_release_survives_new_closed_plans_and_waits_for_fresh_observation(monkeypatch, use_gap):
+@pytest.mark.parametrize("use_gap", [False, True])
+def test_latched_release_survives_new_closed_plans_and_waits_for_fresh_observation(
+    monkeypatch, use_gap
+):
     import json
+
     import manimux.kinematics
-    from manimux.config import GripperReleaseGuardConfig
+
     class Kin:
         num_arm_joints = 1
         state_dim = 2
+
         def fk(self, joints, gripper):
-            pose = np.eye(4); pose[0,3] = joints[0]; return pose
-    monkeypatch.setattr(manimux.kinematics, 'build_kinematics', lambda *a, **kw: Kin())
-    cfg = SmoothConfig(tracking_mode='braking', max_velocity=.6, max_acceleration=1.5,
-        gripper=GripperHysteresisConfig(mode='continuous', group_indices={'right_arm':1,'left_arm':1},
-                                      max_velocity=1, max_acceleration=12),
-        release_guard=GripperReleaseGuardConfig(mode='latched_release', position_tolerance_m=.02))
-    ex = SmoothExecutor(cfg,.01)
-    measured = {'right_arm':np.array([0.,0.]),'left_arm':np.array([0.,1.])}
+            pose = np.eye(4)
+            pose[0, 3] = joints[0]
+            return pose
+
+    monkeypatch.setattr(manimux.kinematics, "build_kinematics", lambda *a, **kw: Kin())
+    cfg = smooth_parameters(
+        tracking_mode="braking",
+        max_velocity=0.6,
+        max_acceleration=1.5,
+        gripper=gripper_hysteresis_parameters(
+            mode="continuous",
+            group_indices={"right_arm": 1, "left_arm": 1},
+            max_velocity=1,
+            max_acceleration=12,
+        ),
+        release_guard=gripper_release_guard_parameters(
+            mode="latched_release", position_tolerance_m=0.02
+        ),
+    )
+    ex = SmoothExecutor(cfg, 0.01)
+    measured = {"right_arm": np.array([0.0, 0.0]), "left_arm": np.array([0.0, 1.0])}
     commands = []
     completed = None
     for tick in range(300):
-        now = tick*10_000_000
-        state = RobotState({n:a.copy() for n,a in measured.items()},now,tick)
+        now = tick * 10_000_000
+        state = RobotState({n: a.copy() for n, a in measured.items()}, now, tick)
         # Only the first chunk asks for release. Subsequent stale chunks ask
         # to move elsewhere and close, and can even fail IK for their new goal.
-        goal = np.array([.12,1.]) if tick == 0 else np.array([-.4,0.])
-        tracking = {'right_arm':goal,'left_arm':np.array([.3,1.])}
-        ref = ActionHorizon(now,10_000_000,str(tick//10),
-            {n:np.tile(a,(2,1)) for n,a in tracking.items()},
-            tracking_groups=tracking, observation_time_ns=0,
-            hold_groups=('right_arm',) if tick > 0 else ())
+        goal = np.array([0.12, 1.0]) if tick == 0 else np.array([-0.4, 0.0])
+        tracking = {"right_arm": goal, "left_arm": np.array([0.3, 1.0])}
+        ref = ActionHorizon(
+            now,
+            10_000_000,
+            str(tick // 10),
+            {n: np.tile(a, (2, 1)) for n, a in tracking.items()},
+            tracking_groups=tracking,
+            observation_time_ns=0,
+            hold_groups=("right_arm",) if tick > 0 else (),
+        )
         if use_gap and tick > 0:
-            command = ex.brake_hold(now,state).groups
+            command = ex.brake_hold(now, state).groups
         else:
-            command = ex.step(now,state,ref).groups
+            command = ex.step(now, state, ref).groups
         assert ex.has_pending_release
-        event = ex._gripper_events['right_arm']
-        np.testing.assert_allclose(event.target,[.12,1.])
-        if event.phase == 'approach':
-            assert command['right_arm'][1] == 0
+        event = ex._gripper_events["right_arm"]
+        np.testing.assert_allclose(event.target, [0.12, 1.0])
+        if event.phase == "approach":
+            assert command["right_arm"][1] == 0
         if commands:
-            assert command['right_arm'][1] >= commands[-1][1]-1e-12
-        commands.append(command['right_arm'].copy())
+            assert command["right_arm"][1] >= commands[-1][1] - 1e-12
+        commands.append(command["right_arm"].copy())
         for n in measured:
-            measured[n] += .2*(command[n]-measured[n])
+            measured[n] += 0.2 * (command[n] - measured[n])
         json.dumps(ex.gripper_diagnostics)
-        if event.phase == 'await_observation':
+        if event.phase == "await_observation":
             completed = event.completed_ns
     assert completed is not None
-    assert measured['right_arm'][1] > .95
-    assert measured['right_arm'][0] == pytest.approx(.12,abs=.001)
+    assert measured["right_arm"][1] > 0.95
+    assert measured["right_arm"][0] == pytest.approx(0.12, abs=0.001)
     if not use_gap:
-        assert measured['left_arm'][0] > .25
-    velocities = np.diff(np.r_[0.,np.array(commands)[:,0]])/.01
-    assert abs(velocities).max() <= .6+1e-9
-    assert abs(np.diff(np.r_[0.,velocities])/.01).max() <= 1.5+1e-8
+        assert measured["left_arm"][0] > 0.25
+    velocities = np.diff(np.r_[0.0, np.array(commands)[:, 0]]) / 0.01
+    assert abs(velocities).max() <= 0.6 + 1e-9
+    assert abs(np.diff(np.r_[0.0, velocities]) / 0.01).max() <= 1.5 + 1e-8
     # An inference begun before release completed is still stale even if its
     # plan ID is new. Only a post-release observation resumes model control.
-    state = RobotState(measured,3_000_000_000,300)
+    state = RobotState(measured, 3_000_000_000, 300)
     ref.observation_time_ns = completed
-    ex.step(3_000_000_000,state,ref)
+    ex.step(3_000_000_000, state, ref)
     assert ex.has_pending_release
-    ref.observation_time_ns = completed+1
+    ref.observation_time_ns = completed + 1
     ref.hold_groups = ()
-    out = ex.step(3_010_000_000,state,ref)
+    out = ex.step(3_010_000_000, state, ref)
     assert not ex.has_pending_release
-    assert out.groups['right_arm'][1] < 1
+    assert out.groups["right_arm"][1] < 1
     # Explicit Pause/Home/reset cancels rather than autonomously finishing.
-    ex.reset(RobotState({'right_arm':np.array([0.,0.]),'left_arm':np.array([0.,1.])},0,0))
-    tracking['right_arm'] = np.array([.2,1.])
+    ex.reset(
+        RobotState({"right_arm": np.array([0.0, 0.0]), "left_arm": np.array([0.0, 1.0])}, 0, 0)
+    )
+    tracking["right_arm"] = np.array([0.2, 1.0])
     ref.tracking_groups = tracking
-    ex.step(0,ex_state := RobotState({'right_arm':np.array([0.,0.]),'left_arm':np.array([0.,1.])},0,0),ref)
+    ex.step(
+        0,
+        ex_state := RobotState(
+            {"right_arm": np.array([0.0, 0.0]), "left_arm": np.array([0.0, 1.0])}, 0, 0
+        ),
+        ref,
+    )
     assert ex.has_pending_release
     ex.reset(ex_state)
     assert not ex.has_pending_release
 
 
-@pytest.mark.parametrize('use_gap', [False, True])
-@pytest.mark.parametrize('contact_aperture', [0.0, 0.3])
+@pytest.mark.parametrize("use_gap", [False, True])
+@pytest.mark.parametrize("contact_aperture", [0.0, 0.3])
 def test_grasp_waits_for_pose_and_closure_before_lift(monkeypatch, use_gap, contact_aperture):
     import json
+
     import manimux.kinematics
-    from manimux.config import GripperGraspGuardConfig, GripperReleaseGuardConfig
 
     class Kin:
         num_arm_joints = 2
@@ -858,87 +1033,110 @@ def test_grasp_waits_for_pose_and_closure_before_lift(monkeypatch, use_gap, cont
             pose[:2, :2] = [[c, -s], [s, c]]
             return pose
 
-    monkeypatch.setattr(manimux.kinematics, 'build_kinematics', lambda *a, **kw: Kin())
-    cfg = SmoothConfig(
-        tracking_mode='braking', max_velocity=.6, max_acceleration=1.5,
-        gripper=GripperHysteresisConfig(
-            mode='continuous', group_indices={'right_arm': 2, 'left_arm': 2},
-            max_velocity=1, max_acceleration=12),
-        release_guard=GripperReleaseGuardConfig(), grasp_guard=GripperGraspGuardConfig())
-    ex = SmoothExecutor(cfg, .01)
-    measured = {'right_arm': np.array([0., 0., 1.]), 'left_arm': np.array([0., 0., 1.])}
+    monkeypatch.setattr(manimux.kinematics, "build_kinematics", lambda *a, **kw: Kin())
+    cfg = smooth_parameters(
+        tracking_mode="braking",
+        max_velocity=0.6,
+        max_acceleration=1.5,
+        gripper=gripper_hysteresis_parameters(
+            mode="continuous",
+            group_indices={"right_arm": 2, "left_arm": 2},
+            max_velocity=1,
+            max_acceleration=12,
+        ),
+        release_guard=gripper_release_guard_parameters(),
+        grasp_guard=gripper_grasp_guard_parameters(),
+    )
+    ex = SmoothExecutor(cfg, 0.01)
+    measured = {"right_arm": np.array([0.0, 0.0, 1.0]), "left_arm": np.array([0.0, 0.0, 1.0])}
     commands, phases = [], set()
     completion = None
     for tick in range(400):
         now = tick * 10_000_000
         state = RobotState({n: a.copy() for n, a in measured.items()}, now, tick)
         # First close-onset pose must survive later lifting/opening predictions.
-        right = np.array([.12, .25, .8]) if tick == 0 else np.array([.7, .6, 1.])
-        goals = {'right_arm': right, 'left_arm': np.array([.3, 0., 1.])}
-        ref = ActionHorizon(now, 10_000_000, str(tick // 10),
-                            {n: np.tile(a, (2, 1)) for n, a in goals.items()},
-                            tracking_groups=goals, observation_time_ns=0,
-                            hold_groups=('right_arm',) if tick > 0 else ())
-        command = (ex.brake_hold(now, state) if use_gap and tick > 0
-                   else ex.step(now, state, ref))
-        event = ex._gripper_events['right_arm']
-        assert event.kind == 'grasp' and not ex.has_pending_release
-        np.testing.assert_allclose(event.target, [.12, .25, 0.])
+        right = np.array([0.12, 0.25, 0.8]) if tick == 0 else np.array([0.7, 0.6, 1.0])
+        goals = {"right_arm": right, "left_arm": np.array([0.3, 0.0, 1.0])}
+        ref = ActionHorizon(
+            now,
+            10_000_000,
+            str(tick // 10),
+            {n: np.tile(a, (2, 1)) for n, a in goals.items()},
+            tracking_groups=goals,
+            observation_time_ns=0,
+            hold_groups=("right_arm",) if tick > 0 else (),
+        )
+        command = ex.brake_hold(now, state) if use_gap and tick > 0 else ex.step(now, state, ref)
+        event = ex._gripper_events["right_arm"]
+        assert event.kind == "grasp" and not ex.has_pending_release
+        np.testing.assert_allclose(event.target, [0.12, 0.25, 0.0])
         phases.add(event.phase)
-        if event.phase == 'approach':
-            assert command.groups['right_arm'][2] == 1.
-        elif event.phase == 'closing':
-            assert abs(measured['right_arm'][0] - .12) <= .02
-            assert abs(measured['right_arm'][1] - .25) <= cfg.grasp_guard.rotation_tolerance_rad
-        elif event.phase == 'await_observation':
+        if event.phase == "approach":
+            assert command.groups["right_arm"][2] == 1.0
+        elif event.phase == "closing":
+            assert abs(measured["right_arm"][0] - 0.12) <= 0.02
+            assert (
+                abs(measured["right_arm"][1] - 0.25) <= cfg["grasp_guard"]["rotation_tolerance_rad"]
+            )
+        elif event.phase == "await_observation":
             completion = event.completed_ns
-            assert command.groups['right_arm'][2] <= .02
-            assert measured['right_arm'][2] == pytest.approx(contact_aperture, abs=.02)
-        commands.append(command.groups['right_arm'].copy())
+            assert command.groups["right_arm"][2] <= 0.02
+            assert measured["right_arm"][2] == pytest.approx(contact_aperture, abs=0.02)
+        commands.append(command.groups["right_arm"].copy())
         for n in measured:
-            measured[n] += .2 * (command.groups[n] - measured[n])
-        measured['right_arm'][2] = max(contact_aperture, measured['right_arm'][2])
+            measured[n] += 0.2 * (command.groups[n] - measured[n])
+        measured["right_arm"][2] = max(contact_aperture, measured["right_arm"][2])
         json.dumps(ex.gripper_diagnostics)
-    assert {'approach', 'closing', 'await_observation'} <= phases
+    assert {"approach", "closing", "await_observation"} <= phases
     assert completion is not None
     values = np.array(commands)
-    assert values[:, 0].max() <= .12 + 1e-9  # No lifting while closing or awaiting observation.
-    velocity = np.diff(np.vstack(([0., 0.], values[:, :2])), axis=0) / .01
-    assert abs(velocity).max() <= .6 + 1e-9
-    assert abs(np.diff(np.vstack(([0., 0.], velocity)), axis=0) / .01).max() <= 1.5 + 1e-8
+    assert values[:, 0].max() <= 0.12 + 1e-9  # No lifting while closing or awaiting observation.
+    velocity = np.diff(np.vstack(([0.0, 0.0], values[:, :2])), axis=0) / 0.01
+    assert abs(velocity).max() <= 0.6 + 1e-9
+    assert abs(np.diff(np.vstack(([0.0, 0.0], velocity)), axis=0) / 0.01).max() <= 1.5 + 1e-8
     assert np.max(np.diff(values[:, 2])) <= 1e-12
     if not use_gap:
-        assert measured['left_arm'][0] > .25
+        assert measured["left_arm"][0] > 0.25
     ref.observation_time_ns = completion
     state = RobotState(measured, 4_000_000_000, 400)
     ex.step(state.monotonic_ns, state, ref)
     assert ex.has_pending_gripper_event
     ref.observation_time_ns = completion + 1
     ref.hold_groups = ()
-    goals['right_arm'] = np.array([.7, .6, 0.])
-    ref.groups['right_arm'][:] = goals['right_arm']
+    goals["right_arm"] = np.array([0.7, 0.6, 0.0])
+    ref.groups["right_arm"][:] = goals["right_arm"]
     ref.tracking_groups = goals
     command = ex.step(state.monotonic_ns + 10_000_000, state, ref)
     assert not ex.has_pending_gripper_event
-    assert command.groups['right_arm'][0] > .12
-    ex.reset(RobotState({'right_arm': np.array([0., 0., 1.]),
-                        'left_arm': np.array([0., 0., 1.])}, 0, 0))
+    assert command.groups["right_arm"][0] > 0.12
+    ex.reset(
+        RobotState(
+            {"right_arm": np.array([0.0, 0.0, 1.0]), "left_arm": np.array([0.0, 0.0, 1.0])}, 0, 0
+        )
+    )
     ex.step(0, RobotState(measured, 0, 0), ref)
     assert ex.has_pending_gripper_event
     ex.reset(state)  # Explicit Pause/Home/reset must cancel a grasp too.
     assert not ex.has_pending_gripper_event
 
 
-@pytest.mark.parametrize(('event_kind', 'blocked_phase'), [
-    ('grasp', 'approach'), ('grasp', 'closing'),
-    ('release', 'approach'), ('release', 'opening'),
-])
+@pytest.mark.parametrize(
+    ("event_kind", "blocked_phase"),
+    [
+        ("grasp", "approach"),
+        ("grasp", "closing"),
+        ("release", "approach"),
+        ("release", "opening"),
+    ],
+)
 def test_gripper_timeout_waits_for_fresh_plan_then_bypasses_only_failed_arm(
-    monkeypatch, event_kind, blocked_phase,
+    monkeypatch,
+    event_kind,
+    blocked_phase,
 ):
     import json
+
     import manimux.kinematics
-    from manimux.config import GripperGraspGuardConfig, GripperReleaseGuardConfig
 
     class Kin:
         num_arm_joints = 1
@@ -949,84 +1147,100 @@ def test_gripper_timeout_waits_for_fresh_plan_then_bypasses_only_failed_arm(
             pose[0, 3] = joints[0]
             return pose
 
-    monkeypatch.setattr(manimux.kinematics, 'build_kinematics', lambda *a, **kw: Kin())
-    config = SmoothConfig(
-        tracking_mode='braking', max_velocity=.6, max_acceleration=1.5,
-        gripper=GripperHysteresisConfig(
-            mode='continuous', group_indices={'right_arm': 1, 'left_arm': 1},
-            max_velocity=1, max_acceleration=12),
-        release_guard=GripperReleaseGuardConfig(),
-        grasp_guard=GripperGraspGuardConfig(phase_timeout_s=2))
-    ex = SmoothExecutor(config, .01)
+    monkeypatch.setattr(manimux.kinematics, "build_kinematics", lambda *a, **kw: Kin())
+    config = smooth_parameters(
+        tracking_mode="braking",
+        max_velocity=0.6,
+        max_acceleration=1.5,
+        gripper=gripper_hysteresis_parameters(
+            mode="continuous",
+            group_indices={"right_arm": 1, "left_arm": 1},
+            max_velocity=1,
+            max_acceleration=12,
+        ),
+        release_guard=gripper_release_guard_parameters(),
+        grasp_guard=gripper_grasp_guard_parameters(phase_timeout_s=2),
+    )
+    ex = SmoothExecutor(config, 0.01)
     failed = None
     commands = []
-    initial_aperture = 1. if event_kind == 'grasp' else 0.
-    requested_aperture = .8 if event_kind == 'grasp' else 1.
-    state = RobotState({n: np.array([0., initial_aperture])
-                        for n in ('right_arm', 'left_arm')}, 0, 0)
+    initial_aperture = 1.0 if event_kind == "grasp" else 0.0
+    requested_aperture = 0.8 if event_kind == "grasp" else 1.0
+    state = RobotState(
+        {n: np.array([0.0, initial_aperture]) for n in ("right_arm", "left_arm")}, 0, 0
+    )
     ex.reset(state)
-    bypassed = ex._grasp_bypassed if event_kind == 'grasp' else ex._release_bypassed
-    other_bypassed = ex._release_bypassed if event_kind == 'grasp' else ex._grasp_bypassed
+    bypassed = ex._grasp_bypassed if event_kind == "grasp" else ex._release_bypassed
+    other_bypassed = ex._release_bypassed if event_kind == "grasp" else ex._grasp_bypassed
     # Persistent 35 mm pose error, or a gripper that never finishes moving physically.
-    goal = .035 if blocked_phase == 'approach' else 0.
+    goal = 0.035 if blocked_phase == "approach" else 0.0
     for tick in range(260):
         now = tick * 10_000_000
-        goals = {'right_arm': np.array([goal, requested_aperture]),
-                 'left_arm': np.array([.3, initial_aperture])}
-        ref = ActionHorizon(now, 10_000_000, str(tick),
-                            {n: np.tile(a, (2, 1)) for n, a in goals.items()},
-                            tracking_groups=goals, observation_time_ns=0)
+        goals = {
+            "right_arm": np.array([goal, requested_aperture]),
+            "left_arm": np.array([0.3, initial_aperture]),
+        }
+        ref = ActionHorizon(
+            now,
+            10_000_000,
+            str(tick),
+            {n: np.tile(a, (2, 1)) for n, a in goals.items()},
+            tracking_groups=goals,
+            observation_time_ns=0,
+        )
         command = ex.step(now, state, ref)
-        commands.append(command.groups['right_arm'].copy())
-        diag = ex.gripper_diagnostics['right_arm']
+        commands.append(command.groups["right_arm"].copy())
+        diag = ex.gripper_diagnostics["right_arm"]
         json.dumps(ex.gripper_diagnostics)
-        if diag[event_kind + '_phase'] == 'await_replan':
-            assert diag['failure_reason'] == blocked_phase + '_timeout'
-            assert diag['completed_ns'] is None
-            failed = diag['failed_ns']
+        if diag[event_kind + "_phase"] == "await_replan":
+            assert diag["failure_reason"] == blocked_phase + "_timeout"
+            assert diag["completed_ns"] is None
+            failed = diag["failed_ns"]
     assert failed == 2_000_000_000
-    frozen = command.groups['right_arm'][1]
-    assert bypassed == {'right_arm'} and not other_bypassed
-    assert command.groups['left_arm'][0] > .25
+    frozen = command.groups["right_arm"][1]
+    assert bypassed == {"right_arm"} and not other_bypassed
+    assert command.groups["left_arm"][0] > 0.25
     # Gaps, stale observations, and invalid fresh arm partitions cannot resume motion.
     for tick in range(260, 265):
         command = ex.brake_hold(tick * 10_000_000, state)
-        assert command.groups['right_arm'][1] == frozen
-        assert ex.gripper_diagnostics['right_arm'][event_kind + '_phase'] == 'await_replan'
-    goals['right_arm'] = np.array([.2, 1. - initial_aperture])
-    ref.groups['right_arm'][:] = goals['right_arm']
+        assert command.groups["right_arm"][1] == frozen
+        assert ex.gripper_diagnostics["right_arm"][event_kind + "_phase"] == "await_replan"
+    goals["right_arm"] = np.array([0.2, 1.0 - initial_aperture])
+    ref.groups["right_arm"][:] = goals["right_arm"]
     ref.tracking_groups = goals
     ref.observation_time_ns = failed
     ex.step(2_700_000_000, state, ref)
     assert ex.has_pending_gripper_event
     ref.observation_time_ns = failed + 1
-    ref.hold_groups = ('right_arm',)
+    ref.hold_groups = ("right_arm",)
     ex.step(2_710_000_000, state, ref)
     assert ex.has_pending_gripper_event
     ref.hold_groups = ()
     for tick in range(272, 310):
         command = ex.step(tick * 10_000_000, state, ref)
-        commands.append(command.groups['right_arm'].copy())
+        commands.append(command.groups["right_arm"].copy())
         assert not ex.has_pending_gripper_event
-        assert ex.gripper_diagnostics['right_arm'][event_kind + '_guard_bypassed'] is True
-    assert command.groups['right_arm'][0] > goal + .02
+        assert ex.gripper_diagnostics["right_arm"][event_kind + "_guard_bypassed"] is True
+    assert command.groups["right_arm"][0] > goal + 0.02
     # Other arm can still use the same event synchronization.
-    goals['left_arm'] = np.array([.4, requested_aperture])
-    ref.groups['left_arm'][:] = goals['left_arm']
+    goals["left_arm"] = np.array([0.4, requested_aperture])
+    ref.groups["left_arm"][:] = goals["left_arm"]
     ref.tracking_groups = goals
     ex.step(3_100_000_000, state, ref)
-    assert ex._gripper_events['left_arm'].kind == event_kind
-    assert bypassed == {'right_arm'} and not other_bypassed
+    assert ex._gripper_events["left_arm"].kind == event_kind
+    assert bypassed == {"right_arm"} and not other_bypassed
     ex.reset(state)
     assert not ex.has_pending_gripper_event
     assert not ex._grasp_bypassed and not ex._release_bypassed
 
 
-@pytest.mark.parametrize('approach_limit', [None, .25])
-def test_open_gripper_approach_speed_is_per_arm_and_preserves_acceleration(monkeypatch, approach_limit):
+@pytest.mark.parametrize("approach_limit", [None, 0.25])
+def test_open_gripper_approach_speed_is_per_arm_and_preserves_acceleration(
+    monkeypatch, approach_limit
+):
     import json
+
     import manimux.kinematics
-    from manimux.config import GripperGraspGuardConfig, GripperReleaseGuardConfig
 
     class Kin:
         num_arm_joints = 1
@@ -1037,41 +1251,56 @@ def test_open_gripper_approach_speed_is_per_arm_and_preserves_acceleration(monke
             pose[0, 3] = joints[0]
             return pose
 
-    monkeypatch.setattr(manimux.kinematics, 'build_kinematics', lambda *a, **kw: Kin())
-    ex = SmoothExecutor(SmoothConfig(
-        tracking_mode='braking', max_velocity=.6, max_acceleration=1.5,
-        gripper=GripperHysteresisConfig(mode='continuous',
-            group_indices={'left_arm': 1, 'right_arm': 1}, max_velocity=1, max_acceleration=12),
-        release_guard=GripperReleaseGuardConfig(),
-        grasp_guard=GripperGraspGuardConfig(approach_max_velocity=approach_limit)), .01)
-    measured = {'left_arm': np.array([0., 1.]), 'right_arm': np.array([0., 0.])}
-    history = [np.array([0., 0.])]
+    monkeypatch.setattr(manimux.kinematics, "build_kinematics", lambda *a, **kw: Kin())
+    ex = SmoothExecutor(
+        smooth_parameters(
+            tracking_mode="braking",
+            max_velocity=0.6,
+            max_acceleration=1.5,
+            gripper=gripper_hysteresis_parameters(
+                mode="continuous",
+                group_indices={"left_arm": 1, "right_arm": 1},
+                max_velocity=1,
+                max_acceleration=12,
+            ),
+            release_guard=gripper_release_guard_parameters(),
+            grasp_guard=gripper_grasp_guard_parameters(approach_max_velocity=approach_limit),
+        ),
+        0.01,
+    )
+    measured = {"left_arm": np.array([0.0, 1.0]), "right_arm": np.array([0.0, 0.0])}
+    history = [np.array([0.0, 0.0])]
     for tick in range(100):
-        goals = {'left_arm': np.array([1., 1.]), 'right_arm': np.array([1., 0.])}
-        ref = ActionHorizon(tick * 10_000_000, 10_000_000, str(tick),
-                            {n: np.tile(q, (2, 1)) for n, q in goals.items()},
-                            tracking_groups=goals, observation_time_ns=tick * 10_000_000)
+        goals = {"left_arm": np.array([1.0, 1.0]), "right_arm": np.array([1.0, 0.0])}
+        ref = ActionHorizon(
+            tick * 10_000_000,
+            10_000_000,
+            str(tick),
+            {n: np.tile(q, (2, 1)) for n, q in goals.items()},
+            tracking_groups=goals,
+            observation_time_ns=tick * 10_000_000,
+        )
         cmd = ex.step(tick * 10_000_000, RobotState(measured, tick * 10_000_000, tick), ref)
         measured = {n: q.copy() for n, q in cmd.groups.items()}
-        history.append(np.array([cmd.groups['left_arm'][0], cmd.groups['right_arm'][0]]))
+        history.append(np.array([cmd.groups["left_arm"][0], cmd.groups["right_arm"][0]]))
         json.dumps(ex.gripper_diagnostics)
-    v = np.diff(history, axis=0) / .01
-    assert max(abs(v[:, 0])) == pytest.approx(approach_limit or .6)
-    assert max(abs(v[:, 1])) == pytest.approx(.6)
+    v = np.diff(history, axis=0) / 0.01
+    assert max(abs(v[:, 0])) == pytest.approx(approach_limit or 0.6)
+    assert max(abs(v[:, 1])) == pytest.approx(0.6)
     # Opening during placement has its own pose guard and the normal arm limit.
-    goals['right_arm'] = np.array([1., 1.])
-    ref.groups['right_arm'][:] = goals['right_arm']
+    goals["right_arm"] = np.array([1.0, 1.0])
+    ref.groups["right_arm"][:] = goals["right_arm"]
     ref.tracking_groups = goals
     cmd = ex.step(1_000_000_000, RobotState(measured, 1_000_000_000, 100), ref)
     if approach_limit is not None:
-        assert ex.gripper_diagnostics['right_arm']['arm_velocity_limit_rad_s'] == .6
-    assert ex._gripper_events['right_arm'].kind == 'release'
+        assert ex.gripper_diagnostics["right_arm"]["arm_velocity_limit_rad_s"] == 0.6
+    assert ex._gripper_events["right_arm"].kind == "release"
     # Resuming open-gripper ordinary tracking from a faster command must decelerate,
     # not instantly clip velocity to the new limit.
     ex._gripper_events.clear()
-    ex._release_bypassed.add('right_arm')
-    ex._previous['right_arm'][1] = 1.
-    previous_v = ex._previous_velocity['right_arm'][0]
+    ex._release_bypassed.add("right_arm")
+    ex._previous["right_arm"][1] = 1.0
+    previous_v = ex._previous_velocity["right_arm"][0]
     cmd = ex.step(1_010_000_000, RobotState(measured, 1_010_000_000, 101), ref)
-    assert abs(ex._previous_velocity['right_arm'][0] - previous_v) <= .015 + 1e-12
-    assert np.max(abs(np.diff(v, axis=0) / .01)) <= 1.5 + 1e-9
+    assert abs(ex._previous_velocity["right_arm"][0] - previous_v) <= 0.015 + 1e-12
+    assert np.max(abs(np.diff(v, axis=0) / 0.01)) <= 1.5 + 1e-9

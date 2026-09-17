@@ -12,8 +12,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from manimux.config import ManiMuxConfig
-from manimux.policies.base import PolicyAdapter
+from manimux.policies.base import PolicyAdapter, action_interval
 from manimux.runtime.inference import (
     CommitSettings,
     InferenceSubmission,
@@ -69,9 +68,7 @@ class ACTTemporalEnsembler:
         for offset in range(chunk.horizon_steps):
             target_step = start_step + offset
             contributors = [
-                item
-                for item in self._chunks
-                if item.start_step <= target_step <= item.end_step
+                item for item in self._chunks if item.start_step <= target_step <= item.end_step
             ]
             contributor_counts.append(len(contributors))
             weights = self._weights(len(contributors))
@@ -102,7 +99,6 @@ class ACTTemporalEnsembler:
                 "ACT temporal ensembling requires a constant action dt: "
                 f"expected {self._dt_ns}, got {chunk.dt_ns}"
             )
-        assert self._dt_ns is not None
         elapsed_ns = chunk.observation_time_ns - self._origin_time_ns
         if elapsed_ns < 0:
             raise ValueError("ACT temporal ensembling received out-of-order observation time")
@@ -118,16 +114,14 @@ class ACTTemporalEnsembler:
 class ACTTemporalEnsembleStrategy:
     """Run ACT aggregation without blocking ManiMux's control loop."""
 
-    def __init__(self, config: ManiMuxConfig) -> None:
+    def __init__(self, config: dict) -> None:
         self._config = config
-        settings = config.execution.temporal_ensemble
-        self._query_interval_steps = settings.query_interval_steps
+        settings = config["execution"]["temporal_ensemble"]
+        self._query_interval_steps = settings["query_interval_steps"]
         self._query_interval_ns = int(
-            config.policy.effective_action_dt_s
-            * settings.query_interval_steps
-            * 1_000_000_000
+            action_interval(config["policy"]) * settings["query_interval_steps"] * 1_000_000_000
         )
-        self._ensembler = ACTTemporalEnsembler(settings.coefficient)
+        self._ensembler = ACTTemporalEnsembler(settings["coefficient"])
         self._next_query_ns: int | None = None
 
     @property
@@ -164,14 +158,14 @@ class ACTTemporalEnsembleStrategy:
         if self._next_query_ns is not None and now_ns < self._next_query_ns:
             return None
 
-        deadline_ns = now_ns + int(self._config.policy.timeout_s * 1_000_000_000)
+        deadline_ns = now_ns + int(self._config["policy"]["timeout_s"] * 1_000_000_000)
         request = InferenceRequest(
             session_id=session_id,
             request_seq=request_seq,
             observation_time_ns=snapshot.state.monotonic_ns,
             deadline_ns=deadline_ns,
             observation=adapter.build_observation(snapshot),
-            instruction=self._config.run.task,
+            instruction=self._config["run"]["task"],
         )
         self._next_query_ns = now_ns + self._query_interval_ns
         return InferenceSubmission(
@@ -231,3 +225,14 @@ class ACTTemporalEnsembleStrategy:
 
     def on_tick(self, *, steps: int, loop_ms: float, control_dt_ns: int) -> None:
         del steps, loop_ms, control_dt_ns
+
+
+def temporal_ensemble_parameters(**options) -> dict:
+    """保留 ACT 时间融合的权重系数与查询步数。"""
+
+    values = {
+        "coefficient": 0.01,
+        "query_interval_steps": 1,
+        **options,
+    }
+    return values

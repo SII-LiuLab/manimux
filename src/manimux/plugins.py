@@ -16,27 +16,28 @@ def load_plugin(
     name: str,
     *,
     group: str,
-    builtins: dict[str, PluginT],
+    builtins: dict[str, PluginT | str],
 ) -> PluginT:
     """Resolve a built-in, entry-point, or ``module:attribute`` plugin.
 
     Built-ins keep the checked-in V1 configuration stable. Entry points make
     separately installed policy/robot packages discoverable, while the explicit
     module form is useful during local development without an installation step.
+    Built-in values may also be module references, keeping SDK imports lazy
+    without a separate forwarding function for every registry entry.
     """
 
     if name in builtins:
-        return builtins[name]
+        plugin = builtins[name]
+        if not isinstance(plugin, str):
+            return plugin
+        name = plugin
 
     if ":" in name:
         module_name, attribute = name.split(":", 1)
-        if not module_name or not attribute:
-            raise PluginError(f"invalid plugin reference {name!r}; expected module:attribute")
-        try:
-            module = importlib.import_module(module_name)
-            return cast(PluginT, getattr(module, attribute))
-        except (ImportError, AttributeError) as exc:
-            raise PluginError(f"cannot load plugin {name!r}: {exc}") from exc
+        # 保留 Python 的导入异常和原始 traceback，直接定位插件中的错误。
+        module = importlib.import_module(module_name)
+        return cast(PluginT, getattr(module, attribute))
 
     matches = [entry for entry in metadata.entry_points(group=group) if entry.name == name]
     if not matches:
@@ -47,7 +48,4 @@ def load_plugin(
         raise PluginError(f"unknown {group} plugin {name!r}; available: {choices}")
     if len(matches) > 1:
         raise PluginError(f"multiple {group} entry points are registered as {name!r}")
-    try:
-        return cast(PluginT, matches[0].load())
-    except Exception as exc:
-        raise PluginError(f"cannot load {group} plugin {name!r}: {exc}") from exc
+    return cast(PluginT, matches[0].load())

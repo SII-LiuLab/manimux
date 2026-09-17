@@ -45,8 +45,6 @@ def register(name: str, cls: type) -> None:
 
 
 def _get(name: str):
-    if name not in _REGISTRY:
-        raise KeyError(f"unknown format {name!r}; registered: {sorted(_REGISTRY)}")
     return _REGISTRY[name]()
 
 

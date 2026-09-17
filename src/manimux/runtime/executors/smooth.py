@@ -5,7 +5,6 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from manimux.config import SmoothConfig
 from manimux.runtime.executors.limits import (
     ScalarLimits,
     decelerate_velocity,
@@ -37,28 +36,29 @@ class _GripperEvent:
 
 
 class SmoothExecutor:
-    def __init__(self, config: SmoothConfig, control_dt_s: float) -> None:
+    def __init__(self, config: dict, control_dt_s: float) -> None:
         self._dt_s = control_dt_s
-        rc = 1.0 / (2.0 * math.pi * config.cutoff_hz)
+        rc = 1.0 / (2.0 * math.pi * config["cutoff_hz"])
         self._alpha = control_dt_s / (rc + control_dt_s)
         self._limits = ScalarLimits(
-            max_velocity=config.max_velocity,
-            max_acceleration=config.max_acceleration,
-            position_limit_abs=config.position_limit_abs,
-            mode=config.mode,
-            max_step_dt_s=config.max_step_dt_s,
+            max_velocity=config["max_velocity"],
+            max_acceleration=config["max_acceleration"],
+            position_limit_abs=config["position_limit_abs"],
+            mode=config["mode"],
+            max_step_dt_s=config["max_step_dt_s"],
         )
-        self._gripper = config.gripper
-        self._release_guard = config.release_guard
-        self._grasp_guard = config.grasp_guard
+        self._gripper = config["gripper"]
+        self._release_guard = config["release_guard"]
+        self._grasp_guard = config["grasp_guard"]
         self._tracking_kinematics = None
-        if config.release_guard is not None:
+        if config["release_guard"] is not None:
             from manimux.kinematics import build_kinematics
 
             self._tracking_kinematics = build_kinematics(
-                config.release_guard.kinematics, **config.release_guard.kinematics_options
+                config["release_guard"]["kinematics"],
+                **config["release_guard"]["kinematics_options"],
             )
-        self.braking_tracking = config.tracking_mode == "braking"
+        self.braking_tracking = config["tracking_mode"] == "braking"
         self._previous: GroupVector | None = None
         self._previous_velocity: GroupVector | None = None
         self._gripper_closed: dict[str, bool] = {}
@@ -81,7 +81,7 @@ class SmoothExecutor:
 
     @property
     def uses_close_latch(self) -> bool:
-        return self._gripper is not None and self._gripper.mode == "close_latch"
+        return self._gripper is not None and self._gripper["mode"] == "close_latch"
 
     @property
     def horizon_steps(self) -> int:
@@ -95,7 +95,6 @@ class SmoothExecutor:
         """
         if self._previous is None or self._previous_velocity is None:
             self.reset(state)
-        assert self._previous is not None and self._previous_velocity is not None
         if self.uses_close_latch:
             # Missing predictions cannot count toward a confirmed reopen.
             self._gripper_open_candidate_ns = dict.fromkeys(self._gripper_closed)
@@ -103,7 +102,9 @@ class SmoothExecutor:
             # A validated gripper-event target survives ordinary inference gaps. Other
             # groups still brake; Pause/Home call reset and cancel pending events.
             reference = ActionHorizon(
-                now_ns, int(self._dt_s * 1e9), "gripper-gap",
+                now_ns,
+                int(self._dt_s * 1e9),
+                "gripper-gap",
                 {name: np.tile(value, (2, 1)) for name, value in self._previous.items()},
                 hold_groups=tuple(self._previous),
                 tracking_groups=copy_group_vector(self._previous),
@@ -113,14 +114,16 @@ class SmoothExecutor:
             return command
         for name, velocity in self._previous_velocity.items():
             next_velocity = decelerate_velocity(
-                velocity, self._limits.max_acceleration, self._dt_s,
+                velocity,
+                self._limits.max_acceleration,
+                self._dt_s,
                 mode=self._limits.mode,
                 independent_index=(
-                    self._gripper.group_indices.get(name) if self._gripper else None
+                    self._gripper["group_indices"].get(name) if self._gripper else None
                 ),
             )
-            if self._gripper is not None and name in self._gripper.group_indices:
-                next_velocity[self._gripper.group_indices[name]] = 0.0
+            if self._gripper is not None and name in self._gripper["group_indices"]:
+                next_velocity[self._gripper["group_indices"][name]] = 0.0
             self._previous[name] += next_velocity * self._dt_s
             self._previous_velocity[name] = next_velocity
         return RobotCommand(copy_group_vector(self._previous), now_ns, plan_id=None)
@@ -133,11 +136,11 @@ class SmoothExecutor:
         """
         groups = copy_group_vector(state.groups)
         if self.uses_close_latch and self._previous is not None:
-            assert self._gripper is not None
-            for name, index in self._gripper.group_indices.items():
+            for name, index in self._gripper["group_indices"].items():
                 groups[name][index] = self._previous[name][index]
         self.reset(
-            RobotState(groups, now_ns, state.sequence), preserve_gripper_latch=True,
+            RobotState(groups, now_ns, state.sequence),
+            preserve_gripper_latch=True,
         )
         return RobotCommand(groups, now_ns, plan_id=None)
 
@@ -161,7 +164,7 @@ class SmoothExecutor:
         self._release_bypassed = set()
         if self._gripper is None:
             return
-        for name, index in self._gripper.group_indices.items():
+        for name, index in self._gripper["group_indices"].items():
             if name not in state.groups:
                 raise ValueError(f"smooth gripper group {name!r} is absent from robot state")
             if index >= len(state.groups[name]):
@@ -170,15 +173,16 @@ class SmoothExecutor:
                     f"with dimension {len(state.groups[name])}"
                 )
             closed = (
-                latched.get(name, False) if self.uses_close_latch
-                else bool(state.groups[name][index] <= self._gripper.close_threshold)
+                latched.get(name, False)
+                if self.uses_close_latch
+                else bool(state.groups[name][index] <= self._gripper["close_threshold"])
             )
             self._gripper_closed[name] = closed
             self._release_armed[name] = bool(
-                state.groups[name][index] <= self._gripper.close_threshold
+                state.groups[name][index] <= self._gripper["close_threshold"]
             )
             self._grasp_armed[name] = bool(
-                state.groups[name][index] >= self._gripper.open_threshold
+                state.groups[name][index] >= self._gripper["open_threshold"]
             )
             self._gripper_closed_since_ns[name] = state.monotonic_ns if closed else None
             if closed and self.uses_close_latch:
@@ -195,11 +199,9 @@ class SmoothExecutor:
     ) -> None:
         if self._gripper is None:
             return
-        assert self._previous is not None
-        assert self._previous_velocity is not None
-        min_closed_ns = int(self._gripper.min_closed_s * 1_000_000_000)
-        open_confirm_ns = int(self._gripper.open_confirm_s * 1_000_000_000)
-        for name, index in self._gripper.group_indices.items():
+        min_closed_ns = int(self._gripper["min_closed_s"] * 1_000_000_000)
+        open_confirm_ns = int(self._gripper["open_confirm_s"] * 1_000_000_000)
+        for name, index in self._gripper["group_indices"].items():
             if name in reference.hold_groups:
                 output[name][index] = self._previous[name][index]
                 velocities[name][index] = 0.0
@@ -208,7 +210,8 @@ class SmoothExecutor:
                 event = self._gripper_events.get(name)
                 if event is None or event.phase != "await_replan":
                     self.gripper_diagnostics[name] = {
-                        "release_blocked": True, "reason": "ik_hold",
+                        "release_blocked": True,
+                        "reason": "ik_hold",
                     }
                 continue
             desired = float(reference.groups[name][0, index])
@@ -220,18 +223,19 @@ class SmoothExecutor:
                     continue
                 desired = float(event.target[index])
             closed = self._gripper_closed[name]
-            if self._gripper.mode == "continuous":
+            if self._gripper["mode"] == "continuous":
                 goal = float(
                     np.clip(
                         desired,
-                        self._gripper.closed_value,
-                        self._gripper.open_value,
+                        self._gripper["closed_value"],
+                        self._gripper["open_value"],
                     )
                 )
             else:
                 close_requested = (
-                    desired < self._gripper.close_threshold if self.uses_close_latch
-                    else desired <= self._gripper.close_threshold
+                    desired < self._gripper["close_threshold"]
+                    if self.uses_close_latch
+                    else desired <= self._gripper["close_threshold"]
                 )
                 if not closed and close_requested:
                     closed = True
@@ -241,16 +245,14 @@ class SmoothExecutor:
                 elif closed:
                     closed_since = self._gripper_closed_since_ns[name]
                     hold_elapsed = (
-                        closed_since is not None
-                        and now_ns - closed_since >= min_closed_ns
+                        closed_since is not None and now_ns - closed_since >= min_closed_ns
                     )
-                    if hold_elapsed and desired >= self._gripper.open_threshold:
+                    if hold_elapsed and desired >= self._gripper["open_threshold"]:
                         candidate = self._gripper_open_candidate_ns[name]
                         if candidate is None:
                             self._gripper_open_candidate_ns[name] = now_ns
-                        if (
-                            (candidate is not None and now_ns - candidate >= open_confirm_ns)
-                            or (self.uses_close_latch and open_confirm_ns == 0)
+                        if (candidate is not None and now_ns - candidate >= open_confirm_ns) or (
+                            self.uses_close_latch and open_confirm_ns == 0
                         ):
                             closed = False
                             self._gripper_closed[name] = False
@@ -260,8 +262,11 @@ class SmoothExecutor:
                         self._gripper_open_candidate_ns[name] = None
 
                 goal = (
-                    self._gripper.closed_value if closed
-                    else desired if self.uses_close_latch else self._gripper.open_value
+                    self._gripper["closed_value"]
+                    if closed
+                    else desired
+                    if self.uses_close_latch
+                    else self._gripper["open_value"]
                 )
             previous = float(self._previous[name][index])
             previous_velocity = float(self._previous_velocity[name][index])
@@ -270,9 +275,9 @@ class SmoothExecutor:
                     np.asarray((goal - previous) / self._dt_s),
                     np.asarray(previous_velocity),
                     self._dt_s,
-                    self._gripper.max_velocity,
-                    self._gripper.max_acceleration,
-                    self._gripper.max_closing_velocity,
+                    self._gripper["max_velocity"],
+                    self._gripper["max_acceleration"],
+                    self._gripper["max_closing_velocity"],
                 )
             )
             command = previous + velocity * self._dt_s
@@ -281,15 +286,17 @@ class SmoothExecutor:
                     command,
                     # A close setpoint is not a mechanical lower bound. Starting
                     # below it must still respect the velocity/acceleration limits.
-                    0.0 if self.uses_close_latch else self._gripper.closed_value,
-                    self._gripper.open_value,
+                    0.0 if self.uses_close_latch else self._gripper["closed_value"],
+                    self._gripper["open_value"],
                 )
             )
             velocities[name][index] = velocity
             if self.uses_close_latch:
                 self.gripper_diagnostics[name] = {
-                    "mode": "close_latch", "latched_closed": closed,
-                    "desired_aperture": desired, "target_aperture": goal,
+                    "mode": "close_latch",
+                    "latched_closed": closed,
+                    "desired_aperture": desired,
+                    "target_aperture": goal,
                     "command_aperture": float(output[name][index]),
                 }
 
@@ -299,7 +306,10 @@ class SmoothExecutor:
         return float(np.arccos(np.clip(cosine, -1.0, 1.0)))
 
     def _gripper_reference(
-        self, now_ns: int, state: RobotState, reference: ActionHorizon,
+        self,
+        now_ns: int,
+        state: RobotState,
+        reference: ActionHorizon,
     ) -> ActionHorizon:
         """Finish a grasp/release at its captured pose, then await a fresh observation."""
         if self._release_guard is None:
@@ -311,17 +321,20 @@ class SmoothExecutor:
         tracking = copy_group_vector(reference.tracking_groups)
         holds = set(reference.hold_groups)
         kin = self._tracking_kinematics
-        for name, index in self._gripper.group_indices.items():
+        for name, index in self._gripper["group_indices"].items():
             measured = state.groups[name]
             if index != kin.num_arm_joints or len(measured) != kin.state_dim:
                 raise ValueError(
                     "gripper pose tracking requires packed arm joints followed by gripper"
                 )
             event = self._gripper_events.get(name)
-            if (event is not None and event.phase == "await_replan"
-                    and reference.observation_time_ns is not None
-                    and reference.observation_time_ns > event.failed_ns
-                    and name not in holds):
+            if (
+                event is not None
+                and event.phase == "await_replan"
+                and reference.observation_time_ns is not None
+                and reference.observation_time_ns > event.failed_ns
+                and name not in holds
+            ):
                 # A timeout is not a completed event. Resume only from a valid
                 # post-timeout observation, without latching this arm again.
                 del self._gripper_events[name]
@@ -330,37 +343,47 @@ class SmoothExecutor:
                 else:
                     self._release_armed[name] = False
                 event = None
-            if (event is not None and event.phase == "await_observation"
-                    and reference.observation_time_ns is not None
-                    and reference.observation_time_ns > event.completed_ns):
+            if (
+                event is not None
+                and event.phase == "await_observation"
+                and reference.observation_time_ns is not None
+                and reference.observation_time_ns > event.completed_ns
+            ):
                 del self._gripper_events[name]
                 self._release_armed[name] = event.kind == "grasp"
                 self._grasp_armed[name] = event.kind == "release"
                 event = None
             if event is None:
-                if self._previous[name][index] <= self._gripper.close_threshold:
+                if self._previous[name][index] <= self._gripper["close_threshold"]:
                     self._release_armed[name] = True
-                if (self._previous[name][index] >= self._gripper.open_threshold
-                        and measured[index] >= self._gripper.open_threshold):
+                if (
+                    self._previous[name][index] >= self._gripper["open_threshold"]
+                    and measured[index] >= self._gripper["open_threshold"]
+                ):
                     self._grasp_armed[name] = True
                 signal = float(tracking[name][index])
-                if (self._release_armed.get(name, False) and name not in holds
-                        and name not in self._release_bypassed
-                        and signal >= self._gripper.open_threshold):
+                if (
+                    self._release_armed.get(name, False)
+                    and name not in holds
+                    and name not in self._release_bypassed
+                    and signal >= self._gripper["open_threshold"]
+                ):
                     target = tracking[name].copy()
-                    target[index] = self._gripper.open_value
-                    event = _GripperEvent(
-                        target, reference.plan_id, phase_started_ns=int(now_ns)
-                    )
+                    target[index] = self._gripper["open_value"]
+                    event = _GripperEvent(target, reference.plan_id, phase_started_ns=int(now_ns))
                     self._gripper_events[name] = event
                     self._release_armed[name] = False
-                elif (self._grasp_guard is not None and self._grasp_armed.get(name, False)
-                        and name not in self._grasp_bypassed
-                        and name not in holds and signal < self._gripper.open_threshold):
+                elif (
+                    self._grasp_guard is not None
+                    and self._grasp_armed.get(name, False)
+                    and name not in self._grasp_bypassed
+                    and name not in holds
+                    and signal < self._gripper["open_threshold"]
+                ):
                     # Capture closure onset, not the late fully-closed waypoint
                     # that may already belong to the model's lifting trajectory.
                     target = tracking[name].copy()
-                    target[index] = self._gripper.closed_value
+                    target[index] = self._gripper["closed_value"]
                     event = _GripperEvent(
                         target, reference.plan_id, kind="grasp", phase_started_ns=int(now_ns)
                     )
@@ -368,7 +391,9 @@ class SmoothExecutor:
                     self._grasp_armed[name] = False
             if event is None:
                 self.gripper_diagnostics[name] = {
-                    "release_phase": "idle", "release_blocked": False, "grasp_phase": "idle",
+                    "release_phase": "idle",
+                    "release_blocked": False,
+                    "grasp_phase": "idle",
                     "grasp_guard_bypassed": name in self._grasp_bypassed,
                     "release_guard_bypassed": name in self._release_bypassed,
                     "desired_aperture": float(reference.groups[name][0, index]),
@@ -381,16 +406,17 @@ class SmoothExecutor:
             if event.kind == "grasp":
                 guard = self._grasp_guard
                 assert guard is not None
-                command_pose = kin.fk(self._previous[name][:index],
-                                      float(self._previous[name][index]))
+                command_pose = kin.fk(
+                    self._previous[name][:index], float(self._previous[name][index])
+                )
                 rotation_error = self._rotation_error(actual_pose, target_pose)
                 arrived = (
-                    error <= guard.position_tolerance_m
-                    and rotation_error <= guard.rotation_tolerance_rad
+                    error <= guard["position_tolerance_m"]
+                    and rotation_error <= guard["rotation_tolerance_rad"]
                     and np.linalg.norm(command_pose[:3, 3] - target_pose[:3, 3])
-                    <= guard.position_tolerance_m
+                    <= guard["position_tolerance_m"]
                     and self._rotation_error(command_pose, target_pose)
-                    <= guard.rotation_tolerance_rad
+                    <= guard["rotation_tolerance_rad"]
                     and np.max(np.abs(self._previous_velocity[name][:index])) <= 0.1
                 )
                 if event.phase == "approach" and arrived:
@@ -402,34 +428,43 @@ class SmoothExecutor:
                     # this confirms motion completion, not object detection.
                     ready = (
                         arrived
-                        and self._previous[name][index] <= self._gripper.closed_value + .02
-                        and measured[index] < self._gripper.open_threshold - .05
+                        and self._previous[name][index] <= self._gripper["closed_value"] + 0.02
+                        and measured[index] < self._gripper["open_threshold"] - 0.05
                     )
                     aperture = float(measured[index])
                     if not ready:
                         event.stable_since_ns = None
                         event.stable_aperture = None
-                    elif (event.stable_aperture is None
-                          or abs(aperture - event.stable_aperture) > guard.aperture_stability):
+                    elif (
+                        event.stable_aperture is None
+                        or abs(aperture - event.stable_aperture) > guard["aperture_stability"]
+                    ):
                         event.stable_since_ns = int(now_ns)
                         event.stable_aperture = aperture
-                    elif now_ns - event.stable_since_ns >= guard.settle_s * 1e9:
+                    elif now_ns - event.stable_since_ns >= guard["settle_s"] * 1e9:
                         event.phase = "await_observation"
                         event.completed_ns = int(now_ns)
-                timeout_s = guard.phase_timeout_s
+                timeout_s = guard["phase_timeout_s"]
             else:
-                if event.phase == "approach" and error <= self._release_guard.position_tolerance_m:
+                if (
+                    event.phase == "approach"
+                    and error <= self._release_guard["position_tolerance_m"]
+                ):
                     event.phase = "opening"
                     event.phase_started_ns = int(now_ns)
-                if (event.phase == "opening"
-                        and self._previous[name][index] >= self._gripper.open_value - .02
-                        and measured[index] >= self._gripper.open_value - .05):
+                if (
+                    event.phase == "opening"
+                    and self._previous[name][index] >= self._gripper["open_value"] - 0.02
+                    and measured[index] >= self._gripper["open_value"] - 0.05
+                ):
                     event.phase = "await_observation"
                     event.completed_ns = int(now_ns)
-                timeout_s = self._release_guard.phase_timeout_s
-            if (event.phase in {"approach", "closing", "opening"}
-                    and event.phase_started_ns is not None
-                    and now_ns - event.phase_started_ns >= timeout_s * 1e9):
+                timeout_s = self._release_guard["phase_timeout_s"]
+            if (
+                event.phase in {"approach", "closing", "opening"}
+                and event.phase_started_ns is not None
+                and now_ns - event.phase_started_ns >= timeout_s * 1e9
+            ):
                 event.failure_reason = f"{event.phase}_timeout"
                 event.failed_ns = int(now_ns)
                 event.phase = "await_replan"
@@ -464,8 +499,12 @@ class SmoothExecutor:
                 "release_guard_bypassed": name in self._release_bypassed,
             }
         return ActionHorizon(
-            reference.start_time_ns, reference.dt_ns, reference.plan_id, groups,
-            hold_groups=tuple(sorted(holds)), tracking_groups=tracking,
+            reference.start_time_ns,
+            reference.dt_ns,
+            reference.plan_id,
+            groups,
+            hold_groups=tuple(sorted(holds)),
+            tracking_groups=tracking,
             observation_time_ns=reference.observation_time_ns,
         )
 
@@ -477,8 +516,6 @@ class SmoothExecutor:
     ) -> RobotCommand:
         if self._previous is None or self._previous_velocity is None:
             self.reset(state)
-        assert self._previous is not None
-        assert self._previous_velocity is not None
         reference = self._gripper_reference(now_ns, state, reference)
         if reference.hold_groups and not self.braking_tracking:
             raise ValueError("per-group hold requires braking tracking")
@@ -487,7 +524,8 @@ class SmoothExecutor:
             target_velocity = {
                 name: (
                     (values[1] - values[0]) / (reference.dt_ns / 1e9)
-                    if len(values) > 1 else np.zeros_like(values[0])
+                    if len(values) > 1
+                    else np.zeros_like(values[0])
                 )
                 for name, values in reference.groups.items()
             }
@@ -495,37 +533,48 @@ class SmoothExecutor:
             for name in target:
                 limits = self._limits
                 approach_limited = False
-                if (self._grasp_guard is not None
-                        and self._grasp_guard.approach_max_velocity is not None
-                        and self._gripper is not None
-                        and name in self._gripper.group_indices):
+                if (
+                    self._grasp_guard is not None
+                    and self._grasp_guard["approach_max_velocity"] is not None
+                    and self._gripper is not None
+                    and name in self._gripper["group_indices"]
+                ):
                     event = self._gripper_events.get(name)
-                    index = self._gripper.group_indices[name]
+                    index = self._gripper["group_indices"][name]
                     approach_limited = (
-                        event is not None and event.kind == "grasp"
+                        event is not None
+                        and event.kind == "grasp"
                         and event.phase in {"approach", "closing"}
                     ) or (
                         event is None
-                        and self._previous[name][index] > self._gripper.close_threshold
+                        and self._previous[name][index] > self._gripper["close_threshold"]
                     )
                     if approach_limited:
-                        approach_velocity = self._grasp_guard.approach_max_velocity
+                        approach_velocity = self._grasp_guard["approach_max_velocity"]
                         limits = ScalarLimits(
-                            approach_velocity if limits.max_velocity is None else min(
-                                limits.max_velocity, approach_velocity
-                            ),
-                            limits.max_acceleration, limits.position_limit_abs,
-                            limits.mode, limits.max_step_dt_s,
+                            approach_velocity
+                            if limits.max_velocity is None
+                            else min(limits.max_velocity, approach_velocity),
+                            limits.max_acceleration,
+                            limits.position_limit_abs,
+                            limits.mode,
+                            limits.max_step_dt_s,
                         )
-                    self.gripper_diagnostics.setdefault(name, {}).update({
-                        "approach_speed_limited": bool(approach_limited),
-                        "arm_velocity_limit_rad_s": limits.max_velocity,
-                    })
+                    self.gripper_diagnostics.setdefault(name, {}).update(
+                        {
+                            "approach_speed_limited": bool(approach_limited),
+                            "arm_velocity_limit_rad_s": limits.max_velocity,
+                        }
+                    )
                 group_output, group_velocity = tracking_step(
-                    {name: target[name]}, {name: target_velocity[name]},
-                    {name: self._previous[name]}, {name: self._previous_velocity[name]},
-                    dt_s=self._dt_s, position_gain=self._alpha / self._dt_s, limits=limits,
-                    gripper_indices=self._gripper.group_indices if self._gripper else None,
+                    {name: target[name]},
+                    {name: target_velocity[name]},
+                    {name: self._previous[name]},
+                    {name: self._previous_velocity[name]},
+                    dt_s=self._dt_s,
+                    position_gain=self._alpha / self._dt_s,
+                    limits=limits,
+                    gripper_indices=self._gripper["group_indices"] if self._gripper else None,
                 )
                 output.update(group_output)
                 velocities.update(group_velocity)
@@ -535,17 +584,22 @@ class SmoothExecutor:
                 for name, values in reference.groups.items()
             }
             output, velocities = limit_step(
-                target, self._previous, self._previous_velocity,
-                dt_s=self._dt_s, limits=self._limits,
-                gripper_indices=self._gripper.group_indices if self._gripper else None,
+                target,
+                self._previous,
+                self._previous_velocity,
+                dt_s=self._dt_s,
+                limits=self._limits,
+                gripper_indices=self._gripper["group_indices"] if self._gripper else None,
             )
         for name in reference.hold_groups:
             velocity = self._previous_velocity[name]
             velocities[name] = decelerate_velocity(
-                velocity, self._limits.max_acceleration, self._dt_s,
+                velocity,
+                self._limits.max_acceleration,
+                self._dt_s,
                 mode=self._limits.mode,
                 independent_index=(
-                    self._gripper.group_indices.get(name) if self._gripper else None
+                    self._gripper["group_indices"].get(name) if self._gripper else None
                 ),
             )
             output[name] = self._previous[name] + velocities[name] * self._dt_s
@@ -553,3 +607,101 @@ class SmoothExecutor:
         self._previous = copy_group_vector(output)
         self._previous_velocity = copy_group_vector(velocities)
         return RobotCommand(groups=output, monotonic_ns=now_ns, plan_id=reference.plan_id)
+
+
+def gripper_hysteresis_parameters(**options) -> dict:
+    """保留夹爪阈值、闭合保持时间和连续/锁存模式。"""
+
+    values = {
+        "mode": "hysteresis",
+        "close_threshold": 0.35,
+        "open_threshold": 0.85,
+        "min_closed_s": 0.0,
+        "open_confirm_s": 0.0,
+        "max_velocity": 3.0,
+        "max_acceleration": 12.0,
+        "max_closing_velocity": None,
+        "closed_value": 0.0,
+        "open_value": 1.0,
+        **options,
+    }
+    if not values["group_indices"]:
+        raise ValueError("gripper group_indices must not be empty")
+    if any((not name or index < 0 for name, index in values["group_indices"].items())):
+        raise ValueError("gripper group_indices must map non-empty names to non-negative indices")
+    if values["close_threshold"] >= values["open_threshold"]:
+        raise ValueError("gripper close_threshold must be below open_threshold")
+    if values["closed_value"] >= values["open_value"]:
+        raise ValueError("gripper closed_value must be below open_value")
+    if values["mode"] == "close_latch" and (
+        not values["closed_value"]
+        < values["close_threshold"]
+        < values["open_threshold"]
+        <= values["open_value"]
+    ):
+        raise ValueError(
+            "close_latch requires closed_value < close_threshold < open_threshold <= open_value"
+        )
+    return values
+
+
+def gripper_release_guard_parameters(**options) -> dict:
+    """保留释放前的位姿容差与超时；只供启用该保护的执行器使用。"""
+
+    values = {
+        "mode": "latched_release",
+        "kinematics": "yam",
+        "kinematics_options": {},
+        "position_tolerance_m": 0.02,
+        "phase_timeout_s": 2.0,
+        **options,
+    }
+    return values
+
+
+def gripper_grasp_guard_parameters(**options) -> dict:
+    """保留抓取稳定条件，避免夹爪尚未闭合时提前移动。"""
+
+    values = {
+        "position_tolerance_m": 0.02,
+        "rotation_tolerance_rad": 0.0872664626,
+        "settle_s": 0.15,
+        "aperture_stability": 0.01,
+        "phase_timeout_s": 2.0,
+        "approach_max_velocity": None,
+        **options,
+    }
+    return values
+
+
+def smooth_parameters(**options) -> dict:
+    """保留原平滑参数；显式共享限位由实验入口合并。"""
+
+    values = {
+        "max_velocity": 2.0,
+        "max_acceleration": 8.0,
+        "position_limit_abs": 3.14,
+        "mode": "per_joint",
+        "max_step_dt_s": None,
+        "cutoff_hz": 8.0,
+        "tracking_mode": "legacy",
+        "gripper": None,
+        "release_guard": None,
+        "grasp_guard": None,
+        **options,
+    }
+    if values.get("gripper") is not None:
+        values["gripper"] = gripper_hysteresis_parameters(**values["gripper"])
+    if values.get("release_guard") is not None:
+        values["release_guard"] = gripper_release_guard_parameters(**values["release_guard"])
+    if values.get("grasp_guard") is not None:
+        values["grasp_guard"] = gripper_grasp_guard_parameters(**values["grasp_guard"])
+    if values["grasp_guard"] and values["release_guard"] is None:
+        raise ValueError("grasp_guard requires release_guard for shared pose tracking")
+    if values["release_guard"] and (
+        values["gripper"] is None or values["gripper"]["mode"] != "continuous"
+    ):
+        raise ValueError("release_guard requires a continuous gripper")
+    if values["release_guard"] and values["tracking_mode"] != "braking":
+        raise ValueError("latched_release requires braking tracking")
+    return values

@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from manimux.clock import Clock
-from manimux.config import SensorConfig
 from manimux.sensors.camera_server.client import CameraClient
 from manimux.types import SensorFrame
 
@@ -13,9 +12,9 @@ from manimux.types import SensorFrame
 class CameraServerSensorDriver:
     """Read one coherent multi-camera bundle with one ZMQ request."""
 
-    def __init__(self, config: SensorConfig, clock: Clock) -> None:
-        endpoint = config.options.get("endpoint", "tcp://127.0.0.1:5555")
-        camera_names = config.options.get(
+    def __init__(self, config: dict, clock: Clock) -> None:
+        endpoint = config["options"].get("endpoint", "tcp://127.0.0.1:5555")
+        camera_names = config["options"].get(
             "camera_names",
             ["left_camera", "front_camera", "right_camera"],
         )
@@ -29,8 +28,8 @@ class CameraServerSensorDriver:
             raise ValueError("sensor.options.camera_names must be a list of strings")
         self._endpoint = endpoint
         self._camera_names = tuple(camera_names)
-        self._request_timeout_ms = int(config.options.get("request_timeout_ms", 500))
-        max_age = config.options.get("max_frame_age_sec", 0.5)
+        self._request_timeout_ms = int(config["options"].get("request_timeout_ms", 500))
+        max_age = config["options"].get("max_frame_age_sec", 0.5)
         self._max_frame_age_sec = None if max_age is None else float(max_age)
         self._clock = clock
         self._client: CameraClient | None = None
@@ -74,5 +73,5 @@ class CameraServerSensorDriver:
             self._client = None
 
 
-def build_sensor(config: SensorConfig, clock: Clock) -> CameraServerSensorDriver:
+def build_sensor(config: dict, clock: Clock) -> CameraServerSensorDriver:
     return CameraServerSensorDriver(config, clock)

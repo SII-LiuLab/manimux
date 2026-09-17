@@ -29,7 +29,7 @@ def build_arm_units(cfg: StationConfig, mock=False, followers_only=False) -> lis
         raise RuntimeError("Use manimux serve for policy deployment")
     mock = mock or cfg.robot.type == "mock"
     config = load_backend_config(cfg, mock=mock)
-    if abs(config.policy.action_dt_s * cfg.control_hz - 1.0) > 1e-6:
+    if abs(config["policy"]["action_dt_s"] * cfg.control_hz - 1.0) > 1e-6:
         raise ValueError("station control_hz must match runtime policy.action_dt_s")
     backend = CollectionBackend(
         config,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from enum import StrEnum
 
 import numpy as np
@@ -43,9 +44,7 @@ class SafetyGuard:
         self._position_lower = self._normalize_limits("position_lower", position_lower)
         self._position_upper = self._normalize_limits("position_upper", position_upper)
         self._max_velocity = self._normalize_limits("max_velocity", max_velocity)
-        self._max_acceleration = self._normalize_limits(
-            "max_acceleration", max_acceleration
-        )
+        self._max_acceleration = self._normalize_limits("max_acceleration", max_acceleration)
         self._rate_limits_enabled = bool(self._max_velocity)
         if self._rate_limits_enabled and (control_dt_s is None or control_dt_s <= 0):
             raise ValueError("control_dt_s must be positive when command rate limits are set")
@@ -106,18 +105,15 @@ class SafetyGuard:
             values = command.groups[name]
             if values.shape != (dim,) or not np.isfinite(values).all():
                 raise ValueError(f"command group {name!r} is invalid")
-            if (
-                self._position_limit_abs is not None
-                and np.any(np.abs(values) > self._position_limit_abs)
+            if self._position_limit_abs is not None and np.any(
+                np.abs(values) > self._position_limit_abs
             ):
                 raise ValueError(f"command group {name!r} exceeds the position limit")
             self._validate_positions(name, values, label="command")
             if not self._rate_limits_enabled:
                 continue
             if self._previous_command is None or self._previous_velocity is None:
-                raise RuntimeError(
-                    "command safety rate checker must be reset from measured state"
-                )
+                raise RuntimeError("command safety rate checker must be reset from measured state")
             assert self._control_dt_s is not None
             velocity = (values - self._previous_command[name]) / self._control_dt_s
             velocity_excess = np.abs(velocity) - self._max_velocity[name]
@@ -129,9 +125,7 @@ class SafetyGuard:
                     f"{self._max_velocity[name][index]:.6f}"
                 )
             if self._max_acceleration:
-                acceleration = (
-                    velocity - self._previous_velocity[name]
-                ) / self._control_dt_s
+                acceleration = (velocity - self._previous_velocity[name]) / self._control_dt_s
                 acceleration_excess = np.abs(acceleration) - self._max_acceleration[name]
                 if np.any(acceleration_excess > 1e-8):
                     index = int(np.argmax(acceleration_excess))
@@ -147,3 +141,57 @@ class SafetyGuard:
             self._previous_velocity = {
                 name: velocity.copy() for name, velocity in candidate_velocity.items()
             }
+
+
+def command_safety_parameters(**options) -> dict:
+    """补齐本模块的默认参数；返回独立字典，不创建配置对象。"""
+
+    values = {
+        "position_lower": {},
+        "position_upper": {},
+        "max_velocity": {},
+        "max_acceleration": {},
+        **options,
+    }
+    values["max_acceleration"] = values["max_acceleration"] or {}
+    mappings: tuple[dict[str, list[float]], ...] = (
+        values["position_lower"],
+        values["position_upper"],
+        values["max_velocity"],
+    )
+    populated = [bool(values) for values in mappings]
+    if not any(populated) and (not values["max_acceleration"]):
+        return values
+    if not all(populated):
+        raise ValueError(
+            "execution.command_safety requires position_lower, position_upper, "
+            "and max_velocity together; max_acceleration is optional"
+        )
+    if values["max_acceleration"]:
+        mappings += (values["max_acceleration"],)
+    groups = set(values["position_lower"])
+    if not groups or any(set(values) != groups for values in mappings[1:]):
+        raise ValueError("execution.command_safety mappings must contain the same groups")
+    for group in groups:
+        lower = values["position_lower"][group]
+        upper = values["position_upper"][group]
+        velocity = values["max_velocity"][group]
+        acceleration = values["max_acceleration"].get(group, [])
+        dimensions = {len(mapping[group]) for mapping in mappings}
+        if dimensions == {0} or len(dimensions) != 1:
+            raise ValueError(
+                f"execution.command_safety group {group!r} vectors must share "
+                "one non-zero dimension"
+            )
+        samples = lower + upper + velocity + acceleration
+        if not all(math.isfinite(value) for value in samples):
+            raise ValueError(f"execution.command_safety group {group!r} must be finite")
+        if any((lo >= hi for lo, hi in zip(lower, upper, strict=True))):
+            raise ValueError(
+                f"execution.command_safety group {group!r} has invalid position bounds"
+            )
+        if any(value <= 0 for value in velocity + acceleration):
+            raise ValueError(
+                f"execution.command_safety group {group!r} rate limits must be positive"
+            )
+    return values

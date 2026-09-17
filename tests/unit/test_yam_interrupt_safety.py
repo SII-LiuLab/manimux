@@ -15,8 +15,8 @@ import time
 import numpy as np
 import pytest
 
+from manimux.cli import load_config
 from manimux.clock import SystemClock
-from manimux.config import load_config
 from manimux.robots.yam import YamDualArmDriver
 
 
@@ -69,10 +69,10 @@ class _Bimanual:
 
 def _live_driver() -> tuple[YamDualArmDriver, _Bimanual]:
     config = load_config("configs/molmoact2/yam/infra/manimux.yaml")
-    config.robot.options["home_duration_s"] = 0.4
-    config.robot.options["home_gripper_release_duration_s"] = 0.1
-    config.robot.options["start_duration_s"] = 0.4
-    driver = YamDualArmDriver(config.robot, SystemClock())
+    config["robot"]["options"]["home_duration_s"] = 0.4
+    config["robot"]["options"]["home_gripper_release_duration_s"] = 0.1
+    config["robot"]["options"]["start_duration_s"] = 0.4
+    driver = YamDualArmDriver(config["robot"], SystemClock())
     backend = _Bimanual()
     driver._robot = backend
     return driver, backend

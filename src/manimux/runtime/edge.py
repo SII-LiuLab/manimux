@@ -3,16 +3,17 @@ from __future__ import annotations
 import re
 import time
 import uuid
+from copy import deepcopy
 from dataclasses import dataclass, replace
+from json import dumps, loads
 from pathlib import Path
 
 from manimux.clock import Clock, SystemClock
-from manimux.config import ManiMuxConfig
+from manimux.embodiments.robot import RobotBase, build_robot
 from manimux.policies import ActionDecoderClient, PolicyCapabilities, build_policy_adapter
-from manimux.policies.base import decode_policy_action, prepare_policy_request
+from manimux.policies.base import action_interval, decode_policy_action, prepare_policy_request
 from manimux.policies.worker import PolicyWorkerClient
 from manimux.recording import EpisodeRecorder
-from manimux.robots import build_robot
 from manimux.robots.base import RobotDriver
 from manimux.runtime.diagnostics import build_plan_boundary_payload
 from manimux.runtime.executors import DirectExecutor, Executor, MPCExecutor, SmoothExecutor
@@ -91,7 +92,7 @@ class EdgeRuntime:
 
     def __init__(
         self,
-        config: ManiMuxConfig,
+        config: dict,
         run_dir: Path,
         *,
         clock: Clock | None = None,
@@ -101,71 +102,77 @@ class EdgeRuntime:
         self._config = config
         self._run_dir = run_dir
         self._clock = clock or SystemClock()
-        self._control_dt_ns = int(1_000_000_000 / config.robot.control_hz)
+        self._control_dt_ns = int(1_000_000_000 / config["robot"]["control_hz"])
         self._robot = self._build_robot()
-        self._sensors = [build_sensor(sensor, self._clock) for sensor in config.sensors]
-        self._adapter = build_policy_adapter(config.robot, config.policy)
-        self._adapter.validate(config.robot, config.policy)
-        if config.execution.independent_group_decoding and not getattr(
+        self._sensors = [build_sensor(sensor, self._clock) for sensor in config["sensors"]]
+        # New embodiment adapters share robot FK/IK. Legacy factories keep their
+        # existing call signature; decoder subprocesses reconstruct offline models.
+        if isinstance(self._robot, RobotBase):
+            self._adapter = build_policy_adapter(
+                config["robot"], config["policy"], kinematics=self._robot.kinematics
+            )
+        else:
+            self._adapter = build_policy_adapter(config["robot"], config["policy"])
+        self._adapter.validate(config["robot"], config["policy"])
+        if config["execution"]["independent_group_decoding"] and not getattr(
             self._adapter, "supports_independent_group_decode", False
         ):
             raise ValueError("adapter does not support independent group decoding")
         self._strategy = strategy or DefaultChunkStrategy(config)
         self._decoder = None
-        if config.policy.action_decoding == "process":
+        if config["policy"]["action_decoding"] == "process":
             # A plugin may wrap the default strategy (the UMI history plugin
             # does); the constructed strategy decides, not the plugin path.
             if self._strategy.name not in {"manimux", "rtc"}:
                 raise ValueError("process action decoding requires the manimux or rtc strategy")
-            self._decoder = ActionDecoderClient(config.robot, config.policy, self._adapter)
+            self._decoder = ActionDecoderClient(config["robot"], config["policy"], self._adapter)
         self._session_id = f"session-{uuid.uuid4().hex}"
-        self._worker = PolicyWorkerClient(config.policy, self._session_id)
+        self._worker = PolicyWorkerClient(config["policy"], self._session_id)
         self._timeline = self._build_timeline()
         self._executor = self._build_executor()
         self._launch_mode = launch_mode
         position_limit_abs = None
-        if config.execution.executor == "smooth":
-            position_limit_abs = config.execution.smooth.position_limit_abs
-        elif config.execution.executor == "mpc":
-            position_limit_abs = config.execution.mpc.position_limit_abs
-        command_safety = config.execution.command_safety
+        if config["execution"]["executor"] == "smooth":
+            position_limit_abs = config["execution"]["smooth"]["position_limit_abs"]
+        elif config["execution"]["executor"] == "mpc":
+            position_limit_abs = config["execution"]["mpc"]["position_limit_abs"]
+        command_safety = config["execution"]["command_safety"]
         self._safety = SafetyGuard(
-            config.robot.group_dims,
+            config["robot"]["group_dims"],
             position_limit_abs,
-            position_lower=command_safety.position_lower,
-            position_upper=command_safety.position_upper,
-            max_velocity=command_safety.max_velocity,
-            max_acceleration=command_safety.max_acceleration,
+            position_lower=command_safety["position_lower"],
+            position_upper=command_safety["position_upper"],
+            max_velocity=command_safety["max_velocity"],
+            max_acceleration=command_safety["max_acceleration"],
             control_dt_s=self._control_dt_ns / 1_000_000_000,
         )
         self._viewer = ViewerBridge(
-            enabled=config.viewer.enabled,
-            robot_adapter=config.viewer.robot_adapter,
-            group_order=list(config.robot.group_dims),
-            policy=config.viewer.policy_label or "manimux-local",
-            instruction=config.run.task if config.viewer.policy_label else "",
-            camera_hz=config.viewer.camera_hz,
+            enabled=config["viewer"]["enabled"],
+            robot=config["viewer"]["robot"],
+            policy=config["viewer"]["policy_label"] or "manimux-local",
+            instruction=config["run"]["task"] if config["viewer"]["policy_label"] else "",
+            camera_hz=config["viewer"]["camera_hz"],
         )
         self._state = RuntimeState.DISCONNECTED
 
     def _build_robot(self) -> RobotDriver:
-        return build_robot(self._config.robot, self._clock)
+        return build_robot(self._config["robot"], self._clock)
 
     def _build_executor(self) -> Executor:
         control_dt_s = self._control_dt_ns / 1_000_000_000
-        if self._config.execution.executor == "direct":
-            return DirectExecutor(self._config.execution.motion_limits, control_dt_s)
-        if self._config.execution.executor == "smooth":
-            return SmoothExecutor(self._config.execution.smooth, control_dt_s)
-        if self._config.execution.motion_limits is not None:
+        if self._config["execution"]["executor"] == "direct":
+            return DirectExecutor(self._config["execution"]["motion_limits"], control_dt_s)
+        if self._config["execution"]["executor"] == "smooth":
+            return SmoothExecutor(self._config["execution"]["smooth"], control_dt_s)
+        if self._config["execution"]["motion_limits"] is not None:
             raise ValueError("shared motion_limits currently support direct and smooth, not mpc")
-        return MPCExecutor(self._config.execution.mpc, control_dt_s)
+        return MPCExecutor(self._config["execution"]["mpc"], control_dt_s)
 
     def _build_timeline(self) -> ActionTimeline:
         return ActionTimeline(
-            self._config.robot.group_dims,
-            max_source_steps=self._config.execution.max_chunk_steps,
-            start_on_commit=self._config.execution.inference_schedule == "serial",
+            self._config["robot"]["group_dims"],
+            max_source_steps=self._config["execution"]["max_chunk_steps"],
+            start_on_commit=self._config["execution"]["inference_schedule"] == "serial",
         )
 
     def _hold_command(self, now_ns: int, groups: GroupVector) -> RobotCommand:
@@ -184,10 +191,10 @@ class EdgeRuntime:
         or at its end if it finishes first. Without an active reference the arm
         holds still and the measurement remains the seed.
         """
-        execution = self._config.execution
-        start_ns = now_ns + int((execution.commit_lead_s + execution.expected_decode_s) * 1e9)
+        execution = self._config["execution"]
+        start_ns = now_ns + int((execution["commit_lead_s"] + execution["expected_decode_s"]) * 1e9)
         remaining_ns = self._timeline.remaining_ns(now_ns)
-        if execution.expected_decode_s > 0 and remaining_ns > 0:
+        if execution["expected_decode_s"] > 0 and remaining_ns > 0:
             reference = self._timeline.sample(min(start_ns, now_ns + remaining_ns))
             if reference is not None:
                 return start_ns, RobotState(reference, start_ns, state.sequence), "active_reference"
@@ -201,10 +208,12 @@ class EdgeRuntime:
                 f"execution strategy {self._strategy.name!r} requires sampling modes "
                 f"{sorted(missing)} that the policy server does not advertise"
             )
-        expected = self._config.policy.expected_backend
+        expected = self._config["policy"]["expected_backend"]
         if expected is None:
             return
-        expected_metadata = expected.model_dump(mode="python", exclude_none=True)
+        expected_metadata = {
+            key: value for key, value in deepcopy(expected).items() if value is not None
+        }
         mismatches = _metadata_mismatches(expected_metadata, capabilities.backend_metadata)
         if mismatches:
             details = "; ".join(mismatches)
@@ -216,35 +225,35 @@ class EdgeRuntime:
         recorder = EpisodeRecorder(
             self._run_dir,
             episode_id,
-            self._config.robot.group_dims,
+            self._config["robot"]["group_dims"],
             metadata={
                 "episode_id": episode_id,
                 "session_id": self._session_id,
-                "task": self._config.run.task,
-                "executor_kind": self._config.execution.executor,
+                "task": self._config["run"]["task"],
+                "executor_kind": self._config["execution"]["executor"],
                 "smooth": (
-                    self._config.execution.smooth.model_dump(mode="json")
-                    if self._config.execution.executor == "smooth"
+                    loads(dumps(deepcopy(self._config["execution"]["smooth"]), default=str))
+                    if self._config["execution"]["executor"] == "smooth"
                     else None
                 ),
                 "runtime": self._strategy.name,
-                "policy_label": self._config.viewer.policy_label,
-                "policy_worker": self._config.policy.worker,
-                "policy_adapter": self._config.policy.adapter,
-                "view_profile": self._config.policy.options.get("view_profile"),
-                "camera_map": self._config.policy.options.get("camera_map", {}),
-                "action_dt_s": self._config.policy.effective_action_dt_s,
-                "horizon_steps": self._config.policy.horizon_steps,
-                "max_chunk_steps": self._config.execution.max_chunk_steps,
-                "blend_steps": self._config.execution.blend_steps,
-                "experiment_mode": self._config.run.experiment_mode,
-                "layout_id": self._config.run.layout_id,
+                "policy_label": self._config["viewer"]["policy_label"],
+                "policy_worker": self._config["policy"]["worker"],
+                "policy_adapter": self._config["policy"]["adapter"],
+                "view_profile": self._config["policy"]["options"].get("view_profile"),
+                "camera_map": self._config["policy"]["options"].get("camera_map", {}),
+                "action_dt_s": action_interval(self._config["policy"]),
+                "horizon_steps": self._config["policy"]["horizon_steps"],
+                "max_chunk_steps": self._config["execution"]["max_chunk_steps"],
+                "blend_steps": self._config["execution"]["blend_steps"],
+                "experiment_mode": self._config["run"]["experiment_mode"],
+                "layout_id": self._config["run"]["layout_id"],
                 "launch_mode": self._launch_mode,
                 "policy_backend": {},
             },
-            video_fps=self._config.recording.video_fps,
-            video_codec=self._config.recording.video_codec,
-            video_queue_size=self._config.recording.video_queue_size,
+            video_fps=self._config["recording"]["video_fps"],
+            video_codec=self._config["recording"]["video_codec"],
+            video_queue_size=self._config["recording"]["video_queue_size"],
         )
         accepted_plans = 0
         rejected_plans = 0
@@ -261,7 +270,7 @@ class EdgeRuntime:
         completed = False
         terminal_reason = "completed"
         abort_reason = "runtime_exception"
-        home_on_close = bool(self._config.robot.options.get("home_on_close", False))
+        home_on_close = bool(self._config["robot"]["options"].get("home_on_close", False))
         try:
             for sensor in self._sensors:
                 sensor.start()
@@ -288,21 +297,21 @@ class EdgeRuntime:
                 "episode_id": episode_id,
                 "episode_dir": str(recorder.final_dir.resolve()),
                 "run_dir": str(self._run_dir.resolve()),
-                "instruction": self._config.run.task,
-                "max_steps": self._config.run.max_steps,
+                "instruction": self._config["run"]["task"],
+                "max_steps": self._config["run"]["max_steps"],
                 "control_mode": self._strategy.control_mode,
                 "runtime": self._strategy.name,
-                "executor": self._config.execution.executor,
-                "policy_label": self._config.viewer.policy_label,
-                "experiment_mode": self._config.run.experiment_mode,
-                "camera_map": self._config.policy.options.get("camera_map", {}),
-                "layout_id": self._config.run.layout_id,
+                "executor": self._config["execution"]["executor"],
+                "policy_label": self._config["viewer"]["policy_label"],
+                "experiment_mode": self._config["run"]["experiment_mode"],
+                "camera_map": self._config["policy"]["options"].get("camera_map", {}),
+                "layout_id": self._config["run"]["layout_id"],
                 "launch_mode": self._launch_mode,
             }
             viewer_episode_metadata["recovery_available"] = (
                 self._launch_mode == "serve"
-                and self._config.robot.driver == "tianji_dual"
-                and self._config.robot.options.get("execute") is True
+                and self._config["robot"]["type"] == "tianji_dual"
+                and self._config["robot"]["options"].get("execute") is True
             )
             self._viewer.set_state_metadata(viewer_episode_metadata)
             self._viewer.publish_event(
@@ -311,7 +320,7 @@ class EdgeRuntime:
             )
             next_tick_ns = self._clock.now_ns()
 
-            while steps < self._config.run.max_steps:
+            while steps < self._config["run"]["max_steps"]:
                 loop_start_ns = self._clock.now_ns()
                 now_ns = loop_start_ns
                 state = self._robot.get_state()
@@ -348,7 +357,7 @@ class EdgeRuntime:
                     continue
                 if viewer_control.paused and (
                     self._decoder is not None
-                    or self._config.execution.inference_schedule == "serial"
+                    or self._config["execution"]["inference_schedule"] == "serial"
                     or getattr(self._strategy, "discard_plans_while_paused", False)
                 ):
                     # RTC conditions must not refer to the timeline discarded
@@ -399,11 +408,13 @@ class EdgeRuntime:
                                     created_time_ns=response.finished_time_ns,
                                     execution_time_ns=start_ns,
                                     measured_state=seed,
-                                    max_source_steps=self._config.execution.max_chunk_steps,
-                                    independent_groups=self._config.execution.independent_group_decoding,
+                                    max_source_steps=self._config["execution"]["max_chunk_steps"],
+                                    independent_groups=self._config["execution"][
+                                        "independent_group_decoding"
+                                    ],
                                     decode_budget_ms=(
-                                        self._config.execution.decode_budget_ms
-                                        if self._config.execution.independent_group_decoding
+                                        self._config["execution"]["decode_budget_ms"]
+                                        if self._config["execution"]["independent_group_decoding"]
                                         else None
                                     ),
                                 ),
@@ -463,13 +474,16 @@ class EdgeRuntime:
                                         execution_time_ns=(
                                             now_ns
                                             + int(
-                                                self._config.execution.commit_lead_s * 1_000_000_000
+                                                self._config["execution"]["commit_lead_s"]
+                                                * 1_000_000_000
                                             )
                                             if self._strategy.name in {"manimux", "rtc"}
                                             else None
                                         ),
                                         measured_state=state,
-                                        max_source_steps=self._config.execution.max_chunk_steps,
+                                        max_source_steps=self._config["execution"][
+                                            "max_chunk_steps"
+                                        ],
                                     ),
                                 )
                             )
@@ -559,7 +573,7 @@ class EdgeRuntime:
                             chunk.metadata["observation_to_commit_ms"] = (
                                 now_ns - chunk.observation_time_ns
                             ) / 1e6
-                            commit_lead_ns = int(self._config.execution.commit_lead_s * 1e9)
+                            commit_lead_ns = int(self._config["execution"]["commit_lead_s"] * 1e9)
                             source_end_ns = (
                                 chunk.observation_time_ns
                                 + (chunk.source_offset_steps + chunk.horizon_steps - 1)
@@ -576,7 +590,7 @@ class EdgeRuntime:
                                     now_ns=now_ns,
                                     commit_lead_ns=commit_lead_ns,
                                     max_plan_age_ns=int(
-                                        self._config.execution.max_plan_age_s * 1_000_000_000
+                                        self._config["execution"]["max_plan_age_s"] * 1_000_000_000
                                     ),
                                     current_command=commit.current_command,
                                     blend_steps=commit.blend_steps,
@@ -716,7 +730,7 @@ class EdgeRuntime:
                         active_chunk_index = self._timeline.cursor(now_ns)
                         visual_fields: dict[str, object] = {
                             "runtime": self._strategy.name,
-                            "horizon_steps": self._config.policy.horizon_steps,
+                            "horizon_steps": self._config["policy"]["horizon_steps"],
                             "active_chunk_id": active_chunk_id,
                             "active_chunk_index": active_chunk_index,
                             "active_horizon_steps": (
@@ -727,7 +741,7 @@ class EdgeRuntime:
                         if bool(submission.event_fields.get("conditioned", False)):
                             executed_steps = int(submission.event_fields.get("executed_steps", 0))
                             visual_fields["conditioned_overlap_steps"] = max(
-                                0, self._config.policy.horizon_steps - executed_steps
+                                0, self._config["policy"]["horizon_steps"] - executed_steps
                             )
                             visual_fields["frozen_steps"] = int(
                                 submission.event_fields.get("forecast_delay", 0)
@@ -755,27 +769,28 @@ class EdgeRuntime:
                         name: values[0].copy() for name, values in reference.groups.items()
                     }
                     command = self._executor.step(now_ns, state, reference)
-                    if (
-                        isinstance(self._executor, SmoothExecutor)
-                        and (
-                            self._config.execution.smooth.release_guard is not None
-                            or self._executor.uses_close_latch
-                        )
+                    if isinstance(self._executor, SmoothExecutor) and (
+                        self._config["execution"]["smooth"]["release_guard"] is not None
+                        or self._executor.uses_close_latch
                     ):
                         recorder.event(
-                            "gripper_decision", step=steps, monotonic_ns=now_ns,
-                            plan_id=reference.plan_id, groups=self._executor.gripper_diagnostics,
+                            "gripper_decision",
+                            step=steps,
+                            monotonic_ns=now_ns,
+                            plan_id=reference.plan_id,
+                            groups=self._executor.gripper_diagnostics,
                         )
                 elif (
                     self._state == RuntimeState.RUNNING
-                    and self._config.execution.inference_schedule == "serial"
+                    and self._config["execution"]["inference_schedule"] == "serial"
                 ):
                     # Keep the last command fixed while waiting for the next chunk.
                     # Reset executor velocity history to the held command, so a new
                     # chunk does not resume with velocity left over before the wait.
                     held_state = RobotState(
                         groups=copy_group_vector(last_command),
-                        monotonic_ns=now_ns, sequence=state.sequence,
+                        monotonic_ns=now_ns,
+                        sequence=state.sequence,
                     )
                     if isinstance(self._executor, SmoothExecutor):
                         command = self._executor.hold(now_ns, held_state)
@@ -791,12 +806,16 @@ class EdgeRuntime:
                     command = self._executor.brake_hold(now_ns, state)
                     if self._executor.has_pending_gripper_event:
                         recorder.event(
-                            "gripper_decision", step=steps, monotonic_ns=now_ns,
-                            plan_id=None, groups=self._executor.gripper_diagnostics,
+                            "gripper_decision",
+                            step=steps,
+                            monotonic_ns=now_ns,
+                            plan_id=None,
+                            groups=self._executor.gripper_diagnostics,
                         )
                 else:
-                    if (self._state == RuntimeState.RUNNING
-                            and isinstance(self._executor, SmoothExecutor)):
+                    if self._state == RuntimeState.RUNNING and isinstance(
+                        self._executor, SmoothExecutor
+                    ):
                         command = self._executor.hold(now_ns, state)
                         command.plan_id = self._timeline.active_plan_id
                     else:
@@ -804,9 +823,13 @@ class EdgeRuntime:
                         command = self._hold_command(now_ns, state.groups)
                     # Arm holds retain their measured anchor; a latched gripper
                     # retains its already-sent command, which can differ at contact.
-                    self._safety.reset(RobotState(
-                        copy_group_vector(command.groups), now_ns, state.sequence,
-                    ))
+                    self._safety.reset(
+                        RobotState(
+                            copy_group_vector(command.groups),
+                            now_ns,
+                            state.sequence,
+                        )
+                    )
                 self._safety.validate_command(command)
                 self._robot.send_command(command)
                 previous_command = copy_group_vector(last_command)
@@ -815,7 +838,7 @@ class EdgeRuntime:
                     state,
                     frames,
                     step=steps,
-                    max_steps=self._config.run.max_steps,
+                    max_steps=self._config["run"]["max_steps"],
                     chunk_index=self._timeline.cursor(now_ns),
                     active_chunk_id=(
                         None
@@ -897,12 +920,7 @@ class EdgeRuntime:
             except BaseException as exc:
                 stopped_cleanly = False
                 cleanup_errors.append(exc)
-            if (
-                robot_connected
-                and stopped_cleanly
-                and not faulted
-                and home_on_close
-            ):
+            if robot_connected and stopped_cleanly and not faulted and home_on_close:
                 try:
                     self._robot.home()
                 except BaseException as exc:

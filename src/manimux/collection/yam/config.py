@@ -333,19 +333,20 @@ def build_station_config(
 
 
 def _apply_control_profile(station: StationConfig, raw: dict) -> None:
-    from manimux.config import load_config
+    from manimux.cli import load_config
+    from manimux.policies.base import action_interval
 
     runtime = load_config(station.manimux_config)
-    if runtime.control_profile is None:
+    if runtime["control_profile"] is None:
         return
-    frequency = 1.0 / runtime.policy.effective_action_dt_s
+    frequency = 1.0 / action_interval(runtime["policy"])
     if "control_hz" in raw and not math.isclose(station.control_hz, frequency, rel_tol=1e-9):
         raise ValueError("station control_hz conflicts with control_profile")
     station.control_hz = frequency
     raw_robot = raw.get("robot", {})
-    shared = runtime.robot.options
-    if runtime.execution.motion_limits is not None:
-        closing_velocity = runtime.execution.motion_limits.gripper.max_closing_velocity
+    shared = runtime["robot"]["options"]
+    if runtime["execution"]["motion_limits"] is not None:
+        closing_velocity = runtime["execution"]["motion_limits"]["gripper"]["max_closing_velocity"]
         duration = 0.0 if closing_velocity is None else 1.0 / closing_velocity
         if "gripper_close_duration_s" in raw_robot and not math.isclose(
             station.robot.gripper_close_duration_s, duration, rel_tol=1e-9

@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+from copy import deepcopy
+from json import dumps, loads
 from pathlib import Path
 
 import pytest
 import yaml
-from pydantic import ValidationError
 
-from manimux.config import ManiMuxConfig, load_config
+from manimux.cli import load_config, prepare_experiment
 from manimux.plugins import PluginError
+from manimux.policies.base import action_interval
 from manimux.runtime import build_runtime
+from manimux.runtime.executors.limits import arm_motion_parameters
+from manimux.runtime.executors.smooth import gripper_hysteresis_parameters
+from manimux.runtime.safety import command_safety_parameters
 
 
 @pytest.mark.parametrize("action_variant", ["joint", "joint-ee"])
@@ -17,49 +22,58 @@ def test_yam_control_profile_preserves_executor_choices(action_variant):
     inference = load_config(
         f"configs/pi05/yam/infra/put-bottles/rtc-{action_variant}-step30000.yaml"
     )
-    assert collection.control_profile == inference.control_profile
-    assert collection.robot.group_dims == inference.robot.group_dims
-    assert collection.policy.action_dt_s == inference.policy.action_dt_s
-    assert collection.execution.command_safety == inference.execution.command_safety
+    assert collection["control_profile"] == inference["control_profile"]
+    assert collection["robot"]["group_dims"] == inference["robot"]["group_dims"]
+    assert collection["policy"]["action_dt_s"] == inference["policy"]["action_dt_s"]
+    assert collection["execution"]["command_safety"] == inference["execution"]["command_safety"]
     for side in ("left", "right"):
         assert (
-            collection.robot.options[f"{side}_hardware_options"]
-            == inference.robot.options[f"{side}_hardware_options"]
+            collection["robot"]["options"][f"{side}_hardware_options"]
+            == inference["robot"]["options"][f"{side}_hardware_options"]
         )
-    assert collection.robot.control_hz == 30
-    assert inference.robot.control_hz == 100
-    assert collection.execution.executor == "direct"
-    assert inference.execution.smooth.max_velocity is None
-    assert inference.execution.smooth.max_acceleration is None
-    assert inference.execution.smooth.gripper.max_velocity is None
-    assert inference.execution.smooth.gripper.max_acceleration is None
-    assert inference.execution.smooth.gripper.max_closing_velocity == 1.0
-    assert inference.execution.smooth.cutoff_hz == 8.0
-    server = yaml.safe_load(Path(
-        f"configs/pi05/yam/server/put-bottles/{action_variant}-step30000.yaml"
-    ).read_text())
-    expected = inference.policy.expected_backend.model
+    assert collection["robot"]["control_hz"] == 30
+    assert inference["robot"]["control_hz"] == 100
+    assert collection["execution"]["executor"] == "direct"
+    assert inference["execution"]["smooth"]["max_velocity"] is None
+    assert inference["execution"]["smooth"]["max_acceleration"] is None
+    assert inference["execution"]["smooth"]["gripper"]["max_velocity"] is None
+    assert inference["execution"]["smooth"]["gripper"]["max_acceleration"] is None
+    assert inference["execution"]["smooth"]["gripper"]["max_closing_velocity"] == 1.0
+    assert inference["execution"]["smooth"]["cutoff_hz"] == 8.0
+    server = yaml.safe_load(
+        Path(f"configs/pi05/yam/server/put-bottles/{action_variant}-step30000.yaml").read_text()
+    )
+    expected = inference["policy"]["expected_backend"]["model"]
     for field in (
-        "task_name", "checkpoint_variant", "checkpoint_source", "train_config_name",
-        "norm_stats_path", "norm_stats_source", "action_horizon", "num_steps",
+        "task_name",
+        "checkpoint_variant",
+        "checkpoint_source",
+        "train_config_name",
+        "norm_stats_path",
+        "norm_stats_source",
+        "action_horizon",
+        "num_steps",
     ):
         assert server[field] == expected[field]
     assert server["model_path"] == expected["model_root"]
-    assert inference.policy.options["server"] == f"ws://{server['host']}:{server['port']}"
+    assert inference["policy"]["options"]["server"] == f"ws://{server['host']}:{server['port']}"
 
 
-@pytest.mark.parametrize("field,value", [
-    ("robot.driver", "mock_dual_arm"),
-    ("robot.group_dims", {"left_arm": 6}),
-    ("robot.options.left_channel", "other_bus"),
-    ("policy.action_dt_s", 0.1),
-    ("policy.trajectory_duration_s", 0.1),
-    ("execution.smooth.max_velocity", 0.25),
-    ("execution.smooth.gripper.max_velocity", 1.0),
-    ("execution.smooth.gripper.max_closing_velocity", None),
-])
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("robot.driver", "mock_dual_arm"),
+        ("robot.group_dims", {"left_arm": 6}),
+        ("robot.options.left_channel", "other_bus"),
+        ("policy.action_dt_s", 0.1),
+        ("policy.trajectory_duration_s", 0.1),
+        ("execution.smooth.max_velocity", 0.25),
+        ("execution.smooth.gripper.max_velocity", 1.0),
+        ("execution.smooth.gripper.max_closing_velocity", None),
+    ],
+)
 def test_control_profile_rejects_local_conflicts(tmp_path, field, value):
-    raw = load_config("configs/collection/yam/control.yaml").model_dump(mode="json")
+    raw = loads(dumps(deepcopy(load_config("configs/collection/yam/control.yaml")), default=str))
     target = raw
     parts = field.split(".")
     for part in parts[:-1]:
@@ -86,8 +100,8 @@ def test_control_profile_relative_path_and_safety_contract(tmp_path):
     path = tmp_path / "local.yaml"
     path.write_text(yaml.safe_dump(raw))
     config = load_config(path)
-    assert config.execution.command_safety.model_dump() == envelope
-    assert config.control_profile == tmp_path / "shared.yaml"
+    assert deepcopy(config["execution"]["command_safety"]) == envelope
+    assert config["control_profile"] == tmp_path / "shared.yaml"
     raw["execution"]["command_safety"] = {}
     path.write_text(yaml.safe_dump(raw))
     with pytest.raises(ValueError, match="command_safety conflicts"):
@@ -102,7 +116,7 @@ def test_control_profile_rejects_recursive_inheritance(tmp_path):
     raw["control_profile"] = "shared.yaml"
     path = tmp_path / "local.yaml"
     path.write_text(yaml.safe_dump(raw))
-    with pytest.raises(ValidationError, match="Extra inputs"):
+    with pytest.raises(ValueError, match="recursive control_profile"):
         load_config(path)
 
 
@@ -118,10 +132,10 @@ def test_shared_finite_motion_limits_are_resolved_for_smooth_and_direct(tmp_path
         raw["execution"]["executor"] = executor
         path.write_text(yaml.safe_dump(raw))
         config = load_config(path)
-        assert config.execution.motion_limits.arm.max_velocity == 0.5
-        assert config.execution.smooth.max_velocity == 0.5
-        assert config.execution.smooth.max_acceleration == 2.0
-        assert config.execution.smooth.gripper.max_velocity == 2.0
+        assert config["execution"]["motion_limits"]["arm"]["max_velocity"] == 0.5
+        assert config["execution"]["smooth"]["max_velocity"] == 0.5
+        assert config["execution"]["smooth"]["max_acceleration"] == 2.0
+        assert config["execution"]["smooth"]["gripper"]["max_velocity"] == 2.0
     raw["execution"]["executor"] = "mpc"
     path.write_text(yaml.safe_dump(raw))
     with pytest.raises(ValueError, match="not mpc"):
@@ -130,22 +144,18 @@ def test_shared_finite_motion_limits_are_resolved_for_smooth_and_direct(tmp_path
 
 @pytest.mark.parametrize("value", [-1, 0, float("nan"), float("inf")])
 def test_motion_limits_reject_invalid_numeric_values(value):
-    from manimux.config import ArmMotionConfig, MotionRateConfig
-
-    with pytest.raises(ValidationError):
-        MotionRateConfig(max_velocity=value)
-    with pytest.raises(ValidationError):
-        MotionRateConfig(max_acceleration=value)
-    with pytest.raises(ValidationError):
-        ArmMotionConfig(max_step_dt_s=value)
+    with pytest.raises(ValueError):
+        arm_motion_parameters(max_velocity=value)
+    with pytest.raises(ValueError):
+        arm_motion_parameters(max_acceleration=value)
+    with pytest.raises(ValueError):
+        arm_motion_parameters(max_step_dt_s=value)
 
 
 def test_motion_mode_defaults_and_explicit_selection(tmp_path):
-    from manimux.config import ArmMotionConfig
-
-    assert ArmMotionConfig().mode == "per_joint"
-    with pytest.raises(ValidationError):
-        ArmMotionConfig(mode="unknown")
+    assert arm_motion_parameters()["mode"] == "per_joint"
+    with pytest.raises(ValueError):
+        arm_motion_parameters(mode="unknown")
     raw = yaml.safe_load(Path("configs/collection/yam/control.yaml").read_text())
     profile = yaml.safe_load(Path("configs/robots/yam/common.yaml").read_text())
     profile["motion_limits"]["arm"].update(mode="isotropic", max_step_dt_s=0.016)
@@ -154,15 +164,15 @@ def test_motion_mode_defaults_and_explicit_selection(tmp_path):
     path = tmp_path / "local.yaml"
     path.write_text(yaml.safe_dump(raw))
     config = load_config(path)
-    assert config.execution.motion_limits.arm.mode == "isotropic"
-    assert config.execution.smooth.mode == "isotropic"
-    assert config.execution.smooth.max_step_dt_s == 0.016
+    assert config["execution"]["motion_limits"]["arm"]["mode"] == "isotropic"
+    assert config["execution"]["smooth"]["mode"] == "isotropic"
+    assert config["execution"]["smooth"]["max_step_dt_s"] == 0.016
     # Arm limit mode and gripper aperture mode are different configuration fields.
-    assert config.execution.smooth.gripper.mode == "continuous"
+    assert config["execution"]["smooth"]["gripper"]["mode"] == "continuous"
     # Repeated shared settings remain equivalent when older YAML omits new defaults.
     raw["execution"]["motion_limits"] = profile["motion_limits"]
     path.write_text(yaml.safe_dump(raw))
-    assert load_config(path).execution.smooth.mode == "isotropic"
+    assert load_config(path)["execution"]["smooth"]["mode"] == "isotropic"
     raw["execution"]["smooth"] = {"mode": "per_joint"}
     path.write_text(yaml.safe_dump(raw))
     with pytest.raises(ValueError, match="conflicts with control_profile"):
@@ -172,84 +182,97 @@ def test_motion_mode_defaults_and_explicit_selection(tmp_path):
 @pytest.mark.parametrize("variant", ["default", "rtc"])
 def test_umi_pass_ball_enables_close_latch_with_shared_motion_limits(variant):
     config = load_config(f"configs/umi_dp/tianji/infra/pass_ball/{variant}.yaml")
-    gripper = config.execution.smooth.gripper
-    assert gripper.mode == "close_latch"
-    assert (gripper.close_threshold, gripper.open_threshold, gripper.closed_value) == (
-        0.6, 0.75, 0.2,
+    gripper = config["execution"]["smooth"]["gripper"]
+    assert gripper["mode"] == "close_latch"
+    assert (gripper["close_threshold"], gripper["open_threshold"], gripper["closed_value"]) == (
+        0.6,
+        0.75,
+        0.2,
     )
-    assert (gripper.min_closed_s, gripper.open_confirm_s) == (0.0, 0.0)
-    assert gripper.group_indices == {"left_arm": 7, "right_arm": 7}
-    assert (gripper.max_velocity, gripper.max_acceleration, gripper.max_closing_velocity) == (
-        3, 12, 1,
+    assert (gripper["min_closed_s"], gripper["open_confirm_s"]) == (0.0, 0.0)
+    assert gripper["group_indices"] == {"left_arm": 7, "right_arm": 7}
+    assert (
+        gripper["max_velocity"],
+        gripper["max_acceleration"],
+        gripper["max_closing_velocity"],
+    ) == (
+        3,
+        12,
+        1,
     )
-    assert config.robot.options["execute"] is False
-    assert config.robot.options["gripper_control"] is False
+    assert config["robot"]["options"]["execute"] is False
+    assert config["robot"]["options"]["gripper_control"] is False
 
 
-@pytest.mark.parametrize("override", [
-    {"closed_value": 0.6}, {"closed_value": 0.7}, {"open_value": 0.7},
-    {"close_threshold": 0.75}, {"open_threshold": float("nan")},
-])
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"closed_value": 0.6},
+        {"closed_value": 0.7},
+        {"open_value": 0.7},
+        {"close_threshold": 0.75},
+        {"open_threshold": float("nan")},
+    ],
+)
 def test_close_latch_rejects_inconsistent_thresholds(override):
-    from manimux.config import GripperHysteresisConfig
-
-    fields = dict(mode="close_latch", group_indices={"arm": 1},
-                  close_threshold=0.6, open_threshold=0.75, closed_value=0.2)
-    with pytest.raises(ValidationError):
-        GripperHysteresisConfig(**(fields | override))
+    fields = dict(
+        mode="close_latch",
+        group_indices={"arm": 1},
+        close_threshold=0.6,
+        open_threshold=0.75,
+        closed_value=0.2,
+    )
+    with pytest.raises(ValueError):
+        gripper_hysteresis_parameters(**(fields | override))
 
 
 def test_safety_optional_acceleration_validates_every_supplied_group():
-    from manimux.config import CommandSafetyConfig
-
     envelope = {
-        "position_lower": {"arm": [-1.0]}, "position_upper": {"arm": [1.0]},
+        "position_lower": {"arm": [-1.0]},
+        "position_upper": {"arm": [1.0]},
         "max_velocity": {"arm": [2.0]},
     }
-    assert CommandSafetyConfig(**envelope).max_acceleration == {}
-    assert CommandSafetyConfig(**envelope, max_acceleration=None).max_acceleration == {}
+    assert command_safety_parameters(**envelope)["max_acceleration"] == {}
+    assert command_safety_parameters(**envelope, max_acceleration=None)["max_acceleration"] == {}
     for invalid in ({"wrong": [1.0]}, {"arm": []}, {"arm": [-1.0]}, {"arm": [float("nan")]}):
-        with pytest.raises(ValidationError):
-            CommandSafetyConfig(**envelope, max_acceleration=invalid)
-    with pytest.raises(ValidationError, match="together"):
-        CommandSafetyConfig(max_acceleration={"arm": [1.0]})
+        with pytest.raises(ValueError):
+            command_safety_parameters(**envelope, max_acceleration=invalid)
+    with pytest.raises(ValueError, match="together"):
+        command_safety_parameters(max_acceleration={"arm": [1.0]})
 
 
 def test_mock_config_loads() -> None:
     config = load_config(Path("configs/mock.yaml"))
-    assert config.robot.driver == "mock_dual_arm"
-    assert config.execution.executor == "smooth"
-    assert config.execution.inference_schedule == "deadline"
-    assert config.robot.group_dims["left_arm"] == 6
+    assert config["robot"]["type"] == "mock_dual_arm"
+    assert config["execution"]["executor"] == "smooth"
+    assert config["execution"]["inference_schedule"] == "deadline"
+    assert config["robot"]["group_dims"]["left_arm"] == 6
 
 
 def test_total_trajectory_duration_overrides_point_spacing() -> None:
     config = load_config(Path("configs/molmoact2/yam/infra/manimux.yaml"))
 
-    assert config.policy.trajectory_duration_s is None
-    assert config.policy.effective_action_dt_s == pytest.approx(0.05)
-    assert config.execution.smooth.max_velocity == 0.25
-    assert config.execution.smooth.max_acceleration == 0.5
+    assert config["policy"]["trajectory_duration_s"] is None
+    assert action_interval(config["policy"]) == pytest.approx(0.05)
+    assert config["execution"]["smooth"]["max_velocity"] == 0.25
+    assert config["execution"]["smooth"]["max_acceleration"] == 0.5
 
 
-def test_unknown_config_field_fails() -> None:
-    with pytest.raises(ValidationError):
-        ManiMuxConfig.model_validate(
-            {
-                "run": {"task": "x", "unknown": True},
-                "robot": {"driver": "mock", "group_dims": {"arm": 1}},
-                "policy": {"worker": "fake", "adapter": "identity"},
-            }
-        )
+def test_yaml_reader_preserves_application_fields(tmp_path):
+    from manimux.cli import read_yaml
+
+    path = tmp_path / "custom.yaml"
+    path.write_text("custom:\n  option: 12\n")
+    assert read_yaml(path) == {"custom": {"option": 12}}
 
 
 def test_expected_backend_requires_a_stable_identity_field() -> None:
     config = load_config(Path("configs/mock.yaml"))
-    payload = config.model_dump(mode="python")
+    payload = deepcopy(config)
     payload["policy"]["expected_backend"] = {}
 
-    with pytest.raises(ValidationError, match="must declare server or model identity"):
-        ManiMuxConfig.model_validate(payload)
+    with pytest.raises(ValueError, match="must declare server or model identity"):
+        prepare_experiment(**payload)
 
 
 def test_all_infra_configs_load() -> None:
@@ -259,34 +282,34 @@ def test_all_infra_configs_load() -> None:
 
 def test_rtc_rejects_default_scheduler_fields_that_it_does_not_use() -> None:
     config = load_config(Path("configs/mock.yaml"))
-    payload = config.model_dump(mode="python")
+    payload = deepcopy(config)
     payload["execution"]["runtime"] = "rtc"
     payload["execution"]["refill_threshold_s"] = 0.2
 
-    with pytest.raises(ValidationError, match="not used by RTC"):
-        ManiMuxConfig.model_validate(payload)
+    with pytest.raises(ValueError, match="not used by RTC"):
+        prepare_experiment(**payload)
 
 
 def test_recording_cannot_be_silently_disabled() -> None:
     config = load_config(Path("configs/mock.yaml"))
-    payload = config.model_dump(mode="python")
+    payload = deepcopy(config)
     payload["recording"]["enabled"] = False
 
-    with pytest.raises(ValidationError):
-        ManiMuxConfig.model_validate(payload)
+    with pytest.raises(ValueError):
+        prepare_experiment(**payload)
 
 
 def test_experiment_and_video_recording_defaults_are_opt_in() -> None:
     config = load_config(Path("configs/mock.yaml"))
 
-    assert not config.run.experiment_mode
-    assert config.run.layout_id == ""
-    assert config.recording.video_fps == 0
+    assert not config["run"]["experiment_mode"]
+    assert config["run"]["layout_id"] == ""
+    assert config["recording"]["video_fps"] == 0
 
 
 def test_command_safety_must_match_every_robot_group_dimension() -> None:
     config = load_config(Path("configs/mock.yaml"))
-    payload = config.model_dump(mode="python")
+    payload = deepcopy(config)
     groups = payload["robot"]["group_dims"]
     payload["execution"]["command_safety"] = {
         "position_lower": {name: [-1.0] * dim for name, dim in groups.items()},
@@ -297,25 +320,25 @@ def test_command_safety_must_match_every_robot_group_dimension() -> None:
     first_group = next(iter(groups))
     payload["execution"]["command_safety"]["max_velocity"][first_group].pop()
 
-    with pytest.raises(ValidationError, match="vectors must share"):
-        ManiMuxConfig.model_validate(payload)
+    with pytest.raises(ValueError, match="vectors must share"):
+        prepare_experiment(**payload)
 
 
 def test_unknown_inference_strategy_fails_before_runtime_construction(tmp_path: Path) -> None:
     config = load_config(Path("configs/mock.yaml"))
-    config.execution.runtime = "missing_strategy"
+    config["execution"]["runtime"] = "missing_strategy"
 
     with pytest.raises(PluginError, match="manimux.inference_strategies"):
         build_runtime(config, tmp_path)
 
 
 def test_execution_prefix_rejects_incompatible_runtime_and_oversized_horizon():
-    cfg = load_config('configs/mock.yaml').model_dump()
-    cfg['execution']['max_chunk_steps'] = 25
-    with pytest.raises(ValidationError, match='must not exceed'):
-        ManiMuxConfig.model_validate(cfg)
-    cfg['policy']['horizon_steps'] = 50
-    assert ManiMuxConfig.model_validate(cfg).execution.max_chunk_steps == 25
-    cfg['execution']['runtime'] = 'rtc'
-    with pytest.raises(ValidationError, match='ordinary ManiMux'):
-        ManiMuxConfig.model_validate(cfg)
+    cfg = deepcopy(load_config("configs/mock.yaml"))
+    cfg["execution"]["max_chunk_steps"] = 25
+    with pytest.raises(ValueError, match="must not exceed"):
+        prepare_experiment(**cfg)
+    cfg["policy"]["horizon_steps"] = 50
+    assert prepare_experiment(**cfg)["execution"]["max_chunk_steps"] == 25
+    cfg["execution"]["runtime"] = "rtc"
+    with pytest.raises(ValueError, match="ordinary ManiMux"):
+        prepare_experiment(**cfg)

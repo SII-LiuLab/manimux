@@ -12,6 +12,7 @@ from manimux.collection.yam.data.recorder import EpisodeRecorder
 from manimux.collection.yam.robot.yam_adapter import YamLeaderPolicy
 from manimux.runtime.executors import DirectExecutor, SmoothExecutor
 from manimux.runtime.lock import RuntimeInstanceLock, RuntimeLockError
+from manimux.runtime.safety import command_safety_parameters
 
 
 def test_orbbec_missing_dependency_is_not_reported_as_missing_camera(monkeypatch):
@@ -55,9 +56,7 @@ def test_camera_start_failure_closes_all_drivers(tmp_path, monkeypatch):
         def stop(self):
             closed.append(self.name)
 
-    drivers = [
-        TrackingCamera(name, name, CameraMode.MONO, 64, 48) for name in ("left", "right")
-    ]
+    drivers = [TrackingCamera(name, name, CameraMode.MONO, 64, 48) for name in ("left", "right")]
     monkeypatch.setattr(
         session_module, "build_cameras_from_config", lambda *args, **kwargs: drivers
     )
@@ -133,7 +132,7 @@ def test_shared_lease_is_acquired_before_driver_connect(tmp_path):
         from manimux.clock import SystemClock
         from manimux.robots.mock import MockDualArmDriver
 
-        driver = MockDualArmDriver(config.robot.group_dims, SystemClock())
+        driver = MockDualArmDriver(config["robot"]["group_dims"], SystemClock())
         instance = CollectionBackend(config, driver=driver, lock_dir=tmp_path)
         with pytest.raises(RuntimeLockError):
             instance.connect()
@@ -142,7 +141,7 @@ def test_shared_lease_is_acquired_before_driver_connect(tmp_path):
 
 def test_smooth_executor_is_shared(tmp_path):
     config = load_backend_config(station(tmp_path), mock=True)
-    config.execution.executor = "smooth"
+    config["execution"]["executor"] = "smooth"
     instance = CollectionBackend(config, mock=True, lock_dir=tmp_path, execution_mode="threaded")
     instance.connect(start_thread=False)
     try:
@@ -272,7 +271,7 @@ def test_synchronous_sends_once_per_target_without_thread(tmp_path, monkeypatch)
 @pytest.mark.parametrize("frequency", [30.0, 100.0])
 def test_threaded_frequency_is_configured(tmp_path, frequency):
     config = load_backend_config(station(tmp_path), mock=True)
-    config.robot.control_hz = frequency
+    config["robot"]["control_hz"] = frequency
     instance = CollectionBackend(config, mock=True, lock_dir=tmp_path, execution_mode="threaded")
     instance.connect()
     try:
@@ -326,7 +325,7 @@ def test_synchronous_requires_matching_frequencies(tmp_path):
     with pytest.raises(ValueError, match="matching robot and station"):
         load_backend_config(cfg, mock=True)
     cfg.execution_mode = "threaded"
-    assert load_backend_config(cfg, mock=True).robot.control_hz == 100
+    assert load_backend_config(cfg, mock=True)["robot"]["control_hz"] == 100
     cfg.execution_mode = "typo"
     with pytest.raises(ValueError, match="execution_mode"):
         load_backend_config(cfg, mock=True)
@@ -411,15 +410,13 @@ def test_collection_profile_rejects_gui_hardware_override(tmp_path):
 
 @pytest.mark.parametrize("executor", ["direct", "smooth"])
 def test_shared_command_limits_apply_to_both_executors(tmp_path, executor):
-    from manimux.config import CommandSafetyConfig
-
     config = load_backend_config(station(tmp_path), mock=True)
-    config.execution.executor = executor
-    config.execution.command_safety = CommandSafetyConfig(
-        position_lower={group: [-10.0] * 7 for group in config.robot.group_dims},
-        position_upper={group: [10.0] * 7 for group in config.robot.group_dims},
-        max_velocity={group: [0.001] * 7 for group in config.robot.group_dims},
-        max_acceleration={group: [0.001] * 7 for group in config.robot.group_dims},
+    config["execution"]["executor"] = executor
+    config["execution"]["command_safety"] = command_safety_parameters(
+        position_lower={group: [-10.0] * 7 for group in config["robot"]["group_dims"]},
+        position_upper={group: [10.0] * 7 for group in config["robot"]["group_dims"]},
+        max_velocity={group: [0.001] * 7 for group in config["robot"]["group_dims"]},
+        max_acceleration={group: [0.001] * 7 for group in config["robot"]["group_dims"]},
     )
     instance = CollectionBackend(config, mock=True, lock_dir=tmp_path)
     instance.connect()
@@ -450,7 +447,7 @@ def test_collection_profile_applies_shared_station_defaults(tmp_path):
     assert cfg.robot.gripper_force_limit == 50
     assert cfg.robot.gripper_close_duration_s == 1.0
     assert cfg.control_hz == 30
-    hardware = load_backend_config(cfg, mock=True).robot.options["left_hardware_options"]
+    hardware = load_backend_config(cfg, mock=True)["robot"]["options"]["left_hardware_options"]
     assert hardware["ee_mass"] == 0.8
     raw["robot"]["ee_mass"] = 1.0
     path.write_text(yaml.safe_dump(raw))
@@ -466,23 +463,32 @@ def test_toggle_gripper_matches_original_curve_without_double_slowdown(tmp_path)
     cfg = station(tmp_path)
     runtime = load_backend_config(cfg, mock=True)
     follower = SimpleNamespace(
-        num_dofs=lambda: 7, get_joint_pos=lambda: np.array([0.0] * 6 + [1.0]),
+        num_dofs=lambda: 7,
+        get_joint_pos=lambda: np.array([0.0] * 6 + [1.0]),
     )
     policy = YamLeaderPolicy(
-        None, follower, gripper_mode="toggle", control_hz=cfg.control_hz,
+        None,
+        follower,
+        gripper_mode="toggle",
+        control_hz=cfg.control_hz,
         gripper_close_duration_s=cfg.robot.gripper_close_duration_s,
     )
-    executor = DirectExecutor(runtime.execution.motion_limits, control_dt_s=1 / cfg.control_hz)
+    executor = DirectExecutor(
+        runtime["execution"]["motion_limits"], control_dt_s=1 / cfg.control_hz
+    )
     state = RobotState(
-        groups={group: follower.get_joint_pos() for group in runtime.robot.group_dims},
-        monotonic_ns=0, sequence=0,
+        groups={group: follower.get_joint_pos() for group in runtime["robot"]["group_dims"]},
+        monotonic_ns=0,
+        sequence=0,
     )
     assert policy._gripper_command(1.0) == 1.0
     for index in range(30):
         target = policy._gripper_command(0.0)
         assert target == pytest.approx(max(0.0, 1 - (index + 1) / 30))
         reference = ActionHorizon(
-            start_time_ns=0, dt_ns=33_333_333, plan_id="teleop",
+            start_time_ns=0,
+            dt_ns=33_333_333,
+            plan_id="teleop",
             groups={group: np.tile([0.0] * 6 + [target], (2, 1)) for group in state.groups},
         )
         command = executor.step(index * 33_333_333, state, reference)

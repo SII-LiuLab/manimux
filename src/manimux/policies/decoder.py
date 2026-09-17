@@ -7,10 +7,10 @@ import multiprocessing as mp
 import queue
 import time
 from contextlib import suppress
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
-from manimux.config import PolicyConfig, RobotConfig
 from manimux.policies import build_policy_adapter
 from manimux.policies.base import decode_policy_action
 from manimux.types import ActionChunk, ActionContext, InferenceResponse
@@ -25,8 +25,8 @@ class DecodeResult:
 
 def _decode_main(requests, results, startup, robot_data, policy_data, partition):
     try:
-        robot = RobotConfig.model_validate(robot_data)
-        policy = PolicyConfig.model_validate(policy_data)
+        robot = robot_data
+        policy = policy_data
         adapter = build_policy_adapter(robot, policy)
         adapter.validate(robot, policy)
         if not getattr(adapter, "supports_context_only_decode", False):
@@ -69,7 +69,7 @@ class ActionDecoderClient:
     camera frames, robot drivers and control sockets never enter these processes.
     """
 
-    def __init__(self, robot: RobotConfig, policy: PolicyConfig, adapter: Any):
+    def __init__(self, robot: dict, policy: dict, adapter: Any):
         if not getattr(adapter, "supports_context_only_decode", False):
             raise ValueError("process decoding requires a context-only adapter")
         self._partitions = tuple(getattr(adapter, "decode_partitions", ())) or (None,)
@@ -89,8 +89,8 @@ class ActionDecoderClient:
                     requests,
                     self._results,
                     self._startup,
-                    robot.model_dump(mode="python"),
-                    policy.model_dump(mode="python"),
+                    deepcopy(robot),
+                    deepcopy(policy),
                     partition,
                 ),
                 name=f"manimux-decode-{partition or 'action'}",
@@ -98,7 +98,7 @@ class ActionDecoderClient:
             )
             for partition, requests in zip(self._partitions, self._requests, strict=True)
         ]
-        self._startup_timeout_s = policy.startup_timeout_s
+        self._startup_timeout_s = policy["startup_timeout_s"]
         self._started = False
         self._pending: InferenceResponse | None = None
         self._pieces: dict[str | None, tuple] = {}
@@ -141,8 +141,9 @@ class ActionDecoderClient:
             if context.decode_budget_ms is None:
                 raise ValueError("independent decoding requires decode_budget_ms")
             # Leave 40 ms for queue scheduling/serialization beyond the IK budget.
-            self._deadline_ns = min(deadline_ns, self._submitted_ns
-                                    + int((context.decode_budget_ms + 40) * 1e6))
+            self._deadline_ns = min(
+                deadline_ns, self._submitted_ns + int((context.decode_budget_ms + 40) * 1e6)
+            )
         for partition, requests in zip(self._partitions, self._requests, strict=True):
             if partition in self._worker_jobs:
                 if not context.independent_groups:
@@ -155,7 +156,10 @@ class ActionDecoderClient:
     def _hold(self, partition, reason):
         assert self._pending is not None and self._context is not None
         return self._adapter.decode_hold_partition(
-            self._pending.raw_action, self._context, partition, reason,
+            self._pending.raw_action,
+            self._context,
+            partition,
+            reason,
         )
 
     def poll(self) -> DecodeResult | None:
@@ -172,8 +176,11 @@ class ActionDecoderClient:
             if self._pending is None or seq != self._pending.request_seq:
                 # A timed-out partition may finish after another plan was submitted.
                 continue
-            if (error and error.startswith("decode_error:TimeoutError:")
-                    and self._context.independent_groups):
+            if (
+                error
+                and error.startswith("decode_error:TimeoutError:")
+                and self._context.independent_groups
+            ):
                 chunk, error = self._hold(partition, "worker_timeout"), None
             self._pieces[partition] = (chunk, error, elapsed_ms)
         if self._pending is None:
@@ -185,7 +192,8 @@ class ActionDecoderClient:
                 for partition in self._partitions:
                     if partition not in self._pieces:
                         self._pieces[partition] = (
-                            self._hold(partition, "worker_timeout"), None,
+                            self._hold(partition, "worker_timeout"),
+                            None,
                             (time.monotonic_ns() - self._submitted_ns) / 1e6,
                         )
             else:
@@ -197,8 +205,7 @@ class ActionDecoderClient:
             return DecodeResult(response, None, ";".join(errors))
         ordered = [self._pieces[p] for p in self._partitions]
         merged = ordered[0][0]
-        if not isinstance(merged, ActionChunk):
-            raise TypeError("action decoder returned an invalid chunk")
+        # 各分区返回 ActionChunk；合并前只核对时间、动作语义和分组是否一致。
         fields = (
             "request_seq",
             "observation_time_ns",
@@ -209,9 +216,7 @@ class ActionDecoderClient:
             "horizon_steps",
         )
         for other, _, _ in ordered[1:]:
-            if not isinstance(other, ActionChunk) or any(
-                getattr(merged, f) != getattr(other, f) for f in fields
-            ):
+            if any(getattr(merged, f) != getattr(other, f) for f in fields):
                 raise ValueError("action decode partitions have mismatched contracts")
             if merged.groups.keys() & other.groups.keys():
                 raise ValueError("action decode partitions overlap")

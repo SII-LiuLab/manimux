@@ -4,10 +4,10 @@ import multiprocessing as mp
 import queue
 import time
 from contextlib import suppress
+from copy import deepcopy
 from multiprocessing.queues import Queue
 from typing import Any
 
-from manimux.config import PolicyConfig
 from manimux.policies import build_policy_model
 from manimux.policies.capabilities import PolicyCapabilities
 from manimux.types import InferenceRequest, InferenceResponse
@@ -33,7 +33,7 @@ def _worker_main(
 ) -> None:
     model = None
     try:
-        config = PolicyConfig.model_validate(config_data)
+        config = config_data
         model = build_policy_model(config)
         model.reset(session_id)
     except Exception as exc:
@@ -41,9 +41,7 @@ def _worker_main(
         return
     try:
         capability_method = getattr(model, "capabilities", None)
-        capabilities = (
-            capability_method() if callable(capability_method) else PolicyCapabilities()
-        )
+        capabilities = capability_method() if callable(capability_method) else PolicyCapabilities()
         if not isinstance(capabilities, PolicyCapabilities):
             raise TypeError("model capabilities have an invalid type")
     except Exception as exc:
@@ -101,12 +99,12 @@ def _worker_main(
 class PolicyWorkerClient:
     """One local model process with latest-wins bounded request/response queues."""
 
-    def __init__(self, config: PolicyConfig, session_id: str) -> None:
+    def __init__(self, config: dict, session_id: str) -> None:
         context = mp.get_context("spawn")
         self._request_queue: Queue[Any] = context.Queue(maxsize=1)
         self._response_queue: Queue[Any] = context.Queue(maxsize=1)
         self._startup_queue: Queue[Any] = context.Queue(maxsize=1)
-        self._startup_timeout_s = config.startup_timeout_s
+        self._startup_timeout_s = config["startup_timeout_s"]
         self._process = context.Process(
             target=_worker_main,
             args=(
@@ -114,7 +112,7 @@ class PolicyWorkerClient:
                 self._response_queue,
                 self._startup_queue,
                 session_id,
-                config.model_dump(mode="python"),
+                deepcopy(config),
             ),
             name="manimux-policy-worker",
             daemon=True,

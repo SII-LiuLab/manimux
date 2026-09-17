@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from manimux.config import load_config
+from manimux.cli import load_config
 from manimux.runtime.autohorizon import AutoHorizonInferenceStrategy
 from manimux.types import ActionChunk, InferenceResponse
 
@@ -23,7 +23,7 @@ def _chunk(horizon: int = 50) -> ActionChunk:
 
 
 def test_autohorizon_truncates_only_after_full_chunk_decode() -> None:
-    config = load_config("configs/pi05/yam/infra/autohorizon-pick-red-ball-box-step1000.yaml")
+    config = load_config("configs/pi05/yam/infra/pick-red-ball-box/autohorizon-step1000.yaml")
     strategy = AutoHorizonInferenceStrategy(config)
     response = InferenceResponse(
         session_id="session",
@@ -41,7 +41,7 @@ def test_autohorizon_truncates_only_after_full_chunk_decode() -> None:
 
 
 def test_autohorizon_rejects_missing_or_invalid_server_horizon() -> None:
-    config = load_config("configs/pi05/yam/infra/autohorizon-pick-red-ball-box-step1000.yaml")
+    config = load_config("configs/pi05/yam/infra/pick-red-ball-box/autohorizon-step1000.yaml")
     strategy = AutoHorizonInferenceStrategy(config)
     for raw_action in ({"actions": []}, {"autohorizon": {"execution_steps": 0}}):
         response = InferenceResponse(

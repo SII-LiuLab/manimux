@@ -5,12 +5,14 @@ from __future__ import annotations
 import threading
 import time
 from contextlib import contextmanager
+from copy import deepcopy
+from json import dumps, loads
 from pathlib import Path
 
 import numpy as np
 
+from manimux.cli import load_config
 from manimux.clock import SystemClock
-from manimux.config import load_config
 from manimux.robots import build_robot
 from manimux.runtime.executors import DirectExecutor, MPCExecutor, SmoothExecutor
 from manimux.runtime.lock import RuntimeInstanceLock
@@ -35,34 +37,34 @@ class CollectionBackend:
         self.config = config
         self.mock = mock
         self.clock = SystemClock()
-        self.dt = 1.0 / config.robot.control_hz
-        execution = config.execution
-        if execution.executor == "direct":
-            self.executor = DirectExecutor(execution.motion_limits, self.dt)
+        self.dt = 1.0 / config["robot"]["control_hz"]
+        execution = config["execution"]
+        if execution["executor"] == "direct":
+            self.executor = DirectExecutor(execution["motion_limits"], self.dt)
             position_limit = None
-        elif execution.executor == "smooth":
-            self.executor = SmoothExecutor(execution.smooth, self.dt)
-            position_limit = execution.smooth.position_limit_abs
+        elif execution["executor"] == "smooth":
+            self.executor = SmoothExecutor(execution["smooth"], self.dt)
+            position_limit = execution["smooth"]["position_limit_abs"]
         else:
-            if execution.motion_limits is not None:
+            if execution["motion_limits"] is not None:
                 raise ValueError(
                     "shared motion_limits currently support direct and smooth, not mpc"
                 )
-            self.executor = MPCExecutor(execution.mpc, self.dt)
-            position_limit = execution.mpc.position_limit_abs
-        limits = execution.command_safety
+            self.executor = MPCExecutor(execution["mpc"], self.dt)
+            position_limit = execution["mpc"]["position_limit_abs"]
+        limits = execution["command_safety"]
         self.safety = SafetyGuard(
-            config.robot.group_dims,
+            config["robot"]["group_dims"],
             position_limit,
-            position_lower=limits.position_lower,
-            position_upper=limits.position_upper,
-            max_velocity=limits.max_velocity,
-            max_acceleration=limits.max_acceleration,
+            position_lower=limits["position_lower"],
+            position_upper=limits["position_upper"],
+            max_velocity=limits["max_velocity"],
+            max_acceleration=limits["max_acceleration"],
             control_dt_s=self.dt,
         )
-        robot_config = config.robot.model_copy(deep=True)
+        robot_config = deepcopy(config["robot"])
         if mock:
-            robot_config.driver = "mock_dual_arm"
+            robot_config["type"] = "mock_dual_arm"
         self.driver = driver or build_robot(robot_config, self.clock)
         self.lease = RuntimeInstanceLock(
             "yam-collection-mock" if mock else "yam",
@@ -127,12 +129,12 @@ class CollectionBackend:
         if self._halted:
             raise RuntimeError("collection is stopped; Reset Session before resuming")
         if self._enabled and self.clock.now_ns() - self._target_ns > int(
-            self.config.policy.timeout_s * 1e9
+            self.config["policy"]["timeout_s"] * 1e9
         ):
             error = RuntimeError("leader target timed out")
             self._stop_on_error(error)
             raise error
-        if set(groups) != set(self.config.robot.group_dims):
+        if set(groups) != set(self.config["robot"]["group_dims"]):
             raise ValueError("leader groups do not match the robot")
         command = RobotCommand(groups, self.clock.now_ns(), f"yam-leader-{self._sequence + 1}")
         for name, value in command.groups.items():
@@ -174,7 +176,7 @@ class CollectionBackend:
             if not self._enabled:
                 return
             now = self.clock.now_ns()
-            if now - self._target_ns > int(self.config.policy.timeout_s * 1e9):
+            if now - self._target_ns > int(self.config["policy"]["timeout_s"] * 1e9):
                 raise RuntimeError("leader target timed out")
             reference = ActionHorizon(
                 now,
@@ -282,11 +284,11 @@ class CollectionBackend:
             "mock": self.mock,
             "execution_mode": self.execution_mode,
             "control_profile": (
-                str(self.config.control_profile) if self.config.control_profile else None
+                str(self.config["control_profile"]) if self.config["control_profile"] else None
             ),
-            "policy_config": self.config.policy.model_dump(mode="json"),
-            "robot": self.config.robot.model_dump(mode="json"),
-            "execution": self.config.execution.model_dump(mode="json"),
+            "policy_config": loads(dumps(deepcopy(self.config["policy"]), default=str)),
+            "robot": loads(dumps(deepcopy(self.config["robot"]), default=str)),
+            "execution": loads(dumps(deepcopy(self.config["execution"]), default=str)),
             "controller_tracking_scope": "executor output before driver joint-limit clipping",
             "trace_file": "manimux-control.jsonl",
         }
@@ -338,19 +340,19 @@ def load_backend_config(station, *, mock=False):
 
     config = load_config(station.manimux_config)
     station.__post_init__()
-    if config.control_profile is not None and config.execution.motion_limits is not None:
-        closing_velocity = config.execution.motion_limits.gripper.max_closing_velocity
+    if config["control_profile"] is not None and config["execution"]["motion_limits"] is not None:
+        closing_velocity = config["execution"]["motion_limits"]["gripper"]["max_closing_velocity"]
         duration = 0.0 if closing_velocity is None else 1.0 / closing_velocity
         if abs(station.robot.gripper_close_duration_s - duration) > 1e-9:
             raise ValueError("station gripper_close_duration_s conflicts with control_profile")
-    if abs(config.policy.action_dt_s * station.control_hz - 1.0) > 1e-6:
+    if abs(config["policy"]["action_dt_s"] * station.control_hz - 1.0) > 1e-6:
         raise ValueError("station control_hz must match runtime policy.action_dt_s")
     if (
         station.execution_mode == "synchronous"
-        and abs(config.robot.control_hz - station.control_hz) > 1e-6
+        and abs(config["robot"]["control_hz"] - station.control_hz) > 1e-6
     ):
         raise ValueError("synchronous execution requires matching robot and station control_hz")
-    if config.robot.driver != "yam_dual":
+    if config["robot"]["type"] != "yam_dual":
         raise ValueError("collection runtime must select the ManiMux yam_dual driver")
     if station.robot.num_arm_joints != 6:
         raise ValueError("YAM collection requires six arm joints")
@@ -368,12 +370,12 @@ def load_backend_config(station, *, mock=False):
             options["ee_mass"] = station.robot.ee_mass
         if robot.gripper_limits is not None:
             options["gripper_limits_override"] = robot.gripper_limits
-        if config.control_profile is not None:
+        if config["control_profile"] is not None:
             options["gripper_force_limit"] = station.robot.gripper_force_limit
-            shared = config.robot.options.get(f"{side}_hardware_options", {})
+            shared = config["robot"]["options"].get(f"{side}_hardware_options", {})
             if any(shared.get(name) != value for name, value in options.items()):
                 raise ValueError(f"station {side} hardware conflicts with control_profile")
-            if config.robot.options.get(f"{side}_channel") != robot_channel_for(robot):
+            if config["robot"]["options"].get(f"{side}_channel") != robot_channel_for(robot):
                 raise ValueError(f"station {side} channel conflicts with control_profile")
             continue
         if not mock:
@@ -385,8 +387,8 @@ def load_backend_config(station, *, mock=False):
                 options["gripper_force_limit"] = station.robot.gripper_force_limit
             elif station.robot.gripper_force_limit != 50.0:
                 raise ValueError("installed ManiMux i2rt fixes gripper force at 50 N")
-        config.robot.options[f"{side}_channel"] = robot_channel_for(robot)
-        config.robot.options[f"{side}_hardware_options"] = options
-    config.robot.options["move_to_start_on_connect"] = False
-    config.robot.options["home_on_close"] = False
+        config["robot"]["options"][f"{side}_channel"] = robot_channel_for(robot)
+        config["robot"]["options"][f"{side}_hardware_options"] = options
+    config["robot"]["options"]["move_to_start_on_connect"] = False
+    config["robot"]["options"]["home_on_close"] = False
     return config

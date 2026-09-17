@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import pickle
+from copy import deepcopy
 from pathlib import Path
 
 import numpy as np
 import pytest
-from pydantic import ValidationError
 
-from manimux.config import ManiMuxConfig, load_config
+from manimux.cli import load_config, prepare_experiment
+from manimux.policies.base import action_interval
 from manimux.runtime.inference import RequestState, build_inference_strategy
 from manimux.runtime.paint import PaintInferenceRequest
 from manimux.runtime.safety import RuntimeState
@@ -27,8 +28,8 @@ class _Adapter:
         return snapshot
 
 
-def _config() -> ManiMuxConfig:
-    return load_config("configs/pi05/yam/infra/paint-pick-red-ball-box-step1000.yaml")
+def _config() -> dict:
+    return load_config("configs/pi05/yam/infra/pick-red-ball-box/paint-step1000.yaml")
 
 
 def _snapshot(now_ns: int) -> ObservationSnapshot:
@@ -86,7 +87,7 @@ def test_xpolicy_plugin_maps_paint_request_to_sampling_payload() -> None:
     from manimux.policies import build_policy_model
 
     config = _config()
-    model = build_policy_model(config.policy)
+    model = build_policy_model(config["policy"])
     model._session_id = "session"
     captured: dict[str, object] = {}
 
@@ -125,8 +126,8 @@ def test_xpolicy_plugin_maps_paint_request_to_sampling_payload() -> None:
 def test_paint_strategy_sends_exact_old_chunk_prefix() -> None:
     config = _config()
     strategy = build_inference_strategy(config)
-    timeline = ActionTimeline(config.robot.group_dims)
-    dt_ns = int(config.policy.effective_action_dt_s * 1_000_000_000)
+    timeline = ActionTimeline(config["robot"]["group_dims"])
+    dt_ns = int(action_interval(config["policy"]) * 1_000_000_000)
     chunk = _chunk(request_seq=1, observation_time_ns=0, dt_ns=dt_ns)
     commit = timeline.commit(
         chunk,
@@ -151,7 +152,7 @@ def test_paint_strategy_sends_exact_old_chunk_prefix() -> None:
         now_ns=0,
     )
 
-    now_ns = config.execution.paint.execution_steps * dt_ns
+    now_ns = config["execution"]["paint"]["execution_steps"] * dt_ns
     submission = strategy.build_submission(
         session_id="session",
         request_seq=2,
@@ -176,7 +177,7 @@ def test_paint_rejects_response_beyond_anchored_prefix() -> None:
     config = _config()
     strategy = build_inference_strategy(config)
     strategy._request_forecast[2] = 3
-    dt_ns = int(config.policy.effective_action_dt_s * 1_000_000_000)
+    dt_ns = int(action_interval(config["policy"]) * 1_000_000_000)
     chunk = _chunk(request_seq=2, observation_time_ns=0, dt_ns=dt_ns)
     response = InferenceResponse(
         session_id="session",
@@ -192,30 +193,35 @@ def test_paint_rejects_response_beyond_anchored_prefix() -> None:
 
 
 def test_paint_config_requires_feasible_s_and_d() -> None:
-    payload = _config().model_dump(mode="python")
+    payload = deepcopy(_config())
     payload["execution"].pop("inference_schedule")
     payload["execution"].pop("refill_threshold_s")
     payload["execution"]["paint"]["execution_steps"] = 45
 
-    with pytest.raises(ValidationError, match="PAINT requires"):
-        ManiMuxConfig.model_validate(payload)
+    with pytest.raises(ValueError, match="PAINT requires"):
+        prepare_experiment(**payload)
 
 
 def test_paint_config_rejects_external_seam_blending() -> None:
-    payload = _config().model_dump(mode="python")
+    payload = deepcopy(_config())
     payload["execution"].pop("inference_schedule")
     payload["execution"].pop("refill_threshold_s")
     payload["execution"]["blend_steps"] = 1
 
-    with pytest.raises(ValidationError, match="blend_steps=0"):
-        ManiMuxConfig.model_validate(payload)
+    with pytest.raises(ValueError, match="blend_steps=0"):
+        prepare_experiment(**payload)
 
 
 def test_paint_config_is_loadable_and_uses_edge_runtime(tmp_path: Path) -> None:
     from manimux.runtime import build_runtime
     from manimux.runtime.edge import EdgeRuntime
 
-    runtime = build_runtime(_config(), tmp_path)
+    config = _config()
+    # 验证调度构造，不依赖 YAM 硬件 SDK 或相机。
+    config["robot"]["type"] = "mock_dual_arm"
+    config["policy"]["adapter"] = "identity"
+    config["sensors"] = []
+    runtime = build_runtime(config, tmp_path)
 
     assert isinstance(runtime, EdgeRuntime)
     assert runtime._strategy.name == "paint"

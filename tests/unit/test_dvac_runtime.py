@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from copy import deepcopy
+
 import numpy as np
 import pytest
-from pydantic import ValidationError
 
-from manimux.config import ManiMuxConfig, load_config
+from manimux.cli import load_config, prepare_experiment
 from manimux.runtime.dvac import DvacInferenceStrategy
 from manimux.types import ActionChunk, InferenceResponse
 
@@ -25,9 +26,7 @@ def _chunk(horizon: int = 50) -> ActionChunk:
 
 
 def test_dvac_truncates_only_after_full_chunk_decode() -> None:
-    config = load_config(
-        "configs/pi05/yam/infra/dvac-pick-red-ball-box-step1000.yaml"
-    )
+    config = load_config("configs/pi05/yam/infra/pick-red-ball-box/dvac-step1000.yaml")
     strategy = DvacInferenceStrategy(config)
     response = InferenceResponse(
         session_id="session",
@@ -41,15 +40,11 @@ def test_dvac_truncates_only_after_full_chunk_decode() -> None:
 
     assert prepared.horizon_steps == 7
     assert prepared.observation_time_ns == 200
-    np.testing.assert_array_equal(
-        prepared.groups["left_arm"], _chunk().groups["left_arm"][:7]
-    )
+    np.testing.assert_array_equal(prepared.groups["left_arm"], _chunk().groups["left_arm"][:7])
 
 
 def test_dvac_rejects_invalid_metadata_and_double_blending() -> None:
-    config = load_config(
-        "configs/pi05/yam/infra/dvac-pick-red-ball-box-step1000.yaml"
-    )
+    config = load_config("configs/pi05/yam/infra/pick-red-ball-box/dvac-step1000.yaml")
     strategy = DvacInferenceStrategy(config)
     for raw_action in ({"actions": []}, {"dvac": {"execution_steps": 0}}):
         response = InferenceResponse(
@@ -62,24 +57,22 @@ def test_dvac_rejects_invalid_metadata_and_double_blending() -> None:
         with pytest.raises(ValueError):
             strategy.prepare_chunk(chunk=_chunk(), response=response, now_ns=200)
 
-    payload = config.model_dump(mode="python")
+    payload = deepcopy(config)
     payload["execution"].pop("inference_schedule")
     payload["execution"].pop("refill_threshold_s")
     payload["execution"]["blend_steps"] = 2
-    with pytest.raises(ValidationError, match="blend_steps=0"):
-        ManiMuxConfig.model_validate(payload)
+    with pytest.raises(ValueError, match="blend_steps=0"):
+        prepare_experiment(**payload)
 
 
 def test_dvac_config_preserves_paper_defaults_and_pi05_contract() -> None:
-    config = load_config(
-        "configs/pi05/yam/infra/dvac-pick-red-ball-box-step1000.yaml"
-    )
+    config = load_config("configs/pi05/yam/infra/pick-red-ball-box/dvac-step1000.yaml")
 
-    assert config.execution.runtime == "dvac"
-    assert config.execution.dvac.tail_steps == 5
-    assert config.execution.dvac.alpha == pytest.approx(2.0)
-    assert config.execution.dvac.rolling_window_size == 5
-    assert config.execution.dvac.min_execution_steps == 1
-    assert config.execution.dvac.max_execution_steps == 50
-    assert config.policy.horizon_steps == 50
-    assert config.execution.blend_steps == 0
+    assert config["execution"]["runtime"] == "dvac"
+    assert config["execution"]["dvac"]["tail_steps"] == 5
+    assert config["execution"]["dvac"]["alpha"] == pytest.approx(2.0)
+    assert config["execution"]["dvac"]["rolling_window_size"] == 5
+    assert config["execution"]["dvac"]["min_execution_steps"] == 1
+    assert config["execution"]["dvac"]["max_execution_steps"] == 50
+    assert config["policy"]["horizon_steps"] == 50
+    assert config["execution"]["blend_steps"] == 0

@@ -7,8 +7,7 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 
-from manimux.config import ManiMuxConfig
-from manimux.policies.base import PolicyAdapter
+from manimux.policies.base import PolicyAdapter, action_interval
 from manimux.runtime.inference import (
     CommitSettings,
     InferenceSubmission,
@@ -38,13 +37,13 @@ class PaintInferenceRequest(InferenceRequest):
 class PaintInferenceStrategy:
     """Algorithm 1 scheduling around an XPolicy flow-sampler hook."""
 
-    def __init__(self, config: ManiMuxConfig) -> None:
+    def __init__(self, config: dict) -> None:
         self._config = config
-        paint = config.execution.paint
-        self._group_order = tuple(config.robot.group_dims)
-        self._execution_steps = int(paint.execution_steps)
-        self._initial_delay_steps = int(paint.initial_delay_steps)
-        self._delay_buffer_size = int(paint.delay_buffer_size)
+        paint = config["execution"]["paint"]
+        self._group_order = tuple(config["robot"]["group_dims"])
+        self._execution_steps = int(paint["execution_steps"])
+        self._initial_delay_steps = int(paint["initial_delay_steps"])
+        self._delay_buffer_size = int(paint["delay_buffer_size"])
         self._active_rows: np.ndarray | None
         self._active_offset: int
         self._delay_forecast: deque[int]
@@ -101,14 +100,14 @@ class PaintInferenceStrategy:
         if request_state.in_flight or runtime_state != RuntimeState.RUNNING:
             return None
 
-        deadline_ns = now_ns + int(self._config.policy.timeout_s * 1_000_000_000)
+        deadline_ns = now_ns + int(self._config["policy"]["timeout_s"] * 1_000_000_000)
         request_fields = {
             "session_id": session_id,
             "request_seq": request_seq,
             "observation_time_ns": snapshot.state.monotonic_ns,
             "deadline_ns": deadline_ns,
             "observation": adapter.build_observation(snapshot),
-            "instruction": self._config.run.task,
+            "instruction": self._config["run"]["task"],
         }
         active = self._active_rows
         if active is None:
@@ -164,9 +163,7 @@ class PaintInferenceStrategy:
         )
 
     def _actual_trimmed_steps(self, chunk: ActionChunk, now_ns: int) -> int:
-        commit_time_ns = now_ns + int(
-            self._config.execution.commit_lead_s * 1_000_000_000
-        )
+        commit_time_ns = now_ns + int(self._config["execution"]["commit_lead_s"] * 1_000_000_000)
         age_ns = max(0, commit_time_ns - chunk.observation_time_ns)
         return int(age_ns // chunk.dt_ns)
 
@@ -240,7 +237,7 @@ class PaintInferenceStrategy:
         self._conditioned_requests.discard(response.request_seq)
         if started_ns is not None and forecast > 0:
             elapsed_ns = max(0, response.finished_time_ns - started_ns)
-            dt_ns = int(self._config.policy.effective_action_dt_s * 1_000_000_000)
+            dt_ns = int(action_interval(self._config["policy"]) * 1_000_000_000)
             self._delay_forecast.append(int(np.ceil(elapsed_ns / dt_ns)))
 
     def take_runtime_events(self, *, step: int) -> list[tuple[str, dict[str, object]]]:
@@ -286,3 +283,15 @@ class PaintInferenceStrategy:
             flush=True,
         )
         self._loop_ms.clear()
+
+
+def paint_parameters(**options) -> dict:
+    """保留 PAINT 执行前缀与延迟估计的默认步数。"""
+
+    values = {
+        "execution_steps": 10,
+        "initial_delay_steps": 4,
+        "delay_buffer_size": 10,
+        **options,
+    }
+    return values

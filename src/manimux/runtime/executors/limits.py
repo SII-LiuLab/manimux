@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Literal
 
@@ -23,9 +24,7 @@ class ScalarLimits:
         return self.max_velocity * min(dt_s, self.max_step_dt_s) / dt_s
 
 
-def _scale_vector(
-    values: np.ndarray, bound: float, independent_index: int | None
-) -> np.ndarray:
+def _scale_vector(values: np.ndarray, bound: float, independent_index: int | None) -> np.ndarray:
     """One scale per arm; an embedded gripper never determines that scale."""
     arm = values if independent_index is None else np.delete(values, independent_index)
     peak = float(np.max(np.abs(arm), initial=0.0))
@@ -71,16 +70,24 @@ def limit_velocity(
 
 
 def decelerate_velocity(
-    velocity: np.ndarray, max_acceleration: float | None, dt_s: float,
-    *, mode: Literal["per_joint", "isotropic"] = "per_joint",
+    velocity: np.ndarray,
+    max_acceleration: float | None,
+    dt_s: float,
+    *,
+    mode: Literal["per_joint", "isotropic"] = "per_joint",
     independent_index: int | None = None,
 ) -> np.ndarray:
     if max_acceleration is None:
         return np.zeros_like(velocity)
     if mode == "isotropic":
         return limit_velocity(
-            np.zeros_like(velocity), velocity, dt_s, None, max_acceleration,
-            mode=mode, independent_index=independent_index,
+            np.zeros_like(velocity),
+            velocity,
+            dt_s,
+            None,
+            max_acceleration,
+            mode=mode,
+            independent_index=independent_index,
         )
     return np.sign(velocity) * np.maximum(np.abs(velocity) - max_acceleration * dt_s, 0.0)
 
@@ -128,10 +135,18 @@ def tracking_step(
             correction = np.sign(error) * np.minimum(
                 np.abs(correction), braking_velocity(np.abs(error), acceleration, dt_s)
             )
-        velocity = limit_velocity(
-            target_velocity[name], previous_velocity[name], dt_s, max_velocity, None,
-            mode=limits.mode, independent_index=independent_index,
-        ) + correction
+        velocity = (
+            limit_velocity(
+                target_velocity[name],
+                previous_velocity[name],
+                dt_s,
+                max_velocity,
+                None,
+                mode=limits.mode,
+                independent_index=independent_index,
+            )
+            + correction
+        )
         # Also start braking before the absolute position limits.
         if acceleration is None:
             lower = (-bound - previous[name]) / dt_s
@@ -144,9 +159,13 @@ def tracking_step(
             upper = np.minimum(upper, max_velocity)
         velocity = np.clip(velocity, lower, upper)
         velocity = limit_velocity(
-            velocity, previous_velocity[name], dt_s,
-            max_velocity if limits.mode == "isotropic" else None, acceleration,
-            mode=limits.mode, independent_index=independent_index,
+            velocity,
+            previous_velocity[name],
+            dt_s,
+            max_velocity if limits.mode == "isotropic" else None,
+            acceleration,
+            mode=limits.mode,
+            independent_index=independent_index,
         )
         output[name] = previous[name] + velocity * dt_s
         velocities[name] = velocity
@@ -175,7 +194,8 @@ def limit_step(
             independent_index=(gripper_indices or {}).get(name),
         )
         command = (
-            desired.copy() if limits.max_velocity is None and limits.max_acceleration is None
+            desired.copy()
+            if limits.max_velocity is None and limits.max_acceleration is None
             else previous[name] + velocity * dt_s
         )
         if limits.position_limit_abs is not None:
@@ -183,3 +203,53 @@ def limit_step(
         output[name] = command
         velocities[name] = velocity
     return output, velocities
+
+
+def arm_motion_parameters(**options) -> dict:
+    """补齐本模块的默认参数；返回独立字典，不创建配置对象。"""
+
+    values = {
+        "max_velocity": None,
+        "max_acceleration": None,
+        "mode": "per_joint",
+        "max_step_dt_s": None,
+        **options,
+    }
+    # 非有限或非正的速率会破坏执行限幅，不能交给控制循环处理。
+    if any(
+        values[key] is not None and (not math.isfinite(values[key]) or values[key] <= 0)
+        for key in ["max_velocity", "max_acceleration", "max_step_dt_s"]
+    ):
+        raise ValueError("motion rates must be finite and positive")
+    if values["mode"] not in {"per_joint", "isotropic"}:
+        raise ValueError("unknown arm motion mode")
+    return values
+
+
+def gripper_motion_parameters(**options) -> dict:
+    """补齐本模块的默认参数；返回独立字典，不创建配置对象。"""
+
+    values = {
+        "max_velocity": None,
+        "max_acceleration": None,
+        "max_closing_velocity": None,
+        **options,
+    }
+    # 非有限或非正的速率会破坏执行限幅，不能交给控制循环处理。
+    if any(
+        values[key] is not None and (not math.isfinite(values[key]) or values[key] <= 0)
+        for key in ["max_velocity", "max_acceleration", "max_closing_velocity"]
+    ):
+        raise ValueError("motion rates must be finite and positive")
+    return values
+
+
+def motion_limits_parameters(**options) -> dict:
+    """补齐本模块的默认参数；返回独立字典，不创建配置对象。"""
+
+    values = {
+        **options,
+    }
+    values["arm"] = arm_motion_parameters(**values["arm"])
+    values["gripper"] = gripper_motion_parameters(**values["gripper"])
+    return values

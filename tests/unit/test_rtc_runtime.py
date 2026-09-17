@@ -7,12 +7,13 @@ as hard as the mask formula itself.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-from manimux.config import ManiMuxConfig, load_config
+from manimux.cli import load_config, prepare_experiment
 from manimux.policies.capabilities import PolicyCapabilities
 from manimux.runtime import build_runtime
 from manimux.runtime.edge import EdgeRuntime
@@ -97,15 +98,15 @@ def test_rtc_request_passes_the_core_worker_contract() -> None:
 @pytest.mark.parametrize("view", ["top", "gemini305", "gemini335"])
 def test_sapolicy_rtc_profiles_build_with_process_decoding_without_hardware(tmp_path, view):
     config = load_config(f"configs/sapolicy/yam/infra/teleopMV51/{view}-rtc.yaml")
-    config.robot.driver = "mock_dual_arm"
-    config.sensors = []
-    config.viewer.enabled = False
+    config["robot"]["type"] = "mock_dual_arm"
+    config["sensors"] = []
+    config["viewer"]["enabled"] = False
     runtime = build_runtime(config, tmp_path)
     assert isinstance(runtime, RtcRuntime)
     assert runtime._decoder is not None
     assert not runtime._decoder._started
     assert runtime._strategy.required_sampling_modes == {"rtc"}
-    assert runtime._config.execution.max_chunk_steps is None
+    assert runtime._config["execution"]["max_chunk_steps"] is None
 
 
 def test_policy_plugins_only_send_a_condition_when_one_is_present() -> None:
@@ -114,7 +115,7 @@ def test_policy_plugins_only_send_a_condition_when_one_is_present() -> None:
     from manimux.policies import build_policy_model
 
     config = load_config("configs/abc/yam/infra/manimux.yaml")
-    model = build_policy_model(config.policy)
+    model = build_policy_model(config["policy"])
     model._session_id = "s"
 
     frame_shape = (4, 5, 3)
@@ -197,13 +198,13 @@ def test_default_runtime_is_unchanged() -> None:
         if "-rtc" in path.name:
             continue  # these opt in on purpose
         config = load_config(path)
-        assert config.execution.runtime == "manimux", path
+        assert config["execution"]["runtime"] == "manimux", path
         assert type(build_runtime(config, Path("/tmp"))) is EdgeRuntime, path
 
 
 def test_rtc_runtime_is_selected_by_config(tmp_path: Path) -> None:
     config = load_config("configs/mock.yaml")
-    config.execution.runtime = "rtc"
+    config["execution"]["runtime"] = "rtc"
     runtime = build_runtime(config, tmp_path)
 
     assert isinstance(runtime, RtcRuntime)
@@ -215,7 +216,7 @@ def test_rtc_runtime_is_selected_by_config(tmp_path: Path) -> None:
 
 def test_rtc_capability_is_checked_before_robot_connection(tmp_path: Path) -> None:
     config = load_config("configs/mock.yaml")
-    config.execution.runtime = "rtc"
+    config["execution"]["runtime"] = "rtc"
     runtime = build_runtime(config, tmp_path)
 
     class _DefaultOnlyWorker:
@@ -228,7 +229,7 @@ def test_rtc_capability_is_checked_before_robot_connection(tmp_path: Path) -> No
 
 def test_policy_backend_identity_accepts_matching_metadata(tmp_path: Path) -> None:
     config = load_config("configs/mock.yaml")
-    payload = config.model_dump(mode="python")
+    payload = deepcopy(config)
     payload["policy"]["expected_backend"] = {
         "server": "xpolicylab_policy_server",
         "model": {
@@ -236,7 +237,7 @@ def test_policy_backend_identity_accepts_matching_metadata(tmp_path: Path) -> No
             "task_name": "pick_red_ball",
         },
     }
-    runtime = build_runtime(ManiMuxConfig.model_validate(payload), tmp_path)
+    runtime = build_runtime(prepare_experiment(**payload), tmp_path)
 
     class _MatchingWorker:
         capabilities = PolicyCapabilities(
@@ -257,14 +258,14 @@ def test_policy_backend_identity_accepts_matching_metadata(tmp_path: Path) -> No
 
 def test_policy_backend_identity_rejects_a_different_checkpoint(tmp_path: Path) -> None:
     config = load_config("configs/mock.yaml")
-    payload = config.model_dump(mode="python")
+    payload = deepcopy(config)
     payload["policy"]["expected_backend"] = {
         "model": {
             "checkpoint_variant": "pi05-step-1000",
             "task_name": "pick_red_ball",
         }
     }
-    runtime = build_runtime(ManiMuxConfig.model_validate(payload), tmp_path)
+    runtime = build_runtime(prepare_experiment(**payload), tmp_path)
 
     class _WrongWorker:
         capabilities = PolicyCapabilities(
@@ -297,6 +298,8 @@ def test_runtime_package_binds_to_factories_not_to_a_policy_or_a_body() -> None:
     # Factories and protocol types are the intended coupling; a concrete
     # implementation module is not.
     allowed = {
+        "manimux.embodiments.robot",
+        "manimux.policies.decoder",
         "manimux.robots",
         "manimux.robots.base",
         "manimux.sensors",
@@ -322,7 +325,7 @@ def test_runtime_package_binds_to_factories_not_to_a_policy_or_a_body() -> None:
                 (
                     "manimux.runtime",
                     "manimux.types",
-                    "manimux.config",
+                    "manimux.cli",
                     "manimux.clock",
                     "manimux.plugins",
                     "manimux.recording",
@@ -335,8 +338,8 @@ def test_runtime_package_binds_to_factories_not_to_a_policy_or_a_body() -> None:
 
 def test_execution_horizon_respects_the_feasibility_window(tmp_path: Path) -> None:
     config = load_config("configs/mock.yaml")
-    config.execution.runtime = "rtc"
-    config.execution.rtc.min_execute_steps = 15
+    config["execution"]["runtime"] = "rtc"
+    config["execution"]["rtc"]["min_execute_steps"] = 15
     runtime = build_runtime(config, tmp_path)
 
     for delay in range(0, 13):
@@ -355,12 +358,12 @@ def _run_mock(runtime_kind: str, tmp_path: Path, max_steps: int = 120):
     import json
 
     config = load_config("configs/mock.yaml")
-    config.run.max_steps = max_steps
-    config.execution.runtime = runtime_kind  # type: ignore[assignment]
-    config.viewer.enabled = False
+    config["run"]["max_steps"] = max_steps
+    config["execution"]["runtime"] = runtime_kind  # type: ignore[assignment]
+    config["viewer"]["enabled"] = False
     if runtime_kind == "rtc":
-        config.execution.rtc.min_execute_steps = 8
-        config.execution.rtc.initial_delay_steps = 2
+        config["execution"]["rtc"]["min_execute_steps"] = 8
+        config["execution"]["rtc"]["initial_delay_steps"] = 2
     result = build_runtime(config, tmp_path).run()
     events = [
         json.loads(line)
@@ -384,12 +387,12 @@ def test_rtc_executes_chunks_exactly_like_the_default_runtime(tmp_path: Path) ->
 
     def run(kind: str) -> tuple[object, np.ndarray]:
         config = load_config("configs/mock.yaml")
-        config.run.max_steps = 200
-        config.execution.runtime = kind  # type: ignore[assignment]
-        config.viewer.enabled = False
+        config["run"]["max_steps"] = 200
+        config["execution"]["runtime"] = kind  # type: ignore[assignment]
+        config["viewer"]["enabled"] = False
         if kind == "rtc":
-            config.execution.rtc.min_execute_steps = 8
-            config.execution.rtc.initial_delay_steps = 2
+            config["execution"]["rtc"]["min_execute_steps"] = 8
+            config["execution"]["rtc"]["initial_delay_steps"] = 2
         result = build_runtime(config, tmp_path / kind).run()
         ticks = zarr.open(str(Path(result.episode_dir) / "data.zarr"), mode="r")["ticks"]
         names = sorted(ticks["command"].array_keys())
@@ -398,7 +401,7 @@ def test_rtc_executes_chunks_exactly_like_the_default_runtime(tmp_path: Path) ->
     _, default_cmd = run("manimux")
     _, rtc_cmd = run("rtc")
 
-    dt_s = 1.0 / load_config("configs/mock.yaml").robot.control_hz
+    dt_s = 1.0 / load_config("configs/mock.yaml")["robot"]["control_hz"]
 
     def profile(commands: np.ndarray) -> tuple[float, float]:
         velocity = np.abs(np.diff(commands, axis=0)) / dt_s
@@ -440,12 +443,12 @@ def test_replanning_does_not_yank_the_command_back_to_the_measurement(
 
     def profile(kind: str) -> tuple[int, float]:
         config = load_config("configs/mock.yaml")
-        config.run.max_steps = 400
-        config.execution.runtime = kind  # type: ignore[assignment]
-        config.viewer.enabled = False
+        config["run"]["max_steps"] = 400
+        config["execution"]["runtime"] = kind  # type: ignore[assignment]
+        config["viewer"]["enabled"] = False
         if kind == "rtc":
-            config.execution.rtc.min_execute_steps = 8
-            config.execution.rtc.initial_delay_steps = 2
+            config["execution"]["rtc"]["min_execute_steps"] = 8
+            config["execution"]["rtc"]["initial_delay_steps"] = 2
         result = build_runtime(config, tmp_path / kind).run()
         ticks = zarr.open(str(Path(result.episode_dir) / "data.zarr"), mode="r")["ticks"]
         names = sorted(ticks["command"].array_keys())
@@ -476,13 +479,13 @@ def _run_slow_policy(tmp_path: Path, inference_delay_s: float = 0.4) -> list[dic
     import json
 
     config = load_config("configs/mock.yaml")
-    config.run.max_steps = 300
-    config.execution.runtime = "rtc"
-    config.viewer.enabled = False
-    config.policy.inference_delay_s = inference_delay_s
-    config.policy.timeout_s = 2.0
-    config.execution.rtc.min_execute_steps = 8
-    config.execution.rtc.initial_delay_steps = 2
+    config["run"]["max_steps"] = 300
+    config["execution"]["runtime"] = "rtc"
+    config["viewer"]["enabled"] = False
+    config["policy"]["inference_delay_s"] = inference_delay_s
+    config["policy"]["timeout_s"] = 2.0
+    config["execution"]["rtc"]["min_execute_steps"] = 8
+    config["execution"]["rtc"]["initial_delay_steps"] = 2
     result = build_runtime(config, tmp_path).run()
     return [
         json.loads(line)
@@ -507,7 +510,7 @@ def test_the_condition_indexes_the_model_chunk_not_the_trimmed_plan(tmp_path: Pa
     assert conditioned, "guidance never engaged once inference cost a third of a chunk"
     assert not _of(events, "rtc_delay_infeasible"), "the window must not collapse here"
 
-    horizon = load_config("configs/mock.yaml").policy.horizon_steps
+    horizon = load_config("configs/mock.yaml")["policy"]["horizon_steps"]
     for event in conditioned:
         delay, executed = event["forecast_delay"], event["executed_steps"]
         assert delay <= executed <= horizon - delay, (delay, executed, horizon)
@@ -522,14 +525,14 @@ def test_a_conditioned_chunk_commits_without_a_blend(tmp_path: Path) -> None:
     An unconditioned chunk keeps it: nothing guarantees that one lines up.
     """
     config = load_config("configs/mock.yaml")
-    config.run.max_steps = 300
-    config.execution.runtime = "rtc"
-    config.viewer.enabled = False
-    config.policy.inference_delay_s = 0.4
-    config.policy.timeout_s = 2.0
-    config.execution.blend_steps = 6
-    config.execution.rtc.min_execute_steps = 8
-    config.execution.rtc.initial_delay_steps = 2
+    config["run"]["max_steps"] = 300
+    config["execution"]["runtime"] = "rtc"
+    config["viewer"]["enabled"] = False
+    config["policy"]["inference_delay_s"] = 0.4
+    config["policy"]["timeout_s"] = 2.0
+    config["execution"]["blend_steps"] = 6
+    config["execution"]["rtc"]["min_execute_steps"] = 8
+    config["execution"]["rtc"]["initial_delay_steps"] = 2
     runtime = build_runtime(config, tmp_path)
 
     seen: list[int] = []
@@ -543,5 +546,5 @@ def test_a_conditioned_chunk_commits_without_a_blend(tmp_path: Path) -> None:
     runtime.run()
 
     assert seen, "no chunk was ever committed"
-    assert seen[0] == config.execution.blend_steps, "the first chunk is unconditioned"
+    assert seen[0] == config["execution"]["blend_steps"], "the first chunk is unconditioned"
     assert 0 in seen[1:], "a conditioned chunk still went through the blend"

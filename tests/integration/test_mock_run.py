@@ -7,9 +7,16 @@ import numpy as np
 import pytest
 import zarr
 
-from manimux.config import load_config
+from manimux.cli import load_config
 from manimux.policies.capabilities import PolicyCapabilities
+from manimux.runtime import execution_parameters
 from manimux.runtime.edge import EdgeRuntime
+from manimux.runtime.executors.smooth import (
+    gripper_grasp_guard_parameters,
+    gripper_hysteresis_parameters,
+    gripper_release_guard_parameters,
+)
+from manimux.runtime.safety import command_safety_parameters
 from manimux.types import (
     ActionChunk,
     InferenceResponse,
@@ -22,9 +29,9 @@ from manimux.viewer import ViewerControl
 
 def test_mock_run_records_async_episode(tmp_path: Path) -> None:
     config = load_config("configs/mock.yaml")
-    config.run.output_dir = tmp_path
-    config.run.max_steps = 80
-    config.policy.inference_delay_s = 0.02
+    config["run"]["output_dir"] = tmp_path
+    config["run"]["max_steps"] = 80
+    config["policy"]["inference_delay_s"] = 0.02
     run_dir = tmp_path / "run-test"
     run_dir.mkdir()
 
@@ -53,16 +60,16 @@ def test_mock_run_records_async_episode(tmp_path: Path) -> None:
     boundaries = [event for event in events if event["kind"] == "plan_boundary"]
     assert boundaries
     assert boundaries[0]["blend_anchor_source"] == "measured_state"
-    assert set(boundaries[0]["raw_first"]) == set(config.robot.group_dims)
-    assert set(boundaries[0]["committed_first"]) == set(config.robot.group_dims)
+    assert set(boundaries[0]["raw_first"]) == set(config["robot"]["group_dims"])
+    assert set(boundaries[0]["committed_first"]) == set(config["robot"]["group_dims"])
 
 
 def test_single_inflight_schedule_refills_after_each_response(tmp_path: Path) -> None:
     config = load_config("configs/mock.yaml")
-    config.run.output_dir = tmp_path
-    config.run.max_steps = 120
-    config.policy.inference_delay_s = 0.01
-    config.execution.inference_schedule = "single_inflight"
+    config["run"]["output_dir"] = tmp_path
+    config["run"]["max_steps"] = 120
+    config["policy"]["inference_delay_s"] = 0.01
+    config["execution"]["inference_schedule"] = "single_inflight"
     run_dir = tmp_path / "run-single-inflight"
     run_dir.mkdir()
 
@@ -74,9 +81,9 @@ def test_single_inflight_schedule_refills_after_each_response(tmp_path: Path) ->
 
 @pytest.mark.parametrize("pause_during_inference", [False, True])
 def test_serial_full_chunks_hold_during_inference_and_discard_paused_results(
-    tmp_path: Path, pause_during_inference: bool,
+    tmp_path: Path,
+    pause_during_inference: bool,
 ) -> None:
-    from manimux.config import ExecutionConfig
     from manimux.robots.mock import MockDualArmDriver
 
     class Clock:
@@ -113,15 +120,26 @@ def test_serial_full_chunks_hold_during_inference_and_discard_paused_results(
                 return None
             self.request = None
             self.finished[request.request_seq] = clock.now
-            groups = {name: np.tile(np.linspace(.1, .3, 50)[:, None], (1, len(q)))
-                      for name, q in request.observation.state.groups.items()}
-            chunk = ActionChunk(f"serial-{request.request_seq}", request.request_seq,
-                                request.observation_time_ns, clock.now, "joint_position",
-                                int(1e9 / 30), groups)
+            groups = {
+                name: np.tile(np.linspace(0.1, 0.3, 50)[:, None], (1, len(q)))
+                for name, q in request.observation.state.groups.items()
+            }
+            chunk = ActionChunk(
+                f"serial-{request.request_seq}",
+                request.request_seq,
+                request.observation_time_ns,
+                clock.now,
+                "joint_position",
+                int(1e9 / 30),
+                groups,
+            )
             return InferenceResponse(
-                session_id=request.session_id, request_seq=request.request_seq,
+                session_id=request.session_id,
+                request_seq=request.request_seq,
                 observation_time_ns=request.observation_time_ns,
-                finished_time_ns=clock.now, inference_ms=200., raw_action=chunk,
+                finished_time_ns=clock.now,
+                inference_ms=200.0,
+                raw_action=chunk,
             )
 
     class Viewer(_AutoRunningViewer):
@@ -132,29 +150,32 @@ def test_serial_full_chunks_hold_during_inference_and_discard_paused_results(
             return ViewerControl(paused=paused)
 
     config = load_config("configs/mock.yaml")
-    config.policy.horizon_steps = 50
-    config.policy.action_dt_s = 1 / 30
-    config.run.max_steps = 500
-    config.sensors = []
-    config.execution = ExecutionConfig(inference_schedule="serial", chunk_steps=50,
-                                       commit_lead_s=0, blend_steps=0)
+    config["policy"]["horizon_steps"] = 50
+    config["policy"]["action_dt_s"] = 1 / 30
+    config["run"]["max_steps"] = 500
+    config["sensors"] = []
+    config["execution"] = execution_parameters(
+        inference_schedule="serial", chunk_steps=50, commit_lead_s=0, blend_steps=0
+    )
     runtime = EdgeRuntime(config, tmp_path, clock=clock)
-    robot = Robot(config.robot.group_dims, clock)
+    robot = Robot(config["robot"]["group_dims"], clock)
     worker = Worker()
     runtime._robot, runtime._worker, runtime._viewer = robot, worker, Viewer()
     result = runtime.run()
     assert result.success and result.accepted_plans >= 2
     assert worker.requests[0].observation_time_ns == 50_000_000
-    events = [json.loads(line) for line in
-              (result.episode_dir / "events.jsonl").read_text().splitlines()]
+    events = [
+        json.loads(line) for line in (result.episode_dir / "events.jsonl").read_text().splitlines()
+    ]
     accepted = [e for e in events if e["kind"] == "plan_accepted"]
     assert all(e["trimmed_steps"] == 0 for e in accepted)
     root = zarr.open_group(str(result.episode_dir / "data.zarr"), mode="r")
     for key in root["plans"].group_keys():
         assert root[f"plans/{key}/committed/left_arm"].shape[0] == 50
     if pause_during_inference:
-        assert all(not 1_950_000_000 <= r.observation_time_ns < 2_250_000_000
-                   for r in worker.requests)
+        assert all(
+            not 1_950_000_000 <= r.observation_time_ns < 2_250_000_000 for r in worker.requests
+        )
         assert 2 not in [e["request_seq"] for e in accepted]
     else:
         for prev, nxt in zip(worker.requests, worker.requests[1:], strict=False):
@@ -306,11 +327,11 @@ class _FingerprintWorker(_HomeTestWorker):
 
 def test_policy_backend_fingerprint_is_written_after_worker_start(tmp_path: Path) -> None:
     config = load_config("configs/mock.yaml")
-    config.run.max_steps = 1
+    config["run"]["max_steps"] = 1
     run_dir = tmp_path / "run-policy-fingerprint"
     run_dir.mkdir()
     runtime = EdgeRuntime(config, run_dir)
-    runtime._robot = _HomeTestRobot(config.robot.group_dims)
+    runtime._robot = _HomeTestRobot(config["robot"]["group_dims"])
     runtime._sensors = []
     runtime._worker = _FingerprintWorker()
     runtime._viewer = _AutoRunningViewer()
@@ -324,13 +345,13 @@ def test_policy_backend_fingerprint_is_written_after_worker_start(tmp_path: Path
 
 def test_max_steps_automatically_homes_and_exits(tmp_path: Path) -> None:
     config = load_config("configs/mock.yaml")
-    config.viewer.enabled = True
-    config.run.max_steps = 2
-    config.robot.options["home_on_close"] = True
+    config["viewer"]["enabled"] = True
+    config["run"]["max_steps"] = 2
+    config["robot"]["options"]["home_on_close"] = True
     run_dir = tmp_path / "run-max-steps-home"
     run_dir.mkdir()
     runtime = EdgeRuntime(config, run_dir)
-    robot = _HomeTestRobot(config.robot.group_dims)
+    robot = _HomeTestRobot(config["robot"]["group_dims"])
     runtime._robot = robot
     runtime._sensors = []
     runtime._worker = _HomeTestWorker()
@@ -345,11 +366,11 @@ def test_max_steps_automatically_homes_and_exits(tmp_path: Path) -> None:
 
 def test_home_discards_pre_home_response_and_commands_fresh_measured_state(tmp_path: Path) -> None:
     config = load_config("configs/mock.yaml")
-    config.viewer.enabled = True
+    config["viewer"]["enabled"] = True
     run_dir = tmp_path / "run-home-reset"
     run_dir.mkdir()
     runtime = EdgeRuntime(config, run_dir)
-    robot = _HomeTestRobot(config.robot.group_dims)
+    robot = _HomeTestRobot(config["robot"]["group_dims"])
     runtime._robot = robot
     runtime._sensors = []
     runtime._worker = _HomeTestWorker()
@@ -426,7 +447,7 @@ def test_interrupt_stops_robot_first_then_saves_partial_episode(tmp_path: Path) 
     run_dir.mkdir()
     runtime = EdgeRuntime(config, run_dir)
     events: list[str] = []
-    runtime._robot = _OrderedRobot(config.robot.group_dims, events)
+    runtime._robot = _OrderedRobot(config["robot"]["group_dims"], events)
     runtime._worker = _OrderedWorker(events)
     runtime._sensors = [_InterruptingSensor(events)]
 
@@ -445,12 +466,12 @@ def test_interrupt_stops_robot_first_then_saves_partial_episode(tmp_path: Path) 
 
 def test_interrupt_homes_only_when_configured(tmp_path: Path) -> None:
     config = load_config("configs/mock.yaml")
-    config.robot.options["home_on_close"] = True
+    config["robot"]["options"]["home_on_close"] = True
     run_dir = tmp_path / "run-interrupt-home"
     run_dir.mkdir()
     runtime = EdgeRuntime(config, run_dir)
     events: list[str] = []
-    robot = _OrderedRobot(config.robot.group_dims, events)
+    robot = _OrderedRobot(config["robot"]["group_dims"], events)
     runtime._robot = robot
     runtime._worker = _OrderedWorker(events)
     runtime._sensors = [_InterruptingSensor(events)]
@@ -466,10 +487,10 @@ def test_decode_latency_is_included_in_commit_expiry(tmp_path: Path) -> None:
     import time
 
     config = load_config("configs/mock.yaml")
-    config.run.max_steps = 3
-    config.execution.max_plan_age_s = 2
+    config["run"]["max_steps"] = 3
+    config["execution"]["max_plan_age_s"] = 2
     runtime = EdgeRuntime(config, tmp_path)
-    runtime._robot = _HomeTestRobot(config.robot.group_dims)
+    runtime._robot = _HomeTestRobot(config["robot"]["group_dims"])
     runtime._worker = _HomeTestWorker()
     runtime._viewer = _AutoRunningViewer()
     runtime._sensors = []
@@ -491,12 +512,16 @@ def test_decode_latency_is_included_in_commit_expiry(tmp_path: Path) -> None:
     assert any(e.get("reason") == "no_future_horizon" for e in events)
 
 
-@pytest.mark.parametrize("schedule,tracking", [
-    ("single_inflight", "legacy"), ("single_inflight", "braking"), ("serial", "legacy"),
-    ("rtc", "legacy"),
-])
+@pytest.mark.parametrize(
+    "schedule,tracking",
+    [
+        ("single_inflight", "legacy"),
+        ("single_inflight", "braking"),
+        ("serial", "legacy"),
+        ("rtc", "legacy"),
+    ],
+)
 def test_close_latch_runtime_preserves_squeeze_through_inference_gaps(tmp_path, schedule, tracking):
-    from manimux.config import CommandSafetyConfig, ExecutionConfig, GripperHysteresisConfig
     from manimux.robots.mock import MockDualArmDriver
 
     class Clock:
@@ -528,22 +553,32 @@ def test_close_latch_runtime_preserves_squeeze_through_inference_gaps(tmp_path, 
             self.request = None
             aperture = {1: 0.59, 2: 0.65}.get(request.request_seq, 0.8)
             # Right arm stays open and never inherits the left arm's latch.
-            groups = {"left_arm": np.tile([0.0, aperture], (20, 1)),
-                      "right_arm": np.tile([0.0, 0.65], (20, 1))}
+            groups = {
+                "left_arm": np.tile([0.0, aperture], (20, 1)),
+                "right_arm": np.tile([0.0, 0.65], (20, 1)),
+            }
             chunk = ActionChunk(
-                f"latch-{request.request_seq}", request.request_seq,
-                request.observation_time_ns, clock.now, "joint_position", 50_000_000, groups,
+                f"latch-{request.request_seq}",
+                request.request_seq,
+                request.observation_time_ns,
+                clock.now,
+                "joint_position",
+                50_000_000,
+                groups,
             )
             return InferenceResponse(
-                session_id=request.session_id, request_seq=request.request_seq,
+                session_id=request.session_id,
+                request_seq=request.request_seq,
                 observation_time_ns=request.observation_time_ns,
-                finished_time_ns=clock.now, inference_ms=350.0, raw_action=chunk,
+                finished_time_ns=clock.now,
+                inference_ms=350.0,
+                raw_action=chunk,
             )
 
     config = load_config("configs/mock.yaml")
-    config.run.max_steps = 400
-    config.sensors = []
-    config.robot.group_dims = {"left_arm": 2, "right_arm": 2}
+    config["run"]["max_steps"] = 400
+    config["sensors"] = []
+    config["robot"]["group_dims"] = {"left_arm": 2, "right_arm": 2}
     execution = dict(commit_lead_s=0, blend_steps=0)
     if schedule == "rtc":
         execution.update(runtime="rtc", rtc={"min_execute_steps": 13})
@@ -551,27 +586,33 @@ def test_close_latch_runtime_preserves_squeeze_through_inference_gaps(tmp_path, 
         execution["inference_schedule"] = schedule
     if schedule == "single_inflight":
         execution["refill_threshold_s"] = 0.001
-    config.execution = ExecutionConfig(**execution)
-    config.execution.smooth.tracking_mode = tracking
-    config.execution.smooth.gripper = GripperHysteresisConfig(
-        mode="close_latch", group_indices={"left_arm": 1, "right_arm": 1},
-        close_threshold=0.6, open_threshold=0.75, closed_value=0.2,
-        max_velocity=3.0, max_acceleration=12.0, max_closing_velocity=1.0,
+    config["execution"] = execution_parameters(**execution)
+    config["execution"]["smooth"]["tracking_mode"] = tracking
+    config["execution"]["smooth"]["gripper"] = gripper_hysteresis_parameters(
+        mode="close_latch",
+        group_indices={"left_arm": 1, "right_arm": 1},
+        close_threshold=0.6,
+        open_threshold=0.75,
+        closed_value=0.2,
+        max_velocity=3.0,
+        max_acceleration=12.0,
+        max_closing_velocity=1.0,
     )
-    config.execution.command_safety = CommandSafetyConfig(
-        position_lower={name: [-3.0, 0.0] for name in config.robot.group_dims},
-        position_upper={name: [3.0, 1.0] for name in config.robot.group_dims},
-        max_velocity={name: [3.0, 3.3333333333333335] for name in config.robot.group_dims},
+    config["execution"]["command_safety"] = command_safety_parameters(
+        position_lower={name: [-3.0, 0.0] for name in config["robot"]["group_dims"]},
+        position_upper={name: [3.0, 1.0] for name in config["robot"]["group_dims"]},
+        max_velocity={name: [3.0, 3.3333333333333335] for name in config["robot"]["group_dims"]},
     )
     runtime = EdgeRuntime(config, tmp_path, clock=clock)
-    robot = ContactRobot(config.robot.group_dims, clock)
-    for name in config.robot.group_dims:
+    robot = ContactRobot(config["robot"]["group_dims"], clock)
+    for name in config["robot"]["group_dims"]:
         robot._groups[name][-1] = robot._target[name][-1] = 0.65
     runtime._robot, runtime._worker, runtime._viewer = robot, Worker(), _AutoRunningViewer()
     result = runtime.run()
     assert result.success and result.accepted_plans >= 3
-    events = [json.loads(line) for line in
-              (result.episode_dir / "events.jsonl").read_text().splitlines()]
+    events = [
+        json.loads(line) for line in (result.episode_dir / "events.jsonl").read_text().splitlines()
+    ]
     decisions = [e for e in events if e["kind"] == "gripper_decision"]
     second = [e for e in decisions if e["plan_id"] == "latch-2"]
     third = [e for e in decisions if e["plan_id"] == "latch-3"]
@@ -592,58 +633,56 @@ def test_close_latch_runtime_preserves_squeeze_through_inference_gaps(tmp_path, 
 
 
 def test_braking_runtime_keeps_50_predictions_and_executes_25_step_prefix(tmp_path: Path):
-    config = load_config('configs/mock.yaml')
-    config.run.max_steps = 180
-    config.policy.horizon_steps = 50
-    config.policy.action_dt_s = 1 / 30
-    config.policy.inference_delay_s = .08
-    config.execution.smooth.tracking_mode = 'braking'
-    config.execution.smooth.max_velocity = .8
-    config.execution.smooth.max_acceleration = 3.
-    config.execution.max_chunk_steps = 25
-    config.execution.inference_schedule = 'single_inflight'
-    config.execution.commit_lead_s = 0
+    config = load_config("configs/mock.yaml")
+    config["run"]["max_steps"] = 180
+    config["policy"]["horizon_steps"] = 50
+    config["policy"]["action_dt_s"] = 1 / 30
+    config["policy"]["inference_delay_s"] = 0.08
+    config["execution"]["smooth"]["tracking_mode"] = "braking"
+    config["execution"]["smooth"]["max_velocity"] = 0.8
+    config["execution"]["smooth"]["max_acceleration"] = 3.0
+    config["execution"]["max_chunk_steps"] = 25
+    config["execution"]["inference_schedule"] = "single_inflight"
+    config["execution"]["commit_lead_s"] = 0
     # Force a gap after a moving plan so braking through missing inference is exercised.
-    config.execution.refill_threshold_s = .001
+    config["execution"]["refill_threshold_s"] = 0.001
     runtime = EdgeRuntime(config, tmp_path)
     gap_speeds = []
     original = runtime._executor.brake_hold
 
     def brake_hold(now_ns, state):
         if runtime._executor._previous_velocity is not None:
-            gap_speeds.append(max(
-                np.max(abs(v)) for v in runtime._executor._previous_velocity.values()
-            ))
+            gap_speeds.append(
+                max(np.max(abs(v)) for v in runtime._executor._previous_velocity.values())
+            )
         return original(now_ns, state)
 
     runtime._executor.brake_hold = brake_hold
     result = runtime.run()
     assert result.accepted_plans >= 2
-    assert gap_speeds and max(gap_speeds) > .01
-    z = zarr.open_group(str(result.episode_dir / 'data.zarr'), mode='r')
+    assert gap_speeds and max(gap_speeds) > 0.01
+    z = zarr.open_group(str(result.episode_dir / "data.zarr"), mode="r")
     events = [
-        json.loads(line)
-        for line in (result.episode_dir / 'events.jsonl').read_text().splitlines()
+        json.loads(line) for line in (result.episode_dir / "events.jsonl").read_text().splitlines()
     ]
-    boundaries = {e['plan_id']: e for e in events if e['kind'] == 'plan_boundary'}
-    for key in z['plans']:
-        p = z['plans/' + key]
-        b = boundaries.get(p.attrs['plan_id'])
+    boundaries = {e["plan_id"]: e for e in events if e["kind"] == "plan_boundary"}
+    for key in z["plans"]:
+        p = z["plans/" + key]
+        b = boundaries.get(p.attrs["plan_id"])
         if b is None:
             continue
-        assert p['infra_output/left_arm'].shape[0] == 50
-        assert p['committed/left_arm'].shape[0] == 25 - b['trimmed_steps']
-    q = z['ticks/command/left_arm'][:]
-    v = np.diff(q, axis=0) / .01
-    assert np.max(abs(v)) <= .8 + 1e-9
-    assert np.max(abs(np.diff(v, axis=0) / .01)) <= 3 + 1e-8
-    meta = json.loads((result.episode_dir / 'meta.json').read_text())
-    assert meta['horizon_steps'] == 50 and meta['max_chunk_steps'] == 25
-    assert meta['smooth']['tracking_mode'] == 'braking'
+        assert p["infra_output/left_arm"].shape[0] == 50
+        assert p["committed/left_arm"].shape[0] == 25 - b["trimmed_steps"]
+    q = z["ticks/command/left_arm"][:]
+    v = np.diff(q, axis=0) / 0.01
+    assert np.max(abs(v)) <= 0.8 + 1e-9
+    assert np.max(abs(np.diff(v, axis=0) / 0.01)) <= 3 + 1e-8
+    meta = json.loads((result.episode_dir / "meta.json").read_text())
+    assert meta["horizon_steps"] == 50 and meta["max_chunk_steps"] == 25
+    assert meta["smooth"]["tracking_mode"] == "braking"
 
 
 def test_release_guard_diagnostics_survive_runtime_json_recording(tmp_path):
-    from manimux.config import GripperHysteresisConfig, GripperReleaseGuardConfig
 
     class Worker(_HomeTestWorker):
         def poll(self):
@@ -653,104 +692,120 @@ def test_release_guard_diagnostics_survive_runtime_json_recording(tmp_path):
                     values[:] = 0.0  # Already closed: non-opening comparison returns numpy.bool.
             return response
 
-    config = load_config('configs/mock.yaml')
-    config.run.max_steps = 25
-    config.sensors = []
-    config.robot.group_dims = {'left_arm': 7, 'right_arm': 7}
-    config.execution.smooth.tracking_mode = 'braking'
-    config.execution.smooth.gripper = GripperHysteresisConfig(
-        mode='continuous', group_indices={'left_arm':6, 'right_arm':6})
-    config.execution.smooth.release_guard = GripperReleaseGuardConfig()
+    config = load_config("configs/mock.yaml")
+    config["run"]["max_steps"] = 25
+    config["sensors"] = []
+    config["robot"]["group_dims"] = {"left_arm": 7, "right_arm": 7}
+    config["execution"]["smooth"]["tracking_mode"] = "braking"
+    config["execution"]["smooth"]["gripper"] = gripper_hysteresis_parameters(
+        mode="continuous", group_indices={"left_arm": 6, "right_arm": 6}
+    )
+    config["execution"]["smooth"]["release_guard"] = gripper_release_guard_parameters()
     runtime = EdgeRuntime(config, tmp_path)
     runtime._worker = Worker()
     result = runtime.run()
-    assert result.steps == 25 and not result.episode_dir.name.endswith('.partial')
-    events = [json.loads(line) for line in (result.episode_dir/'events.jsonl').read_text().splitlines()]
-    decisions = [e for e in events if e['kind']=='gripper_decision']
+    assert result.steps == 25 and not result.episode_dir.name.endswith(".partial")
+    events = [
+        json.loads(line) for line in (result.episode_dir / "events.jsonl").read_text().splitlines()
+    ]
+    decisions = [e for e in events if e["kind"] == "gripper_decision"]
     assert decisions
-    assert all(d['groups'][arm]['release_blocked'] is False
-               for d in decisions for arm in config.robot.group_dims)
+    assert all(
+        d["groups"][arm]["release_blocked"] is False
+        for d in decisions
+        for arm in config["robot"]["group_dims"]
+    )
 
 
 def test_latched_release_completes_through_timeline_gap_with_recorded_phases(tmp_path):
-    from manimux.config import GripperHysteresisConfig, GripperReleaseGuardConfig
 
     class Worker(_HomeTestWorker):
         def poll(self):
             response = super().poll()
             if response is not None:
                 for values in response.raw_action.groups.values():
-                    values[:] = 0.
-                    values[:,0] = .12
-                    values[:,-1] = 1.
+                    values[:] = 0.0
+                    values[:, 0] = 0.12
+                    values[:, -1] = 1.0
             return response
 
-    config = load_config('configs/mock.yaml')
-    config.run.max_steps = 180
-    config.sensors = []
-    config.robot.group_dims = {'left_arm':7,'right_arm':7}
-    config.policy.timeout_s = 5
-    config.execution.smooth.tracking_mode = 'braking'
-    config.execution.smooth.max_velocity = .6
-    config.execution.smooth.max_acceleration = 1.5
-    config.execution.smooth.gripper = GripperHysteresisConfig(
-        mode='continuous', group_indices={'left_arm':6,'right_arm':6},
-        max_velocity=1,max_acceleration=12)
-    config.execution.smooth.release_guard = GripperReleaseGuardConfig(mode='latched_release')
-    runtime = EdgeRuntime(config,tmp_path)
+    config = load_config("configs/mock.yaml")
+    config["run"]["max_steps"] = 180
+    config["sensors"] = []
+    config["robot"]["group_dims"] = {"left_arm": 7, "right_arm": 7}
+    config["policy"]["timeout_s"] = 5
+    config["execution"]["smooth"]["tracking_mode"] = "braking"
+    config["execution"]["smooth"]["max_velocity"] = 0.6
+    config["execution"]["smooth"]["max_acceleration"] = 1.5
+    config["execution"]["smooth"]["gripper"] = gripper_hysteresis_parameters(
+        mode="continuous",
+        group_indices={"left_arm": 6, "right_arm": 6},
+        max_velocity=1,
+        max_acceleration=12,
+    )
+    config["execution"]["smooth"]["release_guard"] = gripper_release_guard_parameters(
+        mode="latched_release"
+    )
+    runtime = EdgeRuntime(config, tmp_path)
     runtime._worker = Worker()
     result = runtime.run()
     assert result.steps == 180
-    events = [json.loads(line) for line in (result.episode_dir/'events.jsonl').read_text().splitlines()]
-    decisions = [e for e in events if e['kind']=='gripper_decision']
-    phases = {e['groups']['right_arm']['release_phase'] for e in decisions}
-    assert {'opening','await_observation'} <= phases
-    assert any(e['plan_id'] is None for e in decisions)
-    z = zarr.open_group(str(result.episode_dir/'data.zarr'),mode='r')
-    assert z['ticks/command/right_arm'][-1,-1] > .98
+    events = [
+        json.loads(line) for line in (result.episode_dir / "events.jsonl").read_text().splitlines()
+    ]
+    decisions = [e for e in events if e["kind"] == "gripper_decision"]
+    phases = {e["groups"]["right_arm"]["release_phase"] for e in decisions}
+    assert {"opening", "await_observation"} <= phases
+    assert any(e["plan_id"] is None for e in decisions)
+    z = zarr.open_group(str(result.episode_dir / "data.zarr"), mode="r")
+    assert z["ticks/command/right_arm"][-1, -1] > 0.98
 
 
 def test_grasp_guard_completes_before_lift_through_inference_gap(tmp_path):
-    from manimux.config import (
-        GripperGraspGuardConfig, GripperHysteresisConfig, GripperReleaseGuardConfig,
-    )
 
     class Worker(_HomeTestWorker):
         def poll(self):
             response = super().poll()
             if response is not None:
                 for values in response.raw_action.groups.values():
-                    values[:] = 0.
-                    values[:, 0] = .12
-                    values[:, -1] = .8
+                    values[:] = 0.0
+                    values[:, 0] = 0.12
+                    values[:, -1] = 0.8
             return response
 
-    config = load_config('configs/mock.yaml')
-    config.run.max_steps = 240
-    config.sensors = []
-    config.robot.group_dims = {'left_arm': 7, 'right_arm': 7}
-    config.policy.timeout_s = 5
-    config.execution.smooth.tracking_mode = 'braking'
-    config.execution.smooth.max_velocity = .6
-    config.execution.smooth.max_acceleration = 1.5
-    config.execution.smooth.gripper = GripperHysteresisConfig(
-        mode='continuous', group_indices={'left_arm': 6, 'right_arm': 6},
-        max_velocity=1, max_acceleration=12)
-    config.execution.smooth.release_guard = GripperReleaseGuardConfig()
-    config.execution.smooth.grasp_guard = GripperGraspGuardConfig()
+    config = load_config("configs/mock.yaml")
+    config["run"]["max_steps"] = 240
+    config["sensors"] = []
+    config["robot"]["group_dims"] = {"left_arm": 7, "right_arm": 7}
+    config["policy"]["timeout_s"] = 5
+    config["execution"]["smooth"]["tracking_mode"] = "braking"
+    config["execution"]["smooth"]["max_velocity"] = 0.6
+    config["execution"]["smooth"]["max_acceleration"] = 1.5
+    config["execution"]["smooth"]["gripper"] = gripper_hysteresis_parameters(
+        mode="continuous",
+        group_indices={"left_arm": 6, "right_arm": 6},
+        max_velocity=1,
+        max_acceleration=12,
+    )
+    config["execution"]["smooth"]["release_guard"] = gripper_release_guard_parameters()
+    config["execution"]["smooth"]["grasp_guard"] = gripper_grasp_guard_parameters()
     runtime = EdgeRuntime(config, tmp_path)
-    for n in config.robot.group_dims:
-        runtime._robot._groups[n][-1] = 1.
-        runtime._robot._target[n][-1] = 1.
+    for n in config["robot"]["group_dims"]:
+        runtime._robot._groups[n][-1] = 1.0
+        runtime._robot._target[n][-1] = 1.0
     runtime._worker = Worker()
     result = runtime.run()
     assert result.steps == 240
-    events = [json.loads(line) for line in (result.episode_dir/'events.jsonl').read_text().splitlines()]
-    decisions = [e for e in events if e['kind'] == 'gripper_decision']
-    phases = {e['groups']['right_arm'].get('grasp_phase') for e in decisions}
-    assert {'approach', 'closing', 'await_observation'} <= phases
-    assert any(e['plan_id'] is None and e['groups']['right_arm'].get('grasp_phase') == 'closing'
-               for e in decisions)
-    z = zarr.open_group(str(result.episode_dir/'data.zarr'), mode='r')
-    assert z['ticks/command/right_arm'][-1, -1] < .02
-    assert z['ticks/command/right_arm'][:, 0].max() <= .12 + 1e-9
+    events = [
+        json.loads(line) for line in (result.episode_dir / "events.jsonl").read_text().splitlines()
+    ]
+    decisions = [e for e in events if e["kind"] == "gripper_decision"]
+    phases = {e["groups"]["right_arm"].get("grasp_phase") for e in decisions}
+    assert {"approach", "closing", "await_observation"} <= phases
+    assert any(
+        e["plan_id"] is None and e["groups"]["right_arm"].get("grasp_phase") == "closing"
+        for e in decisions
+    )
+    z = zarr.open_group(str(result.episode_dir / "data.zarr"), mode="r")
+    assert z["ticks/command/right_arm"][-1, -1] < 0.02
+    assert z["ticks/command/right_arm"][:, 0].max() <= 0.12 + 1e-9

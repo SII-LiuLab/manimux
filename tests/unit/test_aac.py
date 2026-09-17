@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from copy import deepcopy
+
 import numpy as np
 import pytest
-from pydantic import ValidationError
 from scipy.spatial.transform import Rotation
 
-from manimux.config import ManiMuxConfig, load_config
+from manimux.cli import load_config, prepare_experiment
 from manimux.integrations.xpolicylab.aac import (
     AacPreviousAction,
     EeActionStats,
@@ -75,7 +76,7 @@ def _candidate_chunks(samples: int = 3, horizon: int = 4) -> list[list[dict[str,
     return candidates
 
 
-def _aac_config() -> ManiMuxConfig:
+def _aac_config() -> dict:
     return load_config("configs/groot/yam/infra/aac.yaml")
 
 
@@ -182,13 +183,13 @@ def test_aac_strategy_uses_the_server_capability_and_waits_for_chunk_end() -> No
     strategy = build_inference_strategy(config)
     snapshot = ObservationSnapshot(
         state=RobotState(
-            groups={name: np.zeros(dim) for name, dim in config.robot.group_dims.items()},
+            groups={name: np.zeros(dim) for name, dim in config["robot"]["group_dims"].items()},
             monotonic_ns=1_000,
             sequence=1,
         )
     )
     request_state = RequestState(False, -1, 0)
-    timeline = ActionTimeline(config.robot.group_dims)
+    timeline = ActionTimeline(config["robot"]["group_dims"])
     kwargs = {
         "session_id": "session",
         "snapshot": snapshot,
@@ -212,7 +213,7 @@ def test_aac_strategy_uses_the_server_capability_and_waits_for_chunk_end() -> No
         created_time_ns=1_000,
         action_space="joint_position",
         dt_ns=100,
-        groups={name: np.zeros((4, dim)) for name, dim in config.robot.group_dims.items()},
+        groups={name: np.zeros((4, dim)) for name, dim in config["robot"]["group_dims"].items()},
     )
     result = timeline.commit(
         chunk,
@@ -268,16 +269,16 @@ def test_aac_rebases_selected_chunk_after_synchronous_inference() -> None:
 
 
 def test_aac_config_rejects_runtime_blending() -> None:
-    payload = _aac_config().model_dump(mode="python")
+    payload = deepcopy(_aac_config())
     payload["execution"].pop("inference_schedule")
     payload["execution"].pop("refill_threshold_s")
     payload["execution"]["blend_steps"] = 1
-    with pytest.raises(ValidationError, match="blend_steps=0"):
-        ManiMuxConfig.model_validate(payload)
+    with pytest.raises(ValueError, match="blend_steps=0"):
+        prepare_experiment(**payload)
 
 
 def test_aac_config_requires_fixed_ee_stats() -> None:
-    payload = _aac_config().model_dump(mode="python")
+    payload = deepcopy(_aac_config())
     payload["execution"]["aac"]["ee_stats_path"] = None
-    with pytest.raises(ValidationError, match="ee_stats_path"):
-        ManiMuxConfig.model_validate(payload)
+    with pytest.raises(ValueError, match="ee_stats_path"):
+        prepare_experiment(**payload)

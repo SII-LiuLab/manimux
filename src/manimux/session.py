@@ -3,14 +3,13 @@ from __future__ import annotations
 import time
 import uuid
 from collections.abc import Callable
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, Protocol
 
-from manimux.config import ManiMuxConfig
-from manimux.robots.tianji.recovery import TianjiRecovery
 from manimux.runtime import RunResult, build_runtime
-from manimux.viewer.protocol import RuntimeEvent
-from manimux.viewer.transport import ControlClient, ViewerPublisher
+from manimux.viewer.communication import RuntimeEvent
+from manimux.viewer.communication import ControlClient, ViewerPublisher
 
 
 class _Runtime(Protocol):
@@ -29,12 +28,12 @@ class _Publisher(Protocol):
     def close(self) -> None: ...
 
 
-RuntimeFactory = Callable[[ManiMuxConfig, Path], _Runtime]
+RuntimeFactory = Callable[[dict, Path], _Runtime]
 ControlFactory = Callable[[], _ControlClient]
 PublisherFactory = Callable[[], _Publisher]
 
 
-def _build_served_runtime(config: ManiMuxConfig, run_dir: Path) -> _Runtime:
+def _build_served_runtime(config: dict, run_dir: Path) -> _Runtime:
     return build_runtime(config, run_dir, launch_mode="serve")
 
 
@@ -43,7 +42,7 @@ class RuntimeSessionService:
 
     def __init__(
         self,
-        config: ManiMuxConfig,
+        config: dict,
         run_dir: Path,
         *,
         runtime_factory: RuntimeFactory | None = None,
@@ -52,7 +51,7 @@ class RuntimeSessionService:
         poll_interval_s: float = 0.1,
         announcement_interval_s: float = 1.0,
     ) -> None:
-        if not config.viewer.enabled:
+        if not config["viewer"]["enabled"]:
             raise ValueError("manimux serve requires viewer.enabled=true")
         self._config = config
         self._run_dir = run_dir
@@ -64,24 +63,32 @@ class RuntimeSessionService:
         self._last_episode_dir: Path | None = None
         self._last_error = ""
         self._last_failure_id = ""
-        self._recovery = TianjiRecovery(config)
+        # Manual recovery belongs to the legacy Tianji service only. New robot
+        # assembly can run/serve without importing or claiming that capability.
+        self._recovery = None
+        if config["robot"]["type"] == "tianji_dual":
+            from manimux.robots.tianji.recovery import TianjiRecovery
+
+            self._recovery = TianjiRecovery(config)
 
     def _ready_metadata(self) -> dict[str, object]:
         return {
             "run_dir": str(self._run_dir.resolve()),
-            "task": self._config.run.task,
-            "runtime": self._config.execution.runtime,
-            "executor": self._config.execution.executor,
-            "policy_label": self._config.viewer.policy_label,
-            "camera_map": self._config.policy.options.get("camera_map", {}),
-            "default_experiment_mode": self._config.run.experiment_mode,
-            "default_layout_id": self._config.run.layout_id,
+            "task": self._config["run"]["task"],
+            "runtime": self._config["execution"]["runtime"],
+            "executor": self._config["execution"]["executor"],
+            "policy_label": self._config["viewer"]["policy_label"],
+            "camera_map": self._config["policy"]["options"].get("camera_map", {}),
+            "default_experiment_mode": self._config["run"]["experiment_mode"],
+            "default_layout_id": self._config["run"]["layout_id"],
             "last_episode_dir": (
                 "" if self._last_episode_dir is None else str(self._last_episode_dir.resolve())
             ),
             "last_error": self._last_error,
             "last_failure_id": self._last_failure_id,
-            "recovery": self._recovery.metadata(),
+            "recovery": self._recovery.metadata()
+            if self._recovery is not None
+            else {"available": False},
         }
 
     def _publish_once(self, event: str, metadata: dict[str, object]) -> None:
@@ -90,8 +97,8 @@ class RuntimeSessionService:
             publisher.publish(
                 RuntimeEvent(
                     event,
-                    robot=self._config.viewer.robot_adapter,
-                    policy=self._config.viewer.policy_label,
+                    robot=self._config["viewer"]["robot"],
+                    policy=self._config["viewer"]["policy_label"],
                     metadata=metadata,
                 )
             )
@@ -105,24 +112,27 @@ class RuntimeSessionService:
         try:
             while True:
                 state = control.poll()
-                recovery_control = state if state.get("recovery_service_id") == str(
-                    self._run_dir.resolve()
-                ) else {}
-                self._recovery.update(recovery_control)
+                recovery_control = (
+                    state
+                    if state.get("recovery_service_id") == str(self._run_dir.resolve())
+                    else {}
+                )
+                if self._recovery is not None:
+                    self._recovery.update(recovery_control)
                 now = time.monotonic()
                 if now - last_announcement >= self._announcement_interval_s:
                     publisher.publish(
                         RuntimeEvent(
                             "runtime_service_ready",
-                            robot=self._config.viewer.robot_adapter,
-                            policy=self._config.viewer.policy_label,
+                            robot=self._config["viewer"]["robot"],
+                            policy=self._config["viewer"]["policy_label"],
                             metadata=self._ready_metadata(),
                         )
                     )
                     last_announcement = now
                 if (
                     bool(state.get("new_rollout_requested", False))
-                    and not self._recovery.busy
+                    and (self._recovery is None or not self._recovery.busy)
                     and not state.get("recovery_lease", False)
                     and not state.get("recovery_request", "")
                 ):
@@ -130,7 +140,8 @@ class RuntimeSessionService:
                 time.sleep(self._poll_interval_s)
         finally:
             try:
-                self._recovery.close()
+                if self._recovery is not None:
+                    self._recovery.close()
             finally:
                 control.close()
                 publisher.close()
@@ -142,7 +153,7 @@ class RuntimeSessionService:
             "Viewer flow: Prepare normal/experiment rollout -> Start rollout -> "
             "Finish & Home / Finish without homing"
         )
-        if self._recovery.available:
+        if self._recovery is not None and self._recovery.available:
             print("Manual recovery is always visible: stop a rollout, drag A/B/AB, or Return Home")
         print(
             "Normal rollouts require no reward; experiment rollouts require a human "
@@ -153,15 +164,15 @@ class RuntimeSessionService:
             attempts += 1
             self._last_error = ""
             self._last_failure_id = ""
-            rollout_config = self._config.model_copy(deep=True)
+            rollout_config = deepcopy(self._config)
             task_command = str(request.get("task_command", "")).strip()
             if task_command:
-                rollout_config.run.task = task_command
-            rollout_config.run.experiment_mode = bool(
-                request.get("experiment_mode", self._config.run.experiment_mode)
+                rollout_config["run"]["task"] = task_command
+            rollout_config["run"]["experiment_mode"] = bool(
+                request.get("experiment_mode", self._config["run"]["experiment_mode"])
             )
-            rollout_config.run.layout_id = str(
-                request.get("layout_id", self._config.run.layout_id)
+            rollout_config["run"]["layout_id"] = str(
+                request.get("layout_id", self._config["run"]["layout_id"])
             ).strip()
             try:
                 result = self._runtime_factory(rollout_config, self._run_dir).run()
@@ -181,6 +192,5 @@ class RuntimeSessionService:
                 continue
             self._last_episode_dir = result.episode_dir
             print(
-                f"rollout completed; reason={result.terminal_reason}; "
-                f"episode={result.episode_dir}"
+                f"rollout completed; reason={result.terminal_reason}; episode={result.episode_dir}"
             )

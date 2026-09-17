@@ -4,7 +4,6 @@ from collections import deque
 
 import numpy as np
 
-from manimux.config import ManiMuxConfig
 from manimux.policies.base import PolicyAdapter
 from manimux.runtime.inference import (
     CommitSettings,
@@ -29,14 +28,14 @@ class RtcInferenceStrategy:
 
     discard_plans_while_paused = True
 
-    def __init__(self, config: ManiMuxConfig) -> None:
+    def __init__(self, config: dict) -> None:
         self._config = config
-        rtc = config.execution.rtc
-        self._group_order = tuple(config.robot.group_dims)
-        self._rtc_beta = float(rtc.beta)
-        self._min_execute_steps = rtc.min_execute_steps
-        self._initial_delay_steps = int(rtc.initial_delay_steps)
-        self._delay_buffer_size = int(rtc.delay_buffer_size)
+        rtc = config["execution"]["rtc"]
+        self._group_order = tuple(config["robot"]["group_dims"])
+        self._rtc_beta = float(rtc["beta"])
+        self._min_execute_steps = rtc["min_execute_steps"]
+        self._initial_delay_steps = int(rtc["initial_delay_steps"])
+        self._delay_buffer_size = int(rtc["delay_buffer_size"])
         self._delay_forecast: deque[int]
         self._active_rows: np.ndarray | None
         self._active_offset: int
@@ -64,9 +63,7 @@ class RtcInferenceStrategy:
         return frozenset({"rtc"})
 
     def reset(self) -> None:
-        self._delay_forecast = deque(
-            [self._initial_delay_steps], maxlen=self._delay_buffer_size
-        )
+        self._delay_forecast = deque([self._initial_delay_steps], maxlen=self._delay_buffer_size)
         self._active_rows = None
         self._active_offset = 0
         self._conditioned_requests = set()
@@ -123,14 +120,14 @@ class RtcInferenceStrategy:
         if not ready:
             return None
 
-        deadline_ns = now_ns + int(self._config.policy.timeout_s * 1_000_000_000)
+        deadline_ns = now_ns + int(self._config["policy"]["timeout_s"] * 1_000_000_000)
         request = RtcInferenceRequest(
             session_id=session_id,
             request_seq=request_seq,
             observation_time_ns=snapshot.state.monotonic_ns,
             deadline_ns=deadline_ns,
             observation=adapter.build_observation(snapshot),
-            instruction=self._config.run.task,
+            instruction=self._config["run"]["task"],
             action_condition=None if condition is None else condition.astype(np.float64),
             condition_weights=None if weights is None else weights.astype(np.float64),
             rtc_beta=self._rtc_beta,
@@ -159,7 +156,7 @@ class RtcInferenceStrategy:
         conditioned = response.request_seq in self._conditioned_requests
         return CommitSettings(
             current_command=copy_group_vector(last_command),
-            blend_steps=0 if conditioned else self._config.execution.blend_steps,
+            blend_steps=0 if conditioned else self._config["execution"]["blend_steps"],
             anchor_source="last_command",
         )
 
@@ -177,7 +174,7 @@ class RtcInferenceStrategy:
     ) -> ActionChunk:
         del response, now_ns
         source_horizon = chunk.source_offset_steps + chunk.horizon_steps
-        if source_horizon != self._config.policy.horizon_steps:
+        if source_horizon != self._config["policy"]["horizon_steps"]:
             raise ValueError("RTC decoded suffix must retain the configured source horizon")
         if chunk.hold_from_step:
             raise ValueError("RTC requires a complete joint plan for both arms")
@@ -191,9 +188,7 @@ class RtcInferenceStrategy:
         response: InferenceResponse,
         now_ns: int,
     ) -> dict[str, object]:
-        rows = np.concatenate(
-            [chunk.groups[name] for name in self._group_order], axis=1
-        )
+        rows = np.concatenate([chunk.groups[name] for name in self._group_order], axis=1)
         # Restore source indices only. The discarded prefix is never executable
         # or conditioned: executed always starts beyond these zero-weight rows.
         self._active_rows = np.pad(rows, ((chunk.source_offset_steps, 0), (0, 0)))
@@ -201,7 +196,7 @@ class RtcInferenceStrategy:
         started_ns = self._request_started_ns.pop(response.request_seq, now_ns)
         observation_ns = self._request_observation_ns.pop(response.request_seq, started_ns)
         forecast_used = self._request_forecast.pop(response.request_seq, 0)
-        executable_ns = now_ns + round(self._config.execution.commit_lead_s * 1e9)
+        executable_ns = now_ns + round(self._config["execution"]["commit_lead_s"] * 1e9)
         # Include observation age, request preparation, transport, model, both
         # decoder processes and commit lead; never round a partial step down.
         delay_ns = max(0, executable_ns - min(started_ns, observation_ns))
@@ -274,3 +269,16 @@ class RtcInferenceStrategy:
             flush=True,
         )
         self._loop_ms.clear()
+
+
+def rtc_parameters(**options) -> dict:
+    """RTC 只改变推理与分块时序；执行器限位仍由公共 runtime 管理。"""
+
+    values = {
+        "min_execute_steps": None,
+        "initial_delay_steps": 4,
+        "delay_buffer_size": 10,
+        "beta": 5.0,
+        **options,
+    }
+    return values

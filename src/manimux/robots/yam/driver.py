@@ -12,7 +12,6 @@ import numpy as np
 import yaml
 
 from manimux.clock import Clock
-from manimux.config import RobotConfig
 from manimux.robots._interrupt import finish_move_before_interrupt
 from manimux.types import RobotCommand, RobotState
 
@@ -57,35 +56,37 @@ class YamDualArmDriver:
         }
     )
 
-    def __init__(self, config: RobotConfig, clock: Clock) -> None:
-        if config.config is None:
+    def __init__(self, config: dict, clock: Clock) -> None:
+        if config["config"] is None:
             raise ValueError("yam_dual requires robot.config for the left arm")
-        if tuple(config.group_dims) != self.GROUP_ORDER or any(
-            config.group_dims[name] != 7 for name in self.GROUP_ORDER
+        if tuple(config["group_dims"]) != self.GROUP_ORDER or any(
+            config["group_dims"][name] != 7 for name in self.GROUP_ORDER
         ):
             raise ValueError("yam_dual requires left_arm and right_arm groups of dimension 7")
-        right_config = config.options.get("right_config")
+        right_config = config["options"].get("right_config")
         if not isinstance(right_config, str) or not right_config:
             raise ValueError("yam_dual requires robot.options.right_config")
-        self._left_path = config.config
+        self._left_path = config["config"]
         self._right_path = Path(right_config)
         self._clock = clock
-        self._options = dict(config.options)
+        self._options = dict(config["options"])
         for side in ("left", "right"):
             options = self._options.get(f"{side}_hardware_options", {})
             if not isinstance(options, dict):
                 raise ValueError(f"robot.options.{side}_hardware_options must be a mapping")
-        self._home_duration_s = float(config.options.get("home_duration_s", 5.0))
+        self._home_duration_s = float(config["options"].get("home_duration_s", 5.0))
         self._home_gripper_release_duration_s = float(
-            config.options.get("home_gripper_release_duration_s", 1.0)
+            config["options"].get("home_gripper_release_duration_s", 1.0)
         )
-        self._start_duration_s = float(config.options.get("start_duration_s", 5.0))
-        start_joints = config.options.get("start_joints")
+        self._start_duration_s = float(config["options"].get("start_duration_s", 5.0))
+        start_joints = config["options"].get("start_joints")
         self._start_joints = (
             None if start_joints is None else np.asarray(start_joints, dtype=np.float64)
         )
-        self._move_to_start_on_connect = bool(config.options.get("move_to_start_on_connect", False))
-        unknown = sorted(set(config.options) - self.OPTIONS)
+        self._move_to_start_on_connect = bool(
+            config["options"].get("move_to_start_on_connect", False)
+        )
+        unknown = sorted(set(config["options"]) - self.OPTIONS)
         if unknown:
             raise ValueError(
                 f"unknown robot.options for yam_dual: {', '.join(unknown)}; "
@@ -121,7 +122,9 @@ class YamDualArmDriver:
         from manimux.robots.yam.base import BimanualRobot
 
         left_channel = self._options.get("left_channel", left_cfg.get("robot", {}).get("channel"))
-        right_channel = self._options.get("right_channel", right_cfg.get("robot", {}).get("channel"))
+        right_channel = self._options.get(
+            "right_channel", right_cfg.get("robot", {}).get("channel")
+        )
         if not isinstance(left_channel, str) or not isinstance(right_channel, str):
             raise ValueError("both YAM configs must define robot.channel")
         left_robot = None
@@ -283,5 +286,5 @@ class YamDualArmDriver:
             raise RuntimeError("YAM shutdown did not complete safely") from cleanup_error
 
 
-def build_robot(config: RobotConfig, clock: Clock) -> YamDualArmDriver:
+def build_robot(config: dict, clock: Clock) -> YamDualArmDriver:
     return YamDualArmDriver(config, clock)

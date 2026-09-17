@@ -5,7 +5,7 @@ import sys
 import time
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Any, Protocol, cast
+from typing import Any, Protocol
 
 import numpy as np
 import yaml
@@ -37,22 +37,15 @@ ActionFactory = Callable[..., object]
 InterfaceFactory = Callable[[dict[str, object]], _ArmInterface]
 
 
-def _mapping(value: object, label: str) -> Mapping[str, object]:
-    if not isinstance(value, Mapping):
-        raise ValueError(f"{label} must be a mapping")
-    return cast(Mapping[str, object], value)
-
-
 def _load_yaml(path: Path) -> Mapping[str, object]:
     with path.open("r", encoding="utf-8") as handle:
-        return _mapping(yaml.safe_load(handle), str(path))
+        return yaml.safe_load(handle)
 
 
 def _resolve_maniunicon_arm_config(root: Path, path: Path) -> dict[str, object]:
     config_path = path if path.is_absolute() else root / path
     raw = _load_yaml(config_path)
-    robot_interface = _mapping(raw.get("robot_interface"), f"{config_path}: robot_interface")
-    config = dict(_mapping(robot_interface.get("config"), f"{config_path}: robot_interface.config"))
+    config = dict(raw["robot_interface"]["config"])
 
     urdf_path = config.get("urdf_path")
     if isinstance(urdf_path, str) and not Path(urdf_path).is_absolute():
@@ -105,19 +98,13 @@ class ManiUniConMeshcatDualArmDriver:
         clock: Clock,
     ) -> ManiUniConMeshcatDualArmDriver:
         raw = _load_yaml(config_path)
-        root_value = raw.get("maniunicon_root")
-        if not isinstance(root_value, str):
-            raise ValueError("maniunicon_root must be a path string")
-        root = Path(root_value).expanduser().resolve()
+        root = Path(raw["maniunicon_root"]).expanduser().resolve()
         if not root.is_dir():
             raise ValueError(f"ManiUniCon root does not exist: {root}")
 
         arm_paths: dict[str, Path] = {}
         for side in ("left", "right"):
-            value = raw.get(side)
-            if not isinstance(value, str):
-                raise ValueError(f"{side} must name a ManiUniCon robot YAML")
-            arm_paths[side] = Path(value)
+            arm_paths[side] = Path(raw[side])
 
         # An editable/no-deps ManiUniCon checkout is sufficient for this optional adapter.
         root_string = str(root)
