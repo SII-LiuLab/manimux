@@ -3,8 +3,15 @@
 UMI/Tianji now selects `policy.options.ik_backend: analytic | diff`. The default
 remains `analytic`: its SDK solution, FK tolerances, 1.8-degree branch check,
 joint-limit margins and J6/J7 check are unchanged. The optional `diff` backend
-is implemented in `src/manimux/kinematics/tianji_diff.py`, using the existing
-`TianjiKinematics` DH chain, flange FK, tool transform and joint limits.
+is implemented alongside the analytic solver in
+`src/manimux/embodiments/arm/tianji/kinematics.py`, using the existing
+`TianjiArmKinematics` DH chain, flange FK and joint limits. The composed robot
+kinematics owns the mounted-tool transform.
+`TianjiDifferentialKinematics` and the analytic Tianji solver both implement the
+shared `kinematics.base.ArmKinematicsBase` contract. Differential results mark
+`target_reached: false` because they are accepted bounded control steps rather
+than one-shot target solutions; Tianji-specific QP and J6/J7 rules remain in the
+embodiment directory.
 
 The port follows `SII-LiuLab/tianji-control` revision
 `1e7dfdbc94c62f87501d6485b8c0e43ce6dbf513`, specifically `algos/diff_ik.py`,
@@ -26,15 +33,16 @@ Use the same checkpoint binder as the analytic path:
 
 ```bash
 envs/umi_dp/.venv/bin/python scripts/servers/umi_dp_tianji_server.py \
+  --experiment configs/experiments/pass_ball/tianji_taccap_umi_dp.yaml \
   --checkpoint /path/to/trusted/pass_ball.ckpt \
   --ik-backend diff \
-  --diff-ik-config configs/umi_dp/tianji/ik/diff.yaml \
+  --diff-ik-config configs/policy/umi_dp/adapter/tianji_diff.yaml \
   --bind-runtime-config data/experiments/pass-ball-diff.yaml
 ```
 
-Add `--runtime-template configs/umi_dp/tianji/infra/pass_ball/rtc.yaml` for RTC.
-The model, checkpoint identity and RTC sampler stay the same. IK selection is
-an embodiment setting. The binder writes these effective runtime options:
+Select RTC in the experiment's policy/history settings before binding. The model,
+checkpoint identity and RTC sampler stay the same. IK selection is an embodiment
+setting. The binder writes these effective runtime options:
 
 ```yaml
 policy:
@@ -106,7 +114,7 @@ therefore defaults to CalibWrist's 5 mm guard. This residual is measured at the
 not a geodesic rotation angle. It defaults to null, as in CalibWrist.
 `lag_policy` decides what a residual over these thresholds means. `abort` (the
 library default) turns it into a `tracking_lag` failure. `report`, the default of
-CalibWrist's `real_run` and of `configs/umi_dp/tianji/ik/diff.yaml`, keeps the
+CalibWrist's `real_run` and of `configs/policy/umi_dp/adapter/tianji_diff.yaml`, keeps the
 bounded step and only counts it; the adapter records each arm's worst residual
 and exceedance count in the chunk metadata as `diff_ik_lag`. Failed or empty QPs,
 nonfinite solutions, joint margins and J6/J7 interference reject under both
@@ -160,11 +168,13 @@ post-step flange Jacobian reused as the next step's start. A chained step droppe
 from ~205 us to ~95 us (OSQP itself ~7–8 us); decoding took ~28 ms for H16 and
 ~112 ms for H64. Against the previous code, verdicts were unchanged and joint
 differences stayed below 3e-13 rad over 7,684 recorded steps and 12 chunk decodes.
-This aggregate chunk work blocks the control thread, including executor smoothing;
-it exceeds a 250 Hz tick's 4 ms budget. These are different measurements from the
-duration of one IK solve. The new backend is offline integrated, with no claim
-that the current whole control chain meets 250 Hz deadlines. Process decoding
-with measured history and RTC still requires a separate runtime design review.
+This aggregate chunk work must not block the control thread. The Tianji UMI
+profile therefore decodes the complete dual-arm chunk in one isolated process
+and includes its measured decode allowance in the execution clock. The adapter removes expired source
+knots before stateful IK, preserves their count in `source_offset_steps`, and
+uses the remaining time to the first executable knot as its first integration
+duration. Hardware-free process/RTC tests verify that the control loop continues
+ticking during decode and that either arm's failure rejects the whole chunk.
 
 Twenty-three differential/adapter tests plus twelve existing UMI tests passed,
 including finite-difference Jacobians, velocity and dt caps, invalid inputs,
@@ -173,7 +183,7 @@ real H16/H64 chunk decoding and atomic rejection on the final right-arm action.
 The final combined viewer/session/config/executor/Tianji/camera/UMI/diff-IK and
 mock-runtime regression suite passed 218 tests in 13.02 seconds. Ruff passed
 on the changed source, scripts and tests. A real H16 checkpoint was bound with
-`--ik-backend diff --diff-ik-config configs/umi_dp/tianji/ik/diff.yaml` in the
+`--ik-backend diff --diff-ik-config configs/policy/umi_dp/adapter/tianji_diff.yaml` in the
 model environment; the runtime environment loaded the paired config, validated
 the shared profile, and constructed both QP solvers with no torch or SDK loaded.
 No hardware motion, real closed-loop policy rollout or task success was tested.

@@ -1,7 +1,6 @@
 # UMI Diffusion Policy 与 Tianji–TacCap
 
-新入口将可复用本体、policy、本地工位和实验分开。仅迁移 Tianji–TacCap；
-旧 Tianji/YAM 配置入口保留。Tianji Viewer 已接入新整机模型，见
+新入口将可复用本体、policy、本地工位和实验分开。Tianji Viewer 已接入新整机模型，见
 [Viewer 配置与启动](viewer.md)；回零/拖动恢复尚未迁移。
 
 ## 配置职责
@@ -14,6 +13,7 @@
 | `configs/policy/umi_dp/adapter/tianji_taccap.yaml` | 观察映射、动作约定、动作时间 |
 | `configs/experiments/runtime/tianji_taccap.yaml` | 原实验的调度、平滑、命令包络和运动限幅 |
 | `configs/experiments/pass_ball/tianji_taccap_umi_dp.yaml` | 实验入口及配套模型/相机服务选择 |
+| `configs/experiments/pass_ball/tianji_taccap_umi_dp_diff.yaml` | 完整 DiffIK 参数的传球实验入口 |
 | `configs/local/tianji_taccap.example.yaml` | 可复制的工位模板 |
 | `.local/tianji_taccap.yaml` | 个人实际设备和服务绑定，不提交 Git |
 
@@ -52,16 +52,20 @@ cp -n configs/local/tianji_taccap.example.yaml .local/tianji_taccap.yaml
 `services.camera.endpoint/request_endpoint` 分别是 PUB/REP 客户端地址，服务端可另写
 `bind_endpoint/bind_request_endpoint`。同机默认使用 127.0.0.1。
 
-环境安装沿用 [原 Tianji runbook](umi_dp-tianji-runbook.md)。克隆仓库不会创建本地 venv；
-TacCap 原生 SDK 仍需安装。硬件进程和模型进程使用各自的 Python 环境。
+克隆仓库不会创建本地 venv；TacCap 原生 SDK 仍需安装。
+硬件进程和模型进程使用各自的 Python 环境。
 
 ## 绑定 checkpoint
 
 在安装了 UMI_DP/XPolicyLab 的模型环境执行：
 
+下面使用 DiffIK 实验入口；普通解析 IK 改用相邻的
+`tianji_taccap_umi_dp.yaml`。DiffIK 参数已包含在实验文件中，不需要再传
+`--ik-backend` 或 `--diff-ik-config`。
+
 ```bash
 envs/umi_dp/.venv/bin/python scripts/servers/umi_dp_tianji_server.py \
-  --experiment configs/experiments/pass_ball/tianji_taccap_umi_dp.yaml \
+  --experiment configs/experiments/pass_ball/tianji_taccap_umi_dp_diff.yaml \
   --local .local/tianji_taccap.yaml \
   --bind-runtime-config .local/pass_ball/run.yaml
 ```
@@ -69,38 +73,90 @@ envs/umi_dp/.venv/bin/python scripts/servers/umi_dp_tianji_server.py \
 这一步读取并核对真实 checkpoint 身份、horizon、动作时间和图像约定，不启动服务。
 产生配对的 `run.yaml` 和 `run-server.yaml`，展开 policy/execution 引用并重定位整机路径，
 保留绝对 local 引用。输出已存在时不会覆盖。改变 checkpoint 后需要重新绑定，不能
-只修改路径绕过模型身份检查。仍支持原 `--config/--runtime-template/--checkpoint` 用法。
+只修改路径绕过模型身份检查。绑定 runtime 时必须传入 `--experiment`；
+`--config` 仅用于启动已绑定的 policy server 配置。
 
-## 启动入口
+## 当前 Tianji 部署命令
 
-以下命令用于正式连接，不是离线测试命令。硬件和 checkpoint 就绪后按服务角色分别运行。
+以下命令都从 ManiMux 仓库根目录执行。模型进程使用 UMI_DP 环境；相机和
+硬件 runtime 使用已安装 Marvin 与 TacCap SDK 的 `xense-taccap` 环境；Viewer
+使用仓库 `.venv`。四个进程分别占用模型、相机、交互页面和机器人控制职责。
 
-模型环境启动已绑定的服务：
+`.local/pass_ball/run.yaml` 是上一步生成并人工复核的部署配置。正式执行前必须确认：
+
+```yaml
+robot:
+  options:
+    execute: true
+    end_effector_control: true
+viewer:
+  enabled: true
+```
+
+仓库中的实验模板故意把这三项设为 `false`；绑定 checkpoint 不会替用户打开实机执行。
+
+终端 1，启动已绑定的 UMI_DP policy server：
 
 ```bash
 envs/umi_dp/.venv/bin/python scripts/servers/umi_dp_tianji_server.py \
   --config .local/pass_ball/run-server.yaml
 ```
 
-设备所在电脑的 Tianji 环境启动 camera server，直接读取同一实验和 local：
+终端 2，启动 TacCap 双路相机服务：
 
 ```bash
-envs/tianji/.venv/bin/manimux-camera-server \
-  --experiment configs/experiments/pass_ball/tianji_taccap_umi_dp.yaml \
+/home/jw/miniforge3/envs/xense-taccap/bin/python -m manimux.server.sensor.taccap \
+  --experiment configs/experiments/pass_ball/tianji_taccap_umi_dp_diff.yaml \
   --local .local/tianji_taccap.yaml
 ```
 
-硬件 runtime 读取已绑定的实验：
+终端 3，启动 Tianji Viewer：
 
 ```bash
-envs/tianji/.venv/bin/python -m manimux run \
+.venv/bin/manimux-viewer --robot tianji --host 127.0.0.1 --port 8086
+```
+
+终端 4，启动由 Viewer 控制的 Tianji runtime：
+
+```bash
+/home/jw/miniforge3/envs/xense-taccap/bin/python -m manimux serve \
   --config .local/pass_ball/run.yaml \
-  --local .local/tianji_taccap.yaml
+  --local .local/tianji_taccap.yaml \
+  --log-level INFO
 ```
 
-`run` 会连接硬件并读取反馈；实验默认 `execute: false`、`end_effector_control: false`。
-执行开关位于实验的 `robot.options`，local 不负责启用动作。Tianji 连接本身不回零；
-首次实际执行命令时按已有逻辑使能。已有 camera server 的 `--config cameras.yaml` 用法保留。
+打开 <http://127.0.0.1:8086>，等待 policy、camera 和 runtime 均就绪，再执行
+**Prepare → Start rollout**。`serve` 会连接硬件并等待 Viewer 请求；不要在这套交互流程中
+改用 `run`，后者只执行一次本地 session，不提供 Viewer 控制的多次 rollout。
+
+执行开关位于绑定后的 runtime 配置，local 只负责设备、服务地址与路径。Tianji
+连接本身不回零；首次实际下发命令时按当前驱动逻辑使能。
+
+### Policy 到真机的诊断日志
+
+runtime 默认输出 `INFO` 级别的节流日志。一次正常 action 应依次出现：
+
+```text
+inference_submitted
+policy_response
+action_decoded
+plan_accepted
+command_ready
+physical_dispatch_enabled
+marvin_command_ready
+marvin_send_cmd_ok
+command_sent
+```
+
+`policy_response` 打印模型 action 的首尾 EE pose/夹爪值，`action_decoded` 打印 IK 后左右
+关节 chunk 的首尾值。`command_ready` 每次 plan 切换或每秒打印一次命令与实测状态的最大
+差值；`marvin_send_cmd_ok` 表示 Marvin SDK 的 `send_cmd()` 已返回成功。夹爪目标首次下发
+或变化超过 0.02 时还会打印 `taccap_set_position_ok`。
+
+如果出现 `physical_dispatch_blocked execute=false`，说明命令在本体层被执行开关拦住。
+如果停在 `action_decode_rejected` / `plan_rejected`，根据同一行的 `reason` 检查 IK、时序或
+动作格式。如果有 `command_ready` 但没有 `marvin_send_cmd_ok`，问题位于本体校验、控制器
+状态或 Marvin SDK 下发层。需要更多库级日志时可把命令末尾改为 `--log-level DEBUG`。
 
 ## 保持的接口语义与验证范围
 

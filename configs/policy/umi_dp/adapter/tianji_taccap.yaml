@@ -1,6 +1,7 @@
 # UMI_DP 的 Tianji–TacCap 观察/动作约定。服务地址来自 local。
 worker: xpolicylab_ws
 adapter: manimux.integrations.umi_dp_tianji.policy_plugin:build_adapter
+action_decoding: process
 horizon_steps: 16
 timeout_s: 30.0
 startup_timeout_s: 120.0

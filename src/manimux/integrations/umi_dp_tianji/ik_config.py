@@ -1,6 +1,6 @@
 """Bind embodiment QP rates to the shared executor motion profile."""
 
-from manimux.kinematics.tianji_diff import DifferentialIKConfig
+from manimux.embodiments.arm.tianji.kinematics import DifferentialIKConfig
 
 
 def profile_parameters(config):

@@ -6,7 +6,7 @@ import time
 
 import numpy as np
 
-from manimux.sensors.camera_server.client import CameraSubscriber
+from manimux.server.sensor.taccap.client import CameraSubscriber
 from manimux.types import SensorFrame
 
 

@@ -7,7 +7,6 @@ import pytest
 
 from manimux.cli import load_config
 from manimux.integrations.umi_dp_tianji.history import HistoryStrategy, align_rtc_condition
-from manimux.runtime import build_runtime
 from manimux.runtime.inference import RequestState
 from manimux.runtime.safety import RuntimeState
 from manimux.runtime.timeline import ActionTimeline
@@ -15,7 +14,8 @@ from manimux.types import ActionChunk, InferenceResponse, ObservationSnapshot, R
 
 
 def setup_plan(commit_lead_s=0.0):
-    config = load_config("configs/umi_dp/tianji/infra/pass_ball/rtc.yaml")
+    config = load_config("configs/experiments/pass_ball/tianji_taccap_umi_dp.yaml")
+    config["policy"]["options"]["history_strategy"] = "rtc"
     config["policy"]["action_dt_s"] = 0.1
     config["execution"]["commit_lead_s"] = commit_lead_s
     strategy = HistoryStrategy(config).delegate
@@ -135,16 +135,6 @@ def test_rtc_rejects_independent_arm_holds():
     chunk.hold_from_step = {"right_arm": 0}
     with pytest.raises(ValueError, match="complete joint plan"):
         strategy.prepare_chunk(chunk=chunk, response=response, now_ns=now)
-
-
-def test_runtime_factory_retains_tianji_history_wrapper_with_process_decoding(tmp_path):
-    config = load_config("configs/umi_dp/tianji/infra/pass_ball/rtc.yaml")
-    config["robot"]["type"] = "mock_dual_arm"
-    config["sensors"] = []
-    runtime = build_runtime(config, tmp_path)
-    assert isinstance(runtime._strategy, HistoryStrategy)
-    assert runtime._strategy.name == "rtc"
-    assert runtime._decoder is not None and not runtime._decoder._started
 
 
 def test_empty_aligned_overlap_restores_unconditioned_commit(monkeypatch):

@@ -21,7 +21,7 @@ CalibWrist 的等比例关节限速来自 teleop 的 `algos.safety.SafetyGate`�
 | CalibWrist 的发送时步长检查 | `deploy/tianji/command_sink.py::TianjiCommandSink.send` | 超过速率 × 命令时间间隔 × 1.05 就停，不在这里削减 |
 | ManiMux 的命令削减 | `runtime/executors/limits.py` | 对每个关节分别限制速度、加速度 |
 | ManiMux 的拒绝检查 | `runtime/safety.py::SafetyGuard` | 对命令差分计算速度、加速度，越界报错 |
-| 天机在 ManiMux 中的具体限值 | `configs/robots/tianji/common.yaml` | 本地 `3d5beff` 为现有机制填写的本体参数 |
+| 天机在 ManiMux 中的具体限值 | `configs/experiments/runtime/tianji_taccap.yaml` | 整机 runtime 明确声明的执行与安全参数 |
 
 ## teleop 和 CalibWrist
 

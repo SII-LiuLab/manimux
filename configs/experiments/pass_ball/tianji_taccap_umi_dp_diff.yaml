@@ -1,0 +1,70 @@
+# UMI_DP + Tianji–TacCap 的 differential IK 实验入口。
+# 仓库模板保持 execute/viewer 关闭；先用 umi_dp_tianji_server.py 绑定真实 checkpoint，
+# 再在生成的 runtime 配置中人工复核并打开实机执行。
+run:
+  task: pass the ball between the two grippers
+  output_dir: ./data/experiments/umi-dp-tianji-diff
+  max_steps: 2400
+robot:
+  type: tianji_taccap
+  config: ../../embodiment/robot/tianji_taccap.yaml
+  control_hz: 100.0
+  group_dims:
+    left_arm: 8
+    right_arm: 8
+  options:
+    execute: false
+    end_effector_control: false
+    hardware:
+      stale_timeout_s: 0.1
+sensors:
+- name: tianji_wrist_history
+  driver: manimux.integrations.umi_dp_tianji.camera_sensor:build_sensor
+  options:
+    camera_names:
+    - left_wrist
+    - right_wrist
+    max_frame_age_sec: 0.15
+    clock_jump_tolerance_s: 0.02
+    output_names:
+      left_wrist: left_wrist_camera
+      right_wrist: right_wrist_camera
+  service: camera
+viewer:
+  enabled: false
+  robot: tianji-taccap
+  policy_label: UMI DP Tianji DiffIK
+recording:
+  enabled: true
+policy:
+  config: ../../policy/umi_dp/adapter/tianji_taccap.yaml
+  options:
+    ik_backend: diff
+    diff_ik:
+      # Must match execution.motion_limits.arm; bind_diff_ik_profile rejects drift.
+      max_velocity_rad_s: 0.9047786842338605
+      dt_max_s: 0.016
+      w_pos: 1.0
+      w_rot: 1.0
+      lam: 0.001
+      check_j67: true
+      mu_nullspace: 1000.0
+      nullspace_activation_deg: 25.0
+      limit_margin_deg: null
+      j67_margin_deg: null
+      max_lag_mm: 5.0
+      max_lag_deg: null
+      lag_policy: report
+execution:
+  config: ../runtime/tianji_taccap.yaml
+policy_server:
+  config: ../../policy/umi_dp/server.yaml
+  task_name: pass_ball
+camera_server:
+  cameras:
+    left_wrist:
+      component: left_wrist_camera
+      type: taccap
+    right_wrist:
+      component: right_wrist_camera
+      type: taccap

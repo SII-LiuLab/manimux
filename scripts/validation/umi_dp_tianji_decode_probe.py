@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 
 import numpy as np
+import yaml
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "src"))
@@ -18,6 +19,7 @@ def main():
     from manimux.integrations.umi_dp_tianji.history import WindowSnapshot
     from manimux.integrations.umi_dp_tianji.ik_config import bind_diff_ik_profile
     from manimux.integrations.umi_dp_tianji.policy_plugin import UmiDpTianjiAdapter, matrix_pose
+    from manimux.policies.base import action_interval
     from manimux.types import (
         ActionContext,
         InferenceRequest,
@@ -28,7 +30,9 @@ def main():
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--config", type=Path, default=REPO / "configs/umi_dp/tianji/infra/pass_ball/default.yaml"
+        "--config",
+        type=Path,
+        default=REPO / "configs/experiments/pass_ball/tianji_taccap_umi_dp.yaml",
     )
     parser.add_argument("--horizons", type=int, nargs="+", default=[16, 64])
     parser.add_argument("--repeat", type=int, default=3)
@@ -40,12 +44,27 @@ def main():
     config = load_config(args.config)
     if args.ik_backend:
         config["policy"]["options"]["ik_backend"] = args.ik_backend
+    if config["policy"]["options"].get("ik_backend") == "diff":
+        config["policy"]["options"]["diff_ik"] = yaml.safe_load(
+            (REPO / "configs/policy/umi_dp/adapter/tianji_diff.yaml").read_text()
+        )
     bind_diff_ik_profile(config)
-    # Only kinematics is constructed: neither a RobotDriver nor sensor is opened.
-    config["robot"]["type"] = "mock"
+    # Only the assembly's offline model is constructed; no hardware component is opened.
     report = {}
     for horizon in args.horizons:
         config["policy"]["horizon_steps"] = horizon
+        config["policy"]["options"]["deployment_bound"] = True
+        config["policy"]["expected_backend"]["model"].update(
+            checkpoint_sha256="offline-probe",
+            training_config_sha256="offline-probe",
+            checkpoint_path="offline-probe",
+            weight_key="ema",
+            rgb_normalize=True,
+            action_horizon=horizon,
+            action_dt_s=action_interval(config["policy"]),
+            first_action_offset_s=config["policy"]["options"]["first_action_offset_s"],
+            observation_period_s=config["policy"]["options"]["observation_period_s"],
+        )
         adapter = UmiDpTianjiAdapter(config["robot"], config["policy"])
         start = np.radians([50, -40, -30, -100, -65, 0, 40])
         state = RobotState(
@@ -65,7 +84,9 @@ def main():
             for side in ("left", "right"):
                 joints = start.copy()
                 joints[0] += np.radians(0.1 * (index + 1))
-                step[side + "_ee_pose"] = matrix_pose(adapter.kin[side].fk(joints, 0.8))
+                step[side + "_ee_pose"] = matrix_pose(
+                    adapter.kin[side].fk(np.r_[joints, 0.8])
+                )
                 step[side + "_ee_joint_state"] = np.array([0.8])
             actions.append(step)
         timings = []
@@ -73,7 +94,13 @@ def main():
             adapter.prepare_request(InferenceRequest("bench", repeat, 1000000000, 10**12, window))
             begin = time.perf_counter()
             chunk = adapter.decode_action(
-                {"actions": actions}, ActionContext(repeat, 1000000000, 1000000000)
+                {"actions": actions},
+                ActionContext(
+                    repeat,
+                    1000000000,
+                    1000000000,
+                    measured_state=state,
+                ),
             )
             timings.append((time.perf_counter() - begin) * 1000)
         assert chunk.horizon_steps == horizon

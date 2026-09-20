@@ -13,7 +13,7 @@ to cameras or the robot, and establishes no pass-ball task success rate.
   `640c2ad99f939e5d1a39f32880266a17fd7cefdb960b5e1da9a2af46d14be548`.
 - UMI_DP shared WebSocket server, real 16-step DDIM with PiGDM, beta 5.
   Checkpoint/backend identity and sampling capability negotiation remained enabled.
-- Both runs use `configs/robots/tianji/common.yaml`, bound differential IK,
+- Both runs use `configs/experiments/runtime/tianji_taccap.yaml`, bound differential IK,
   two decoder processes, smooth execution, continuous grippers, 250 Hz control,
   30 Hz action knots, H64, and zero commit lead.
 - RTC starts with a 4-action-step delay estimate and the default half-horizon
@@ -93,7 +93,7 @@ New regression tests cover:
   identity and RTC capabilities before robot connection.
 
 Commands and the reusable evaluation harness are documented in
-[the Tianji runbook](umi_dp-tianji-runbook.md#validation). Raw logs, Zarr recordings,
+[the Tianji–TacCap runbook](umi-dp-tianji-taccap-runbook.md). Raw logs, Zarr recordings,
 paired checkpoint configurations and JSON summaries are local artifacts under
 `data/rtc-evaluation/` and are excluded from Git. Model source, checkpoints,
 control limits and hardware drivers were not changed by this integration.

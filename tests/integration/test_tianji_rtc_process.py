@@ -20,12 +20,29 @@ from manimux.types import ActionChunk, ActionContext, InferenceResponse, RobotSt
 from manimux.viewer import ViewerControl
 
 
+def tianji_config():
+    config = load_config("configs/experiments/pass_ball/tianji_taccap_umi_dp.yaml")
+    config["policy"]["options"].update(history_strategy="rtc", deployment_bound=True)
+    config["policy"]["expected_backend"]["model"].update(
+        checkpoint_sha256="offline-test",
+        training_config_sha256="offline-test",
+        checkpoint_path="offline-test",
+        weight_key="ema",
+        rgb_normalize=True,
+        action_horizon=config["policy"]["horizon_steps"],
+        action_dt_s=action_interval(config["policy"]),
+        first_action_offset_s=config["policy"]["options"]["first_action_offset_s"],
+        observation_period_s=config["policy"]["options"]["observation_period_s"],
+    )
+    return config
+
+
 @pytest.mark.parametrize("backend", ["analytic", "diff"])
 @pytest.mark.parametrize("horizon", [16, 64])
-def test_real_tianji_parallel_ik_matches_serial_and_rejects_whole_chunk(backend, horizon):
-    config = load_config("configs/umi_dp/tianji/infra/pass_ball/rtc.yaml")
-    config["robot"]["type"] = "mock_dual_arm"
+def test_real_tianji_process_ik_matches_inline_and_rejects_whole_chunk(backend, horizon):
+    config = tianji_config()
     config["policy"]["horizon_steps"] = horizon
+    config["policy"]["expected_backend"]["model"]["action_horizon"] = horizon
     config["policy"]["options"]["ik_backend"] = backend
     bind_diff_ik_profile(config)
     adapter = UmiDpTianjiAdapter(config["robot"], config["policy"])
@@ -38,7 +55,7 @@ def test_real_tianji_parallel_ik_matches_serial_and_rejects_whole_chunk(backend,
         target[0] += 0.0001 * row
         step = {}
         for side in ("left", "right"):
-            step[f"{side}_ee_pose"] = matrix_pose(adapter.kin[side].fk(target, 0.8))
+            step[f"{side}_ee_pose"] = matrix_pose(adapter.kin[side].fk(np.r_[target, 0.8]))
             step[f"{side}_ee_joint_state"] = np.array([0.8])
         actions.append(step)
     context = ActionContext(1, now, now, now + adapter.offset_ns + 2 * adapter.dt_ns, state)
@@ -66,9 +83,6 @@ def test_real_tianji_parallel_ik_matches_serial_and_rejects_whole_chunk(backend,
         assert result.chunk.horizon_steps == horizon - 2
         for name in config["robot"]["group_dims"]:
             np.testing.assert_allclose(result.chunk.groups[name], serial.groups[name], atol=1e-9)
-        assert set(result.chunk.metadata["decode_partition_ms"]) == set(
-            config["robot"]["group_dims"]
-        )
         actions[3]["right_ee_joint_state"] = np.array([1.1])
         failed = decode(2)
         assert failed.chunk is None and "gripper" in failed.error

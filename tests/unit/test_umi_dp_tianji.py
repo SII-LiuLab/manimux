@@ -15,6 +15,7 @@ from manimux.integrations.umi_dp_tianji.history import (
     WindowSnapshot,
     align_rtc_condition,
 )
+from manimux.kinematics.base import IKResult
 from manimux.runtime.rtc.request import RtcInferenceRequest
 from manimux.types import (
     ActionContext,
@@ -44,27 +45,53 @@ def snapshot(time_ns, seq, *, value=0.0, capture_ns=None):
 
 class FakeKin:
     num_arm_joints = 7
+    max_step_duration_s = None
     fail = False
 
-    def fk(self, joints, grip):
+    def reset(self):
+        pass
+
+    def fk(self, joints):
         result = np.eye(4)
         result[:3, 3] = joints[:3]
         result[:3, :3] = Rotation.from_rotvec(joints[3:6]).as_matrix()
         return result
 
-    def ik(self, target, seed, grip):
-        return not self.fail, np.r_[
-            target[:3, 3], Rotation.from_matrix(target[:3, :3]).as_rotvec(), seed[6]
-        ]
+    def ik(self, target, seed, *, fixed_coordinates, duration_s=None):
+        del duration_s
+        if self.fail:
+            return IKResult(False, reason="test_failure")
+        return IKResult(
+            True,
+            np.r_[
+                target[:3, 3],
+                Rotation.from_matrix(target[:3, :3]).as_rotvec(),
+                seed[6],
+                fixed_coordinates["gripper"],
+            ],
+        )
+
+    @property
+    def arm(self):
+        return self
 
 
 @pytest.fixture
-def adapter(monkeypatch):
+def adapter():
     kin = FakeKin()
-    monkeypatch.setattr(policy_plugin, "build_kinematics", lambda *a, **k: kin)
-    config = load_config(ROOT / "configs/umi_dp/tianji/infra/pass_ball/default.yaml")
+    robot_kinematics = SimpleNamespace(
+        models={"left_arm": kin, "right_arm": kin}
+    )
+    config = load_config(ROOT / "configs/experiments/pass_ball/tianji_taccap_umi_dp.yaml")
     config["robot"]["type"] = "mock"
-    return policy_plugin.UmiDpTianjiAdapter(config["robot"], config["policy"]), kin, config
+    config["policy"]["options"]["camera_map"] = policy_plugin.CAMERA_MAP
+    return (
+        policy_plugin.UmiDpTianjiAdapter(
+            config["robot"], config["policy"], kinematics=robot_kinematics
+        ),
+        kin,
+        config,
+    )
 
 
 def request_for(adapter, *, timestamp=1000000000):
@@ -121,7 +148,10 @@ def test_history_rejects_fake_request_history_stale_and_skewed():
 
 def test_history_delegates_and_validates_rtc_constraints():
     for name in ("default", "rtc"):
-        config = load_config(ROOT / f"configs/umi_dp/tianji/infra/pass_ball/{name}.yaml")
+        config = load_config(ROOT / "configs/experiments/pass_ball/tianji_taccap_umi_dp.yaml")
+        config["policy"]["options"]["history_strategy"] = (
+            "manimux" if name == "default" else "rtc"
+        )
         strategy = HistoryStrategy(config)
         assert strategy.name == ("manimux" if name == "default" else "rtc")
         assert strategy.required_sampling_modes == frozenset(
@@ -186,22 +216,22 @@ def test_adapter_preserves_rtc_fields_and_previous_fk(adapter):
     )
 
 
-def test_adapter_output_clock_reset_anchor_and_ik_failure(adapter):
+def test_adapter_output_clock_reset_and_ik_failure(adapter):
     model, kin, _ = adapter
     request = request_for(model)
     raw = actions_for(request, model.horizon)
-    chunk = model.decode_action(raw, ActionContext(1, 10**9, 10**9))
+    context = ActionContext(1, 10**9, 10**9, measured_state=request.observation.state)
+    chunk = model.decode_action(raw, context)
     assert chunk.observation_time_ns == 10**9 + model.offset_ns
     assert chunk.horizon_steps == model.horizon
     np.testing.assert_allclose(
         chunk.groups["left_arm"][0], request.observation.state.groups["left_arm"]
     )
-    with pytest.raises(ValueError, match="matching observation"):
+    with pytest.raises(ValueError, match="measured robot state"):
         model.decode_action(raw, ActionContext(1, 10**9, 10**9))
-    request_for(model)
     kin.fail = True
-    with pytest.raises(ValueError, match="IK failed"):
-        model.decode_action(raw, ActionContext(1, 10**9, 10**9))
+    with pytest.raises(ValueError, match="IK test_failure"):
+        model.decode_action(raw, context)
 
 
 def test_adapter_accepts_the_ws_client_unwrapped_action_list(adapter):
@@ -209,33 +239,17 @@ def test_adapter_accepts_the_ws_client_unwrapped_action_list(adapter):
     model, _, _ = adapter
     request = request_for(model)
     steps = actions_for(request, model.horizon)["actions"]
-    chunk = model.decode_action(steps, ActionContext(1, 10**9, 10**9))
+    context = ActionContext(1, 10**9, 10**9, measured_state=request.observation.state)
+    chunk = model.decode_action(steps, context)
     assert chunk.horizon_steps == model.horizon
 
 
-def test_partition_decode_uses_measured_context_without_parent_anchors(adapter):
-    model, _, _ = adapter
-    request = request_for(model)
-    raw = actions_for(request, model.horizon)
-    context = ActionContext(1, 10**9, 10**9, measured_state=request.observation.state)
-    serial = model.decode_action(raw, context)
-    assert not model.anchors
-    for partition in model.decode_partitions:
-        decoded = model.decode_action_partition(raw, context, partition)
-        assert set(decoded.groups) == {partition}
-        np.testing.assert_allclose(decoded.groups[partition], serial.groups[partition])
-        assert decoded.observation_time_ns == serial.observation_time_ns
-        assert decoded.source_offset_steps == serial.source_offset_steps
-    with pytest.raises(ValueError, match="partition"):
-        model.decode_action_partition(raw, context, "unknown")
-
-
-def test_adapter_decodes_each_arm_from_measured_state_without_anchors(adapter):
-    # A decoder process never sees the parent's prepare_request anchors.
+def test_adapter_decodes_both_arms_from_measured_state(adapter):
     model, _, _ = adapter
     assert model.supports_context_only_decode
+    assert not hasattr(model, "decode_partitions")
+    assert not hasattr(model, "decode_action_partition")
     raw = actions_for(request_for(model), model.horizon)
-    model.anchors.clear()
     measured = RobotState(
         {name: np.array([0, 0, 0, 0, 0, 0, 0.3, 0.8]) for name in ("left_arm", "right_arm")},
         10**9,
@@ -243,20 +257,13 @@ def test_adapter_decodes_each_arm_from_measured_state_without_anchors(adapter):
     )
     context = ActionContext(1, 10**9, 10**9, measured_state=measured)
     whole = model.decode_action(raw, context)
-    # FakeKin carries the seed's seventh joint: the measured state, not the anchor.
+    assert set(whole.groups) == {"left_arm", "right_arm"}
+    # FakeKin carries the seed's seventh joint from the measured state.
     np.testing.assert_array_equal(whole.groups["left_arm"][:, 6], 0.3)
-    assert model.decode_partitions == ("left_arm", "right_arm")
-    for name in model.decode_partitions:
-        part = model.decode_action_partition(raw, context, name)
-        assert set(part.groups) == {name}
-        np.testing.assert_array_equal(part.groups[name], whole.groups[name])
-        assert part.source_offset_steps == whole.source_offset_steps
-        assert part.observation_time_ns == whole.observation_time_ns
-    with pytest.raises(ValueError, match="unknown UMI decode partition"):
-        model.decode_action_partition(raw, context, "left_gripper")
+    np.testing.assert_array_equal(whole.groups["right_arm"][:, 6], 0.3)
 
 
-@pytest.mark.parametrize("failure", ["horizon", "quaternion", "gripper", "missing_history"])
+@pytest.mark.parametrize("failure", ["horizon", "quaternion", "gripper"])
 def test_adapter_rejects_contract_errors(adapter, failure):
     model, _, _ = adapter
     request = request_for(model)
@@ -267,12 +274,10 @@ def test_adapter_rejects_contract_errors(adapter, failure):
         raw["actions"][0]["left_ee_pose"][3:] = 0
     elif failure == "gripper":
         raw["actions"][0]["left_ee_joint_state"][0] = 1.1
-    else:
-        with pytest.raises(ValueError, match="measured history"):
-            model.build_observation(snapshot(10**9, 1))
-        return
-    with pytest.raises(ValueError):
-        model.decode_action(raw, ActionContext(1, 10**9, 10**9))
+    error = AssertionError if failure == "horizon" else ValueError
+    context = ActionContext(1, 10**9, 10**9, measured_state=request.observation.state)
+    with pytest.raises(error):
+        model.decode_action(raw, context)
 
 
 def test_timestamped_camera_retains_sequence_and_detects_clock_jump(monkeypatch):

@@ -158,6 +158,8 @@ Keep the server and runtime configs paired: this example uses **joint**, not **j
 ## 📚 Guides
 
 - **Run:** [Guideline](docs/guideline.md) · [Configuration](configs/README.md).
+- **Tianji–TacCap:** [UMI DP deployment](docs/umi-dp-tianji-taccap-runbook.md), including
+  checkpoint binding and the current four-process startup commands.
 - **Integrate:** [Components and policy runbooks](docs/README.md) · [Inference methods](docs/README.md#inference-and-execution).
 - **Collect / evaluate:** [YAM collection](docs/yam-collection.md) · [Experiment workflow](docs/experiment-infra.md) · [PRM guide](docs/prm-as-a-judge.md).
 - **Extend:** [Architecture contracts](docs/architecture.md).

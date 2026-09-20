@@ -19,6 +19,7 @@ import warnings
 from pathlib import Path
 
 import numpy as np
+import yaml
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "src"))
@@ -33,11 +34,15 @@ def load_module(name, path):
 
 
 def main():
-    from manimux.robots.tianji.sdk import load_marvin_kine
-
     from manimux.cli import load_config
-    from manimux.kinematics.tianji import BD67_REAL, DH_TABLE_M6_40, TianjiKinematics
-    from manimux.kinematics.tianji_diff import DifferentialIKConfig, TianjiDifferentialIK
+    from manimux.embodiments.arm.tianji.kinematics import (
+        BD67_REAL,
+        DH_TABLE_M6_40,
+        DifferentialIKConfig,
+        TianjiArmKinematics,
+        TianjiDifferentialKinematics,
+    )
+    from manimux.embodiments.arm.tianji.sdk.marvin import fx_kine
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--reference", type=Path, required=True)
@@ -66,12 +71,16 @@ def main():
     load_module("algos.nullspace", reference / "algos/nullspace.py")
     old = load_module("algos.diff_ik", reference / "algos/diff_ik.py")
     old_kin = load_module("algos.kinematics", reference / "algos/kinematics.py")
-    converter = load_marvin_kine().Marvin_Kine()
-    profile = load_config(REPO / "configs/umi_dp/tianji/infra/pass_ball/default.yaml")
+    converter = fx_kine.Marvin_Kine()
+    profile = load_config(REPO / "configs/experiments/pass_ball/tianji_taccap_umi_dp.yaml")
     motion = profile["execution"]["motion_limits"]["arm"]
-    tuning = DifferentialIKConfig(
+    tuning_data = yaml.safe_load(
+        (REPO / "configs/policy/umi_dp/adapter/tianji_diff.yaml").read_text()
+    )
+    tuning_data.update(
         max_velocity_rad_s=motion["max_velocity"], dt_max_s=motion["max_step_dt_s"]
     )
+    tuning = DifferentialIKConfig(**tuning_data)
     starts = [
         [50, -40, -30, -100, -65, 0, 40],
         [155, -95, 140, -115, -100, 48, 48],  # active nullspace, positive J67 quadrant
@@ -86,10 +95,10 @@ def main():
     # solvers; each still retains its own OSQP warm-start and dual state.
     for arm in ("left", "right"):
         overrides = {} if arm == "left" else {6: [-58, 58]}
-        kin = TianjiKinematics(arm=arm, end_effector="umi_follower", joint_limits_deg=overrides)
+        kin = TianjiArmKinematics(arm=arm, joint_limits_deg=overrides)
         lo, hi = (np.degrees(values) for values in kin.joint_position_limits())
         for sequence, initial in enumerate(starts):
-            port = TianjiDifferentialIK(kin, tuning)
+            port = TianjiDifferentialKinematics(kin, tuning)
             legacy = old.DiffIKSolver(
                 old_kin.ArmKinematics(DH_TABLE_M6_40),
                 converter,
@@ -110,14 +119,13 @@ def main():
             for step in range(args.steps):
                 delta = 0.08 * np.sin(np.arange(7) + step * 0.13)
                 target_joints = previous + np.radians(delta)
-                target = kin.fk(target_joints, 0.8)
-                flange = target @ np.linalg.inv(kin.tool_transform)
-                sdk_flange = flange.copy()
+                target = kin.flange(target_joints)
+                sdk_flange = target.copy()
                 sdk_flange[:3, 3] *= 1000
                 xyzabc = converter.mat4x4_to_xyzabc(pose_mat=sdk_flange)
                 dt = (0.004, 0.008, 0.030, 0.0005)[step % 4]
                 expected = legacy.solve(xyzabc, np.degrees(previous), dt)
-                actual = port.solve(target, previous, dt)
+                actual = port.ik(target, previous, duration_s=dt)
                 expected_reason = expected.reason
                 if expected.ok and expected.pos_err_mm > tuning.max_lag_mm:
                     expected_reason = "tracking_lag"
@@ -125,17 +133,34 @@ def main():
                     raise AssertionError((arm, sequence, step, expected_reason, actual))
                 reasons[actual.reason] = reasons.get(actual.reason, 0) + 1
                 if expected.joints is not None:
+                    actual_joints = (
+                        actual.joints
+                        if actual.joints is not None
+                        else previous
+                        + actual.diagnostics["qdot_rad_s"] * min(dt, tuning.dt_max_s)
+                    )
                     errors.append(
-                        float(np.max(np.abs(np.degrees(actual.joints) - expected.joints)))
+                        float(np.max(np.abs(np.degrees(actual_joints) - expected.joints)))
                     )
                     rate_errors.append(
-                        float(np.max(np.abs(np.degrees(actual.qdot_rad_s) - expected.qdot_deg_s)))
+                        float(
+                            np.max(
+                                np.abs(
+                                    np.degrees(actual.diagnostics["qdot_rad_s"])
+                                    - expected.qdot_deg_s
+                                )
+                            )
+                        )
                     )
-                    pos_errors.append(abs(actual.pos_err_mm - expected.pos_err_mm))
-                    rot_errors.append(abs(actual.rot_err_deg - expected.rot_err_deg))
+                    pos_errors.append(
+                        abs(actual.diagnostics["pos_err_mm"] - expected.pos_err_mm)
+                    )
+                    rot_errors.append(
+                        abs(actual.diagnostics["rot_err_deg"] - expected.rot_err_deg)
+                    )
                 if actual.ok:
                     previous = actual.joints.copy()
-                times.append(actual.solve_time_ms)
+                times.append(actual.diagnostics["solve_time_ms"])
             metrics = {
                 "arm": arm,
                 "sequence": sequence,

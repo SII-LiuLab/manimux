@@ -3,7 +3,6 @@
 
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -16,7 +15,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     source = parser.add_mutually_exclusive_group()
     source.add_argument(
-        "--config", type=Path, default=REPO / "configs/umi_dp/tianji/server/pass_ball/default.yaml"
+        "--config", type=Path, default=REPO / "configs/policy/umi_dp/server.yaml"
     )
     source.add_argument(
         "--experiment", type=Path, help="Shared experiment entry with policy_server"
@@ -27,23 +26,19 @@ def main():
     parser.add_argument("--bind-runtime-config", type=Path)
     parser.add_argument("--ik-backend", choices=("analytic", "diff"))
     parser.add_argument("--diff-ik-config", type=Path)
-    parser.add_argument(
-        "--runtime-template",
-        type=Path,
-        default=REPO / "configs/umi_dp/tianji/infra/pass_ball/default.yaml",
-    )
     args = parser.parse_args()
     if (args.ik_backend or args.diff_ik_config) and not args.bind_runtime_config:
         parser.error("IK choices apply only to --bind-runtime-config")
     if args.local is not None and args.experiment is None:
         parser.error("--local requires --experiment")
+    if args.bind_runtime_config is not None and args.experiment is None:
+        parser.error("--bind-runtime-config requires --experiment")
     for path in (REPO, REPO / "XPolicyLab", REPO / "src"):
         sys.path.insert(0, str(path))
     from manimux.cli import load_config, read_experiment
 
-    experiment_path = args.experiment or args.runtime_template
     experiment = (
-        read_experiment(experiment_path, local=args.local) if args.experiment is not None else None
+        read_experiment(args.experiment, local=args.local) if args.experiment is not None else None
     )
     config = (
         experiment["policy_server"]
@@ -64,14 +59,8 @@ def main():
         server_output = output.with_name(output.stem + "-server.yaml")
         if output.exists() or server_output.exists():
             raise FileExistsError("Refusing to overwrite paired deployment configs")
-        runtime = read_experiment(experiment_path, local=args.local, bind_local=experiment is None)
-        # 新实验把动作间隔放在 policy，旧实验继续使用原 control_profile。
-        if runtime.get("control_profile") is not None:
-            profile = Path(runtime["control_profile"])
-            expected_dt = yaml.safe_load(profile.read_text())["action_dt_s"]
-            runtime["control_profile"] = os.path.relpath(profile, output.parent)
-        else:
-            expected_dt = runtime["policy"]["action_dt_s"]
+        runtime = read_experiment(args.experiment, local=args.local, bind_local=False)
+        expected_dt = runtime["policy"]["action_dt_s"]
         if expected_dt != report["action_dt_s"]:
             raise ValueError(
                 "Checkpoint action_dt_s differs from the experiment; "
@@ -80,7 +69,7 @@ def main():
         # Keep the same assembly when the bound experiment is written elsewhere.
         if runtime.get("robot", {}).get("config") is not None:
             assembly = Path(runtime["robot"]["config"])
-            runtime["robot"]["config"] = os.path.relpath(assembly, output.parent)
+            runtime["robot"]["config"] = str(assembly)
         policy = runtime["policy"]
         local_policy_endpoint = experiment is not None and runtime.get("local") is not None
         if args.ik_backend:

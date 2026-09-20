@@ -11,14 +11,13 @@ import pytest
 from manimux.cli import load_config
 from manimux.clock import SystemClock
 from manimux.embodiments.end_effector import GripperState
-from manimux.embodiments.robot import RobotModel, build_robot, robot_parameters
+from manimux.embodiments.robot import RobotModel, build_robot
+from manimux.embodiments.sensor import sensor_parameters
 from manimux.integrations.umi_dp_tianji.history import WindowSnapshot
 from manimux.integrations.umi_dp_tianji.policy_plugin import matrix_pose
-from manimux.kinematics.tianji import TianjiKinematics
 from manimux.policies import ActionDecoderClient, build_policy_adapter
 from manimux.policies.base import action_interval
 from manimux.runtime.edge import EdgeRuntime
-from manimux.sensors import sensor_parameters
 from manimux.types import (
     ActionContext,
     InferenceRequest,
@@ -31,18 +30,14 @@ from manimux.types import (
 
 ROOT = Path(__file__).resolve().parents[2]
 ASSEMBLY = ROOT / "configs/embodiment/robot/tianji_taccap.yaml"
+DIFF_EXPERIMENT = ROOT / "configs/experiments/pass_ball/tianji_taccap_umi_dp_diff.yaml"
 Q = np.radians([21.8, -41, -4.74, -63.67, 10.15, 14.72, 7.68])
 
 
 def configured():
-    cfg = load_config(ROOT / "configs/umi_dp/tianji/infra/pass_ball/default.yaml")
-    cfg["robot"] = robot_parameters(
-        type="tianji_taccap", config=ASSEMBLY, group_dims={"left_arm": 8, "right_arm": 8}
-    )
+    cfg = load_config(ROOT / "configs/experiments/pass_ball/tianji_taccap_umi_dp.yaml")
     # A test identity satisfies the existing handshake contract; no model is loaded.
     cfg["policy"]["options"]["deployment_bound"] = True
-    for key in ("kinematics", "kinematics_options", "right_kinematics_options"):
-        cfg["policy"]["options"].pop(key, None)
     cfg["policy"]["expected_backend"]["model"].update(
         checkpoint_sha256="offline-test",
         training_config_sha256="offline-test",
@@ -78,39 +73,30 @@ def context(now):
 def test_runtime_shares_robot_kinematics_without_opening_devices(tmp_path):
     cfg = configured()
     runtime = EdgeRuntime(cfg, tmp_path)
-    assert runtime._adapter.robot_kinematics is runtime._robot.kinematics
+    assert runtime._adapter.kinematics is runtime._robot.kinematics
     assert runtime._robot.model.kinematics is runtime._robot.kinematics
     assert runtime._robot.controller._robot is None
     assert all(sensor._camera is None for sensor in runtime._robot.sensors.values())
     runtime._robot.close()
 
 
-def test_assembled_fk_ik_matches_original_policy_solver():
+def test_assembled_fk_ik_preserves_branch_selection():
     model = RobotModel.from_config(ASSEMBLY)
     for side in ("left", "right"):
-        legacy = TianjiKinematics(
-            arm=side,
-            end_effector="umi_follower",
-            joint_limits_deg={6: [-58, 58]} if side == "right" else None,
-        )
         assembled = model.groups[f"{side}_arm"].kinematics
         for delta in (0.0, 0.0003, -0.0003):
             target_q = Q.copy()
             target_q[0] += delta
-            pose = legacy.fk(target_q, 0.8)
-            np.testing.assert_allclose(assembled.fk(np.r_[target_q, 0.8]), pose, atol=1e-12)
-            old_ok, old_q = legacy.ik(pose, Q, 0.8)
+            pose = assembled.fk(np.r_[target_q, 0.8])
             new = assembled.ik(pose, np.r_[Q, 0.8], fixed_coordinates={"gripper": 0.8})
-            assert new.converged == old_ok
-            assert old_ok
-            np.testing.assert_allclose(new.joints[:7], old_q, atol=1e-10)
+            assert new.converged
+            np.testing.assert_allclose(assembled.fk(new.joints), pose, atol=1e-8)
         # Preserve branch rejection, not just easy FK/IK round trips.
         far_q = Q.copy()
         far_q[0] += np.radians(10)
-        pose = legacy.fk(far_q, 0.8)
-        old_ok, _ = legacy.ik(pose, Q, 0.8)
+        pose = assembled.fk(np.r_[far_q, 0.8])
         new = assembled.ik(pose, np.r_[Q, 0.8], fixed_coordinates={"gripper": 0.8})
-        assert not new.converged and not old_ok
+        assert not new.converged
         assert new.reason == "branch_jump"
 
 
@@ -123,7 +109,7 @@ def test_observation_and_action_stay_in_each_arm_base():
     previous = ObservationSnapshot(RobotState(state.groups, now - 100_000_000, 0), {})
     frames = {
         name: SensorFrame(name, np.zeros((8, 8, 3), dtype=np.uint8), now, 1)
-        for name in adapter.cameras.values()
+        for name in cfg["policy"]["options"]["camera_map"].values()
     }
     request = InferenceRequest("test", 1, now, now + 10**9, WindowSnapshot(state, frames, previous))
     prepared = adapter.prepare_request(request)
@@ -150,7 +136,7 @@ def test_spawned_action_decode_matches_inline(backend):
 
         bind_diff_ik_profile(cfg)
     adapter = build_policy_adapter(cfg["robot"], cfg["policy"])
-    steps = actions(adapter.robot_kinematics, cfg["policy"]["horizon_steps"])
+    steps = actions(adapter.kinematics, cfg["policy"]["horizon_steps"])
     decoder = ActionDecoderClient(cfg["robot"], cfg["policy"], adapter)
     try:
         decoder.start()
@@ -221,23 +207,36 @@ def test_decoded_actions_reach_shared_controller_only_when_enabled(monkeypatch, 
         robot.close()
 
 
-def test_new_recipe_keeps_original_timing_and_control_envelopes():
-    old = load_config(ROOT / "configs/umi_dp/tianji/infra/pass_ball/default.yaml")
+def test_experiment_declares_timing_and_control_envelopes():
     new = load_config(ROOT / "configs/experiments/pass_ball/tianji_taccap_umi_dp.yaml")
     assert new["robot"]["type"] == "tianji_taccap" and new["robot"]["config"] == ASSEMBLY
-    assert new["robot"]["group_dims"] == old["robot"]["group_dims"]
-    assert new["robot"]["control_hz"] == old["robot"]["control_hz"]
-    assert action_interval(new["policy"]) == action_interval(old["policy"])
-    assert (
-        new["policy"]["options"]["first_action_offset_s"]
-        == old["policy"]["options"]["first_action_offset_s"]
-    )
-    assert new["execution"] == old["execution"]
+    assert new["robot"]["group_dims"] == {"left_arm": 8, "right_arm": 8}
+    assert new["robot"]["control_hz"] == 100.0
+    assert action_interval(new["policy"]) == pytest.approx(1 / 30)
+    assert new["policy"]["options"]["first_action_offset_s"] == pytest.approx(1 / 30)
+    assert new["policy"]["action_decoding"] == "process"
+    assert new["execution"]["expected_decode_s"] == 0.06
+    assert new["execution"]["motion_limits"]["arm"]["max_step_dt_s"] == 0.016
     assert not new["robot"]["options"]["execute"]
     assert not new["robot"]["options"]["end_effector_control"]
     robot = build_robot(new["robot"], SystemClock())
     assert robot.controller._robot is None
     robot.close()
+
+
+def test_diff_ik_experiment_is_complete_and_matches_motion_profile():
+    from manimux.integrations.umi_dp_tianji.history import HistoryStrategy
+    from manimux.integrations.umi_dp_tianji.ik_config import bind_diff_ik_profile
+
+    config = load_config(DIFF_EXPERIMENT)
+    options = config["policy"]["options"]
+    motion = config["execution"]["motion_limits"]["arm"]
+    assert options["ik_backend"] == "diff"
+    assert options["diff_ik"]["max_velocity_rad_s"] == motion["max_velocity"]
+    assert options["diff_ik"]["dt_max_s"] == motion["max_step_dt_s"]
+    assert options["diff_ik"]["check_j67"]
+    bind_diff_ik_profile(config)
+    HistoryStrategy(config)
 
 
 def test_renaming_camera_frames_preserves_pixels_time_and_sequence(monkeypatch):
@@ -268,7 +267,7 @@ def test_renaming_camera_frames_preserves_pixels_time_and_sequence(monkeypatch):
     assert sensor.read()["left_wrist_camera"] is renamed
 
 
-def test_serve_entry_does_not_import_legacy_recovery(tmp_path):
+def test_serve_entry_reports_no_recovery_endpoint(tmp_path):
     from manimux.session import RuntimeSessionService
 
     cfg = configured()
