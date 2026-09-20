@@ -10,6 +10,8 @@ from manimux.types import ActionChunk, ActionContext, InferenceRequest, Observat
 
 
 class PolicyModel(Protocol):
+    """Inference-backend contract; implementations do not own robot hardware."""
+
     def reset(self, session_id: str) -> None: ...
 
     def infer(self, request: InferenceRequest) -> object: ...
@@ -20,22 +22,27 @@ class PolicyModel(Protocol):
 
 
 class PolicyAdapterBase(ABC):
-    """Class-based interface for new embodiment adapters; no hardware ownership."""
+    """Translate between an embodiment and a policy without owning hardware."""
 
     @abstractmethod
     def build_observation(self, snapshot: ObservationSnapshot) -> ObservationSnapshot:
+        """Map a runtime snapshot to the observation contract expected by the policy."""
         raise NotImplementedError
 
     @abstractmethod
     def decode_action(self, raw: object, context: ActionContext) -> ActionChunk:
+        """Convert one raw policy response into a runtime-ready action chunk."""
         raise NotImplementedError
 
     @abstractmethod
     def validate(self, robot: dict, policy: dict) -> None:
+        """Reject incompatible robot/policy configuration before runtime starts."""
         raise NotImplementedError
 
 
 class PolicyAdapter(Protocol):
+    """Structural adapter contract, including adapters not derived from the ABC."""
+
     def build_observation(self, snapshot: ObservationSnapshot) -> ObservationSnapshot: ...
 
     def decode_action(self, raw: object, context: ActionContext) -> ActionChunk: ...
@@ -48,8 +55,10 @@ def decode_policy_action(
     raw: object,
     context: ActionContext,
 ) -> ActionChunk:
-    """Call a context-aware adapter while retaining the original one-argument API."""
+    """Decode an action while retaining the legacy ``decode_action(raw)`` API."""
     method = adapter.decode_action
+    # A bound legacy method exposes only ``raw``; current adapters also expose
+    # ``context`` for timing, measured-state, and decode-budget decisions.
     if len(inspect.signature(method).parameters) == 1:
         legacy = cast(Callable[[object], ActionChunk], method)
         return legacy(raw)
@@ -60,16 +69,19 @@ def prepare_policy_request(
     adapter: PolicyAdapter,
     request: InferenceRequest,
 ) -> InferenceRequest:
-    """Apply an adapter's optional request transformation hook."""
+    """Apply the optional request hook used by adapters needing request context."""
     method = getattr(adapter, "prepare_request", None)
+    # ``prepare_request`` is intentionally optional so existing adapters remain
+    # valid implementations of PolicyAdapter.
     if not callable(method):
         return request
     return method(request)
 
 
 def expected_backend_parameters(**options) -> dict:
-    """保留模型服务与 checkpoint 身份约定，防止连接错误模型。"""
+    """Build the server/checkpoint identity used to reject a mismatched backend."""
 
+    # Explicit options override these defaults.
     values = {
         "server": None,
         "model": {},
@@ -81,8 +93,10 @@ def expected_backend_parameters(**options) -> dict:
 
 
 def policy_parameters(**options) -> dict:
-    """补齐推理客户端和动作解码参数；模型实现仍在 XPolicyLab。"""
+    """Fill runtime/client defaults; model implementation remains in XPolicyLab."""
 
+    # Keep task-, checkpoint-, and station-specific values in configuration.
+    # Explicit options are expanded last so callers can override every default.
     values = {
         "device": "cpu",
         "action_dt_s": 0.05,
@@ -102,6 +116,7 @@ def policy_parameters(**options) -> dict:
 
 
 def action_interval(policy: dict) -> float:
-    """保留原动作间隔：指定总时长时，用总时长除以相邻点的间隔数。"""
+    """Return seconds between samples, deriving it from trajectory duration if set."""
     duration = policy.get("trajectory_duration_s")
+    # A horizon with N samples contains N - 1 time intervals.
     return policy["action_dt_s"] if duration is None else duration / (policy["horizon_steps"] - 1)

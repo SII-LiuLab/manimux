@@ -2,6 +2,23 @@
 # Geometry comes from the existing CAD installation, not a fresh calibration.
 name: tianji-taccap
 root_frame: robot_base  # Viewer scene frame only; FK/IK stays in each arm base.
+# Shared Home / initial arm target; no motion is triggered by loading this config.
+# Source: teleop/data/dp_start_20260910.yaml, active joints_deg (not commented values).
+# A = left_arm, B = right_arm; original seven-joint order, degrees.
+# The source specifies no gripper target. Viewer aperture is display-only config.
+home:
+  name: dp_start_20260910
+  joints_deg:
+    left_arm: [102.5, -35.41, -66.17, -113.35, -48.69, -3.29, 28.56]
+    right_arm: [-91.29, -33.98, 58.55, -103.75, 45.36, -7.94, -11.5]
+  # Recording metadata from the source; these are not current controller states.
+  recorded_state:
+    left_arm: {state: disabled, error: 0}
+    right_arm:
+      state: error
+      error: 2
+      description: servo_fault
+      note: carried over from dp_start_20260907, not resampled on 2026-09-10
 hardware:
   stale_timeout_s: 0.2
   ready_timeout_s: 3.0

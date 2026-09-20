@@ -10,6 +10,10 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 
 from manimux.embodiments.robot.base import RobotModel
+from manimux.viewer.end_effector import (
+    mounted_group_visual_configuration,
+    mounted_group_visual_urdf,
+)
 
 Color = tuple[int, int, int]
 Position = tuple[float, float, float]
@@ -143,7 +147,7 @@ class RobotView:
                     styles.get(name, {}).get("prediction_color", [52, 111, 255])
                 ),
                 trail_color=tuple(styles.get(name, {}).get("trail_color", [33, 180, 106])),
-                urdf_path=group.visual_urdf(),
+                urdf_path=mounted_group_visual_urdf(group),
             )
             for name, group in model.groups.items()
         )
@@ -151,8 +155,8 @@ class RobotView:
             StaticMesh(
                 name,
                 path,
-                tuple(mount.xyz),
-                tuple(Rotation.from_matrix(mount.matrix()[:3, :3]).as_quat()[[3, 0, 1, 2]]),
+                tuple(mount[:3, 3]),
+                tuple(Rotation.from_matrix(mount[:3, :3]).as_quat()[[3, 0, 1, 2]]),
             )
             for name, path, mount in model.static_assets
         )
@@ -169,6 +173,10 @@ class RobotView:
         self.scene_view = SceneView(
             **{key: tuple(value) for key, value in scene.get("view", {}).items()}
         )
+        if options.get("initial_pose") not in {None, "home"}:
+            raise ValueError("initial_pose must be home when specified")
+        for name in model.groups:
+            self.initial_positions(name)
 
     def validate_groups(self, values: Mapping, *, sequence=False):
         if not isinstance(values, Mapping) or not values or set(values) - self.model.groups.keys():
@@ -199,14 +207,24 @@ class RobotView:
         return np.stack([self.pose(group, q)[:3, 3] for q in configurations])
 
     def visual_configuration(self, group, configuration):
-        return self.model.groups[group].visual_configuration(configuration)
+        return mounted_group_visual_configuration(self.model.groups[group], configuration)
 
     def initial_configuration(self, group):
         return self.visual_configuration(group, self.initial_positions(group))
 
     def initial_positions(self, group):
         width = self.model.groups[group].kinematics.num_coordinates
-        value = self.options.get("groups", {}).get(group, {}).get("initial", [0.0] * width)
+        style = self.options.get("groups", {}).get(group, {})
+        if self.options.get("initial_pose") == "home":
+            if "initial" in style:
+                raise ValueError("initial_pose: home cannot be combined with group initial values")
+            if group not in self.model.home_joints:
+                raise ValueError(f"{group}: initial_pose requests an unconfigured Home target")
+            joints = self.model.home_joints[group]
+            tool = style.get("initial_end_effector", [0.0] * (width - len(joints)))
+            value = np.concatenate((joints, np.asarray(tool, dtype=np.float64)))
+        else:
+            value = style.get("initial", [0.0] * width)
         return self.validate_groups({group: value})[group]
 
     def camera_slot(self, source):

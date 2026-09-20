@@ -15,7 +15,7 @@ from typing import Any
 import numpy as np
 import viser
 
-from manimux.sensors.camera_server.client import CameraSubscriber
+from manimux.server.sensor.taccap.client import CameraSubscriber
 
 from .reference_layouts import DEFAULT_LAYOUT_ROOT, REFERENCE_SLOTS, ReferenceLayouts
 

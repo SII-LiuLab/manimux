@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
-from manimux.kinematics.yam import YamKinematics
+from manimux.embodiments.arm.yam.kinematics import YamKinematics
 
 from .base import RobotAdapter, RobotGroup, SceneBox, gripper_closed_steps_by_group_at
 

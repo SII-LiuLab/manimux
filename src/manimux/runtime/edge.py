@@ -1,20 +1,24 @@
 from __future__ import annotations
 
+import logging
 import re
 import time
 import uuid
+from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass, replace
 from json import dumps, loads
 from pathlib import Path
 
+import numpy as np
+
 from manimux.clock import Clock, SystemClock
 from manimux.embodiments.robot import RobotBase, build_robot
+from manimux.embodiments.sensor import build_sensor
 from manimux.policies import ActionDecoderClient, PolicyCapabilities, build_policy_adapter
 from manimux.policies.base import action_interval, decode_policy_action, prepare_policy_request
 from manimux.policies.worker import PolicyWorkerClient
 from manimux.recording import EpisodeRecorder
-from manimux.robots.base import RobotDriver
 from manimux.runtime.diagnostics import build_plan_boundary_payload
 from manimux.runtime.executors import DirectExecutor, Executor, MPCExecutor, SmoothExecutor
 from manimux.runtime.inference import (
@@ -25,7 +29,6 @@ from manimux.runtime.inference import (
 )
 from manimux.runtime.safety import RuntimeState, SafetyGuard
 from manimux.runtime.timeline import ActionTimeline, CommitResult
-from manimux.sensors import build_sensor
 from manimux.types import (
     ActionContext,
     GroupVector,
@@ -37,6 +40,50 @@ from manimux.types import (
     copy_group_vector,
 )
 from manimux.viewer import ViewerBridge
+
+logger = logging.getLogger(__name__)
+
+
+def _action_value(value: object) -> object:
+    """Compact numeric action values without dumping an entire chunk."""
+    try:
+        array = np.asarray(value)
+    except Exception:  # noqa: BLE001 - diagnostics must never alter execution
+        return type(value).__name__
+    if array.dtype.kind not in "biuf" or array.size > 16:
+        return {"type": type(value).__name__, "shape": list(array.shape)}
+    return np.round(array.astype(float), 5).tolist()
+
+
+def _action_step(step: object) -> object:
+    if not isinstance(step, Mapping):
+        return _action_value(step)
+    return {str(key): _action_value(value) for key, value in step.items()}
+
+
+def _raw_action_summary(raw: object) -> dict[str, object]:
+    actions = raw.get("actions") if isinstance(raw, Mapping) and "actions" in raw else raw
+    if isinstance(actions, Sequence) and not isinstance(actions, str | bytes):
+        if not actions:
+            return {"type": type(raw).__name__, "steps": 0}
+        return {
+            "type": type(raw).__name__,
+            "steps": len(actions),
+            "first": _action_step(actions[0]),
+            "last": _action_step(actions[-1]),
+        }
+    return {"type": type(raw).__name__}
+
+
+def _group_action_summary(groups: Mapping[str, np.ndarray]) -> dict[str, object]:
+    return {
+        name: {
+            "shape": list(np.asarray(values).shape),
+            "first": np.round(np.asarray(values)[0], 5).tolist(),
+            "last": np.round(np.asarray(values)[-1], 5).tolist(),
+        }
+        for name, values in groups.items()
+    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,8 +201,19 @@ class EdgeRuntime:
             camera_hz=config["viewer"]["camera_hz"],
         )
         self._state = RuntimeState.DISCONNECTED
+        logger.info(
+            "runtime_config robot=%s execute=%s end_effector_control=%s worker=%s "
+            "policy_endpoint=%s strategy=%s executor=%s",
+            config["robot"].get("type", config["robot"].get("driver")),
+            config["robot"]["options"].get("execute"),
+            config["robot"]["options"].get("end_effector_control"),
+            config["policy"]["worker"],
+            config["policy"]["options"].get("server"),
+            self._strategy.name,
+            config["execution"]["executor"],
+        )
 
-    def _build_robot(self) -> RobotDriver:
+    def _build_robot(self) -> RobotBase:
         return build_robot(self._config["robot"], self._clock)
 
     def _build_executor(self) -> Executor:
@@ -265,6 +323,8 @@ class EdgeRuntime:
         discard_responses_through = -1
         pending_visuals: dict[int, dict[str, object]] = {}
         worker_failure_reported = False
+        last_dispatch_log_ns = 0
+        last_dispatch_plan_id: object = object()
         robot_connected = False
         steps = 0
         completed = False
@@ -276,6 +336,7 @@ class EdgeRuntime:
                 sensor.start()
                 sensor.read()
             self._worker.start()
+            logger.info("policy_worker_ready session=%s", self._session_id)
             if self._decoder is not None:
                 self._decoder.start()
             self._validate_policy_capabilities()
@@ -286,6 +347,14 @@ class EdgeRuntime:
             self._robot.connect()
             robot_connected = True
             initial_state = self._robot.get_state()
+            logger.info(
+                "robot_connected groups=%s initial=%s",
+                list(initial_state.groups),
+                {
+                    name: np.round(values, 5).tolist()
+                    for name, values in initial_state.groups.items()
+                },
+            )
             self._safety.reset(initial_state)
             self._executor.reset(initial_state)
             self._strategy.reset()
@@ -308,11 +377,7 @@ class EdgeRuntime:
                 "layout_id": self._config["run"]["layout_id"],
                 "launch_mode": self._launch_mode,
             }
-            viewer_episode_metadata["recovery_available"] = (
-                self._launch_mode == "serve"
-                and self._config["robot"]["type"] == "tianji_dual"
-                and self._config["robot"]["options"].get("execute") is True
-            )
+            viewer_episode_metadata["recovery_available"] = False
             self._viewer.set_state_metadata(viewer_episode_metadata)
             self._viewer.publish_event(
                 "episode_started",
@@ -376,6 +441,14 @@ class EdgeRuntime:
 
                 decoded_chunk = None
                 response = self._worker.poll()
+                if response is not None:
+                    logger.info(
+                        "policy_response seq=%d inference_ms=%.1f error=%s raw=%s",
+                        response.request_seq,
+                        response.inference_ms,
+                        response.error,
+                        _raw_action_summary(response.raw_action),
+                    )
                 if self._decoder is not None:
                     decoded = self._decoder.poll()
                     if decoded is not None:
@@ -444,6 +517,11 @@ class EdgeRuntime:
                     ):
                         rejection_reason = "stale_or_expired_response"
                     if rejection_reason is not None:
+                        logger.warning(
+                            "inference_rejected seq=%d reason=%s",
+                            response.request_seq,
+                            rejection_reason,
+                        )
                         self._strategy.on_response_rejected(response)
                         rejected_plans += 1
                         recorder.event(
@@ -495,6 +573,11 @@ class EdgeRuntime:
                             self._strategy.on_response_rejected(response)
                             rejected_plans += 1
                             reason = f"invalid_action:{type(exc).__name__}:{exc}"
+                            logger.warning(
+                                "action_decode_rejected seq=%d reason=%s",
+                                response.request_seq,
+                                reason,
+                            )
                             recorder.event(
                                 "plan_rejected",
                                 request_seq=response.request_seq,
@@ -555,6 +638,15 @@ class EdgeRuntime:
                                 pending_visuals.pop(response.request_seq, None)
                                 chunk = None
                         if chunk is not None:
+                            logger.info(
+                                "action_decoded seq=%d plan=%s source_offset=%d "
+                                "dt_ms=%.3f groups=%s",
+                                chunk.request_seq,
+                                chunk.plan_id,
+                                chunk.source_offset_steps,
+                                chunk.dt_ns / 1e6,
+                                _group_action_summary(chunk.groups),
+                            )
                             previous_reference = self._timeline.sample(now_ns)
                             previous_horizon = self._timeline.active_horizon()
                             previous_chunk_id = (
@@ -603,6 +695,13 @@ class EdgeRuntime:
                                     raise RuntimeError("accepted plan missing committed horizon")
                                 if canonical_raw is None:
                                     raise RuntimeError("accepted plan missing canonical raw chunk")
+                                logger.info(
+                                    "plan_accepted seq=%d plan=%s trimmed=%d committed_steps=%d",
+                                    chunk.request_seq,
+                                    chunk.plan_id,
+                                    result.trimmed_steps,
+                                    committed.horizon_steps,
+                                )
                                 recorder.record_plan(
                                     canonical_raw=canonical_raw,
                                     infra_output=chunk,
@@ -668,6 +767,12 @@ class EdgeRuntime:
                                 )
                                 pending_visuals.pop(response.request_seq, None)
                             else:
+                                logger.warning(
+                                    "plan_rejected seq=%d plan=%s reason=%s",
+                                    chunk.request_seq,
+                                    chunk.plan_id,
+                                    result.reason,
+                                )
                                 self._strategy.on_response_rejected(response)
                                 rejected_plans += 1
                                 recorder.event(
@@ -713,6 +818,21 @@ class EdgeRuntime:
                         )
                         request_seq = submission.request.request_seq
                         self._worker.submit_latest(prepared_request)
+                        logger.info(
+                            "inference_submitted seq=%d observation_ns=%d deadline_ns=%d "
+                            "state_seq=%d cameras=%s",
+                            request_seq,
+                            prepared_request.observation_time_ns,
+                            prepared_request.deadline_ns,
+                            state.sequence,
+                            {
+                                name: {
+                                    "sequence": frame.sequence,
+                                    "capture_ns": frame.capture_monotonic_ns,
+                                }
+                                for name, frame in frames.items()
+                            },
+                        )
                         request_in_flight = True
                         last_submitted_seq = request_seq
                         last_request_deadline_ns = prepared_request.deadline_ns
@@ -831,7 +951,44 @@ class EdgeRuntime:
                         )
                     )
                 self._safety.validate_command(command)
-                self._robot.send_command(command)
+                log_dispatch = (
+                    command.plan_id != last_dispatch_plan_id
+                    or now_ns - last_dispatch_log_ns >= 1_000_000_000
+                )
+                if log_dispatch:
+                    logger.info(
+                        "command_ready runtime_state=%s plan=%s execute=%s "
+                        "end_effector_control=%s max_command_minus_state=%s",
+                        self._state.value,
+                        command.plan_id,
+                        self._config["robot"]["options"].get("execute"),
+                        self._config["robot"]["options"].get("end_effector_control"),
+                        {
+                            name: round(float(np.max(np.abs(values - state.groups[name]))), 6)
+                            for name, values in command.groups.items()
+                        },
+                    )
+                try:
+                    self._robot.send_command(command)
+                except Exception:
+                    logger.exception(
+                        "command_dispatch_failed runtime_state=%s plan=%s execute=%s "
+                        "end_effector_control=%s groups=%s",
+                        self._state.value,
+                        command.plan_id,
+                        self._config["robot"]["options"].get("execute"),
+                        self._config["robot"]["options"].get("end_effector_control"),
+                        list(command.groups),
+                    )
+                    raise
+                if log_dispatch:
+                    logger.info(
+                        "command_sent plan=%s physical_dispatch=%s",
+                        command.plan_id,
+                        self._config["robot"]["options"].get("execute") is True,
+                    )
+                    last_dispatch_log_ns = now_ns
+                    last_dispatch_plan_id = command.plan_id
                 previous_command = copy_group_vector(last_command)
                 last_command = copy_group_vector(command.groups)
                 self._viewer.publish_state(

@@ -1,6 +1,7 @@
 # Display only: no device bindings or hardware movement.
 label: Tianji Marvin
 model: ../../../../../configs/embodiment/robot/tianji_taccap.yaml
+initial_pose: home  # Arm joints come from the referenced assembly's home.joints_deg.
 camera_mode: policy
 # No agent/top camera on this station. Add slot: top when one is available.
 cameras:
@@ -16,8 +17,8 @@ groups:
     label: Left arm (A)
     prediction_color: [52, 111, 255]
     trail_color: [33, 180, 106]
-    # Radians plus normalized gripper opening, in RobotModel coordinate order.
-    initial: [1.5707963267948966, -1.5707963267948966, -1.5707963267948966, -1.5707963267948966, 0, 0, 0, 1]
+    # Display-only opening; the recorded Home pose contains no gripper target.
+    initial_end_effector: [1.0]
     aperture: gripper
     demo:
       amplitude: [0, 0.1745329252, 0, 0.1396263402, 0, 0.0872664626, 0, 0]
@@ -26,7 +27,7 @@ groups:
     label: Right arm (B)
     prediction_color: [255, 94, 87]
     trail_color: [255, 170, 0]
-    initial: [-1.5707963267948966, -1.5707963267948966, 1.5707963267948966, -1.5707963267948966, 0, 0, 0, 1]
+    initial_end_effector: [1.0]
     aperture: gripper
     demo:
       amplitude: [0, 0.1745329252, 0, 0.1396263402, 0, 0.0872664626, 0, 0]

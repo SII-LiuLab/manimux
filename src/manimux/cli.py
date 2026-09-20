@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import logging
 import math
 import multiprocessing as mp
 import signal
@@ -120,6 +121,10 @@ def read_experiment(
         )
     if "checkpoint" in paths:
         raw["policy_server"]["checkpoint_path"] = str(paths["checkpoint"])
+    if "norm_stats" in paths:
+        raw["policy_server"]["norm_stats_path"] = str(paths["norm_stats"])
+    if "vlm_processor" in paths:
+        raw["policy_server"]["vlm_processor_path"] = str(paths["vlm_processor"])
     if "output_dir" in paths:
         raw["run"]["output_dir"] = str(paths["output_dir"])
     return raw
@@ -239,6 +244,12 @@ def _add_runtime_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--local", type=Path, help="Local robot, device and service bindings")
     parser.add_argument("--executor", choices=("direct", "smooth", "mpc"))
+    parser.add_argument(
+        "--log-level",
+        choices=("DEBUG", "INFO", "WARNING", "ERROR"),
+        default="INFO",
+        help="Runtime diagnostic verbosity (default: INFO)",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -257,6 +268,10 @@ def main(argv: list[str] | None = None) -> int:
     mp.freeze_support()
     signal.signal(signal.SIGTERM, _handle_termination)
     args = build_parser().parse_args(argv)
+    logging.basicConfig(
+        level=getattr(logging, args.log_level),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
     if args.command == "run":
         return _run(args.config, args.executor, local=args.local)
     if args.command == "serve":
@@ -303,10 +318,10 @@ def control_profile_parameters(**options) -> dict:
 def prepare_experiment(**options) -> dict:
     """把各模块处理过的参数组合成实验字典；不创建机器人或连接硬件。"""
     from manimux.embodiments.robot import robot_parameters
+    from manimux.embodiments.sensor import sensor_parameters
     from manimux.policies.base import policy_parameters
     from manimux.recording import recording_parameters
     from manimux.runtime import execution_parameters, validate_runtime_parameters
-    from manimux.sensors import sensor_parameters
     from manimux.viewer import viewer_parameters
 
     options = deepcopy(options)
