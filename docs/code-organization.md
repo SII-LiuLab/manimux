@@ -22,7 +22,9 @@ manimux/
     │   └── robot/              # 整机组件管理、RobotModel、整机资源
     ├── kinematics/             # 公共运动学接口、组合算法、几何工具
     ├── policies/               # policy adapter、worker、XPolicyLab 客户端
-    ├── camera_server/          # 相机网络服务与数据源
+    ├── server/                 # 独立服务的启动与网络接口
+    │   └── sensor/             # 按设备类型组织的传感器服务
+    │       └── taccap/         # 相机服务、请求/订阅客户端及 runtime 数据源
     ├── runtime/                # 推理调度、时间线、执行器和必要保护
     ├── viewer/                 # 实时展示与场景摆放
     ├── evaluation/
@@ -66,8 +68,10 @@ ManiMux 中的模型服务脚本只负责读取配置和启动它。相机服务
   sensor 生命周期本轮保持原行为；由独立相机服务持有物理相机的目标分工尚需收敛。
 - 这里移除的是原顶层配置类及其调用；YAM 采集 GUI 的工位数据类、Viewer 面板
   配置及官方运动学参数不属于这个顶层实验配置接口，未做无关重写。
-- 顶层 `robots/`、`sensors/`、`end_effectors/`、`integrations/` 和 `plugins.py`
-  尚处于兼容阶段；上面的树不是“全部已完成”的声明。
+- 顶层 `robots/`、`sensors/`、`end_effectors/` 已移除。相机服务和客户端迁入
+  `server/sensor/taccap/`，保留 ZMQ REP/PUB 协议；`embodiments/sensor/` 只保留
+  公共基类、离线 mock 和 TacCap 物理采集实现。
+- Tianji 整机只从 `embodiments/robot/tianji_taccap` 装配和运行。
 - Tianji Viewer 已通过 `RobotView` 使用 `RobotModel`，显示配置位于
   `viewer/robots/tianji/viewer.yaml`；消息直接保留组名。YAM 显示适配待后续迁移。
   入口与配置见 [Viewer](viewer.md)。
@@ -91,7 +95,7 @@ ManiMux 中的模型服务脚本只负责读取配置和启动它。相机服务
 ## 为什么当前还有顶层 assets
 
 `src/manimux/assets/` 目前只剩 `i2rt/robot_models/` 中的 YAM 与 linear_4310
-模型。`kinematics/yam.py` 和 `viewer/robots/yam.py` 仍引用这些路径，所以在
+模型。YAM 的历史运动学与 Viewer 路径不在本轮 Tianji 整机重构范围，所以在
 “YAM 暂不迁移”的范围下保留。它不是目标架构中的公共本体资源目录。
 
 Tianji 的资源已经分别放在：

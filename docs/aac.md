@@ -32,7 +32,7 @@ ManiMux 的 AAC 接入追踪两个官方仓库：
 
 当前接入的 GR00T N1.7 与 Pi05 checkpoints 都输出 14D absolute joint position，不是官方
 AAC 评测的 7D EE action。我们不直接用 joint distance 代替 EE metric，而是复用
-`manimux.kinematics.yam.YamKinematics`，把每个候选、每个时间步的左右关节分别转换成
+YAM 运动学实现，把每个候选、每个时间步的左右关节分别转换成
 grasp-site pose，再构造逐步 EE action。第一步是 `measured pose -> action[0]`，后续是
 `action[t-1] -> action[t]`：
 
