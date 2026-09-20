@@ -28,6 +28,7 @@ def test_tianji_offline_scene_receives_runtime_groups_and_frames(tmp_path):
     try:
         assert set(app.robot_handles) == {"left_arm", "right_arm"}
         assert len(app.camera_view.images) == 2
+        assert app.top_overlay is None
         from manimux.viewer.communication import PolicyPlan, RobotSnapshot, RuntimeEvent
 
         bridge._enabled = True
@@ -87,6 +88,16 @@ def test_tianji_offline_scene_receives_runtime_groups_and_frames(tmp_path):
         assert all(app.current_plan_handles.values())
         for name, q in groups.items():
             np.testing.assert_allclose(app.last_joint_positions[name], q)
+        # Finishing the new assembly must never request its unimplemented Home.
+        app.observe_only = False
+        app.paused = True
+        app._set_policy_controls_enabled(True)
+        assert app.finish_btn.label == "Finish rollout"
+        assert not app.finish_no_home_btn.visible
+        assert app.home_btn.disabled
+        app._finish_rollout(home=True)
+        assert app.finish_requested
+        assert app.finish_home is False
     finally:
         bridge.close()
         app.close()

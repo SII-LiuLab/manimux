@@ -176,6 +176,10 @@ class RobotView:
         self.scene_view = SceneView(
             **{key: tuple(value) for key, value in scene.get("view", {}).items()}
         )
+        if options.get("initial_pose") not in {None, "home"}:
+            raise ValueError("initial_pose must be home when specified")
+        for name in model.groups:
+            self.initial_positions(name)
 
     def validate_groups(self, values: Mapping, *, sequence=False):
         if not isinstance(values, Mapping) or not values or set(values) - self.model.groups.keys():
@@ -213,7 +217,17 @@ class RobotView:
 
     def initial_positions(self, group):
         width = self.model.groups[group].kinematics.num_coordinates
-        value = self.options.get("groups", {}).get(group, {}).get("initial", [0.0] * width)
+        style = self.options.get("groups", {}).get(group, {})
+        if self.options.get("initial_pose") == "home":
+            if "initial" in style:
+                raise ValueError("initial_pose: home cannot be combined with group initial values")
+            if group not in self.model.home_joints:
+                raise ValueError(f"{group}: initial_pose requests an unconfigured Home target")
+            joints = self.model.home_joints[group]
+            tool = style.get("initial_end_effector", [0.0] * (width - len(joints)))
+            value = np.concatenate((joints, np.asarray(tool, dtype=np.float64)))
+        else:
+            value = style.get("initial", [0.0] * width)
         return self.validate_groups({group: value})[group]
 
     def camera_slot(self, source):

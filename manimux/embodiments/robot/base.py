@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import MappingProxyType
 
@@ -367,6 +367,8 @@ class RobotModel:
     components: Mapping[str, dict]
     hardware: Mapping[str, object]
     config_path: Path
+    # Optional arm-only Home targets in model coordinates (radians), without tool commands.
+    home_joints: Mapping[str, FloatArray] = field(default_factory=dict)
 
     @classmethod
     def from_config(cls, path: Path | str) -> RobotModel:
@@ -442,6 +444,28 @@ class RobotModel:
             groups[group_name] = MountedGroup(arm_name, arm, tool_name, tool, mount, kin)
         if used_arms != set(arm_models) or used_tools != set(tool_models):
             raise ValueError("all arm and end-effector components must belong to a group")
+        home_joints = {}
+        if "home" in spec:
+            home = spec["home"]
+            targets = home.get("joints_deg") if isinstance(home, Mapping) else None
+            if not isinstance(targets, Mapping) or set(targets) != set(groups):
+                raise ValueError("home.joints_deg must contain every configured arm group")
+            for group_name, group in groups.items():
+                q = np.asarray(targets[group_name], dtype=np.float64)
+                if (
+                    q.shape != (len(group.arm.coordinates),)
+                    or not np.isfinite(q).all()
+                    or any(coordinate.unit != "rad" for coordinate in group.arm.coordinates)
+                ):
+                    raise ValueError(f"home.joints_deg.{group_name}: invalid joint angles")
+                q = np.radians(q)
+                limits = components[group.arm_name]["hardware"].get("joint_limits")
+                if limits is not None and (
+                    np.any(q < np.asarray(limits[0])) or np.any(q > np.asarray(limits[1]))
+                ):
+                    raise ValueError(f"home.joints_deg.{group_name}: outside joint limits")
+                q.setflags(write=False)
+                home_joints[group_name] = q
         kin = RobotKinematics({key: value.kinematics for key, value in groups.items()})
         return cls(
             name,
@@ -450,4 +474,5 @@ class RobotModel:
             MappingProxyType(components),
             MappingProxyType(dict(spec.get("hardware", {}))),
             source,
+            MappingProxyType(home_joints),
         )

@@ -104,6 +104,7 @@ class ActionTimeline:
         current_command: GroupVector,
         blend_steps: int,
     ) -> CommitResult:
+        """Validate, time-align, trim, and activate a new action chunk."""
         if chunk.request_seq <= self._accepted_request_seq:
             return CommitResult(False, "stale_request_seq")
         if now_ns - chunk.observation_time_ns > max_plan_age_ns:
@@ -118,9 +119,13 @@ class ActionTimeline:
             if chunk.groups[name].shape[1] != dim or current_command[name].shape != (dim,):
                 return CommitResult(False, f"dimension_mismatch:{name}")
 
+        # Wall-clock time at which the committed plan starts executing.
         start_time_ns = now_ns + commit_lead_ns
+        # Elapsed source-trajectory time when execution starts.
         age_at_commit_ns = max(0, start_time_ns - chunk.observation_time_ns)
+        # Current row in the original policy trajectory at start_time_ns.
         source_cursor = int(age_at_commit_ns // chunk.dt_ns)
+        # Rows to remove from this chunk, excluding rows already removed upstream.
         trimmed_steps = (
             0 if self._start_on_commit else max(0, source_cursor - chunk.source_offset_steps)
         )
