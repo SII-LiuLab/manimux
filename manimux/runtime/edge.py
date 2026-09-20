@@ -20,6 +20,7 @@ from manimux.policies.base import action_interval
 from manimux.policies.worker import PolicyWorkerClient
 from manimux.policy_adapter import build_policy_adapter
 from manimux.recording import EpisodeRecorder
+from manimux.runtime.decode_forecast import DecodeForecast
 from manimux.runtime.diagnostics import build_plan_boundary_payload
 from manimux.runtime.executors import DirectExecutor, Executor, MPCExecutor, SmoothExecutor
 from manimux.runtime.inference import (
@@ -170,6 +171,11 @@ class EdgeRuntime:
             if self._strategy.name not in {"manimux", "rtc"}:
                 raise ValueError("process action decoding requires the manimux or rtc strategy")
             self._decoder = ActionDecoderClient(config["robot"], config["policy"], self._adapter)
+        self._decode_forecast = DecodeForecast(
+            floor_s=config["inference"]["expected_decode_s"],
+            size=config["inference"]["decode_forecast_size"],
+            mode=config["inference"]["decode_forecast_mode"],
+        )
         self._session_id = f"session-{uuid.uuid4().hex}"
         self._worker = PolicyWorkerClient(config["policy"], self._session_id)
         self._timeline = self._build_timeline()
@@ -247,9 +253,10 @@ class EdgeRuntime:
         holds still and the measurement remains the seed.
         """
         execution = self._config["inference"]
-        start_ns = now_ns + int((execution["commit_lead_s"] + execution["expected_decode_s"]) * 1e9)
+        expected_decode_s = self._decode_forecast.seconds
+        start_ns = now_ns + int((execution["commit_lead_s"] + expected_decode_s) * 1e9)
         remaining_ns = self._timeline.remaining_ns(now_ns)
-        if execution["expected_decode_s"] > 0 and remaining_ns > 0:
+        if expected_decode_s > 0 and remaining_ns > 0:
             reference = self._timeline.sample(min(start_ns, now_ns + remaining_ns))
             if reference is not None:
                 return start_ns, RobotState(reference, start_ns, state.sequence), "active_reference"
@@ -454,6 +461,8 @@ class EdgeRuntime:
                             raise RuntimeError("model response arrived while decode was in flight")
                         response = decoded.response
                         decoded_chunk = decoded.chunk
+                        if decoded_chunk is not None:
+                            self._decode_forecast.observe(decoded_chunk.metadata["decode_stage_ms"])
                         if decoded.error is not None:
                             response = replace(response, error=decoded.error)
                     elif (
@@ -497,6 +506,7 @@ class EdgeRuntime:
                                 seed_time_ns=seed.monotonic_ns,
                                 seed_source=seed_source,
                                 expected_start_ns=start_ns,
+                                expected_decode_ms=round(self._decode_forecast.seconds * 1e3, 3),
                             )
                             # Keep inference+decode in flight until both arms finish.
                             response = None

@@ -202,7 +202,52 @@ def test_decode_seed_follows_the_active_reference_to_the_expected_start(tmp_path
     np.testing.assert_allclose(seed.groups["left_arm"], 0.19)
     # Without an expected decode time the measurement stays the seed.
     config["inference"]["expected_decode_s"] = 0.0
-    assert runtime._decode_seed(state, now) == (now + 20_000_000, state, "measured_state")
+    idle = EdgeRuntime(config, tmp_path)
+    assert idle._decode_seed(state, now) == (now + 20_000_000, state, "measured_state")
+
+
+def test_decode_forecast_requires_a_positive_expected_decode_floor():
+    data = deepcopy(load_config(ROOT / "tests/fixtures/runtime.yaml"))
+    data["policy"]["action_decoding"] = "process"
+    data["inference"]["decode_forecast_size"] = 5
+    # expected_decode_s stays at its 0.0 default: there is no initial estimate.
+    with pytest.raises(ValueError, match="requires a positive expected_decode_s"):
+        prepare_experiment(**data)
+
+
+def test_decode_seed_follows_the_measured_decode_duration(tmp_path):
+    from manimux.types import RobotState
+
+    config = plugin_config()
+    config["inference"]["commit_lead_s"] = 0.02
+    config["inference"]["expected_decode_s"] = 0.05
+    config["inference"]["decode_forecast_size"] = 2
+    runtime = EdgeRuntime(config, tmp_path)
+    state = RobotState(
+        {name: np.full(dim, -1.0) for name, dim in config["robot"]["group_dims"].items()}, 10**9, 7
+    )
+    now = 11 * 10**8
+    # The configured value is the estimate until a decode has been measured.
+    assert runtime._decode_seed(state, now)[0] == now + 70_000_000
+    runtime._decode_forecast.observe(200.0)
+    assert runtime._decode_seed(state, now)[0] == now + 220_000_000
+    # A faster decode is floored by expected_decode_s, so the seed source is stable.
+    runtime._decode_forecast.observe(5.0)
+    runtime._decode_forecast.observe(5.0)
+    assert runtime._decode_seed(state, now)[0] == now + 70_000_000
+
+
+def test_runtime_forecasts_the_next_decode_from_the_previous_one(tmp_path):
+    config = plugin_config()
+    config["inference"]["expected_decode_s"] = 0.05
+    config["inference"]["decode_forecast_size"] = 5
+    config["run"]["max_steps"] = 250
+    result = build_runtime(config, tmp_path).run()
+    sent = [e for e in events_of(result) if e["kind"] == "decode_submitted"]
+    assert len(sent) >= 2
+    # SlowAdapter spends 250 ms per decode; only the first submission has to guess.
+    assert sent[0]["expected_decode_ms"] == pytest.approx(50.0)
+    assert all(e["expected_decode_ms"] >= 240 for e in sent[1:])
 
 
 def test_runtime_seeds_later_decodes_from_the_active_reference(tmp_path):

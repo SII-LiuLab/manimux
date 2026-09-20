@@ -73,6 +73,7 @@ tests/
 !/tests/unit/test_tianji_policy_assembly.py
 !/tests/unit/test_local_config.py
 !/tests/unit/test_xr1_tianji_taccap.py
+!/tests/unit/test_decode_forecast.py
 
 # Private embodiment SDKs and robot assets stay on the local installation.
 /manimux/embodiments/**/sdk/
