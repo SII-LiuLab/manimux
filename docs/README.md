@@ -39,9 +39,12 @@ Use each runbook's checkpoint, environment and action contract together. An avai
 does not mean every checkpoint or inference-method combination has passed a real-robot trial.
 
 - [Pi05 / OpenPI](pi05-yam-runbook.md), including paired put-bottles joint / joint+EE 30k configurations.
+- [UMI DP on Tianji–TacCap](umi-dp-tianji-taccap-runbook.md), including checkpoint binding,
+  TacCap camera service, Viewer and hardware runtime commands.
 - [MolmoAct2](molmoact-yam-runbook.md) · [ABC](abc-yam-runbook.md).
 - [GR00T N1.7](gr00t-yam-runbook.md) · [LingBot-VLA2](lingbot-vla2-yam-runbook.md).
 - [Xiaomi XR-1](xiaomi-xr1-yam-runbook.md) · [OpenWAM](openwam-yam-runbook.md).
+- [Xiaomi XR-1 on Tianji–TacCap](xiaomi-xr1-tianji-taccap-runbook.md), including the pass-ball step-50000 checkpoint and synthetic black ego view.
 - [SAPolicy](sapolicy-yam-runbook.md) · [Shared XPolicyLab bridge](xpolicylab-runbook.md).
 - Offline / simulation paths: [Cosmos3](cosmos3-offline-runbook.md),
   [Isaac 0.5](isaac05-offline-runbook.md).

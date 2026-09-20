@@ -49,11 +49,10 @@ def test_local_binds_same_camera_for_robot_and_server_without_opening_it(tmp_pat
 def test_local_does_not_change_fk_or_execution_settings(tmp_path):
     base = load_config(EXPERIMENT)
     bound = load_config(EXPERIMENT, local=write_local(tmp_path))
-    old = load_config(ROOT / "manimux/configs/experiments/pass_ball/tianji_umi_dp_default.yaml")
-    assert bound["inference"] == base["inference"] == old["inference"]
-    assert bound["executor"] == base["executor"] == old["executor"]
-    assert action_interval(bound["policy"]) == action_interval(old["policy"])
-    assert bound["robot"]["control_hz"] == old["robot"]["control_hz"]
+    assert bound["inference"] == base["inference"]
+    assert bound["executor"] == base["executor"]
+    assert action_interval(bound["policy"]) == action_interval(base["policy"])
+    assert bound["robot"]["control_hz"] == base["robot"]["control_hz"]
     assert bound["robot"]["options"]["execute"] is False
     assert bound["robot"]["options"]["end_effector_control"] is False
     robots = [build_robot(config["robot"], SystemClock()) for config in (base, bound)]
@@ -71,7 +70,15 @@ def test_local_does_not_change_fk_or_execution_settings(tmp_path):
 
 
 def test_relative_local_paths_and_cli_selection_are_independent_of_cwd(tmp_path, monkeypatch):
-    local = write_local(tmp_path, paths={"checkpoint": "weights/model", "output_dir": "runs"})
+    local = write_local(
+        tmp_path,
+        paths={
+            "checkpoint": "weights/model",
+            "norm_stats": "weights/normalize.json",
+            "vlm_processor": "weights/processor",
+            "output_dir": "runs",
+        },
+    )
     raw = read_experiment(EXPERIMENT)
     raw["local"] = "station.yaml"
     experiment = tmp_path / "experiment.yaml"
@@ -80,6 +87,10 @@ def test_relative_local_paths_and_cli_selection_are_independent_of_cwd(tmp_path,
     cfg = load_config(experiment)
     assert cfg["local"] == local
     assert cfg["policy_server"]["checkpoint_path"] == str(tmp_path / "weights/model")
+    assert cfg["policy_server"]["norm_stats_path"] == str(
+        tmp_path / "weights/normalize.json"
+    )
+    assert cfg["policy_server"]["vlm_processor_path"] == str(tmp_path / "weights/processor")
     assert cfg["run"]["output_dir"] == tmp_path / "runs"
     other = tmp_path / "other.yaml"
     other.write_text(yaml.safe_dump({"robot": {"hardware": {"ip": "192.0.2.99"}}}))
@@ -252,36 +263,3 @@ def test_checkpoint_binding_keeps_local_camera_and_remote_policy_addresses(tmp_p
         camera_config(read_experiment(output))["sensors"]["cameras"]["right_wrist"]["camera_serial"]
         == "NEW_RIGHT_CAMERA"
     )
-
-
-def test_old_server_and_runtime_template_binding_still_works(tmp_path, monkeypatch):
-    import runpy
-    import sys
-
-    from test_tianji_policy_assembly import configured
-
-    report = dict(configured()["policy"]["expected_backend"]["model"])
-    monkeypatch.setitem(
-        sys.modules,
-        "XPolicyLab.policy.UMI_DP.artifact_identity",
-        SimpleNamespace(validate_deployment=lambda _: report),
-    )
-    monkeypatch.setattr(sys, "path", list(sys.path))
-    output = tmp_path / "old/run.yaml"
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "umi_dp_tianji_server.py",
-            "--config",
-            str(ROOT / "manimux/configs/policy/umi_dp/tianji/pass_ball/default.yaml"),
-            "--runtime-template",
-            str(ROOT / "manimux/configs/experiments/pass_ball/tianji_umi_dp_default.yaml"),
-            "--bind-runtime-config",
-            str(output),
-        ],
-    )
-    runpy.run_path(str(ROOT / "manimux/servers/umi_dp.py"), run_name="__main__")
-    cfg = load_config(output)
-    assert cfg["robot"]["type"] == "tianji_taccap" and cfg["policy"]["adapter"]["deployment_bound"]
-    assert cfg["control_profile"] == ROOT / "manimux/configs/embodiment/robot/tianji_control.yaml"

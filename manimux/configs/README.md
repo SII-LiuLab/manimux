@@ -115,6 +115,12 @@ deployment choose their executors and filters separately. The YAM profile is
 Model services run in separate environments. Legacy native ABC/MolmoAct experiments also
 use this directory layout; that move does not mean their models have migrated to XPolicyLab.
 
+The Xiaomi Robotics 1 pass-ball checkpoint on Tianji-TacCap uses
+`experiments/pass_ball/tianji_taccap_xiaomi_xr1_step50000.yaml` and the policy recipe at
+`policy/xiaomi-xr1/tianji/pass_ball/step50000.yaml`. Its Cartesian action adapter is selected
+by the experiment and performs inline FK/IK using the assembled Tianji robot kinematics.
+See the [XR-1 Tianji-TacCap runbook](../../docs/xiaomi-xr1-tianji-taccap-runbook.md).
+
 ## Arm motion limiting
 
 The shared profile's `motion_limits.arm.mode` selects Direct/Smooth command limiting:

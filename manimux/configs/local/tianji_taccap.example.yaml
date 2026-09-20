@@ -1,5 +1,6 @@
 # Copy to station.yaml in this directory and fill in real devices; 192.0.2.10 is an example.
-# paths.checkpoint selects the UMI_DP artifact directory, relative to this station file.
+# paths.checkpoint / norm_stats / vlm_processor bind model artifacts relative to this file.
+# vlm_processor may be omitted when the server config uses a HuggingFace repository ID.
 # Remote endpoints use reachable addresses; bind_host/bind_endpoint select listeners.
 robot:
   hardware:
@@ -19,4 +20,5 @@ services:
     request_endpoint: tcp://127.0.0.1:5555
   policy:
     endpoint: ws://127.0.0.1:8560
+# Example keys: checkpoint, norm_stats, vlm_processor, output_dir.
 paths: {}
