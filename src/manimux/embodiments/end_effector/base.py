@@ -8,18 +8,18 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Generic, TypeVar
 
-from manimux.kinematics.end_effector import EndEffector
-from manimux.kinematics.tool import ToolGeometryBase
+from manimux.kinematics.composed import ToolGeometryBase
 
 
 @dataclass(frozen=True, slots=True)
 class EndEffectorModel:
-    """Tool-base-to-TCP geometry and its corresponding visual model."""
+    """Tool geometry plus an optional Viewer asset directory."""
 
     geometry: ToolGeometryBase
-    visual: EndEffector
+    visual_directory: Path | None = None
 
 
 StateT = TypeVar("StateT")

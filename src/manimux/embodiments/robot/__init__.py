@@ -29,7 +29,7 @@ def _tianji_taccap(config: dict, clock: Clock) -> RobotBase:
 
 
 def _mock(config, clock):
-    from manimux.robots.mock import MockDualArmDriver
+    from manimux.embodiments.robot.mock import MockDualArmDriver
 
     return MockDualArmDriver(config["group_dims"], clock)
 
@@ -45,7 +45,6 @@ def _maniunicon(config, clock):
 _BUILTINS = {
     "tianji_taccap": _tianji_taccap,
     "yam_dual": "manimux.robots.yam:build_robot",
-    "tianji_dual": "manimux.robots.tianji:build_robot",
     "mock_dual_arm": _mock,
     "maniunicon_meshcat_dual_arm": _maniunicon,
 }

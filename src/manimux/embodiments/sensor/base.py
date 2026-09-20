@@ -13,7 +13,7 @@ class SensorBase(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def read(self) -> SensorFrame:
+    def read(self) -> SensorFrame | dict[str, SensorFrame]:
         """Return RGB with the timestamp and sequence belonging to that capture."""
         raise NotImplementedError
 

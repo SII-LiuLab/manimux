@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import ipaddress
+import logging
 import threading
 import time
 from collections.abc import Mapping
@@ -16,10 +17,11 @@ import numpy as np
 from manimux.clock import Clock, SystemClock
 from manimux.embodiments.arm.base import ArmBase, ArmController, ArmModel, ArmState
 from manimux.embodiments.arm.tianji.kinematics import TianjiSDKKinematics
-from manimux.kinematics.base import FlangeKinematicsBase, FloatArray, KinematicCoordinate
+from manimux.kinematics.base import ArmKinematicsBase, FloatArray, KinematicCoordinate
 
 _CONTROL_SESSION = threading.Lock()
 _ARM = {"left": ("A", 0), "right": ("B", 1)}
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +89,7 @@ class TianjiController(ArmController):
         self._serial: dict[str, int] = {}
         self._received: dict[str, int] = {}
         self._lock = threading.RLock()
+        self._last_dispatch_log_ns = 0
 
     @staticmethod
     def _check(result: object, operation: str) -> None:
@@ -171,7 +174,15 @@ class TianjiController(ArmController):
             raise RuntimeError("TianjiController is not connected")
 
     def _write(self, joints: Mapping[str, FloatArray], states: Mapping[str, int]) -> None:
-        self._check(self._robot.clear_set(), "clear_set")
+        # Marvin's send_cmd queues a buffer for the SDK's 1 kHz sender.
+        # clear_set returns false while that buffer is pending/in flight. This
+        # occurs especially when stop follows a command immediately. Wait only
+        # before opening a new batch; never replay a partially written batch.
+        deadline = time.monotonic() + min(0.05, self._ready_timeout)
+        while not self._robot.clear_set():
+            if time.monotonic() >= deadline:
+                raise TimeoutError("Marvin clear_set buffer remained busy")
+            time.sleep(0.001)
         for name in self.settings:
             arm, _ = _ARM[name]
             if name in joints:
@@ -223,6 +234,29 @@ class TianjiController(ArmController):
                         if np.max(np.abs(target - measured[name])) > self._max_tracking:
                             raise RuntimeError(f"{name}: command exceeds tracking error limit")
                 pending = set(targets) - self._enabled
+                now_ns = self._clock.now_ns()
+                log_dispatch = bool(pending) or now_ns - self._last_dispatch_log_ns >= 1_000_000_000
+                if log_dispatch:
+                    logger.info(
+                        "marvin_command_ready targets_deg=%s measured_deg=%s "
+                        "max_target_error_deg=%s pending_enable=%s modes=%s",
+                        {
+                            name: np.round(np.degrees(target), 3).tolist()
+                            for name, target in targets.items()
+                        },
+                        {
+                            name: np.round(np.degrees(measured[name]), 3).tolist()
+                            for name in targets
+                        },
+                        {
+                            name: round(
+                                float(np.max(np.abs(np.degrees(target - measured[name])))), 4
+                            )
+                            for name, target in targets.items()
+                        },
+                        sorted(pending),
+                        modes,
+                    )
                 for name in targets:
                     cfg = self.settings[name]
                     if modes[name] != (0 if name in pending else 1):
@@ -255,6 +289,9 @@ class TianjiController(ArmController):
 
                     self._wait(enabled)
                 self._write(targets, {})
+                if log_dispatch:
+                    logger.info("marvin_send_cmd_ok arms=%s", list(targets))
+                    self._last_dispatch_log_ns = now_ns
             except Exception as error:
                 try:
                     self.stop()
@@ -329,11 +366,11 @@ class TianjiArm(ArmBase):
         controller: TianjiController,
         side: str,
         *,
-        kinematics: FlangeKinematicsBase | None = None,
+        kinematics: ArmKinematicsBase | None = None,
     ) -> None:
         if side not in controller.settings:
             raise ValueError("arm side must be configured on the controller")
-        if kinematics is not None and kinematics.num_arm_joints != 7:
+        if kinematics is not None and kinematics.num_joints != 7:
             raise ValueError("Tianji kinematics must have seven arm joints")
         if isinstance(kinematics, TianjiSDKKinematics) and kinematics.arm != side:
             raise ValueError("official kinematics must match the arm side")
@@ -354,7 +391,7 @@ class TianjiArm(ArmBase):
         return 7
 
     @property
-    def kinematics(self) -> FlangeKinematicsBase:
+    def kinematics(self) -> ArmKinematicsBase:
         if self._kinematics is None:
             self._kinematics = TianjiSDKKinematics(self._side)
         return self._kinematics

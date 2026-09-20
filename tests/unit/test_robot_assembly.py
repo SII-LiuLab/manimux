@@ -10,6 +10,10 @@ from yourdfpy import URDF
 
 from manimux.embodiments.robot import RobotModel
 from manimux.embodiments.robot.tianji_taccap import TianjiTaccapRobot
+from manimux.viewer.end_effector import (
+    mounted_group_visual_configuration,
+    mounted_group_visual_urdf,
+)
 
 CONFIG = Path(__file__).resolve().parents[2] / "configs/embodiment/robot/tianji_taccap.yaml"
 
@@ -60,13 +64,13 @@ def test_mounts_and_tcp_are_shared_by_official_fk_ik_and_urdf(tmp_path, modified
         assert results[name].converged, results[name].reason
         assert mounted.kinematics.base_frame == mounted.arm.base_frame
         expected = (
-            mounted.arm.kinematics.fk_flange(q[name][:7])
-            @ mounted.mount.matrix()
+            mounted.arm.kinematics.fk(q[name][:7])
+            @ mounted.mount
             @ mounted.end_effector.geometry.tcp_transform(q[name][7:])
         )
         np.testing.assert_allclose(targets[name], expected, atol=1e-10)
-        urdf = URDF.load(mounted.visual_urdf(), load_meshes=False)
-        urdf.update_cfg(mounted.visual_configuration(q[name]))
+        urdf = URDF.load(mounted_group_visual_urdf(mounted), load_meshes=False)
+        urdf.update_cfg(mounted_group_visual_configuration(mounted, q[name]))
         visual_tcp = urdf.get_transform("ee_tcp")
         np.testing.assert_allclose(visual_tcp, expected, atol=1e-4)
 
@@ -129,6 +133,7 @@ def test_invalid_assembly_is_rejected(tmp_path, case):
 def test_robot_model_uses_configured_group_layout(tmp_path):
     def edit(spec):
         spec["groups"] = {"manipulator": spec["groups"]["right_arm"]}
+        spec["home"]["joints_deg"] = {"manipulator": spec["home"]["joints_deg"]["right_arm"]}
         for name in ("left_arm", "left_end_effector", "left_wrist_camera"):
             del spec["components"][name]
 
@@ -136,9 +141,67 @@ def test_robot_model_uses_configured_group_layout(tmp_path):
     assert list(model.groups) == ["manipulator"]
     q = configuration(model)
     assert model.kinematics.fk(q)["manipulator"].shape == (4, 4)
-    assert model.groups["manipulator"].visual_configuration(q["manipulator"]).shape == (8,)
+    assert mounted_group_visual_configuration(
+        model.groups["manipulator"], q["manipulator"]
+    ).shape == (8,)
     with pytest.raises(ValueError):
-        model.groups["manipulator"].visual_configuration(np.zeros(16))
+        mounted_group_visual_configuration(model.groups["manipulator"], np.zeros(16))
+
+
+def test_home_target_is_shared_by_model_and_viewer_without_hardware(tmp_path):
+    from manimux.viewer.dashboard import load_robot_view, load_viewer_config
+
+    def edit(spec):
+        # A valid alternate target must propagate, without a Python/View YAML pose copy.
+        spec["home"]["joints_deg"]["left_arm"][0] = 100.0
+
+    config = load_viewer_config()
+    config["model"] = edited_config(tmp_path, edit)
+    view = load_robot_view(config)
+    robot = TianjiTaccapRobot.from_config(config["model"])
+    assert robot.controller._robot is None
+    assert np.degrees(robot.model.home_joints["left_arm"][0]) == pytest.approx(100.0)
+    for name in robot.model.groups:
+        q = view.initial_positions(name)
+        np.testing.assert_allclose(q[:-1], robot.model.home_joints[name])
+        assert q[-1] == 1.0  # Display only; Home contains seven arm joints.
+        assert not robot.model.home_joints[name].flags.writeable
+    with pytest.raises(NotImplementedError):
+        robot.home()
+
+
+@pytest.mark.parametrize("case", ["missing", "unknown", "dimension", "nonfinite", "limits"])
+def test_invalid_home_target_is_rejected(tmp_path, case):
+    def edit(spec):
+        targets = spec["home"]["joints_deg"]
+        if case == "missing":
+            del targets["left_arm"]
+        elif case == "unknown":
+            targets["A"] = targets.pop("left_arm")
+        elif case == "dimension":
+            targets["left_arm"].append(1.0)
+        elif case == "nonfinite":
+            targets["left_arm"][0] = float("nan")
+        else:
+            targets["left_arm"][0] = 360.0
+
+    with pytest.raises(ValueError, match="home.joints_deg"):
+        RobotModel.from_config(edited_config(tmp_path, edit))
+
+
+def test_missing_home_is_optional_but_cannot_be_displayed_as_home(tmp_path):
+    from manimux.viewer.dashboard import load_robot_view, load_viewer_config
+
+    path = edited_config(tmp_path, lambda spec: spec.pop("home"))
+    assert not RobotModel.from_config(path).home_joints
+    config = {**load_viewer_config(), "model": path}
+    with pytest.raises(ValueError, match="unconfigured Home"):
+        load_robot_view(config)
+    config.pop("initial_pose")
+    config["groups"]["left_arm"]["initial"] = [0.1] * 7 + [0.5]
+    np.testing.assert_allclose(
+        load_robot_view(config).initial_positions("left_arm"), [0.1] * 7 + [0.5]
+    )
 
 
 def test_scene_placement_does_not_change_control_fk_or_ik(tmp_path):

@@ -1,6 +1,6 @@
 """Tianji–TacCap whole-robot assembly; construction does not connect hardware."""
 
-from manimux.embodiments.robot.tianji_taccap.robot import (
+from manimux.embodiments.robot.tianji_taccap.tianji_taccap import (
     TianjiArmConfig,
     TianjiRobot,
     TianjiTaccapRobot,

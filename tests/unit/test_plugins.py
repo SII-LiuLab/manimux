@@ -12,8 +12,8 @@ from manimux.policies.base import decode_policy_action, policy_parameters
 from manimux.policies.fake import FakePolicyAdapter, FakePolicyModel
 from manimux.robots import build_robot
 from manimux.robots.mock import MockDualArmDriver
-from manimux.sensors import build_sensor, sensor_parameters
-from manimux.sensors.mock import MockCameraDriver
+from manimux.embodiments.sensor import build_sensor, sensor_parameters
+from manimux.embodiments.sensor.mock import MockCameraDriver
 from manimux.types import ActionChunk, ActionContext
 
 

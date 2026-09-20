@@ -16,7 +16,8 @@
 注册入口按 `robot.type` 选择整机类，`robot.config` 相对实验 YAML 解析。
 `RobotBase` 持有 `RobotModel` 并直接复用其 `kinematics`；子类不再覆盖一份独立运动学。
 `RobotModel` 同文件保存组件模型和安装数据，支持不构造控制连接的离线 action decode。
-旧 `robots` 导入和 `robot.driver` 配置保留兼容入口；YAM 实现和实验 YAML 未迁移。
+Tianji/TacCap 组件直接从 `embodiments` 导入；实验显式使用
+`robot.type: tianji_taccap`。
 
 ## 文件职责
 
@@ -29,16 +30,16 @@
 | `configs/embodiment/end_effector/taccap.yaml` | 末端执行器参数 |
 | `configs/embodiment/sensor/taccap.yaml` | 相机采集参数 |
 | `embodiments/robot/base.py` | 通用生命周期、组件协调、离线装配数据 |
-| `embodiments/robot/tianji_taccap/robot.py` | 建立共享 Tianji 控制器及组件 |
+| `embodiments/robot/tianji_taccap/tianji_taccap.py` | 建立共享 Tianji 控制器及组件 |
 | `embodiments/arm/tianji/arm.py` | 官方控制 SDK 连接、反馈、批量命令 |
 | `embodiments/arm/tianji/kinematics.py` | 原有 Tianji 数值算法及官方法兰接口 |
 | `kinematics/composed.py` | 通用 arm + end effector 的 TCP 变换组合 |
 | `integrations/umi_dp_tianji/policy_plugin.py` | UMI 观测与动作格式、时间语义及 FK/IK 调用 |
 
-SDK 和 assets 随所属组件存放。旧 `kinematics/tianji.py` 保留旧参数和 TCP 接口的兼容封装，
-数值求解算法只有 arm 目录中的一份。`TianjiSDKKinematics` 和旧入口共同继承
-`TianjiArmKinematics` 的原版求解规则。arm 不加载末端配置或保存 TCP 偏移；
-新整机的末端装配由公共 `ComposedManipulatorKinematics` 负责。
+SDK 和 assets 随所属组件存放。数值求解算法只有 arm 目录中的一份。
+`TianjiSDKKinematics` 继承 `TianjiArmKinematics` 的求解规则。
+arm 不加载末端配置或保存 TCP 偏移；
+整机的末端装配由公共 `ComposedManipulatorKinematics` 负责。
 
 ## 坐标系与求解行为
 
@@ -82,7 +83,13 @@ robot = TianjiTaccapRobot.from_config("configs/embodiment/robot/tianji_taccap.ya
 配置中的关节限位、跟踪误差、反馈过期和控制器故障检查保留。
 `stop()` 请求停止已拥有的组件，`close()` 失败后可重试。`home()` 尚未实现；没有后台轨迹规划。
 
-相机启动独立于 `connect()`。新 UMI 实验仍订阅现有 camera server，未自动调用
+Home/初始关节目标保存在整机 YAML 的 `home.joints_deg`，采用
+`teleop/data/dp_start_20260910.yaml` 当前生效的角度，A 对应左臂、B 对应右臂。
+`RobotModel.home_joints` 将其转换为弧度供控制与显示共享，Viewer 通过
+`initial_pose: home` 引用。该记录不含夹爪目标；Viewer 开度独立配置，仅用于显示。
+读取目标不执行回位，实际运动仍需实现回位轨迹。
+
+相机启动独立于 `connect()`。新 UMI 实验订阅 `manimux.server.sensor.taccap`，未自动调用
 `robot.start_sensors()`。订阅层把 `left_wrist/right_wrist` 映射为
 `left_wrist_camera/right_wrist_camera`，保留 RGB、时间戳和帧序号。
 光学外参为 null 表示未知；TacCap TCP 仍是原 CAD 固定近似，未新增标定或开合补偿。
@@ -94,7 +101,26 @@ robot = TianjiTaccapRobot.from_config("configs/embodiment/robot/tianji_taccap.ya
 仍使用既有 XPolicyLab UMI_DP 模型和 `xpolicylab_ws`，需用原启动脚本绑定 checkpoint
 身份后才可运行。细节见 `docs/umi-dp-tianji-taccap-runbook.md`。
 
+当前工位完成 checkpoint 绑定后，分别启动 policy server、TacCap camera server、
+Viewer 和硬件 runtime。硬件侧使用安装了 Marvin/TacCap SDK 的环境：
+
+```bash
+/home/jw/miniforge3/envs/xense-taccap/bin/python -m manimux.server.sensor.taccap \
+  --experiment configs/experiments/pass_ball/tianji_taccap_umi_dp.yaml \
+  --local .local/tianji_taccap.yaml
+
+.venv/bin/manimux-viewer --robot tianji --host 127.0.0.1 --port 8086
+
+/home/jw/miniforge3/envs/xense-taccap/bin/python -m manimux serve \
+  --config .local/pass_ball/run.yaml \
+  --local .local/tianji_taccap.yaml
+```
+
+policy server 命令及首次 checkpoint 绑定步骤见上述 runbook。Viewer rollout 必须使用
+`serve`；绑定后的配置还需显式复核 `execute`、`end_effector_control` 和
+`viewer.enabled`，仓库模板默认不启用实机执行。
+
 测试覆盖注册到 adapter、原算法数值回归、场景变换不影响控制、子进程解码一致性、
 原时间/运动约束保持，以及 fake SDK 下的只读和执行分发。未启动真实硬件或模型服务。
-本轮没有改 Viewer；临时 Viewer 接入仍待后续修正坐标语义，不能作为新整机显示入口使用。
-交互服务不加载新整机尚未实现的回零/拖动恢复功能，旧恢复模块不在本轮迁移范围。
+Viewer 使用新整机模型显示状态、预测和双路腕部相机，并通过 `manimux serve` 控制
+rollout 生命周期。新整机尚未实现回零/拖动恢复，旧恢复模块不在本轮迁移范围。

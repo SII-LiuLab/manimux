@@ -2,30 +2,37 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field
 from importlib.resources import files
 from pathlib import Path
 from types import MappingProxyType
 
 import numpy as np
 import yaml
-from scipy.spatial.transform import Rotation
 
 from manimux.clock import Clock, SystemClock
 from manimux.embodiments.arm.base import ArmBase, ArmController, ArmModel
 from manimux.embodiments.end_effector.base import EndEffectorModel
-from manimux.embodiments.end_effector.gripper import GripperBase, GripperCommand
+from manimux.embodiments.end_effector.gripper_base import GripperBase, GripperCommand
 from manimux.embodiments.sensor.base import SensorBase
-from manimux.kinematics.base import FloatArray, ManipulatorKinematicsBase, rigid_transform
-from manimux.kinematics.composed import ComposedManipulatorKinematics
-from manimux.kinematics.end_effector import Frame, attach_end_effector
-from manimux.kinematics.robot import RobotKinematics
-from manimux.kinematics.tool import FixedToolGeometry
+from manimux.kinematics.base import (
+    FloatArray,
+    transform_from_xyz_rpy,
+)
+from manimux.kinematics.composed import (
+    ComposedManipulatorKinematics,
+    FixedToolGeometry,
+    ManipulatorKinematicsBase,
+    RobotKinematics,
+)
 from manimux.plugins import load_plugin
 from manimux.types import RobotCommand, RobotState
+
+logger = logging.getLogger(__name__)
 
 
 class RobotBase(ABC):
@@ -91,6 +98,7 @@ class RobotBase(ABC):
         self._execute = execute is True
         self._end_effector_control = end_effector_control is True
         self._lock = threading.RLock()
+        self._dispatch_log_state: str | None = None
 
     @property
     def arm_components(self) -> Mapping[str, ArmBase]:
@@ -128,7 +136,20 @@ class RobotBase(ABC):
                     tool.connect()
                 self._ready = True
                 self.get_state()
+                logger.info(
+                    "robot_connected execute=%s end_effector_control=%s "
+                    "arm_groups=%s end_effector_groups=%s",
+                    self._execute,
+                    self._end_effector_control,
+                    list(self.arm_components),
+                    list(self.end_effectors),
+                )
             except Exception as error:
+                logger.exception(
+                    "robot_connect_failed opened_controllers=%d opened_end_effectors=%s",
+                    len(self._controller_open),
+                    sorted(self._end_effector_open),
+                )
                 try:
                     self.close()
                 except Exception as cleanup_error:
@@ -184,7 +205,28 @@ class RobotBase(ABC):
             # A read-only experiment still checks action shapes, but never enables
             # an arm or end effector. FK/IK and measured observations remain usable.
             if not self._execute:
+                if self._dispatch_log_state != "blocked":
+                    logger.warning(
+                        "physical_dispatch_blocked execute=false plan=%s groups=%s",
+                        command.plan_id,
+                        list(command.groups),
+                    )
+                    self._dispatch_log_state = "blocked"
                 return
+            if self._dispatch_log_state != "enabled":
+                logger.info(
+                    "physical_dispatch_enabled end_effector_control=%s groups=%s",
+                    self._end_effector_control,
+                    list(command.groups),
+                )
+                if tool_commands and not self._end_effector_control:
+                    logger.warning(
+                        "end_effector_dispatch_blocked end_effector_control=false "
+                        "plan=%s groups=%s",
+                        command.plan_id,
+                        list(tool_commands),
+                    )
+                self._dispatch_log_state = "enabled"
             for controller, batch in batches.items():
                 controller.validate_commands(batch)
             try:
@@ -299,51 +341,24 @@ class MountedGroup:
     end_effector_name: str | None
     end_effector: EndEffectorModel | None
     base_transform: FloatArray  # Scene placement only; never included in control FK/IK.
-    mount: Frame
+    mount: FloatArray  # Flange-to-tool-base transform used by control FK/IK.
     kinematics: ManipulatorKinematicsBase
-
-    def visual_end_effector(self):
-        if self.end_effector is None:
-            return None
-        visual = self.end_effector.visual
-        # The component provides its own tool geometry; installation comes from
-        # the robot config. Render the same calibrated fixed TCP as the solver.
-        geometry = self.end_effector.geometry
-        transform = geometry.tcp_transform(np.asarray(visual.spec.rest_inputs))
-        tcp = Frame(
-            xyz=tuple(transform[:3, 3]),
-            rpy=tuple(Rotation.from_matrix(transform[:3, :3]).as_euler("xyz")),
-        )
-        spec = visual.spec.model_copy(update={"mount": self.mount, "tcp": tcp})
-        return replace(visual, spec=spec)
-
-    def visual_urdf(self) -> Path:
-        return attach_end_effector(
-            self.arm.urdf_path,
-            self.arm.flange_link,
-            self.visual_end_effector(),
-        )
-
-    def visual_configuration(self, configuration: FloatArray) -> FloatArray:
-        q = np.asarray(configuration, dtype=np.float64)
-        if q.shape != (self.kinematics.num_coordinates,) or not np.isfinite(q).all():
-            raise ValueError("visual configuration must match the full group layout")
-        width = len(self.arm.coordinates)
-        if self.end_effector is None:
-            return q.copy()
-        return np.r_[q[:width], self.end_effector.visual.joint_positions(q[width:])]
-
 
 def _read_mapping(path: Path) -> dict:
     return yaml.safe_load(path.read_text())
 
 
-def _mount(value) -> Frame:
-    # Frame 负责读取 xyz/rpy；这里只补充刚体变换的数值约束。
-    frame = Frame.model_validate(value)
-    # Reuse the common rigid-transform validator, including finite values.
-    rigid_transform(frame.matrix(), "mount")
-    return frame
+def _mount(value) -> FloatArray:
+    data = {} if value is None else value
+    if not isinstance(data, Mapping) or set(data) - {"xyz", "rpy"}:
+        raise ValueError("mount must contain only xyz and rpy")
+    transform = transform_from_xyz_rpy(
+        data.get("xyz", (0.0, 0.0, 0.0)),
+        data.get("rpy", (0.0, 0.0, 0.0)),
+        name="mount",
+    )
+    transform.setflags(write=False)
+    return transform
 
 
 def _resource_path(value: str, base: Path) -> Path:
@@ -372,8 +387,10 @@ class RobotModel:
     kinematics: RobotKinematics
     components: Mapping[str, dict]
     hardware: Mapping[str, object]
-    static_assets: tuple[tuple[str, Path, Frame], ...]
+    static_assets: tuple[tuple[str, Path, FloatArray], ...]
     config_path: Path
+    # Optional arm-only Home targets in model coordinates (radians), without tool commands.
+    home_joints: Mapping[str, FloatArray] = field(default_factory=dict)
 
     @classmethod
     def from_config(cls, path: Path | str) -> RobotModel:
@@ -395,7 +412,7 @@ class RobotModel:
             )
             kind = component["type"]
             component["class"] = factory
-            # 安装关系只解析一次，分组装配复用同一个 Frame。
+            # 安装关系只解析一次，分组装配复用同一个只读矩阵。
             if kind in {"arm", "end_effector"} or entry.get("mount") is not None:
                 mounts[component_name] = _mount(entry.get("mount"))
             if kind == "arm":
@@ -415,11 +432,10 @@ class RobotModel:
             if arm_name not in arm_models or arm_name in used_arms:
                 raise ValueError("each group must select a distinct configured arm")
             arm = arm_models[arm_name]
-            base_transform = mounts[arm_name].matrix()
-            base_transform.setflags(write=False)
+            base_transform = mounts[arm_name]
             used_arms.add(arm_name)
             tool = None
-            mount = Frame()
+            mount = _mount(None)
             if tool_name is not None:
                 if tool_name not in tool_models or tool_name in used_tools:
                     raise ValueError("each group must select a distinct configured end effector")
@@ -439,7 +455,7 @@ class RobotModel:
                 arm.kinematics,
                 geometry,
                 arm_coordinates=arm.coordinates,
-                mount=mount.matrix(),
+                mount=mount,
                 # Control uses each arm base. base_transform is display metadata only.
                 base_frame=arm.base_frame,
                 position_tolerance=None,  # Preserve the official solver's acceptance rules.
@@ -449,6 +465,26 @@ class RobotModel:
             )
         if used_arms != set(arm_models) or used_tools != set(tool_models):
             raise ValueError("all arm and end-effector components must belong to a group")
+        home_joints = {}
+        if "home" in spec:
+            home = spec["home"]
+            targets = home.get("joints_deg") if isinstance(home, Mapping) else None
+            if not isinstance(targets, Mapping) or set(targets) != set(groups):
+                raise ValueError("home.joints_deg must contain every configured arm group")
+            for group_name, group in groups.items():
+                q = np.asarray(targets[group_name], dtype=np.float64)
+                if (
+                    q.shape != (len(group.arm.coordinates),)
+                    or not np.isfinite(q).all()
+                    or any(c.unit != "rad" for c in group.arm.coordinates)
+                ):
+                    raise ValueError(f"home.joints_deg.{group_name}: invalid joint angles")
+                q = np.radians(q)
+                limits = components[group.arm_name]["hardware"].get("joint_limits")
+                if limits is not None and (np.any(q < limits[0]) or np.any(q > limits[1])):
+                    raise ValueError(f"home.joints_deg.{group_name}: outside joint limits")
+                q.setflags(write=False)
+                home_joints[group_name] = q
         static = []
         for asset_name, entry in spec.get("static_assets", {}).items():
             static.append(
@@ -468,4 +504,5 @@ class RobotModel:
             MappingProxyType(dict(spec.get("hardware", {}))),
             tuple(static),
             source,
+            MappingProxyType(home_joints),
         )

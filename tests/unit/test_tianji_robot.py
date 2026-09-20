@@ -67,7 +67,8 @@ class Model(ManipulatorKinematicsBase):
         pose[0, 3] = configuration[0] + 0.16945
         return pose
 
-    def ik(self, target_tcp, seed_configuration, *, fixed_coordinates):
+    def ik(self, target_tcp, seed_configuration, *, fixed_coordinates, duration_s=None):
+        del duration_s
         q = seed_configuration.copy()
         q[0] = target_tcp[0, 3] - 0.16945
         q[-1] = fixed_coordinates["gripper"]
@@ -239,6 +240,42 @@ def test_stale_arm_feedback(setup):
     clock.now += 300_000_000
     with pytest.raises(RuntimeError, match="stale"):
         robot.get_state()
+
+
+def test_stop_waits_for_pending_sdk_send_buffer(setup, monkeypatch):
+    robot, sdk, _, _ = setup
+    robot.connect()
+    robot.send_command(command())
+    clear = sdk.clear_set
+    attempts = []
+
+    def temporarily_busy():
+        attempts.append(1)
+        return False if len(attempts) <= 2 else clear()
+
+    monkeypatch.setattr(sdk, "clear_set", temporarily_busy)
+    before = len(sdk.batches)
+    robot.stop()
+    assert sdk.modes == [0, 0]
+    assert len(sdk.batches) == before + 2
+    assert len(attempts) == 4
+
+
+def test_busy_sdk_buffer_times_out_without_releasing_enabled_arms(setup, monkeypatch):
+    robot, sdk, _, _ = setup
+    robot.connect()
+    robot.send_command(command())
+    before = len(sdk.batches)
+    with monkeypatch.context() as patch:
+        patch.setattr(sdk, "clear_set", lambda: False)
+        with pytest.raises(ExceptionGroup, match="robot cleanup incomplete"):
+            robot.close()
+        assert len(sdk.batches) == before
+        assert sdk.releases == 0
+        assert sdk.modes == [1, 1]
+    robot.close()
+    assert sdk.modes == [0, 0]
+    assert sdk.releases == 1
 
 
 def test_fault_connect_cleanup_without_clear(setup):

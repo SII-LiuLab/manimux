@@ -12,7 +12,7 @@ from scipy.spatial.transform import Rotation
 from manimux.embodiments.arm.tianji import TianjiSDKKinematics
 from manimux.embodiments.end_effector.taccap import TacCapGeometry
 from manimux.embodiments.robot import RobotModel
-from manimux.kinematics.end_effector import Frame
+from manimux.kinematics.base import transform_from_xyz_rpy
 
 CONFIG = Path(__file__).resolve().parents[2] / "configs/embodiment/robot/tianji_taccap.yaml"
 
@@ -33,7 +33,9 @@ def test_geometry_and_mount_match_existing_cad_data():
     tool = TacCapGeometry()
     np.testing.assert_allclose(tool.tcp_transform(np.array([0.0])), transform(spec["tcp"]))
     assembly = yaml.safe_load(CONFIG.read_text())
-    mount = Frame.model_validate(assembly["components"]["left_end_effector"]["mount"]).matrix()
+    mount = transform_from_xyz_rpy(
+        **assembly["components"]["left_end_effector"]["mount"], name="test mount"
+    )
     np.testing.assert_allclose(mount, transform(spec["mount"]), atol=1e-15)
     for aperture in (0.0, 0.5, 1.0):
         combined = mount @ tool.tcp_transform(np.array([aperture]))
@@ -65,12 +67,12 @@ def test_native_assembly_roundtrip(side, custom, tmp_path):
     path.write_text(yaml.safe_dump(spec))
     group = RobotModel.from_config(path).groups[f"{side}_arm"]
     model = group.kinematics
-    mount = group.mount.matrix()
+    mount = group.mount.copy()
     tool = group.end_effector.geometry
     sign = 1 if side == "left" else -1
     joints = np.radians([sign * 21.8, -41, sign * -4.74, -63.67, sign * 10.15, 14.72, sign * 7.68])
     q = np.r_[joints, 0.7]
-    expected = TianjiSDKKinematics(side).fk_flange(joints) @ mount @ tool.tcp_transform(q[-1:])
+    expected = TianjiSDKKinematics(side).fk(joints) @ mount @ tool.tcp_transform(q[-1:])
     target = model.fk(q)
     np.testing.assert_allclose(target, expected, atol=1e-12)
     seed = q.copy()

@@ -1,4 +1,4 @@
-"""Shared position-control contract for one-coordinate grippers."""
+"""Shared base contract for one-coordinate position-controlled grippers."""
 
 import math
 from dataclasses import dataclass

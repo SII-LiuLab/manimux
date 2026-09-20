@@ -1,7 +1,7 @@
 """ZMQ client for the camera server.
 
 Used by ManiMux runs and eval launchers to pull the latest camera bundle without
-holding RealSense devices in-process. See ``server.py`` for the wire
+holding camera devices in-process. See ``server.py`` for the wire
 protocol.
 """
 
@@ -115,11 +115,10 @@ class CameraClient:
 
 
 class CameraSubscriber:
-    """Optional PUB/SUB consumer for the live viewer.
+    """Latest-frame PUB/SUB consumer for viewers and timestamped runtime sensors.
 
-    The eval inner loop should use ``CameraClient`` (REQ/REP). This subscriber
-    exists so a cv2 viewer can render at camera rate without competing for the
-    REP socket with the policy.
+    Consumers drain queued bundles to use the newest captured frames, without
+    competing with ``CameraClient`` consumers for the REP socket.
     """
 
     def __init__(self, endpoint: str, recv_timeout_ms: int = 100) -> None:

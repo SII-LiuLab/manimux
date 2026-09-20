@@ -1,4 +1,4 @@
-"""Swappable end effectors mounted on an arm flange.
+"""Viewer assets for end effectors mounted on an arm flange.
 
 A gripper, hand or tool is described once under
 the owning component's ``assets/<name>/`` as a standalone URDF plus
@@ -30,17 +30,23 @@ from __future__ import annotations
 import hashlib
 import os
 import tempfile
+import warnings
 import xml.etree.ElementTree as ET
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from functools import cache
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from scipy.spatial.transform import Rotation
 
-from manimux.kinematics.base import FloatArray
+from manimux.kinematics.base import FloatArray, transform_from_xyz_rpy
+
+if TYPE_CHECKING:
+    from manimux.embodiments.robot.base import MountedGroup
 
 DEFAULT_END_EFFECTOR_ROOT = (
     Path(__file__).resolve().parents[1] / "embodiments" / "end_effector" / "taccap" / "assets"
@@ -57,15 +63,22 @@ class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
-class Frame(_Strict):
+class _VisualFrame(_Strict):
     xyz: tuple[float, float, float] = (0.0, 0.0, 0.0)
     rpy: tuple[float, float, float] = (0.0, 0.0, 0.0)
 
     def matrix(self) -> FloatArray:
-        transform = np.eye(4, dtype=np.float64)
-        transform[:3, :3] = Rotation.from_euler("xyz", self.rpy).as_matrix()
-        transform[:3, 3] = self.xyz
-        return transform
+        return transform_from_xyz_rpy(self.xyz, self.rpy, name="visual frame")
+
+    @classmethod
+    def from_matrix(cls, transform: FloatArray) -> _VisualFrame:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            rpy = Rotation.from_matrix(transform[:3, :3]).as_euler("xyz")
+        return cls(
+            xyz=tuple(transform[:3, 3]),
+            rpy=tuple(rpy),
+        )
 
 
 class JointDrive(_Strict):
@@ -80,19 +93,19 @@ class JointDrive(_Strict):
         return self.at_0 + fraction * (self.at_1 - self.at_0)
 
 
-class EndEffectorSpec(_Strict):
+class EndEffectorVisualSpec(_Strict):
     name: str = Field(min_length=1)
     urdf: str = "end_effector.urdf"
     root_link: str = Field(min_length=1)
-    mount: Frame = Frame()
-    tcp: Frame = Frame()
+    mount: _VisualFrame = _VisualFrame()
+    tcp: _VisualFrame = _VisualFrame()
     inputs: int = Field(default=0, ge=0)
     rest_inputs: tuple[float, ...] = ()
     aperture_input: int | None = Field(default=None, ge=0)
     joints: tuple[JointDrive, ...] = ()
 
     @model_validator(mode="after")
-    def _inputs_are_consistent(self) -> EndEffectorSpec:
+    def _inputs_are_consistent(self) -> EndEffectorVisualSpec:
         if len(self.rest_inputs) != self.inputs:
             raise ValueError(
                 f"rest_inputs must have {self.inputs} values, got {len(self.rest_inputs)}"
@@ -112,8 +125,8 @@ class EndEffectorSpec(_Strict):
 
 
 @dataclass(frozen=True, slots=True)
-class EndEffector:
-    spec: EndEffectorSpec
+class EndEffectorVisual:
+    spec: EndEffectorVisualSpec
     directory: Path
     # Driven joints in URDF order, which is the order a combined URDF expects.
     actuated_joints: tuple[str, ...]
@@ -129,11 +142,6 @@ class EndEffector:
     @property
     def urdf_path(self) -> Path:
         return self.directory / self.spec.urdf
-
-    def tool_transform(self) -> FloatArray:
-        """Flange -> tool centre point."""
-
-        return self.spec.mount.matrix() @ self.spec.tcp.matrix()
 
     def joint_positions(self, inputs: Sequence[float] | FloatArray | None = None) -> FloatArray:
         """End-effector inputs (``rest_inputs`` when omitted) -> actuated joint positions."""
@@ -155,12 +163,14 @@ def _movable_joints(robot: ET.Element) -> list[str]:
     ]
 
 
-def available_end_effectors(root: Path | str | None = None) -> tuple[str, ...]:
+def available_end_effector_visuals(root: Path | str | None = None) -> tuple[str, ...]:
     base = Path(root or DEFAULT_END_EFFECTOR_ROOT).expanduser()
     return tuple(sorted(path.parent.name for path in base.glob(f"*/{SPEC_FILENAME}")))
 
 
-def load_end_effector(name_or_path: str | Path, root: Path | str | None = None) -> EndEffector:
+def load_end_effector_visual(
+    name_or_path: str | Path, root: Path | str | None = None
+) -> EndEffectorVisual:
     """Load a bundled end effector by name, or one from a directory path."""
 
     candidate = Path(name_or_path).expanduser()
@@ -170,11 +180,11 @@ def load_end_effector(name_or_path: str | Path, root: Path | str | None = None) 
         directory = Path(root or DEFAULT_END_EFFECTOR_ROOT).expanduser() / str(name_or_path)
     spec_path = directory / SPEC_FILENAME
     if not spec_path.is_file():
-        available = ", ".join(available_end_effectors(root)) or "none"
+        available = ", ".join(available_end_effector_visuals(root)) or "none"
         raise FileNotFoundError(
             f"end effector {str(name_or_path)!r} not found at {spec_path}; available: {available}"
         )
-    spec = EndEffectorSpec.model_validate(yaml.safe_load(spec_path.read_text()) or {})
+    spec = EndEffectorVisualSpec.model_validate(yaml.safe_load(spec_path.read_text()) or {})
     urdf_path = directory / spec.urdf
     robot = ET.parse(urdf_path).getroot()
     if spec.root_link not in {link.get("name") for link in robot.findall("link")}:
@@ -186,7 +196,7 @@ def load_end_effector(name_or_path: str | Path, root: Path | str | None = None) 
             f"{spec.name}: joints must drive exactly the URDF's actuated joints {movable}, "
             f"got {sorted(driven)}"
         )
-    return EndEffector(spec, directory.resolve(), tuple(movable))
+    return EndEffectorVisual(spec, directory.resolve(), tuple(movable))
 
 
 def _absolutize_meshes(robot: ET.Element, base: Path) -> None:
@@ -197,7 +207,7 @@ def _absolutize_meshes(robot: ET.Element, base: Path) -> None:
         mesh.set("filename", str((base / filename).resolve()))
 
 
-def _fixed_joint(name: str, parent: str, child: str, frame: Frame) -> ET.Element:
+def _fixed_joint(name: str, parent: str, child: str, frame: _VisualFrame) -> ET.Element:
     joint = ET.Element("joint", {"name": name, "type": "fixed"})
     ET.SubElement(
         joint,
@@ -209,10 +219,10 @@ def _fixed_joint(name: str, parent: str, child: str, frame: Frame) -> ET.Element
     return joint
 
 
-def attach_end_effector(
+def attach_end_effector_visual(
     arm_urdf: Path | str,
     flange_link: str,
-    end_effector: EndEffector | None,
+    end_effector: EndEffectorVisual | None,
     *,
     cache_dir: Path | str | None = None,
 ) -> Path:
@@ -262,3 +272,47 @@ def attach_end_effector(
         partial.write_text(text)
         partial.replace(path)
     return path
+
+
+@cache
+def _load_visual(directory: Path) -> EndEffectorVisual:
+    return load_end_effector_visual(directory)
+
+
+def mounted_group_visual(group: MountedGroup) -> EndEffectorVisual | None:
+    """Build the visual descriptor from assembly mount and control TCP geometry."""
+    if group.end_effector is None or group.end_effector.visual_directory is None:
+        return None
+    visual = _load_visual(group.end_effector.visual_directory)
+    geometry = group.end_effector.geometry
+    transform = geometry.tcp_transform(np.asarray(visual.spec.rest_inputs))
+    spec = visual.spec.model_copy(
+        update={
+            "mount": _VisualFrame.from_matrix(group.mount),
+            "tcp": _VisualFrame.from_matrix(transform),
+        }
+    )
+    return replace(visual, spec=spec)
+
+
+def mounted_group_visual_urdf(group: MountedGroup) -> Path:
+    """Return the Viewer URDF for one assembled manipulator group."""
+    return attach_end_effector_visual(
+        group.arm.urdf_path,
+        group.arm.flange_link,
+        mounted_group_visual(group),
+    )
+
+
+def mounted_group_visual_configuration(
+    group: MountedGroup, configuration: FloatArray
+) -> FloatArray:
+    """Map control coordinates to the combined Viewer URDF joint order."""
+    q = np.asarray(configuration, dtype=np.float64)
+    if q.shape != (group.kinematics.num_coordinates,) or not np.isfinite(q).all():
+        raise ValueError("visual configuration must match the full group layout")
+    width = len(group.arm.coordinates)
+    if group.end_effector is None or group.end_effector.visual_directory is None:
+        return q.copy()
+    visual = _load_visual(group.end_effector.visual_directory)
+    return np.r_[q[:width], visual.joint_positions(q[width:])]

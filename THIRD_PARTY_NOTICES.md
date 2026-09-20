@@ -38,13 +38,14 @@ Marvin left arm, right arm and stand (URDF and STL), as bundled in
 the `Link_Base`/`Link_Stand` links of the vendor's full assembly, and link
 colors are replaced with the palette of the bundled YAM model. These assets
 are used only for viewer rendering. The DH parameters and joint limits in
-`src/manimux/kinematics/tianji.py` are copied from the vendor SDK's
+`src/manimux/embodiments/arm/tianji/kinematics.py` are copied from the vendor SDK's
 `CommonConfig/ccs_m6_40.MvKDCfg`.
 
 ## Tianji differential IK
 
-The differential velocity QP in `src/manimux/kinematics/tianji_diff.py` and the
-flange Jacobian in `tianji.py` are adapted from `SII-LiuLab/tianji-control`
+The differential velocity QP and flange Jacobian in
+`src/manimux/embodiments/arm/tianji/kinematics.py` are adapted from
+`SII-LiuLab/tianji-control`
 revision `1e7dfdbc94c62f87501d6485b8c0e43ce6dbf513` (`algos/diff_ik.py`,
 `algos/kinematics.py`, and the joint-limit objective in `algos/nullspace.py`).
 Tracking-lag guard semantics follow CalibWrist revision

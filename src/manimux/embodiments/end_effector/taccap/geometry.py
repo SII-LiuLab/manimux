@@ -2,9 +2,10 @@
 
 from pathlib import Path
 
-from manimux.kinematics.base import FloatArray, KinematicCoordinate
-from manimux.kinematics.end_effector import load_end_effector
-from manimux.kinematics.tool import FixedToolGeometry
+import yaml
+
+from manimux.kinematics.base import FloatArray, KinematicCoordinate, transform_from_xyz_rpy
+from manimux.kinematics.composed import FixedToolGeometry
 
 ASSET_DIRECTORY = Path(__file__).parent / "assets" / "umi_follower"
 
@@ -30,8 +31,9 @@ class TacCapGeometry(FixedToolGeometry):
         tcp_frame: str = "taccap_tcp",
     ) -> None:
         if tcp_transform is None:
-            # 与整机和可视模型共用资源中的 TCP，不在 Python 中再维护一套数值。
-            tcp_transform = load_end_effector(ASSET_DIRECTORY).spec.tcp.matrix()
+            # 控制几何和 Viewer 共用资源中的 TCP，不在 Python 中维护第二套数值。
+            spec = yaml.safe_load((ASSET_DIRECTORY / "end_effector.yaml").read_text())
+            tcp_transform = transform_from_xyz_rpy(**spec["tcp"], name="TacCap TCP")
         super().__init__(
             tcp_transform,
             coordinates=(KinematicCoordinate("gripper", "normalized"),),

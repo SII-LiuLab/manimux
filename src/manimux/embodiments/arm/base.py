@@ -9,14 +9,14 @@ from pathlib import Path
 
 import numpy as np
 
-from manimux.kinematics.base import FlangeKinematicsBase, FloatArray, IKResult, KinematicCoordinate
+from manimux.kinematics.base import ArmKinematicsBase, FloatArray, IKResult, KinematicCoordinate
 
 
 @dataclass(frozen=True, slots=True)
 class ArmModel:
     """One component's official flange model and corresponding CAD resources."""
 
-    kinematics: FlangeKinematicsBase
+    kinematics: ArmKinematicsBase
     coordinates: tuple[KinematicCoordinate, ...]
     urdf_path: Path
     flange_link: str
@@ -108,7 +108,7 @@ class ArmBase(ABC):
 
     @property
     @abstractmethod
-    def kinematics(self) -> FlangeKinematicsBase:
+    def kinematics(self) -> ArmKinematicsBase:
         """The component's official flange solver, excluding installation offsets."""
         raise NotImplementedError
 
@@ -128,7 +128,7 @@ class ArmBase(ABC):
         self.controller.close()
 
     def fk(self, joints: FloatArray) -> FloatArray:
-        return self.kinematics.fk_flange(joints)
+        return self.kinematics.fk(joints)
 
     def ik(self, target_flange: FloatArray, seed_joints: FloatArray) -> IKResult:
-        return self.kinematics.ik_flange(target_flange, seed_joints)
+        return self.kinematics.ik(target_flange, seed_joints)

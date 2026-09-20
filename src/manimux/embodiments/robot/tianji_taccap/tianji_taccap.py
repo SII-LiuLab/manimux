@@ -9,9 +9,10 @@ from types import MappingProxyType
 
 from manimux.clock import Clock, SystemClock
 from manimux.embodiments.arm.tianji.arm import TianjiArm, TianjiArmSettings, TianjiController
-from manimux.embodiments.end_effector.gripper import GripperBase
+from manimux.embodiments.end_effector.gripper_base import GripperBase
 from manimux.embodiments.robot.base import RobotBase, RobotModel
-from manimux.kinematics.base import KinematicCoordinate, ManipulatorKinematicsBase
+from manimux.kinematics.base import KinematicCoordinate
+from manimux.kinematics.composed import ManipulatorKinematicsBase
 from manimux.types import FloatArray
 
 

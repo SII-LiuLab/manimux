@@ -49,6 +49,7 @@ def test_camera_list_can_add_agent_view_without_changing_robot(tmp_path):
 @pytest.mark.parametrize(
     "options",
     [
+        {"initial_pose": "unknown"},
         {"camera_mode": "guess"},
         {"cameras": {"top": "camera"}},
         {"cameras": [{}]},
@@ -58,7 +59,14 @@ def test_camera_list_can_add_agent_view_without_changing_robot(tmp_path):
 )
 def test_invalid_config_fails_before_viewer_startup(tmp_path, options):
     with pytest.raises(ValueError):
-        load_viewer_config(_write_config(tmp_path, **options))
+        load_robot_view(load_viewer_config(_write_config(tmp_path, **options)))
+
+
+def test_home_display_rejects_conflicting_inline_pose():
+    config = load_viewer_config()
+    config["groups"]["left_arm"]["initial"] = [0.0] * 8
+    with pytest.raises(ValueError, match="cannot be combined"):
+        load_robot_view(config)
 
 
 def test_startup_uses_selected_model_scene_and_cameras(monkeypatch, tmp_path):

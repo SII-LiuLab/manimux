@@ -14,8 +14,8 @@ from manimux.policies import build_policy_adapter, build_policy_model
 from manimux.policies.base import action_interval
 from manimux.robots import build_robot
 from manimux.robots.yam import YamDualArmDriver
-from manimux.sensors import build_sensor
-from manimux.sensors.camera_server import CameraServerSensorDriver
+from manimux.embodiments.sensor import build_sensor
+from manimux.server.sensor.taccap import CameraServerSensorDriver
 from manimux.types import (
     ActionContext,
     InferenceRequest,

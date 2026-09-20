@@ -23,6 +23,7 @@ from collections.abc import Mapping, Sequence
 import numpy as np
 
 from manimux.integrations.xpolicylab.aac import (
+    AacKinematics,
     AacPreviousAction,
     EeActionStats,
     load_ee_action_stats,
@@ -35,7 +36,6 @@ from manimux.integrations.xpolicylab.obs_codec import (
     encode_observation,
 )
 from manimux.integrations.xpolicylab.ws_client import XPolicyLabWsClient
-from manimux.kinematics.base import ArmKinematics
 from manimux.policies.base import action_interval
 from manimux.policies.capabilities import PolicyCapabilities
 from manimux.types import ActionChunk, ActionContext, InferenceRequest, ObservationSnapshot
@@ -110,7 +110,7 @@ class XPolicyLabWsPolicyModel:
         self._gripper_dofs = _positive_int_option(options, "gripper_dofs", DEFAULT_GRIPPER_DOFS)
         self._horizon_steps = config["horizon_steps"]
         self._aac_kinematics_name = options.get("aac_kinematics", "yam")
-        self._aac_kinematics: ArmKinematics | None = None
+        self._aac_kinematics: AacKinematics | None = None
         self._aac_ee_stats: EeActionStats | None = None
         self._aac_ee_stats_path: str | None = None
         self._aac_previous: AacPreviousAction | None = None

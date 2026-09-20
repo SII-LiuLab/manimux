@@ -3,10 +3,11 @@ from __future__ import annotations
 import numpy as np
 
 from manimux.clock import Clock
+from manimux.embodiments.sensor.base import SensorBase
 from manimux.types import SensorFrame
 
 
-class MockCameraDriver:
+class MockCameraDriver(SensorBase):
     def __init__(self, name: str, width: int, height: int, clock: Clock) -> None:
         self._name = name
         self._width = width

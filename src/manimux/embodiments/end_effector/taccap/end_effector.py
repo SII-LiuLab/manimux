@@ -1,15 +1,21 @@
 """Single TacCap follower position driver; SDK import is deferred to connect."""
 
 import importlib
+import logging
 import math
 import threading
 from typing import Literal
 
 from manimux.clock import Clock, SystemClock
 from manimux.embodiments.end_effector.base import EndEffectorModel
-from manimux.embodiments.end_effector.gripper import GripperBase, GripperCommand, GripperState
+from manimux.embodiments.end_effector.gripper_base import (
+    GripperBase,
+    GripperCommand,
+    GripperState,
+)
 from manimux.embodiments.end_effector.taccap.geometry import ASSET_DIRECTORY, TacCapGeometry
-from manimux.kinematics.end_effector import load_end_effector
+
+logger = logging.getLogger(__name__)
 
 
 class TacCapGripper(GripperBase):
@@ -36,13 +42,12 @@ class TacCapGripper(GripperBase):
     def load_model(
         cls, *, tcp_transform=None, base_frame="taccap_base", tcp_frame="taccap_tcp"
     ) -> EndEffectorModel:
-        visual = load_end_effector(ASSET_DIRECTORY)
         geometry = TacCapGeometry(
-            tcp_transform=visual.spec.tcp.matrix() if tcp_transform is None else tcp_transform,
+            tcp_transform=tcp_transform,
             base_frame=base_frame,
             tcp_frame=tcp_frame,
         )
-        return EndEffectorModel(geometry, visual)
+        return EndEffectorModel(geometry, ASSET_DIRECTORY)
 
     def __init__(
         self,
@@ -69,6 +74,7 @@ class TacCapGripper(GripperBase):
         self._state = None
         self._enabled = False
         self._ready = False
+        self._last_commanded_opening: float | None = None
         self._lock = threading.RLock()
 
     def connect(self) -> None:
@@ -167,6 +173,17 @@ class TacCapGripper(GripperBase):
                     kd_nm_s_per_rad=self._kd,
                     feedforward_torque_nm=0.0,
                 )
+                if (
+                    self._last_commanded_opening is None
+                    or abs(opening - self._last_commanded_opening) >= 0.02
+                ):
+                    logger.info(
+                        "taccap_set_position_ok serial=%s opening=%.4f enabled=%s",
+                        self._serial,
+                        opening,
+                        self._enabled,
+                    )
+                    self._last_commanded_opening = opening
             except Exception as error:
                 try:
                     self.stop()

@@ -1,4 +1,4 @@
-"""TacCap wrist camera, served through the camera server like a RealSense camera.
+"""TacCap wrist camera served through the TacCap camera server.
 
 The camera is a UVC device (IMX385 sensor) streaming MJPG. It is found by its
 serial number under ``/dev/v4l/by-id`` and captured with the TacCap SDK's C++

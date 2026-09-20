@@ -4,13 +4,20 @@ import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import numpy as np
 from scipy.spatial.transform import Rotation
 
 from manimux.integrations.xpolicylab.obs_codec import GroupLayout, decode_action_steps
-from manimux.kinematics.base import ArmKinematics
+
+
+class AacKinematics(Protocol):
+    """Legacy whole-manipulator FK contract used only by AAC scoring."""
+
+    num_arm_joints: int
+
+    def fk(self, joints: np.ndarray, gripper: float) -> np.ndarray: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,7 +139,7 @@ def build_ee_candidates(
     *,
     layouts: tuple[GroupLayout, ...],
     current_groups: Mapping[str, np.ndarray],
-    kinematics: ArmKinematics,
+    kinematics: AacKinematics,
 ) -> tuple[np.ndarray, list[object]]:
     if len(layouts) != 2:
         raise ValueError("dual-arm AAC requires exactly two group layouts")
@@ -287,7 +294,7 @@ def select_ee_chunk(
     *,
     layouts: tuple[GroupLayout, ...],
     current_groups: Mapping[str, np.ndarray],
-    kinematics: ArmKinematics,
+    kinematics: AacKinematics,
     ee_stats: EeActionStats,
     motion_threshold: float = 3.0,
     chunk_id_selector: str = "0",

@@ -36,7 +36,7 @@ def _install_hold_ik_if_needed() -> str:
         import i2rt  # noqa: F401
         import mink  # noqa: F401
     except ImportError:
-        from manimux.kinematics.yam import YamKinematics
+        from manimux.embodiments.arm.yam.kinematics import YamKinematics
 
         def _hold_ik(self, target_pose, init_joints, gripper):
             del self, target_pose, gripper

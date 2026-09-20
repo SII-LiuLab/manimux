@@ -1,10 +1,13 @@
 import time
-from typing import Any
+from typing import Any, Protocol
 
 import numpy as np
 
-from manimux.sensors.realsense import CameraDriver
 from manimux.robots.yam.base import Robot
+
+
+class CameraDriver(Protocol):
+    def read(self) -> tuple[np.ndarray, np.ndarray | None]: ...
 
 
 class Rate:

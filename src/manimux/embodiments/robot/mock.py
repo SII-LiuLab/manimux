@@ -7,7 +7,7 @@ from manimux.types import RobotCommand, RobotState, copy_group_vector
 
 
 class MockDualArmDriver:
-    """Small deterministic plant used before any hardware or simulator integration."""
+    """Small deterministic plant used before hardware or simulator integration."""
 
     def __init__(
         self,
@@ -19,7 +19,9 @@ class MockDualArmDriver:
             raise ValueError("tracking_gain must be in (0, 1]")
         self._clock = clock
         self._tracking_gain = tracking_gain
-        self._groups = {name: np.zeros(dim, dtype=np.float64) for name, dim in group_dims.items()}
+        self._groups = {
+            name: np.zeros(dim, dtype=np.float64) for name, dim in group_dims.items()
+        }
         self._target = copy_group_vector(self._groups)
         self._connected = False
         self._stopped = False

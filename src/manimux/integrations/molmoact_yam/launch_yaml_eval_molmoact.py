@@ -32,7 +32,9 @@ import torch
 import tyro
 from omegaconf import OmegaConf
 
-from manimux.sensors.camera_server import CameraClient
+from manimux.robots.yam import BimanualRobot
+from manimux.server.sensor.taccap import CameraClient
+
 from .eval_utils import (
     EvalRolloutSaver,
     LiveCameraView,
@@ -49,8 +51,6 @@ from .gello_min.launch_utils import (
     move_to_zero_home,
 )
 from .gello_min.logging_utils import log_collect_demos
-from manimux.sensors.realsense import RealSenseCamera, get_device_ids
-from manimux.robots.yam import BimanualRobot
 from .molmoact_client import MolmoAct, MolmoActLocal
 
 logger = logging.getLogger(__name__)
@@ -146,12 +146,8 @@ def _build_env(
 ) -> tuple[RobotEnv, dict[str, Any], dict[str, Any] | None, bool]:
     """Build cameras + robot(s) + RobotEnv from the launch configs.
 
-    Camera source is decided by the ``eval.camera_server.enabled`` flag in the
-    left config:
-
-    * ``true``  -> connect to the long-lived camera server over ZMQ. RealSense
-      devices are owned by that server; this process never opens them.
-    * ``false`` -> open ``RealSenseCamera`` objects in-process (legacy path).
+    Cameras must be provided by an external service; this process does not own
+    physical camera SDK objects.
     """
     left_cfg = OmegaConf.to_container(OmegaConf.load(args.left_config_path), resolve=True)
     bimanual = args.right_config_path is not None
@@ -164,33 +160,24 @@ def _build_env(
     cam_server_cfg = (left_cfg.get("eval") or {}).get("camera_server") or {}
     use_server = bool(cam_server_cfg.get("enabled", False))
 
+    if not use_server:
+        raise ValueError("eval.camera_server.enabled must be true")
     camera_dict = None
-    camera_client = None
-    if use_server:
-        endpoint = str(cam_server_cfg.get("endpoint", "tcp://127.0.0.1:5555"))
-        timeout_ms = int(cam_server_cfg.get("request_timeout_ms", 500))
-        max_age = cam_server_cfg.get("max_frame_age_sec", 0.5)
-        max_age = float(max_age) if max_age is not None else None
-        print(f"[eval] Using camera server at {endpoint} (timeout={timeout_ms} ms)")
-        camera_client = CameraClient(
-            endpoint=endpoint,
-            request_timeout_ms=timeout_ms,
-            max_frame_age_sec=max_age,
+    endpoint = str(cam_server_cfg.get("endpoint", "tcp://127.0.0.1:5555"))
+    timeout_ms = int(cam_server_cfg.get("request_timeout_ms", 500))
+    max_age = cam_server_cfg.get("max_frame_age_sec", 0.5)
+    max_age = float(max_age) if max_age is not None else None
+    print(f"[eval] Using camera server at {endpoint} (timeout={timeout_ms} ms)")
+    camera_client = CameraClient(
+        endpoint=endpoint,
+        request_timeout_ms=timeout_ms,
+        max_frame_age_sec=max_age,
+    )
+    if not camera_client.ping():
+        raise RuntimeError(
+            f"Camera server at {endpoint} did not respond to ping. "
+            "Start the configured camera service first."
         )
-        if not camera_client.ping():
-            raise RuntimeError(
-                f"Camera server at {endpoint} did not respond to ping. "
-                "Start it with scripts/start_camera_server.sh."
-            )
-    else:
-        ids = get_device_ids()
-        print(f"Found {len(ids)} camera devices: {ids}")
-        camera_cfg = left_cfg["sensors"]["cameras"]
-        camera_dict = {
-            "left_camera": RealSenseCamera(camera_cfg["left_camera"]["device_id"]),
-            "front_camera": RealSenseCamera(camera_cfg["front_camera"]["device_id"]),
-            "right_camera": RealSenseCamera(camera_cfg["right_camera"]["device_id"]),
-        }
 
     left_robot_cfg = left_cfg["robot"]
     if isinstance(left_robot_cfg.get("config"), str):

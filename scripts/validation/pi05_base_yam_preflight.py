@@ -22,7 +22,7 @@ from manimux.policies.base import action_interval, prepare_policy_request
 from manimux.robots import build_robot
 from manimux.runtime.rtc.mask import inpainting_condition
 from manimux.runtime.rtc.request import RtcInferenceRequest
-from manimux.sensors import build_sensor
+from manimux.embodiments.sensor import build_sensor
 from manimux.types import ActionContext, InferenceRequest, ObservationSnapshot
 
 DEFAULT_CONFIG = Path("configs/pi05/yam/infra/base-rtc.yaml")

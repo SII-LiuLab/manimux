@@ -95,7 +95,7 @@ manimux = "manimux.cli:main"
 manimux-collect = "manimux.collection.cli:main"
 manimux-viewer = "manimux.viewer.dashboard:main"
 manimux-molmoact-yam = "manimux.integrations.molmoact_yam.viewer_launch:main"
-manimux-camera-server = "manimux.sensors.camera_server.server:main"
+manimux-camera-server = "manimux.server.sensor.taccap.server:main"
 manimux-molmoact-server = "manimux.integrations.molmoact_yam.host_server_yam:main"
 manimux-abc-server = "manimux.integrations.abc_yam.host_server_abc:main"
 

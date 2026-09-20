@@ -3,9 +3,9 @@ import pytest
 from scipy.spatial.transform import Rotation
 
 from manimux.kinematics import (
+    ArmKinematicsBase,
     ComposedManipulatorKinematics,
     FixedToolGeometry,
-    FlangeKinematicsBase,
     IKResult,
     KinematicCoordinate,
     ToolGeometryBase,
@@ -19,13 +19,14 @@ def pose(xyz, angles):
     return result
 
 
-class CartesianArm(FlangeKinematicsBase):
-    num_arm_joints = 6
+class CartesianArm(ArmKinematicsBase):
+    num_joints = 6
 
-    def fk_flange(self, joints):
+    def fk(self, joints):
         return pose(joints[:3], joints[3:])
 
-    def ik_flange(self, target_flange, seed_joints):
+    def ik(self, target_flange, seed_joints, *, duration_s=None):
+        del duration_s
         self.target = target_flange.copy()
         self.seed = seed_joints.copy()
         return IKResult(
@@ -70,7 +71,7 @@ def test_fk_and_ik_use_target_tool_state_and_transform_order():
     np.testing.assert_allclose(model.fk(q), expected)
     seed = np.zeros(7)
     result = model.ik(expected, seed, fixed_coordinates={"opening": 0.8})
-    assert result.converged
+    assert result.converged and result.target_reached
     np.testing.assert_allclose(result.joints, q, atol=1e-12)
     np.testing.assert_allclose(arm.target, pose(q[:3], q[3:6]), atol=1e-12)
     np.testing.assert_array_equal(seed, np.zeros(7))
@@ -114,14 +115,14 @@ def test_bad_target():
 def test_flange_rejection_and_backend_error_propagate(monkeypatch):
     arm = CartesianArm()
     model = make_model(arm=arm)
-    monkeypatch.setattr(arm, "ik_flange", lambda *args: IKResult(False, reason="joint_limit"))
+    monkeypatch.setattr(arm, "ik", lambda *args, **kwargs: IKResult(False, reason="joint_limit"))
     result = model.ik(np.eye(4), np.zeros(7), fixed_coordinates={"opening": 0})
     assert not result.converged and result.reason == "joint_limit" and result.joints is None
 
-    def fail(*args):
+    def fail(*args, **kwargs):
         raise RuntimeError("backend unavailable")
 
-    monkeypatch.setattr(arm, "ik_flange", fail)
+    monkeypatch.setattr(arm, "ik", fail)
     with pytest.raises(RuntimeError, match="backend unavailable"):
         model.ik(np.eye(4), np.zeros(7), fixed_coordinates={"opening": 0})
 
@@ -132,7 +133,7 @@ def test_tcp_residual_rejects_bad_solver_solution(monkeypatch, index):
     model = make_model(arm=arm)
     wrong = np.zeros(6)
     wrong[index] = 0.1
-    monkeypatch.setattr(arm, "ik_flange", lambda *args: IKResult(True, wrong))
+    monkeypatch.setattr(arm, "ik", lambda *args, **kwargs: IKResult(True, wrong))
     result = model.ik(model.fk(np.zeros(7)), np.zeros(7), fixed_coordinates={"opening": 0})
     assert not result.converged and result.reason == "tcp_pose_tolerance"
     assert result.joints is None

@@ -5,11 +5,12 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from manimux.clock import Clock
-from manimux.sensors.camera_server.client import CameraClient
+from manimux.embodiments.sensor.base import SensorBase
+from manimux.server.sensor.taccap.client import CameraClient
 from manimux.types import SensorFrame
 
 
-class CameraServerSensorDriver:
+class CameraServerSensorDriver(SensorBase):
     """Read one coherent multi-camera bundle with one ZMQ request."""
 
     def __init__(self, config: dict, clock: Clock) -> None:
