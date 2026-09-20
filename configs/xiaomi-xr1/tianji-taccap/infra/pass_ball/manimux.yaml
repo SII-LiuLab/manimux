@@ -1,0 +1,125 @@
+# Safe-by-default Tianji–TacCap deployment for the XR-1 pass-ball checkpoint.
+run:
+  task: pass the ball between the two grippers
+  output_dir: ./data/experiments/xiaomi-xr1-tianji-pass-ball-step50000
+  max_steps: 2400
+
+robot:
+  type: tianji_taccap
+  config: ../../../../embodiment/robot/tianji_taccap.yaml
+  control_hz: 100.0
+  group_dims:
+    left_arm: 8
+    right_arm: 8
+  options:
+    execute: false
+    end_effector_control: false
+    hardware:
+      stale_timeout_s: 0.1
+
+sensors:
+  - name: tianji_wrist_cameras
+    driver: manimux.integrations.umi_dp_tianji.camera_sensor:build_sensor
+    service: camera
+    options:
+      camera_names: [left_wrist, right_wrist]
+      max_frame_age_sec: 0.15
+      clock_jump_tolerance_s: 0.02
+      output_names:
+        left_wrist: left_wrist_camera
+        right_wrist: right_wrist_camera
+
+policy:
+  worker: xpolicylab_ws
+  adapter: manimux.integrations.xr1_tianji_taccap.policy_plugin:build_adapter
+  action_decoding: inline
+  action_dt_s: 0.03333333333333333
+  horizon_steps: 30
+  timeout_s: 120.0
+  startup_timeout_s: 180.0
+  expected_backend:
+    server: xpolicylab_policy_server
+    model:
+      policy_name: Xiaomi_Robotics_1
+      task_name: pass_ball
+      checkpoint_variant: posttrain_pass_ball_50k_8gpu_epoch0_step50000
+      checkpoint_source: local_deepspeed_zero2_model_state
+      norm_stats_source: pass_ball_training_normalize_sha256_23665c2a1e87
+      train_config_name: posttrain_pass_ball_50k_8gpu
+      observation_profile: tianji_taccap_two_wrist_black_ego
+      action_horizon: 30
+      num_steps: 5
+      action_type: ee
+      output_format: packed_ee_delta
+      ego_view_mode: black
+      action_semantics: anchor_relative_ee_delta
+  options:
+    server: ws://127.0.0.1:8560
+    connect_timeout_s: 60.0
+    request_timeout_s: 120.0
+    group_order: [left_arm, right_arm]
+    group_prefixes:
+      left_arm: left
+      right_arm: right
+    gripper_dofs: 1
+    camera_map:
+      cam_left_wrist: left_wrist_camera
+      cam_right_wrist: right_wrist_camera
+    ik_validation_dt_s: 0.004
+
+execution:
+  runtime: manimux
+  executor: smooth
+  inference_schedule: single_inflight
+  refill_threshold_s: 0.25
+  max_plan_age_s: 2.0
+  blend_steps: 2
+  smooth:
+    cutoff_hz: 8.0
+    gripper:
+      # XR-1 predicts a continuous anchor-relative TacCap coordinate.
+      mode: continuous
+  command_safety:
+    position_lower:
+      left_arm: [-2.8797932657906435, -2.007128639793479, -2.8797932657906435, -2.443460952792061, -2.8797932657906435, -0.9599310885968813, -1.4835298641951802, 0.0]
+      right_arm: [-2.8797932657906435, -2.007128639793479, -2.8797932657906435, -2.443460952792061, -2.8797932657906435, -0.9250245035569946, -1.4835298641951802, 0.0]
+    position_upper:
+      left_arm: [2.8797932657906435, 2.007128639793479, 2.8797932657906435, 0.9599310885968813, 2.8797932657906435, 0.9599310885968813, 1.4835298641951802, 1.0]
+      right_arm: [2.8797932657906435, 2.007128639793479, 2.8797932657906435, 0.9599310885968813, 2.8797932657906435, 0.9250245035569946, 1.4835298641951802, 1.0]
+    max_velocity:
+      left_arm: [1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 3.3333333333333335]
+      right_arm: [1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 3.3333333333333335]
+    max_acceleration: null
+  motion_limits:
+    arm:
+      mode: isotropic
+      max_velocity: 0.9047786842338605
+      max_step_dt_s: 0.016
+      max_acceleration: null
+    gripper:
+      group_indices:
+        left_arm: 7
+        right_arm: 7
+      max_velocity: 3.0
+      max_acceleration: 12.0
+      max_closing_velocity: 1.0
+
+viewer:
+  enabled: false
+  robot: tianji-taccap
+  policy_label: Xiaomi Robotics 1 · Tianji–TacCap · pass ball
+
+recording:
+  enabled: true
+
+policy_server:
+  config: ../../server/pass_ball/step50000.yaml
+
+camera_server:
+  cameras:
+    left_wrist:
+      component: left_wrist_camera
+      type: taccap
+    right_wrist:
+      component: right_wrist_camera
+      type: taccap

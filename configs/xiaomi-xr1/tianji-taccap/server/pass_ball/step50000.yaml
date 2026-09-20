@@ -1,0 +1,37 @@
+# Xiaomi Robotics 1 pass-ball post-training checkpoint (step 50,000).
+# Artifact paths are supplied by the station binding or the server launcher.
+policy_name: Xiaomi_Robotics_1
+protocol: ws
+host: 127.0.0.1
+port: 8560
+
+bench_name: ManiMux
+task_name: pass_ball
+ckpt_name: null
+env_cfg_type: tianji_dual
+seed: 42
+gpu_id: 0
+action_type: ee
+eval_batch: false
+
+checkpoint_variant: posttrain_pass_ball_50k_8gpu_epoch0_step50000
+checkpoint_source: local_deepspeed_zero2_model_state
+norm_stats_source: pass_ball_training_normalize_sha256_23665c2a1e87
+train_config_name: posttrain_pass_ball_50k_8gpu
+observation_profile: tianji_taccap_two_wrist_black_ego
+action_semantics: anchor_relative_ee_delta
+action_horizon: 30
+num_steps: 5
+
+checkpoint_path: null
+norm_stats_path: null
+vlm_processor_path: Qwen/Qwen3-VL-4B-Instruct
+output_format: packed_ee_delta
+action_length: 30
+
+image_factor: 32
+image_max_pixels: 160000
+ego_view_mode: black
+# null means: synthesize the black image at the left-wrist input resolution.
+black_ego_shape: null
+default_prompt: Pass the ball between the two grippers.

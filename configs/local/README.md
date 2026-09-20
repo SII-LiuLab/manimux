@@ -20,6 +20,8 @@ services:
     endpoint: ws://127.0.0.1:8560
 paths:
   checkpoint: ../checkpoints/pass_ball
+  norm_stats: ../checkpoints/pass_ball/training_metadata/normalize.json
+  # vlm_processor: ../checkpoints/Qwen3-VL-4B-Instruct
 ```
 
 不同组件可以使用 `channel: can_left` 或 `port: /dev/ttyUSB0`，不强制 IP/序列号。
@@ -29,6 +31,11 @@ paths:
 
 local 不包含 `execute`、模型动作格式、安装矩阵或 TCP。物理组成在 embodiment 中定义；
 动作执行由 experiment 明确选择。未知组件名会报错，避免拼写错误被静默忽略。
-路径相对 local 文件解析。CLI `--local` 优先于实验文件中的 `local:`。
+路径相对 local 文件解析。`checkpoint`、`norm_stats` 与可选的 `vlm_processor`
+分别绑定 XPolicyLab 模型文件、训练归一化统计和本地 VLM processor。CLI `--local`
+优先于实验文件中的 `local:`。
 
 完整入口见 [Tianji–TacCap runbook](../../docs/umi-dp-tianji-taccap-runbook.md)。
+当前工位的相机与 runtime 使用 `xense-taccap` 环境；Viewer rollout 的 runtime 命令是
+`python -m manimux serve --config .local/pass_ball/run.yaml --local .local/tianji_taccap.yaml`，
+不是单次 session 使用的 `manimux run`。

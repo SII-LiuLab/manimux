@@ -15,10 +15,25 @@
 - `experiments/pass_ball/tianji_taccap_umi_dp.yaml`：统一实验入口。
 - `experiments/runtime/tianji_taccap.yaml`：原实验调度、平滑和执行约束。
 - `local/`：可复制模板；个人实际绑定放到 `.local/`，通过 `--local` 选择。
+- `xiaomi-xr1/tianji-taccap/{server,infra}/pass_ball/`：XR-1 50k 传球
+  checkpoint 的模型服务与双腕相机/黑色第三视角部署。
 
 组件连接字段按需要填写（IP、CAN channel、串口或 serial），没有必填的通用 IP/序列号对。
 一体化末端共享连接时省略独立绑定，不用 null 占位。相机服务与 runtime 从同一工位文件
 读取设备编号。新入口和路径规则见 [runbook](../docs/umi-dp-tianji-taccap-runbook.md)。
+XR-1 传球入口见 [XR-1 Tianji–TacCap runbook](../docs/xiaomi-xr1-tianji-taccap-runbook.md)。
+
+Tianji 的 Viewer 部署使用绑定后的 `.local/pass_ball/run.yaml`：先分别启动 UMI_DP
+policy server、TacCap camera server 和 Viewer，再从安装了硬件 SDK 的环境执行：
+
+```bash
+/home/jw/miniforge3/envs/xense-taccap/bin/python -m manimux serve \
+  --config .local/pass_ball/run.yaml \
+  --local .local/tianji_taccap.yaml
+```
+
+不要把仓库中的未绑定实验模板直接用于实机执行；完整四终端命令、checkpoint 绑定和
+执行开关见上述 runbook。
 
 以下章节描述尚未迁移的旧入口，仍然有效。
 

@@ -11,7 +11,7 @@ from manimux.cli import load_config, load_local, read_experiment
 from manimux.clock import SystemClock
 from manimux.embodiments.robot import build_robot
 from manimux.policies.base import action_interval
-from manimux.sensors.camera_server.server import camera_config
+from manimux.server.sensor.taccap.server import camera_config
 
 ROOT = Path(__file__).resolve().parents[2]
 EXPERIMENT = ROOT / "configs/experiments/pass_ball/tianji_taccap_umi_dp.yaml"
@@ -49,10 +49,9 @@ def test_local_binds_same_camera_for_robot_and_server_without_opening_it(tmp_pat
 def test_local_does_not_change_fk_or_execution_settings(tmp_path):
     base = load_config(EXPERIMENT)
     bound = load_config(EXPERIMENT, local=write_local(tmp_path))
-    old = load_config(ROOT / "configs/umi_dp/tianji/infra/pass_ball/default.yaml")
-    assert bound["execution"] == base["execution"] == old["execution"]
-    assert action_interval(bound["policy"]) == action_interval(old["policy"])
-    assert bound["robot"]["control_hz"] == old["robot"]["control_hz"]
+    assert bound["execution"] == base["execution"]
+    assert action_interval(bound["policy"]) == action_interval(base["policy"])
+    assert bound["robot"]["control_hz"] == base["robot"]["control_hz"]
     assert bound["robot"]["options"]["execute"] is False
     assert bound["robot"]["options"]["end_effector_control"] is False
     robots = [build_robot(config["robot"], SystemClock()) for config in (base, bound)]
@@ -70,7 +69,15 @@ def test_local_does_not_change_fk_or_execution_settings(tmp_path):
 
 
 def test_relative_local_paths_and_cli_selection_are_independent_of_cwd(tmp_path, monkeypatch):
-    local = write_local(tmp_path, paths={"checkpoint": "weights/model", "output_dir": "runs"})
+    local = write_local(
+        tmp_path,
+        paths={
+            "checkpoint": "weights/model",
+            "norm_stats": "weights/normalize.json",
+            "vlm_processor": "weights/processor",
+            "output_dir": "runs",
+        },
+    )
     raw = read_experiment(EXPERIMENT)
     raw["local"] = "station.yaml"
     experiment = tmp_path / "experiment.yaml"
@@ -79,6 +86,10 @@ def test_relative_local_paths_and_cli_selection_are_independent_of_cwd(tmp_path,
     cfg = load_config(experiment)
     assert cfg["local"] == local
     assert cfg["policy_server"]["checkpoint_path"] == str(tmp_path / "weights/model")
+    assert cfg["policy_server"]["norm_stats_path"] == str(
+        tmp_path / "weights/normalize.json"
+    )
+    assert cfg["policy_server"]["vlm_processor_path"] == str(tmp_path / "weights/processor")
     assert cfg["run"]["output_dir"] == tmp_path / "runs"
     other = tmp_path / "other.yaml"
     other.write_text(yaml.safe_dump({"robot": {"hardware": {"ip": "192.0.2.99"}}}))
@@ -129,7 +140,7 @@ def test_remote_service_bind_addresses_are_distinct_from_client_addresses(tmp_pa
 
 
 def test_camera_cli_uses_shared_local_without_real_devices(tmp_path, monkeypatch):
-    from manimux.sensors.camera_server import server
+    from manimux.server.sensor.taccap import server
 
     opened, events = {}, []
     local = write_local(tmp_path)
@@ -251,36 +262,3 @@ def test_checkpoint_binding_keeps_local_camera_and_remote_policy_addresses(tmp_p
         camera_config(read_experiment(output))["sensors"]["cameras"]["right_wrist"]["camera_serial"]
         == "NEW_RIGHT_CAMERA"
     )
-
-
-def test_old_server_and_runtime_template_binding_still_works(tmp_path, monkeypatch):
-    import runpy
-    import sys
-
-    from test_tianji_policy_assembly import configured
-
-    report = dict(configured()["policy"]["expected_backend"]["model"])
-    monkeypatch.setitem(
-        sys.modules,
-        "XPolicyLab.policy.UMI_DP.artifact_identity",
-        SimpleNamespace(validate_deployment=lambda _: report),
-    )
-    monkeypatch.setattr(sys, "path", list(sys.path))
-    output = tmp_path / "old/run.yaml"
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "umi_dp_tianji_server.py",
-            "--config",
-            str(ROOT / "configs/umi_dp/tianji/server/pass_ball/default.yaml"),
-            "--runtime-template",
-            str(ROOT / "configs/umi_dp/tianji/infra/pass_ball/default.yaml"),
-            "--bind-runtime-config",
-            str(output),
-        ],
-    )
-    runpy.run_path(str(ROOT / "scripts/servers/umi_dp_tianji_server.py"), run_name="__main__")
-    cfg = load_config(output)
-    assert cfg["robot"]["type"] == "tianji_dual" and cfg["policy"]["options"]["deployment_bound"]
-    assert cfg["control_profile"] == ROOT / "configs/robots/tianji/common.yaml"

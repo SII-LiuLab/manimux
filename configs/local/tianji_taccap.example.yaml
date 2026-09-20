@@ -1,5 +1,6 @@
 # 复制到 .local/ 后填写实际设备。192.0.2.10 是示例地址。
-# paths.checkpoint 可填写模型目录；相对路径以此 local 文件为基准。
+# paths.checkpoint / norm_stats / vlm_processor 可绑定模型文件；相对路径以此
+# local 文件为基准。vlm_processor 也可以不填，让 server 配置使用 HuggingFace repo id。
 # 服务部署在别的主机时，endpoint 写可达地址，bind_host/bind_endpoint 可单独指定。
 robot:
   hardware:
@@ -19,4 +20,5 @@ services:
     request_endpoint: tcp://127.0.0.1:5555
   policy:
     endpoint: ws://127.0.0.1:8560
+# Example keys: checkpoint, norm_stats, vlm_processor, output_dir.
 paths: {}
