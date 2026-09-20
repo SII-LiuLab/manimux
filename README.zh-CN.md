@@ -13,7 +13,7 @@ Policy × Runtime × Embodiment
 [![Python 3.11 和 3.12](https://img.shields.io/badge/Python-3.11%20%7C%203.12-3776AB?style=flat-square&logo=python&logoColor=white)](pyproject.toml)
 <br/>
 [![Policy：10 个接入，含 2 个仅模型路径](https://img.shields.io/badge/Policies-10%20Integrations-2EA043?style=flat-square)](docs/README.md#support-counts)
-[![本体：1 个真机与 1 个仿真接入](https://img.shields.io/badge/Embodiments-1%20Real%20%2B%201%20Sim-2563EB?style=flat-square)](docs/README.md#support-counts)
+[![本体：硬件组件](https://img.shields.io/badge/Embodiments-Hardware%20Components-2563EB?style=flat-square)](docs/README.md#support-counts)
 [![推理：8 种模式](https://img.shields.io/badge/Inference-8%20Modes-F97316?style=flat-square)](docs/README.md#support-counts)
 <br/>
 [![数采：Teleop、UMI、DAgger；实现状态见路线图](https://img.shields.io/badge/Collection-Teleop%20%7C%20UMI%20%7C%20DAgger-D97706?style=flat-square)](docs/README.md#collection-status)
@@ -38,7 +38,24 @@ Executor 与本体**。标准接口分离模型推理与硬件控制，让接入
 对齐动作时间、关节/夹爪约定和运动限幅，从控制层减少训推差异。
 推理端需要的 smooth 等处理仍可显式选择，不再藏在另一套部署代码里。
 
-> 📖 安装与环境准备见[使用指南](docs/guideline.md)，也可直接查看下方 [Pi05 全链路示例](#quick-start)；模型、算法与接口细节见[文档索引](docs/README.md)。
+> 📖 想把自己的 YAM 或 Tianji–TacCap 接到 ManiMux？第一步看[本地工位接入](manimux/configs/local/README.md)。安装与启动见[使用指南](docs/guideline.md)，模型、算法与接口细节见[文档索引](docs/README.md)。
+
+## 第一步：接入自己的同型号真机
+
+同型号机器人复用现有组件实现。用户和 agent 都从[本地工位接入说明](manimux/configs/local/README.md)开始：
+
+1. 选择 [YAM](manimux/configs/local/yam.example.yaml) 或
+   [Tianji–TacCap](manimux/configs/local/tianji_taccap.example.yaml) 模板，复制到 `manimux/configs/local/station.yaml`。
+2. 填写本机 CAN 接口、控制器 IP、设备序列号和服务地址。`can_left` 是开发工位的
+   Linux 接口名；自己的机器叫 `can0` 就填 `can0`。组件名保持与本体装配一致。
+3. 按说明只读取合并后的配置，再进入对应本体和模型的运行手册。
+   设备绑定与实验的动作格式、控制频率、执行开关分别管理。
+
+实际工位文件由 Git 忽略，不随安装包发布。runtime 启动，以及相机、Pi05 和 UMI_DP
+的 `--experiment` 入口会默认读取它；只有切换另一套工位时才需要传 `--local <路径>`。
+Viewer 的网络选项、数采和其他模型启动器仍有独立入口，具体范围见
+[本地工位说明](manimux/configs/local/README.md#scope-and-remaining-independent-entry-points)。
+通用 README 和新增代码注释使用英文，本页保留中文。
 
 ## News
 
@@ -51,7 +68,7 @@ Executor 与本体**。标准接口分离模型推理与硬件控制，让接入
 | 功能 | 状态 | 提供什么 |
 |---|:---:|---|
 | 组合式部署 | ✅ | 配置驱动 Policy × Runtime 策略 × Executor × 本体 |
-| 跨本体接口 | ✅ | 统一契约；已接入 YAM 真机与 ManiUniCon 仿真 |
+| 跨本体接口 | ✅ | 统一契约；按组件装配真实本体 |
 | 可插拔推理 | ✅ | 异步、串行、RTC、PAINT 与自适应 chunking |
 | Robo GUI | ✅ | 实验控制、相机、3D 状态、轨迹和 chunk 时间线 |
 | Teleop 数采 | ✅ | 主臂 Policy + YAM GUI，从臂统一走 ManiMux |
@@ -61,7 +78,7 @@ Executor 与本体**。标准接口分离模型推理与硬件控制，让接入
 | UMI / DAgger 数采 | — | [采集路线图](docs/README.md#collection-status) |
 
 ✅ 表示已有实现，不代表所有模型 / 本体组合均已验证。
-[接入数量](docs/README.md#support-counts)也包含仅模型和仿真路径。
+[接入数量](docs/README.md#support-counts)也包含仅模型路径。
 
 <a id="demo"></a>
 
@@ -94,7 +111,7 @@ flowchart LR
 
     PLAN["<b>ADAPT & SCHEDULE</b><br/>Async · RTC · PAINT<br/>Serial · adaptive<br/><br/>Adapter → Timeline"]:::handoff
     ACT["<b>EXECUTE</b><br/>Direct · Smooth · MPC<br/><br/>Executor + Safety<br/>Control profile"]:::stage
-    ROBOT(["<b>ROBOT</b><br/>RobotDriver<br/>Hardware"]):::robot
+    ROBOT(["<b>ROBOT</b><br/>RobotBase<br/>Hardware"]):::robot
     TELEOP["<b>COLLECT</b><br/>YAM GUI<br/>LeaderPolicy"]:::collection
     REVIEW(["<b>REVIEW</b><br/>Robo GUI · records<br/>Human labels<br/>PRM-as-a-Judge"]):::side
 
@@ -125,26 +142,31 @@ flowchart LR
 
 以下示例使用 **Pi05 纯 joint、step-30000、放瓶子任务与 RTC**。
 需要先准备好 YAM / OpenPI 环境、checkpoint 和本机设备配置，见[环境指南](docs/guideline.md#pi05-30k-on-yam)。
-没有硬件可先运行 [mock 示例](docs/guideline.md#hardware-free-start)。
+没有硬件可先运行 [Viewer 演示](docs/guideline.md#hardware-free-start)。
+
+先完成[本地工位接入](manimux/configs/local/README.md)。下列相机、Pi05 和 runtime 命令
+使用同一份实验配置，并默认读取同一份 local。该 RTC 配方的下发频率为 **30 Hz**，
+模型动作点间隔为 **1/30 秒**。
 
 从仓库根目录，在**四个独立终端**运行。已有匹配的相机或 Viewer 服务时可复用；
 数采与推理不要同时控制同一个机器人。
 
 ```bash
 # Terminal 1: cameras
-envs/yam/.venv/bin/manimux-camera-server --config configs/cameras.yaml
+envs/yam/.venv/bin/python -m manimux.servers.camera.server \
+  --experiment manimux/configs/experiments/put_bottles/yam_pi05_rtc_joint_step30000.yaml
 
 # Terminal 2: Viewer
-envs/yam/.venv/bin/manimux-viewer --robot yam --host 127.0.0.1 --port 8086
+envs/yam/.venv/bin/python -m manimux.viewer.dashboard --robot yam --host 127.0.0.1 --port 8086
 
 # Terminal 3: pure-joint 30k model server
 XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
-  scripts/servers/pi05_yam_server.py \
-  --config configs/pi05/yam/server/put-bottles/joint-step30000.yaml
+  -m manimux.servers.pi05 \
+  --experiment manimux/configs/experiments/put_bottles/yam_pi05_rtc_joint_step30000.yaml
 
 # Terminal 4: matching RTC runtime
-envs/yam/.venv/bin/manimux serve \
-  --config configs/pi05/yam/infra/put-bottles/rtc-joint-step30000.yaml
+envs/yam/.venv/bin/python -m manimux serve \
+  --config manimux/configs/experiments/put_bottles/yam_pi05_rtc_joint_step30000.yaml
 ```
 
 打开 **http://127.0.0.1:8086**，按 **Prepare → Start rollout → Finish & Home** 操作。
@@ -153,7 +175,7 @@ server 与 runtime 的配置必须配套：这里是 **joint**，不是 **joint+
 
 ## 📚 使用指南
 
-- **开始运行：**[完整指南](docs/guideline.md) · [配置说明](configs/README.md)。
+- **开始运行：**[完整指南](docs/guideline.md) · [配置说明](manimux/configs/README.md)。
 - **模型与算法：**[组件和模型手册](docs/README.md) · [推理方法](docs/README.md#inference-and-execution)。
 - **采集与评测：**[YAM 数采](docs/yam-collection.md) · [实验流程](docs/experiment-infra.md) · [PRM 评测](docs/prm-as-a-judge.md)。
 - **扩展开发：**[架构与接口](docs/architecture.md)。

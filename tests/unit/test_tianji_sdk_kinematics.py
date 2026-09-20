@@ -196,7 +196,6 @@ import sys
 from manimux.embodiments.arm.tianji import TianjiSDKKinematics
 assert not any(n.startswith('manimux.embodiments.arm.tianji.sdk') for n in sys.modules)
 assert 'manimux.kinematics.tianji' not in sys.modules
-assert 'manimux.robots.tianji.sdk' not in sys.modules
 assert not any('backup' in n for n in sys.modules)
 """
     subprocess.run([sys.executable, "-c", code], check=True)

@@ -14,8 +14,8 @@ import numpy as np
 import yaml
 
 from manimux.cli import load_config
-from manimux.policies import build_policy_adapter, build_policy_model
-from manimux.policies.base import prepare_policy_request
+from manimux.policies import build_policy_model
+from manimux.policy_adapter import build_policy_adapter
 from manimux.runtime.aac import AacInferenceRequest
 from manimux.runtime.autohorizon import AutoHorizonInferenceRequest
 from manimux.runtime.dvac import DvacInferenceRequest
@@ -56,7 +56,7 @@ def _synthetic_rgb(height: int, width: int, offset: int) -> np.ndarray:
 
 def _snapshot(config_path: Path, height: int, width: int) -> ObservationSnapshot:
     config = load_config(config_path)
-    group_order = list(config["policy"]["options"]["group_order"])
+    group_order = list(config["policy"]["adapter"]["group_order"])
     if group_order != ["left_arm", "right_arm"]:
         raise ValueError(f"YAM probe requires left_arm/right_arm, got {group_order}")
     robot_configs = {
@@ -83,7 +83,7 @@ def _snapshot(config_path: Path, height: int, width: int) -> ObservationSnapshot
             groups[name] = packed_start[offset : offset + group_width]
             offset += group_width
 
-    camera_map = config["policy"]["options"]["camera_map"]
+    camera_map = config["policy"]["adapter"]["camera_map"]
     camera_names = list(dict.fromkeys(str(name) for name in camera_map.values()))
     if len(camera_names) != 3:
         raise ValueError(f"YAM probe requires three camera roles, got {camera_names}")
@@ -153,16 +153,16 @@ def main() -> int:
         "observation": snapshot,
         "instruction": args.instruction,
     }
-    if config["execution"]["runtime"] == "rtc":
+    if config["inference"]["algorithm"] == "rtc":
         from manimux.runtime.rtc.strategy import RtcInferenceStrategy
 
         horizon = config["policy"]["horizon_steps"]
-        rtc = config["execution"]["rtc"]
+        rtc = config["inference"]["rtc"]
         executed = RtcInferenceStrategy(config).execution_horizon(
             horizon, rtc["initial_delay_steps"]
         )
         packed_state = np.concatenate(
-            [snapshot.state.groups[name] for name in config["policy"]["options"]["group_order"]]
+            [snapshot.state.groups[name] for name in config["policy"]["adapter"]["group_order"]]
         )
         condition, weights = inpainting_condition(
             np.tile(packed_state, (horizon, 1)),
@@ -175,8 +175,8 @@ def main() -> int:
             condition_weights=weights,
             rtc_beta=rtc["beta"],
         )
-    elif config["execution"]["runtime"] == "aac":
-        aac = config["execution"]["aac"]
+    elif config["inference"]["algorithm"] == "aac":
+        aac = config["inference"]["aac"]
         request = AacInferenceRequest(
             **request_fields,
             aac_num_samples=aac["num_samples"],
@@ -185,9 +185,9 @@ def main() -> int:
             aac_chunk_id_selector=aac["chunk_id_selector"],
             aac_backward_beta=aac["backward_beta"],
         )
-    elif config["execution"]["runtime"] == "paint":
-        paint = config["execution"]["paint"]
-        group_order = list(config["policy"]["options"]["group_order"])
+    elif config["inference"]["algorithm"] == "paint":
+        paint = config["inference"]["paint"]
+        group_order = list(config["policy"]["adapter"]["group_order"])
         packed_state = np.concatenate([snapshot.state.groups[name] for name in group_order])
         prefix = np.repeat(
             packed_state[None, :],
@@ -200,10 +200,10 @@ def main() -> int:
             paint_delay_steps=paint["initial_delay_steps"],
             paint_execution_steps=paint["execution_steps"],
         )
-    elif config["execution"]["runtime"] == "autohorizon":
+    elif config["inference"]["algorithm"] == "autohorizon":
         request = AutoHorizonInferenceRequest(**request_fields)
-    elif config["execution"]["runtime"] == "dvac":
-        dvac = config["execution"]["dvac"]
+    elif config["inference"]["algorithm"] == "dvac":
+        dvac = config["inference"]["dvac"]
         request = DvacInferenceRequest(
             **request_fields,
             dvac_tail_steps=dvac["tail_steps"],
@@ -219,12 +219,12 @@ def main() -> int:
 
     model = build_policy_model(config["policy"])
     adapter = build_policy_adapter(config["robot"], config["policy"])
-    request = prepare_policy_request(adapter, request)
+    request = adapter.prepare_request(request)
     started = time.perf_counter()
     try:
         model.reset(session_id)
         capabilities = model.capabilities()
-        if config["execution"]["runtime"] == "rtc" and "rtc" not in capabilities.sampling_modes:
+        if config["inference"]["algorithm"] == "rtc" and "rtc" not in capabilities.sampling_modes:
             raise RuntimeError("Backend does not advertise RTC sampling")
         raw = model.infer(request)
     finally:
@@ -243,10 +243,10 @@ def main() -> int:
             created_time_ns=time.monotonic_ns(),
         ),
     )
-    group_order = list(config["policy"]["options"]["group_order"])
+    group_order = list(config["policy"]["adapter"]["group_order"])
     packed = np.concatenate([chunk.groups[name] for name in group_order], axis=1)
     expected_width = sum(int(config["robot"]["group_dims"][name]) for name in group_order)
-    if config["execution"]["runtime"] == "aac":
+    if config["inference"]["algorithm"] == "aac":
         if packed.ndim != 2 or packed.shape[1] != expected_width:
             raise ValueError(
                 f"expected an AAC chunk with width {expected_width}, got {packed.shape}"
@@ -269,14 +269,14 @@ def main() -> int:
                 "status": "ok",
                 "config": str(config_path),
                 "server": config["policy"]["options"]["server"],
-                "action_codec": config["policy"]["options"].get("action_codec", "joint_position"),
+                "action_codec": config["policy"]["adapter"].get("action_codec", "joint_position"),
                 **native_summary,
                 "action_space": chunk.action_space,
                 "canonical_shape": list(packed.shape),
                 "dt_s": chunk.dt_ns / 1_000_000_000,
                 "round_trip_ms": round(round_trip_ms, 1),
                 "decode_ms": round((time.perf_counter() - decode_started) * 1000, 1),
-                "sampling_mode": config["execution"]["runtime"],
+                "sampling_mode": config["inference"]["algorithm"],
                 "sampling_modes": sorted(capabilities.sampling_modes),
                 "ik_failed_steps": {
                     name: value.get("failed_steps")

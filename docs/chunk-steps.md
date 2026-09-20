@@ -1,10 +1,10 @@
 # 统一执行步数配置
 
-用 `execution.chunk_steps` 调整各算法的执行窗口/重推理间隔：
+用 `inference.chunk_steps` 调整各算法的执行窗口/重推理间隔：
 
 ```yaml
-execution:
-  runtime: paint  # manimux / rtc / paint / act_temporal_ensemble / dvac
+inference:
+  algorithm: paint
   chunk_steps: 12
 ```
 

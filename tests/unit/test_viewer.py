@@ -213,11 +213,11 @@ def _camera_state(camera_map=None, frames=None, *, robot="yam"):
 @pytest.mark.parametrize(
     "config_path",
     [
-        "configs/pi05/yam/infra/put-bottles/rtc-joint-step30000.yaml",
-        "configs/pi05/yam/infra/put-bottles/rtc-joint-ee-step30000.yaml",
-        "configs/sapolicy/yam/infra/teleopMV51/top-rtc.yaml",
-        "configs/sapolicy/yam/infra/teleopMV51/gemini305-rtc.yaml",
-        "configs/sapolicy/yam/infra/teleopMV51/gemini335-rtc.yaml",
+        "manimux/configs/experiments/put_bottles/yam_pi05_rtc_joint_step30000.yaml",
+        "manimux/configs/experiments/put_bottles/yam_pi05_rtc_joint_ee_step30000.yaml",
+        "manimux/configs/experiments/put_bottles/yam_sapolicy_mv51_top_rtc.yaml",
+        "manimux/configs/experiments/put_bottles/yam_sapolicy_mv51_gemini305_rtc.yaml",
+        "manimux/configs/experiments/put_bottles/yam_sapolicy_mv51_gemini335_rtc.yaml",
     ],
 )
 @pytest.mark.parametrize("reverse_order", [False, True])
@@ -227,7 +227,7 @@ def test_default_viewer_follows_pi05_and_sa_inputs_without_viewer_config(
 ):
     from manimux.cli import load_config
 
-    camera_map = load_config(config_path)["policy"]["options"]["camera_map"]
+    camera_map = load_config(config_path)["policy"]["adapter"]["camera_map"]
     colors = [(210, 30, 40), (40, 210, 60), (60, 80, 210)]
     frames = {
         physical: np.full((12, 16, 3), color, dtype=np.uint8)
@@ -256,7 +256,7 @@ def test_default_viewer_follows_pi05_and_sa_inputs_without_viewer_config(
 def test_manual_preview_stays_separate_and_still_reports_policy_inputs(view):
     from manimux.cli import read_yaml
 
-    old = read_yaml(Path(f"configs/viewer/yam-{view}.yaml"))
+    old = read_yaml(Path(f"manimux/configs/viewer/yam-{view}.yaml"))
     cfg = _camera_config(camera_mode="manual")
     for camera in cfg["cameras"]:
         camera["source"] = old["cameras"][camera["slot"]]
@@ -284,8 +284,8 @@ def test_tianji_wrist_views_keep_spatial_slots_without_agent_view(
     from manimux.cli import load_config
 
     camera_map = load_config(
-        f"configs/umi_dp/tianji/infra/pass_ball/{runtime_config}.yaml",
-    )["policy"]["options"]["camera_map"]
+        f"manimux/configs/experiments/pass_ball/tianji_umi_dp_{runtime_config}.yaml",
+    )["policy"]["adapter"]["camera_map"]
     if not include_history:
         camera_map = {
             name: source for name, source in camera_map.items() if not source.endswith("_prev")
@@ -1289,7 +1289,8 @@ def test_tianji_view_uses_shared_model_geometry_and_preserves_scene():
         np.testing.assert_array_equal(
             view.visual_configuration(name, q), group.visual_configuration(q)
         )
-        np.testing.assert_allclose(view.group(name).base_position, group.base_transform[:3, 3])
+        display = view.options["groups"][name]["viewer_display_frame"]
+        np.testing.assert_allclose(view.group(name).base_position, display["xyz"])
 
 
 def test_tianji_urdf_tcp_matches_model_and_mount_applied_once():
@@ -1310,8 +1311,12 @@ def test_tianji_urdf_tcp_matches_model_and_mount_applied_once():
             np.asarray(group.base_orientation)[[1, 2, 3, 0]]
         ).as_matrix()
         world[:3, 3] = group.base_position
+        display = view.options["groups"][name]["viewer_display_frame"]
+        expected_world = np.eye(4)
+        expected_world[:3, :3] = Rotation.from_euler("xyz", display["rpy"]).as_matrix()
+        expected_world[:3, 3] = display["xyz"]
         np.testing.assert_allclose(
-            world @ view.pose(name, q), mounted.base_transform @ local, atol=1e-4
+            world @ view.pose(name, q), expected_world @ local, atol=1e-4
         )
 
 

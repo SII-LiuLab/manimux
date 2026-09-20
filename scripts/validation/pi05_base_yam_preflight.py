@@ -17,15 +17,16 @@ import numpy as np
 
 from manimux.cli import load_config
 from manimux.clock import SystemClock
-from manimux.policies import build_policy_adapter, build_policy_model
-from manimux.policies.base import action_interval, prepare_policy_request
-from manimux.robots import build_robot
+from manimux.embodiments.robot import build_robot
+from manimux.embodiments.sensor import build_sensor
+from manimux.policies import build_policy_model
+from manimux.policies.base import action_interval
+from manimux.policy_adapter import build_policy_adapter
 from manimux.runtime.rtc.mask import inpainting_condition
 from manimux.runtime.rtc.request import RtcInferenceRequest
-from manimux.sensors import build_sensor
 from manimux.types import ActionContext, InferenceRequest, ObservationSnapshot
 
-DEFAULT_CONFIG = Path("configs/pi05/yam/infra/base-rtc.yaml")
+DEFAULT_CONFIG = Path("manimux/configs/experiments/pick_red_object/yam_pi05_base_rtc.yaml")
 
 
 def _request(
@@ -46,7 +47,7 @@ def _request(
 
 def _decode(model: Any, adapter: Any, request: InferenceRequest) -> tuple[Any, float]:
     started = time.monotonic()
-    raw = model.infer(prepare_policy_request(adapter, request))
+    raw = model.infer(adapter.prepare_request(request))
     elapsed_s = time.monotonic() - started
     chunk = adapter.decode_action(
         raw,
@@ -120,12 +121,12 @@ def main() -> int:
             },
             "camera_shapes": {name: list(frame.data.shape) for name, frame in frames.items()},
         }
-        if config["execution"]["runtime"] == "rtc":
+        if config["inference"]["algorithm"] == "rtc":
             delay_steps = max(
                 1,
                 math.ceil(steady_latency_s / action_interval(policy_config)),
             )
-            executed_steps = max(config["execution"]["rtc"]["min_execute_steps"] or 1, delay_steps)
+            executed_steps = max(config["inference"]["rtc"]["min_execute_steps"] or 1, delay_steps)
             if not delay_steps <= executed_steps <= len(rows) - delay_steps:
                 raise RuntimeError(
                     "steady inference latency is not RTC-feasible: "
@@ -145,7 +146,7 @@ def main() -> int:
                 instruction=config["run"]["task"],
                 action_condition=condition.astype(np.float64),
                 condition_weights=weights.astype(np.float64),
-                rtc_beta=config["execution"]["rtc"]["beta"],
+                rtc_beta=config["inference"]["rtc"]["beta"],
             )
             _, rtc_compile_latency_s = _decode(model, adapter, rtc_request)
             rtc_request = dataclasses.replace(rtc_request, request_seq=4)

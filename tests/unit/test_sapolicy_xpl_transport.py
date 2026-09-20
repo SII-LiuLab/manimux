@@ -6,13 +6,11 @@ import numpy as np
 import pytest
 
 from manimux.cli import load_config
-from manimux.integrations.sapolicy_yam.policy_plugin import (
-    SAPolicyXPolicyRequest,
-    build_adapter,
-)
+from manimux.policy_adapter.sapolicy.yam import SAPolicyXPolicyRequest
+from manimux.policy_adapter.sapolicy.yam import SAPolicyYamAdapter as build_adapter
 from manimux.types import ObservationSnapshot, RobotState, SensorFrame
 
-CONFIG = "configs/sapolicy/yam/infra/manimux-xpl.yaml"
+CONFIG = "manimux/configs/experiments/put_bottles/yam_sapolicy_manimux_xpl.yaml"
 
 
 def _snapshot(now_ns: int) -> ObservationSnapshot:
@@ -40,7 +38,10 @@ def _snapshot(now_ns: int) -> ObservationSnapshot:
 def test_sapolicy_xpl_infra_uses_ws_transport() -> None:
     config = load_config(CONFIG)
     assert config["policy"]["worker"] == "xpolicylab_ws"
-    assert config["policy"]["adapter"] == "sapolicy_yam"
+    assert (
+        config["policy"]["adapter"]["type"]
+        == "manimux.policy_adapter.sapolicy.yam:SAPolicyYamAdapter"
+    )
     assert config["policy"]["horizon_steps"] == 16
 
 
@@ -79,10 +80,10 @@ def test_sapolicy_adapter_prepares_xpolicylab_additional_info() -> None:
 
 
 def test_rtc_condition_preserves_joint_fk_calibration_and_shared_transport():
-    from manimux.integrations.xpolicylab.policy_plugin import build_model
+    from manimux.policies.xpolicylab.client import build_model
     from manimux.runtime.rtc.request import RtcInferenceRequest
 
-    config = load_config("configs/sapolicy/yam/infra/teleopMV51/top-rtc.yaml")
+    config = load_config("manimux/configs/experiments/put_bottles/yam_sapolicy_mv51_top_rtc.yaml")
     adapter = build_adapter(config["robot"], config["policy"])
     now = time.monotonic_ns()
     snapshot = _snapshot(now)
@@ -134,8 +135,10 @@ def test_mv51_smoothing_and_rtc_profiles_keep_rate_caps_disabled(view, suffix):
     from manimux.runtime.executors.smooth import SmoothExecutor
     from manimux.runtime.rtc.strategy import RtcInferenceStrategy
 
-    config = load_config(f"configs/sapolicy/yam/infra/teleopMV51/{view}{suffix}.yaml")
-    smooth = config["execution"]["smooth"]
+    config = load_config(
+        f"manimux/configs/experiments/put_bottles/yam_sapolicy_mv51_{view}{suffix.replace(chr(45), chr(95))}.yaml"
+    )
+    smooth = config["executor"]["smooth"]
     executor = SmoothExecutor(smooth, 1 / config["robot"]["control_hz"])
     assert not executor.braking_tracking
     assert smooth["cutoff_hz"] == 8
@@ -148,10 +151,10 @@ def test_mv51_smoothing_and_rtc_profiles_keep_rate_caps_disabled(view, suffix):
     assert config["policy"]["action_decoding"] == "process"
     assert config["policy"]["expected_backend"]["model"]["action_horizon"] == 50
     if suffix:
-        assert config["execution"]["runtime"] == "rtc"
-        assert config["execution"]["max_chunk_steps"] is None
+        assert config["inference"]["algorithm"] == "rtc"
+        assert config["inference"]["max_chunk_steps"] is None
         strategy = RtcInferenceStrategy(config)
         assert strategy.execution_horizon(50, 4) == 25
         assert strategy.required_sampling_modes == {"rtc"}
     else:
-        assert config["execution"]["max_chunk_steps"] == 25
+        assert config["inference"]["max_chunk_steps"] == 25

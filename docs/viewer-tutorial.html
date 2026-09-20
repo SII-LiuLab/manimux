@@ -220,7 +220,7 @@
           <h3><span class="step">1</span>Camera</h3>
           <pre>cd /home/ubuntu/manimux
 envs/yam/.venv/bin/manimux-camera-server \
-  --config configs/cameras.yaml</pre>
+  --config manimux/configs/embodiment/sensor/cameras/yam.yaml</pre>
         </div>
         <div class="card">
           <h3><span class="step">2</span>Viewer</h3>
@@ -232,14 +232,14 @@ envs/yam/.venv/bin/manimux-viewer \
           <h3><span class="step">3</span>Policy server</h3>
           <pre>cd /home/ubuntu/manimux
 XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
-  scripts/servers/pi05_yam_server.py \
-  --config configs/pi05/yam/server/finetune-pick-red-ball-box-step1000.yaml</pre>
+  manimux/servers/pi05.py \
+  --config manimux/configs/policy/pi05/yam/finetune-pick-red-ball-box-step1000.yaml</pre>
         </div>
         <div class="card">
           <h3><span class="step">4</span>Runtime service</h3>
           <pre>cd /home/ubuntu/manimux
 envs/yam/.venv/bin/manimux serve \
-  --config configs/pi05/yam/infra/pick-red-ball-box/rtc-step1000.yaml</pre>
+  --config manimux/configs/experiments/pick_red_object/yam_pi05_rtc_step1000.yaml</pre>
         </div>
       </div>
       <div class="callout">
@@ -253,7 +253,7 @@ envs/yam/.venv/bin/manimux serve \
       <div class="flow">
         <div><span class="tag">1 · READY</span><h3>填写任务</h3><p>确认 Task command；实验模式填写 layout/condition ID。</p></div>
         <div><span class="tag">2 · PREPARE</span><h3>选择类型</h3><p>Normal 不要求人工标签；Experiment 结束后必须打标。</p></div>
-        <div><span class="tag">3 · PAUSED</span><h3>等待就绪</h3><p>模型身份、相机、RobotDriver 和初始状态检查通过后才进入此状态。</p></div>
+        <div><span class="tag">3 · PAUSED</span><h3>等待就绪</h3><p>模型身份、相机、RobotBase 和初始状态检查通过后才进入此状态。</p></div>
         <div><span class="tag">4 · RUNNING</span><h3>Start rollout</h3><p>Runtime 开始提交模型动作。需要临时保持时使用 Pause / Hold。</p></div>
         <div><span class="tag">5 · FINISH</span><h3>Finish &amp; Home</h3><p>停止执行、保存 episode，并执行配置中的 home 路径。</p></div>
       </div>

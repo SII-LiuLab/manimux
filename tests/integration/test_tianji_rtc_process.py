@@ -10,11 +10,11 @@ import pytest
 import zarr
 
 from manimux.cli import load_config, prepare_experiment
-from manimux.integrations.umi_dp_tianji.ik_config import bind_diff_ik_profile
-from manimux.integrations.umi_dp_tianji.policy_plugin import UmiDpTianjiAdapter, matrix_pose
 from manimux.policies.base import action_interval
 from manimux.policies.decoder import ActionDecoderClient
 from manimux.policies.fake import FakePolicyAdapter
+from manimux.policy_adapter.umi_dp.ik_config import bind_diff_ik_profile
+from manimux.policy_adapter.umi_dp.tianji import UmiDpTianjiAdapter, matrix_pose
 from manimux.runtime import build_runtime
 from manimux.types import ActionChunk, ActionContext, InferenceResponse, RobotState
 from manimux.viewer import ViewerControl
@@ -23,10 +23,10 @@ from manimux.viewer import ViewerControl
 @pytest.mark.parametrize("backend", ["analytic", "diff"])
 @pytest.mark.parametrize("horizon", [16, 64])
 def test_real_tianji_parallel_ik_matches_serial_and_rejects_whole_chunk(backend, horizon):
-    config = load_config("configs/umi_dp/tianji/infra/pass_ball/rtc.yaml")
-    config["robot"]["type"] = "mock_dual_arm"
+    config = load_config("manimux/configs/experiments/pass_ball/tianji_umi_dp_rtc.yaml")
+    config["robot"]["type"] = "tests.support.robot:build_robot"
     config["policy"]["horizon_steps"] = horizon
-    config["policy"]["options"]["ik_backend"] = backend
+    config["policy"]["adapter"]["ik_backend"] = backend
     bind_diff_ik_profile(config)
     adapter = UmiDpTianjiAdapter(config["robot"], config["policy"])
     joints = np.radians([50, -40, -30, -100, -65, 0, 40])
@@ -98,14 +98,14 @@ class SlowPartitionAdapter(FakePolicyAdapter):
         )
 
 
-def build_slow_adapter(robot, policy):
+def build_slow_adapter(robot, policy, *, kinematics=None):
     return SlowPartitionAdapter()
 
 
 def rtc_config():
-    data = deepcopy(load_config("configs/mock.yaml"))
-    data["execution"].pop("refill_threshold_s")
-    data["execution"].update(runtime="rtc", commit_lead_s=0.0)
+    data = deepcopy(load_config("tests/fixtures/runtime.yaml"))
+    data["inference"].pop("refill_threshold_s")
+    data["inference"].update(algorithm="rtc", strategy=None, commit_lead_s=0.0)
     data["robot"].update(control_hz=250, group_dims={"left_arm": 6, "right_arm": 6})
     data["policy"].update(
         adapter=f"{__name__}:build_slow_adapter",

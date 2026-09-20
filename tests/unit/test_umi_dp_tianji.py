@@ -5,11 +5,11 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from manimux.policy_adapter.umi_dp import tianji as policy_plugin
 from scipy.spatial.transform import Rotation
 
 from manimux.cli import load_config
-from manimux.integrations.umi_dp_tianji import policy_plugin
-from manimux.integrations.umi_dp_tianji.history import (
+from manimux.policy_adapter.umi_dp.history import (
     HistoryStrategy,
     MeasuredHistory,
     WindowSnapshot,
@@ -62,7 +62,7 @@ class FakeKin:
 def adapter(monkeypatch):
     kin = FakeKin()
     monkeypatch.setattr(policy_plugin, "build_kinematics", lambda *a, **k: kin)
-    config = load_config(ROOT / "configs/umi_dp/tianji/infra/pass_ball/default.yaml")
+    config = load_config(ROOT / "manimux/configs/experiments/pass_ball/tianji_umi_dp_default.yaml")
     config["robot"]["type"] = "mock"
     return policy_plugin.UmiDpTianjiAdapter(config["robot"], config["policy"]), kin, config
 
@@ -121,13 +121,13 @@ def test_history_rejects_fake_request_history_stale_and_skewed():
 
 def test_history_delegates_and_validates_rtc_constraints():
     for name in ("default", "rtc"):
-        config = load_config(ROOT / f"configs/umi_dp/tianji/infra/pass_ball/{name}.yaml")
+        config = load_config(ROOT / f"manimux/configs/experiments/pass_ball/tianji_umi_dp_{name}.yaml")
         strategy = HistoryStrategy(config)
         assert strategy.name == ("manimux" if name == "default" else "rtc")
         assert strategy.required_sampling_modes == frozenset(
             {"default" if name == "default" else "rtc"}
         )
-    config["execution"]["rtc"]["initial_delay_steps"] = 9
+    config["inference"]["rtc"]["initial_delay_steps"] = 9
     with pytest.raises(ValueError, match="initial_delay"):
         HistoryStrategy(config)
 
@@ -276,7 +276,7 @@ def test_adapter_rejects_contract_errors(adapter, failure):
 
 
 def test_timestamped_camera_retains_sequence_and_detects_clock_jump(monkeypatch):
-    from manimux.integrations.umi_dp_tianji import camera_sensor
+    from manimux.embodiments.sensor.camera_server import timestamped as camera_sensor
 
     wall = [100000000000]
     clock = SimpleNamespace(now_ns=lambda: wall[0] - 90000000000)
@@ -365,7 +365,7 @@ def test_pause_submits_and_commits_nothing_only_when_the_strategy_asks(
         discard_plans_while_paused = discard
 
     monkeypatch.setattr(edge, "PolicyWorkerClient", lambda *_: InstantPolicy())
-    config = load_config(ROOT / "configs/mock.yaml")
+    config = load_config(ROOT / "tests/fixtures/runtime.yaml")
     config["sensors"] = []
     config["run"]["max_steps"] = 10_000
     runtime = edge.EdgeRuntime(config, tmp_path, clock=clock, strategy=Strategy(config))

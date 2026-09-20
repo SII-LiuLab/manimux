@@ -1,9 +1,8 @@
 # Viewer
 
-Tianji Viewer uses the offline `RobotModel` and named runtime groups. It does not
-construct robot drivers or load policy implementations. The current migration is
-limited to Tianji; YAM's old adapter remains pending its own RobotModel integration.
-The new YAML entry currently supports Tianji only.
+Tianji and YAM Viewer use the offline `RobotModel` and named runtime groups. They
+do not construct robot drivers or load policy implementations. The old YAM adapter
+remains for historical collection replay.
 
 ```bash
 .venv/bin/manimux-viewer --robot tianji --host 127.0.0.1 --port 8086
@@ -15,8 +14,9 @@ The new YAML entry currently supports Tianji only.
 
 ## Files
 
-- `viewer/robots/tianji/viewer.yaml`: model reference, table, view, group colors,
-  initial display pose and camera panels. Initial/demo poses only affect display.
+- `viewer/robots/{tianji,yam}/viewer.yaml`: model reference, group display placement,
+  table, stand, view, colors, initial display pose and camera panels. Initial/demo
+  poses only affect display.
 - `viewer/robot_view.py`: derives display geometry and coordinate mappings from
   `RobotModel`; model FK stays in each arm's base and scene mounting is applied once.
 - `viewer/dashboard.py`: YAML reading, existing page/control layout and demo.
@@ -48,8 +48,26 @@ configured sources without changing model inputs. `camera_aliases` identifies
 spatial roles for sources. Cached image/state timestamps retain their original values.
 
 Table dimensions and position live under `scene.boxes`. Initial camera/grid settings
-live under `scene.view`. Arm, tool and stand geometry remain in the referenced
-`RobotModel`; do not copy installation transforms or joint layouts into display code.
+live under `scene.view`; static stand meshes live under `scene.meshes`. Mesh URDFs
+resolve relative to this Viewer YAML, or use `package://package.name/resource`.
+Arm/tool geometry and joint layouts still come from `RobotModel`.
+
+Each group's `viewer_display_frame` places its model in the scene (metres and xyz
+Euler angles in radians). The Viewer supplies its own scene origin; there is no
+`root_frame` in the robot configuration and no shared-base transform in FK/IK:
+
+```yaml
+groups:
+  left_arm:
+    viewer_display_frame:
+      xyz: [0.0, 0.32, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+```
+
+Omitting this display field places a group at the scene origin. Only Viewer reads
+it; changing it cannot change robot commands or local FK/IK results. Stand meshes
+accept the same display field. The robot's end-effector `mount` remains the physical
+flange-to-tool transform and continues to participate in TCP computation.
 
 ## Runtime interface
 
@@ -59,13 +77,13 @@ There is no concatenation, dimension-based left/right inference or old TCP adapt
 Predictions and measured states remain separate messages. State and camera metadata
 preserve original timestamps and sequence numbers. Update publisher and Viewer together.
 
-The experiment setting is `viewer.robot: tianji-taccap`, matching the model name.
-The config reader still normalizes the old `robot_adapter` spelling for existing
-experiment files; it does not load a Viewer adapter.
+The experiment setting is `viewer.robot: tianji`, selecting the body display configuration.
+Experiments select the display model using `viewer.robot`; all bundled recipes use this field.
 
 Tianji recovery/home remain capabilities of Session/runtime; this Viewer refactor
 adds no hardware recovery or motion implementation. Existing UI controls remain.
 
-The old MolmoAct observer launcher is now
-`manimux.integrations.molmoact_yam.viewer_launch`; `manimux-molmoact-yam` retains its
-entry point name. Its old vector conversion stays at that experiment boundary.
+The old MolmoAct observer launcher and `manimux-molmoact-yam` entry point have been
+retired with the legacy YAM hardware stack. YAM uses the common runtime and Viewer;
+see [the YAM component migration](yam-integrated-component.md). This hardware
+migration does not validate or replace a learned-model deployment.

@@ -29,7 +29,7 @@ class _Adapter:
 
 
 def _config() -> dict:
-    return load_config("configs/pi05/yam/infra/pick-red-ball-box/paint-step1000.yaml")
+    return load_config("manimux/configs/experiments/pick_red_object/yam_pi05_paint_step1000.yaml")
 
 
 def _snapshot(now_ns: int) -> ObservationSnapshot:
@@ -152,7 +152,7 @@ def test_paint_strategy_sends_exact_old_chunk_prefix() -> None:
         now_ns=0,
     )
 
-    now_ns = config["execution"]["paint"]["execution_steps"] * dt_ns
+    now_ns = config["inference"]["paint"]["execution_steps"] * dt_ns
     submission = strategy.build_submission(
         session_id="session",
         request_seq=2,
@@ -194,9 +194,9 @@ def test_paint_rejects_response_beyond_anchored_prefix() -> None:
 
 def test_paint_config_requires_feasible_s_and_d() -> None:
     payload = deepcopy(_config())
-    payload["execution"].pop("inference_schedule")
-    payload["execution"].pop("refill_threshold_s")
-    payload["execution"]["paint"]["execution_steps"] = 45
+    payload["inference"].pop("inference_schedule")
+    payload["inference"].pop("refill_threshold_s")
+    payload["inference"]["paint"]["execution_steps"] = 45
 
     with pytest.raises(ValueError, match="PAINT requires"):
         prepare_experiment(**payload)
@@ -204,9 +204,9 @@ def test_paint_config_requires_feasible_s_and_d() -> None:
 
 def test_paint_config_rejects_external_seam_blending() -> None:
     payload = deepcopy(_config())
-    payload["execution"].pop("inference_schedule")
-    payload["execution"].pop("refill_threshold_s")
-    payload["execution"]["blend_steps"] = 1
+    payload["inference"].pop("inference_schedule")
+    payload["inference"].pop("refill_threshold_s")
+    payload["inference"]["blend_steps"] = 1
 
     with pytest.raises(ValueError, match="blend_steps=0"):
         prepare_experiment(**payload)
@@ -218,8 +218,8 @@ def test_paint_config_is_loadable_and_uses_edge_runtime(tmp_path: Path) -> None:
 
     config = _config()
     # 验证调度构造，不依赖 YAM 硬件 SDK 或相机。
-    config["robot"]["type"] = "mock_dual_arm"
-    config["policy"]["adapter"] = "identity"
+    config["robot"]["type"] = "tests.support.robot:build_robot"
+    config["policy"]["adapter"]["type"] = "manimux.policies.fake:FakePolicyAdapter"
     config["sensors"] = []
     runtime = build_runtime(config, tmp_path)
 

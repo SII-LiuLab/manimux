@@ -13,7 +13,7 @@ Policy × Runtime × Embodiment
 [![Python 3.11 and 3.12](https://img.shields.io/badge/Python-3.11%20%7C%203.12-3776AB?style=flat-square&logo=python&logoColor=white)](pyproject.toml)
 <br/>
 [![Policies: 10 integrations, including 2 model-only paths](https://img.shields.io/badge/Policies-10%20Integrations-2EA043?style=flat-square)](docs/README.md#support-counts)
-[![Embodiments: 1 real robot and 1 simulation integration](https://img.shields.io/badge/Embodiments-1%20Real%20%2B%201%20Sim-2563EB?style=flat-square)](docs/README.md#support-counts)
+[![Embodiments: hardware components](https://img.shields.io/badge/Embodiments-Hardware%20Components-2563EB?style=flat-square)](docs/README.md#support-counts)
 [![Inference: 8 modes](https://img.shields.io/badge/Inference-8%20Modes-F97316?style=flat-square)](docs/README.md#support-counts)
 <br/>
 [![Collection: Teleop, UMI and DAgger; implementation status in roadmap](https://img.shields.io/badge/Collection-Teleop%20%7C%20UMI%20%7C%20DAgger-D97706?style=flat-square)](docs/README.md#collection-status)
@@ -41,7 +41,25 @@ interfaces and shared control profiles to align action timing, joint/gripper con
 motion limits between demonstrations and policy execution. Optional execution smoothing stays
 an explicit choice—not a hidden difference in a separate deployment stack.
 
-> 📖 Start with the [Guideline](docs/guideline.md) for installation and setup, or use the [Pi05 example](#quick-start) below. Detailed model and method guides live in [Documentation](docs/README.md).
+> 📖 Connecting your own YAM or Tianji–TacCap? Start with [local station setup](manimux/configs/local/README.md). Installation and launch commands are in the [Guideline](docs/guideline.md); model and method guides are in [Documentation](docs/README.md).
+
+## First step: connect your own robot
+
+For another installation of a supported robot model, bind the existing components to your
+devices. Users and coding agents should start with the [station guide](manimux/configs/local/README.md):
+
+1. Copy the matching [YAM](manimux/configs/local/yam.example.yaml) or
+   [Tianji–TacCap](manimux/configs/local/tianji_taccap.example.yaml) template to `manimux/configs/local/station.yaml`.
+2. Fill in the actual CAN interfaces, controller IPs, device serials and service addresses.
+   `can_left` is a Linux interface name on the development station; your machine may use `can0`.
+3. Inspect the resolved configuration without connecting devices, then follow the selected
+   model/body runbook. Keep experiment timing, action semantics and execution settings separate.
+
+Runtime startup and the camera, Pi05 and UMI_DP `--experiment` entry points automatically
+read this private, Git-ignored station file. Use `--local <path>` to select another station.
+Viewer network options, collection and other model launchers still have separate entry points;
+the [station guide](manimux/configs/local/README.md#scope-and-remaining-independent-entry-points)
+explains their scope.
 
 ## News
 
@@ -54,7 +72,7 @@ an explicit choice—not a hidden difference in a separate deployment stack.
 | Feature | Status | What it provides |
 |---|:---:|---|
 | Composable deployment | ✅ | Config-driven policy × runtime strategy × executor × embodiment |
-| Cross-embodiment interfaces | ✅ | Shared contracts; YAM hardware and ManiUniCon simulation integrations |
+| Cross-embodiment interfaces | ✅ | Shared contracts; component-based hardware assemblies |
 | Inference methods | ✅ | Async, serial, RTC, PAINT and adaptive chunking |
 | Robo GUI | ✅ | Rollout controls, cameras, 3D state, trajectories and chunk timelines |
 | Teleop collection | ✅ | Leader policy + YAM GUI, with ManiMux follower control |
@@ -64,7 +82,7 @@ an explicit choice—not a hidden difference in a separate deployment stack.
 | UMI / DAgger collection | — | [Collection roadmap](docs/README.md#collection-status) |
 
 ✅ denotes implemented functionality, not validation of every model / hardware combination.
-[Support counts](docs/README.md#support-counts) also include model-only and simulation paths.
+[Support counts](docs/README.md#support-counts) also include model-only paths.
 
 <a id="demo"></a>
 
@@ -97,7 +115,7 @@ flowchart LR
 
     PLAN["<b>ADAPT & SCHEDULE</b><br/>Async · RTC · PAINT<br/>Serial · adaptive<br/><br/>Adapter → Timeline"]:::handoff
     ACT["<b>EXECUTE</b><br/>Direct · Smooth · MPC<br/><br/>Executor + Safety<br/>Control profile"]:::stage
-    ROBOT(["<b>ROBOT</b><br/>RobotDriver<br/>Hardware"]):::robot
+    ROBOT(["<b>ROBOT</b><br/>RobotBase<br/>Hardware"]):::robot
     TELEOP["<b>COLLECT</b><br/>YAM GUI<br/>LeaderPolicy"]:::collection
     REVIEW(["<b>REVIEW</b><br/>Robo GUI · records<br/>Human labels<br/>PRM-as-a-Judge"]):::side
 
@@ -128,27 +146,32 @@ the native paths shown here remain for compatibility pending migration.
 
 This example runs **Pi05 pure-joint, step-30000, put-bottles with RTC**. It assumes the YAM and
 OpenPI environments, checkpoint and local device configuration are already prepared;
-see the [setup guide](docs/guideline.md#pi05-30k-on-yam). For a hardware-free first run, use the
-[mock example](docs/guideline.md#hardware-free-start).
+see the [setup guide](docs/guideline.md#pi05-30k-on-yam). For a hardware-free display, use the
+[Viewer preview](docs/guideline.md#hardware-free-start).
+
+Complete [local station setup](manimux/configs/local/README.md) first. The camera, Pi05 and
+runtime commands below use the same experiment and automatically read its station bindings.
+This RTC recipe uses a **30 Hz command loop** and model action points spaced **1/30 s** apart.
 
 From the repository root, run these in **four separate terminals**. Reuse matching camera / Viewer
 services if already running; collection and inference must not control the same robot simultaneously.
 
 ```bash
 # Terminal 1: cameras
-envs/yam/.venv/bin/manimux-camera-server --config configs/cameras.yaml
+envs/yam/.venv/bin/python -m manimux.servers.camera.server \
+  --experiment manimux/configs/experiments/put_bottles/yam_pi05_rtc_joint_step30000.yaml
 
 # Terminal 2: Viewer
-envs/yam/.venv/bin/manimux-viewer --robot yam --host 127.0.0.1 --port 8086
+envs/yam/.venv/bin/python -m manimux.viewer.dashboard --robot yam --host 127.0.0.1 --port 8086
 
 # Terminal 3: pure-joint 30k model server
 XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
-  scripts/servers/pi05_yam_server.py \
-  --config configs/pi05/yam/server/put-bottles/joint-step30000.yaml
+  -m manimux.servers.pi05 \
+  --experiment manimux/configs/experiments/put_bottles/yam_pi05_rtc_joint_step30000.yaml
 
 # Terminal 4: matching RTC runtime
-envs/yam/.venv/bin/manimux serve \
-  --config configs/pi05/yam/infra/put-bottles/rtc-joint-step30000.yaml
+envs/yam/.venv/bin/python -m manimux serve \
+  --config manimux/configs/experiments/put_bottles/yam_pi05_rtc_joint_step30000.yaml
 ```
 
 Open **http://127.0.0.1:8086**, then **Prepare → Start rollout → Finish & Home**.
@@ -157,7 +180,7 @@ Keep the server and runtime configs paired: this example uses **joint**, not **j
 
 ## 📚 Guides
 
-- **Run:** [Guideline](docs/guideline.md) · [Configuration](configs/README.md).
+- **Run:** [Guideline](docs/guideline.md) · [Configuration](manimux/configs/README.md).
 - **Integrate:** [Components and policy runbooks](docs/README.md) · [Inference methods](docs/README.md#inference-and-execution).
 - **Collect / evaluate:** [YAM collection](docs/yam-collection.md) · [Experiment workflow](docs/experiment-infra.md) · [PRM guide](docs/prm-as-a-judge.md).
 - **Extend:** [Architecture contracts](docs/architecture.md).

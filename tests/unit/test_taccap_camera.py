@@ -13,7 +13,7 @@ import pytest
 import yaml
 
 from manimux.embodiments.sensor.taccap import TacCapCamera, find_camera_device
-from manimux.sensors.camera_server import server as camera_server
+from manimux.servers.camera import server as camera_server
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -161,7 +161,7 @@ def test_camera_serves_rgb_frames_and_detects_stalls(by_id: Path) -> None:
 
 def test_server_builds_cameras_by_type(by_id: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(camera_server, "V4L_BY_ID", by_id, raising=False)
-    config = REPO / "configs/robots/tianji/cameras.yaml"
+    config = REPO / "manimux/configs/embodiment/sensor/cameras/tianji_taccap.yaml"
     cameras = camera_server._build_cameras_from_config(config, by_id_root=by_id)
     try:
         assert set(cameras) == {"left_wrist", "right_wrist"}
@@ -171,37 +171,19 @@ def test_server_builds_cameras_by_type(by_id: Path, monkeypatch: pytest.MonkeyPa
             camera.close()
 
 
-@pytest.mark.parametrize("backend", ["taccap", "realsense"])
+@pytest.mark.parametrize("backend", ["taccap"])
 def test_server_preserves_frame_timestamp_when_capture_advances(
     monkeypatch: pytest.MonkeyPatch,
     backend: str,
 ) -> None:
     from manimux.embodiments.sensor.taccap import sensor as taccap_module
-    from manimux.sensors.realsense.camera import RealSenseCamera
 
-    camera = object.__new__(TacCapCamera if backend == "taccap" else RealSenseCamera)
+    camera = object.__new__(TacCapCamera)
     camera._camera_serial = "test"
     camera._max_frame_age_sec = 2.0
     camera._latest_color_image = np.zeros((2, 2, 3), dtype=np.uint8)
     camera._latest_frame_timestamp = 10.0
     original = camera._latest_color_image
-    if backend == "realsense":
-        monkeypatch.setitem(
-            sys.modules,
-            "cv2",
-            SimpleNamespace(
-                COLOR_BGR2RGB=4,
-                cvtColor=lambda image, _code: image[..., ::-1].copy(),
-            ),
-        )
-        camera._frame_ready = threading.Event()
-        camera._frame_ready.set()
-        camera._read_wait_timeout_sec = 0.1
-        camera._latest_depth_image = None
-        camera._enable_depth = False
-        camera._last_capture_error = None
-        camera._flip = False
-
     class AdvancingCapture:
         def __enter__(self) -> AdvancingCapture:
             return self

@@ -14,6 +14,7 @@ from manimux.runtime.executors import DirectExecutor, SmoothExecutor
 from manimux.runtime.lock import RuntimeInstanceLock, RuntimeLockError
 from manimux.runtime.safety import command_safety_parameters
 
+pytestmark = pytest.mark.usefixtures("collection_hardware")
 
 def test_orbbec_missing_dependency_is_not_reported_as_missing_camera(monkeypatch):
     from manimux.collection.yam.camera.orbbec import discover_orbbec
@@ -24,7 +25,7 @@ def test_orbbec_missing_dependency_is_not_reported_as_missing_camera(monkeypatch
 
 
 def station(tmp_path):
-    cfg = build_station_config("configs/collection/yam/station.yaml")
+    cfg = build_station_config("manimux/configs/collection/yam/station.yaml")
     cfg.save_root = str(tmp_path / "episodes")
     cfg.cameras = []
     return cfg
@@ -58,7 +59,8 @@ def test_camera_start_failure_closes_all_drivers(tmp_path, monkeypatch):
 
     drivers = [TrackingCamera(name, name, CameraMode.MONO, 64, 48) for name in ("left", "right")]
     monkeypatch.setattr(
-        session_module, "build_cameras_from_config", lambda *args, **kwargs: drivers
+        session_module, "build_cameras_from_config",
+        lambda cfg, **kwargs: [d for d in drivers if d.name == cfg.cameras[0].name]
     )
 
     def refuse_start(self):
@@ -66,7 +68,8 @@ def test_camera_start_failure_closes_all_drivers(tmp_path, monkeypatch):
 
     monkeypatch.setattr(session_module.CameraWorker, "start", refuse_start)
     config = station(tmp_path)
-    session = session_module.CollectSession(config, mock=True)
+    config.cameras = [CameraConfig(name, "mock", name) for name in ("left", "right")]
+    session = session_module.CollectSession(config)
     with pytest.raises(RuntimeError, match="warmup failed"):
         session.connect_cameras(config)
     assert closed == ["left", "right"]
@@ -76,8 +79,8 @@ def test_camera_start_failure_closes_all_drivers(tmp_path, monkeypatch):
 
 @pytest.fixture
 def backend(tmp_path):
-    config = load_backend_config(station(tmp_path), mock=True)
-    instance = CollectionBackend(config, mock=True, lock_dir=tmp_path, execution_mode="threaded")
+    config = load_backend_config(station(tmp_path))
+    instance = CollectionBackend(config, lock_dir=tmp_path, execution_mode="threaded")
     instance.connect(start_thread=False)
     try:
         yield instance
@@ -127,12 +130,12 @@ def test_stale_leader_latches_stop(backend):
 
 
 def test_shared_lease_is_acquired_before_driver_connect(tmp_path):
-    config = load_backend_config(station(tmp_path), mock=True)
+    config = load_backend_config(station(tmp_path))
     with RuntimeInstanceLock("yam", mode="test", config_path=Path("test"), lock_dir=tmp_path):
         from manimux.clock import SystemClock
-        from manimux.robots.mock import MockDualArmDriver
+        from tests.support.robot import RobotDouble
 
-        driver = MockDualArmDriver(config["robot"]["group_dims"], SystemClock())
+        driver = RobotDouble(config["robot"]["group_dims"], SystemClock())
         instance = CollectionBackend(config, driver=driver, lock_dir=tmp_path)
         with pytest.raises(RuntimeLockError):
             instance.connect()
@@ -140,9 +143,9 @@ def test_shared_lease_is_acquired_before_driver_connect(tmp_path):
 
 
 def test_smooth_executor_is_shared(tmp_path):
-    config = load_backend_config(station(tmp_path), mock=True)
-    config["execution"]["executor"] = "smooth"
-    instance = CollectionBackend(config, mock=True, lock_dir=tmp_path, execution_mode="threaded")
+    config = load_backend_config(station(tmp_path))
+    config["executor"]["type"] = "smooth"
+    instance = CollectionBackend(config, lock_dir=tmp_path, execution_mode="threaded")
     instance.connect(start_thread=False)
     try:
         assert isinstance(instance.executor, SmoothExecutor)
@@ -189,10 +192,10 @@ def test_gui_uses_mock_backend_and_pause(tmp_path, monkeypatch, execution_mode):
     cfg = station(tmp_path)
     cfg.execution_mode = execution_mode
     if execution_mode == "threaded":
-        cfg.manimux_config = "configs/collection/yam/control-threaded.yaml"
+        cfg.manimux_config = "manimux/configs/collection/yam/control-threaded.yaml"
     cfg.cameras = [CameraConfig("test_top", "mock", "top", width=64, height=48)]
     monkeypatch.setenv("YAM_ABC_VIDEO_ENCODER", "libx264")
-    app = create_app(cfg, mock=True)
+    app = create_app(cfg)
     with TestClient(app) as client:
         assert client.get("/").status_code == 200
         assert client.post("/api/deploy/start", json={}).status_code == 409
@@ -239,8 +242,8 @@ def test_gui_uses_mock_backend_and_pause(tmp_path, monkeypatch, execution_mode):
 
 
 def test_synchronous_sends_once_per_target_without_thread(tmp_path, monkeypatch):
-    config = load_backend_config(station(tmp_path), mock=True)
-    instance = CollectionBackend(config, mock=True, lock_dir=tmp_path)
+    config = load_backend_config(station(tmp_path))
+    instance = CollectionBackend(config, lock_dir=tmp_path)
     commands = []
     send = instance.driver.send_command
 
@@ -270,9 +273,9 @@ def test_synchronous_sends_once_per_target_without_thread(tmp_path, monkeypatch)
 
 @pytest.mark.parametrize("frequency", [30.0, 100.0])
 def test_threaded_frequency_is_configured(tmp_path, frequency):
-    config = load_backend_config(station(tmp_path), mock=True)
+    config = load_backend_config(station(tmp_path))
     config["robot"]["control_hz"] = frequency
-    instance = CollectionBackend(config, mock=True, lock_dir=tmp_path, execution_mode="threaded")
+    instance = CollectionBackend(config, lock_dir=tmp_path, execution_mode="threaded")
     instance.connect()
     try:
         assert instance._thread.is_alive()
@@ -287,8 +290,8 @@ def test_threaded_frequency_is_configured(tmp_path, frequency):
 
 
 def test_synchronous_rejects_stale_resume(tmp_path):
-    config = load_backend_config(station(tmp_path), mock=True)
-    instance = CollectionBackend(config, mock=True, lock_dir=tmp_path)
+    config = load_backend_config(station(tmp_path))
+    instance = CollectionBackend(config, lock_dir=tmp_path)
     instance.connect()
     try:
         instance.set_target("left_arm", np.zeros(7))
@@ -302,8 +305,8 @@ def test_synchronous_rejects_stale_resume(tmp_path):
 
 
 def test_synchronous_send_failure_stops_driver(tmp_path, monkeypatch):
-    config = load_backend_config(station(tmp_path), mock=True)
-    instance = CollectionBackend(config, mock=True, lock_dir=tmp_path)
+    config = load_backend_config(station(tmp_path))
+    instance = CollectionBackend(config, lock_dir=tmp_path)
     instance.connect()
     try:
 
@@ -321,14 +324,14 @@ def test_synchronous_send_failure_stops_driver(tmp_path, monkeypatch):
 
 def test_synchronous_requires_matching_frequencies(tmp_path):
     cfg = station(tmp_path)
-    cfg.manimux_config = "configs/collection/yam/control-threaded.yaml"
+    cfg.manimux_config = "manimux/configs/collection/yam/control-threaded.yaml"
     with pytest.raises(ValueError, match="matching robot and station"):
-        load_backend_config(cfg, mock=True)
+        load_backend_config(cfg)
     cfg.execution_mode = "threaded"
-    assert load_backend_config(cfg, mock=True)["robot"]["control_hz"] == 100
+    assert load_backend_config(cfg)["robot"]["control_hz"] == 100
     cfg.execution_mode = "typo"
     with pytest.raises(ValueError, match="execution_mode"):
-        load_backend_config(cfg, mock=True)
+        load_backend_config(cfg)
 
 
 def test_collection_cli_dispatches_configured_embodiment(tmp_path, monkeypatch):
@@ -337,8 +340,8 @@ def test_collection_cli_dispatches_configured_embodiment(tmp_path, monkeypatch):
 
     calls = []
     monkeypatch.setattr(yam_cli, "run_gui", calls.append)
-    main(["--config", "configs/collection/yam/station.yaml", "--mock"])
-    assert len(calls) == 1 and calls[0].mock
+    main(["--config", "manimux/configs/collection/yam/station.yaml"])
+    assert len(calls) == 1 and calls[0].station == "manimux/configs/collection/yam/station.yaml"
     invalid = tmp_path / "unknown.yaml"
     invalid.write_text("collector: unknown\n")
     with pytest.raises(SystemExit):
@@ -365,60 +368,51 @@ def test_leader_policy_keeps_analog_gripper():
     np.testing.assert_allclose(result, [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.37])
 
 
-def test_native_default_call_is_unchanged(monkeypatch):
-    import importlib
+def test_controller_delays_sdk_creation_and_preserves_device_selection(monkeypatch):
+    import sys
     from types import SimpleNamespace
 
-    from i2rt.robots.utils import ArmType, GripperType
-
-    from manimux.robots.yam.arm import YAMRobot
+    from manimux.embodiments.arm.yam import YamController
 
     calls = []
-
-    def fake_factory(**options):
-        calls.append(options)
-        return SimpleNamespace(get_joint_pos=lambda: np.zeros(7))
-
-    module = importlib.import_module("i2rt.robots.get_robot")
-    monkeypatch.setattr(module, "get_yam_robot", fake_factory)
-    YAMRobot(channel="test_bus")
-    assert calls[-1] == {"channel": "test_bus", "gripper_type": GripperType.LINEAR_4310}
-    YAMRobot(channel="test_bus", gripper_force_limit=50.0)
-    assert calls[-1] == {"channel": "test_bus", "gripper_type": GripperType.LINEAR_4310}
-    count = len(calls)
-    with pytest.raises(ValueError, match="fixes gripper force at 50 N"):
-        YAMRobot(channel="test_bus", gripper_force_limit=60.0)
-    assert len(calls) == count
-    YAMRobot(channel="leader_bus", arm_type="yam", gripper_type="yam_teaching_handle")
-    assert calls[-1]["arm_type"] == ArmType.from_string_name("yam")
-    assert calls[-1]["gripper_type"] == GripperType.from_string_name("yam_teaching_handle")
+    monkeypatch.setitem(sys.modules, "i2rt.robots.get_robot", SimpleNamespace(
+        get_yam_robot=lambda **options: calls.append(options) or object()))
+    enum = SimpleNamespace(from_string_name=lambda name: name)
+    monkeypatch.setitem(sys.modules, "i2rt.robots.utils", SimpleNamespace(ArmType=enum, GripperType=enum))
+    controller = YamController(channel="test_bus")
+    assert calls == []
+    controller.connect()
+    controller.connect()
+    assert calls == [{"channel": "test_bus", "arm_type": "yam", "gripper_type": "linear_4310"}]
+    YamController(channel="leader_bus", gripper_type="yam_teaching_handle").connect()
+    assert calls[-1]["gripper_type"] == "yam_teaching_handle"
 
 
 def test_invalid_controller_binding_rejected_before_connect(tmp_path):
     cfg = station(tmp_path)
     cfg.robot.controllers[1].controls = "yam_left"
     with pytest.raises(ValueError, match="one leader per follower"):
-        load_backend_config(cfg, mock=True)
+        load_backend_config(cfg)
 
 
 def test_collection_profile_rejects_gui_hardware_override(tmp_path):
     cfg = station(tmp_path)
     cfg.robot.gripper_force_limit = 60
-    with pytest.raises(ValueError, match="hardware conflicts with control_profile"):
-        load_backend_config(cfg, mock=True)
+    with pytest.raises(ValueError, match="fixes gripper force at 50 N"):
+        load_backend_config(cfg)
 
 
 @pytest.mark.parametrize("executor", ["direct", "smooth"])
 def test_shared_command_limits_apply_to_both_executors(tmp_path, executor):
-    config = load_backend_config(station(tmp_path), mock=True)
-    config["execution"]["executor"] = executor
-    config["execution"]["command_safety"] = command_safety_parameters(
+    config = load_backend_config(station(tmp_path))
+    config["executor"]["type"] = executor
+    config["executor"]["command_safety"] = command_safety_parameters(
         position_lower={group: [-10.0] * 7 for group in config["robot"]["group_dims"]},
         position_upper={group: [10.0] * 7 for group in config["robot"]["group_dims"]},
         max_velocity={group: [0.001] * 7 for group in config["robot"]["group_dims"]},
         max_acceleration={group: [0.001] * 7 for group in config["robot"]["group_dims"]},
     )
-    instance = CollectionBackend(config, mock=True, lock_dir=tmp_path)
+    instance = CollectionBackend(config, lock_dir=tmp_path)
     instance.connect()
     try:
         with pytest.raises(ValueError, match="velocity"):
@@ -431,14 +425,16 @@ def test_shared_command_limits_apply_to_both_executors(tmp_path, executor):
 def test_collection_profile_applies_shared_station_defaults(tmp_path):
     import yaml
 
-    profile = yaml.safe_load(Path("configs/robots/yam/common.yaml").read_text())
+    profile = yaml.safe_load(Path("manimux/configs/embodiment/robot/yam_control.yaml").read_text())
     for side in ("left", "right"):
-        profile["robot"]["options"][f"{side}_hardware_options"]["ee_mass"] = 0.8
+        profile["robot"]["options"].setdefault("component_hardware", {})[f"{side}_yam"] = {"channel": f"can_{side}", "ee_mass": 0.8}
     (tmp_path / "shared.yaml").write_text(yaml.safe_dump(profile))
-    control = yaml.safe_load(Path("configs/collection/yam/control.yaml").read_text())
+    control = yaml.safe_load(Path("manimux/configs/collection/yam/control.yaml").read_text())
     control["control_profile"] = "shared.yaml"
+    control["robot"]["config"] = str(Path("manimux/configs/embodiment/robot/yam_dual.yaml").resolve())
+    control["robot"]["options"].pop("component_hardware", None)
     (tmp_path / "control.yaml").write_text(yaml.safe_dump(control))
-    raw = yaml.safe_load(Path("configs/collection/yam/station.yaml").read_text())
+    raw = yaml.safe_load(Path("manimux/configs/collection/yam/station.yaml").read_text())
     raw["manimux_config"] = str(tmp_path / "control.yaml")
     path = tmp_path / "station.yaml"
     path.write_text(yaml.safe_dump(raw))
@@ -447,7 +443,7 @@ def test_collection_profile_applies_shared_station_defaults(tmp_path):
     assert cfg.robot.gripper_force_limit == 50
     assert cfg.robot.gripper_close_duration_s == 1.0
     assert cfg.control_hz == 30
-    hardware = load_backend_config(cfg, mock=True)["robot"]["options"]["left_hardware_options"]
+    hardware = load_backend_config(cfg)["robot"]["options"]["component_hardware"]["left_yam"]
     assert hardware["ee_mass"] == 0.8
     raw["robot"]["ee_mass"] = 1.0
     path.write_text(yaml.safe_dump(raw))
@@ -461,7 +457,7 @@ def test_toggle_gripper_matches_original_curve_without_double_slowdown(tmp_path)
     from manimux.types import ActionHorizon, RobotState
 
     cfg = station(tmp_path)
-    runtime = load_backend_config(cfg, mock=True)
+    runtime = load_backend_config(cfg)
     follower = SimpleNamespace(
         num_dofs=lambda: 7,
         get_joint_pos=lambda: np.array([0.0] * 6 + [1.0]),
@@ -474,7 +470,7 @@ def test_toggle_gripper_matches_original_curve_without_double_slowdown(tmp_path)
         gripper_close_duration_s=cfg.robot.gripper_close_duration_s,
     )
     executor = DirectExecutor(
-        runtime["execution"]["motion_limits"], control_dt_s=1 / cfg.control_hz
+        runtime["executor"]["motion_limits"], control_dt_s=1 / cfg.control_hz
     )
     state = RobotState(
         groups={group: follower.get_joint_pos() for group in runtime["robot"]["group_dims"]},

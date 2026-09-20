@@ -35,10 +35,10 @@ robot state + cameras
 V1 不实现 Control Plane、Inference Gateway 或 Data Service。一个 CLI launcher 启动三个顶层运行单元：
 
 ```text
-manimux run --config configs/my_run.yaml
+manimux run --config manimux/configs/experiments/my_task/my_run.yaml
 │
 ├── edge-agent
-│   ├── RobotDriver / SensorDriver
+│   ├── RobotBase / SensorBase
 │   ├── Observation Builder
 │   ├── InferenceStrategy + Action Timeline + Executor + Safety
 │   ├── local Recorder
@@ -82,7 +82,7 @@ Latest State Buffers ──► Observation Builder ──► policy request queu
 Safety/Watchdog ◄── Smooth/MPC Executor ◄── Action Timeline ◄── Validator/Adapter
      │
      ▼
-RobotDriver.send_command()
+RobotBase.send_command()
 
 all streams ── best-effort copy ──► local Recorder / Viewer
 ```
@@ -114,7 +114,7 @@ close() -> None
 
 ### 2.4 Built-in Universal Viewer
 
-Viewer 直接位于 `src/manimux/viewer/`，不再依赖另一个 checkout：
+Viewer 直接位于 `manimux/viewer/`，不再依赖另一个 checkout：
 
 - policy/runtime 发布通用 `PolicyPlan`、`RobotSnapshot` 和 `RuntimeEvent`；
 - robot adapter 负责关节拆分、FK、模型和场景，不把 Viewer 写死为 YAM；
@@ -128,10 +128,12 @@ Viewer 直接位于 `src/manimux/viewer/`，不再依赖另一个 checkout：
 
 V1 不建立多个 registry/manifest 层，只保留三个插件接口和一个 run config。
 
-### 3.1 RobotDriver
+### 3.1 RobotBase
 
 ```python
-class RobotDriver(Protocol):
+# Public methods of manimux.embodiments.robot.RobotBase.
+# Assemblies inherit the existing base; no separate robot Protocol is needed.
+class RobotBase(ABC):
     def connect(self) -> None: ...
     def get_state(self) -> RobotState: ...
     def send_command(self, command: RobotCommand) -> None: ...
@@ -142,12 +144,13 @@ class RobotDriver(Protocol):
 
 Robot state/command 使用 named group，例如 `left_arm`、`right_arm`、`left_gripper`、`right_gripper`。双臂仍作为一个 robot instance 连接和停止。
 
-### 3.2 SensorDriver
+### 3.2 SensorBase
 
 ```python
-class SensorDriver(Protocol):
+# manimux.embodiments.sensor.SensorBase
+class SensorBase(ABC):
     def start(self) -> None: ...
-    def read(self) -> SensorFrame: ...
+    def read(self) -> SensorFrame | dict[str, SensorFrame]: ...
     def close(self) -> None: ...
 ```
 
@@ -158,7 +161,7 @@ class SensorDriver(Protocol):
 PolicyAdapter 隔离模型与机器人组合的特殊语义：
 
 ```python
-class PolicyAdapter(Protocol):
+class PolicyAdapter(ABC):
     def build_observation(self, snapshot: ObservationSnapshot) -> object: ...
     def prepare_request(self, request: InferenceRequest) -> InferenceRequest: ...
     def decode_action(self, raw: object, context: ActionContext) -> ActionChunk: ...
@@ -167,8 +170,8 @@ class PolicyAdapter(Protocol):
 
 它负责：
 
-- observation resize/order/normalization；
-- 模型 state 与 action normalization；
+- observation resize/order；
+- 模型服务的观测字段与整机状态映射（checkpoint normalization 归 XPolicyLab）；
 - joint/group order；
 - relative/absolute 与 joint/EE action 解释；
 - RTC condition 从 canonical joint 空间到模型 native action 空间的编码；
@@ -183,13 +186,13 @@ XPolicy 接入时有两个职责不同的 adapter：
 
 ```text
 YAM state/cameras
-    -> ManiMux XPolicyAdapter
+    -> ManiMux JointAdapter
     -> XPolicy standard observation
     -> XPolicy policy/Pi_05/model.py
     -> OpenPI native input
 ```
 
-- ManiMux 的 `XPolicyAdapter` 负责 YAM group/camera 与 XPolicy wire format 的互转；
+- ManiMux 的 `JointAdapter` 负责 YAM group/camera 与 XPolicy wire format 的互转；
 - XPolicy 的 `policy/<name>/model.py` 负责 checkpoint、模型预处理、normalization 和
   模型原生 action 解码；
 - ManiMux RTC 根据真实执行进度生成 condition 和 soft mask；支持 RTC 的 XPolicy 模型
@@ -232,49 +235,49 @@ run:
   max_steps: 500
 
 robot:
-  driver: maniuni_dual_arm
-  config: ./configs/robots/my_dual_arm.yaml
+  type: yam
+  config: ../../embodiment/robot/yam_dual.yaml
   control_hz: 100
 
 sensors:
-  - name: overhead
-    driver: realsense
-    serial: "..."
-  - name: left_wrist
-    driver: realsense
-    serial: "..."
+- name: overhead
+  driver: realsense
+  serial: '...'
+- name: left_wrist
+  driver: realsense
+  serial: '...'
 
 policy:
-  worker: python
-  adapter: my_pi05_adapter
-  checkpoint: /local/path/to/checkpoint
-  device: cuda:0
+  worker: xpolicylab_ws
+  adapter:
+    type: manimux.policy_adapter.joint:JointAdapter
   action_dt_s: 0.05
   timeout_s: 1.0
 
-execution:
-  executor: smooth             # smooth | mpc
-  refill_threshold_s: 0.4
-  commit_lead_s: 0.02
-  max_plan_age_s: 1.0
-  underrun_hold_s: 0.5
-  smooth:
-    cutoff_hz: 8.0
-    max_velocity: [...]
-    max_acceleration: [...]
-  mpc:
-    horizon_steps: 15
-    control_dt_s: 0.01
-    max_velocity: [...]
-    max_acceleration: [...]
 
 viewer:
   enabled: true
-  robot_adapter: my_dual_arm
+  robot: my_dual_arm
 
 recording:
   enabled: true
   video_codec: h264
+inference:
+  refill_threshold_s: 0.4
+  commit_lead_s: 0.02
+  max_plan_age_s: 1.0
+  underrun_hold_s: 0.5
+executor:
+  type: smooth
+  smooth:
+    cutoff_hz: 8.0
+    max_velocity: ['...']
+    max_acceleration: ['...']
+  mpc:
+    horizon_steps: 15
+    control_dt_s: 0.01
+    max_velocity: ['...']
+    max_acceleration: ['...']
 ```
 
 启动时保存 resolved config。配置 hash 进入每个 episode metadata；不另外建立 ModelArtifactManifest、RobotManifest 或 Embodiment Registry。
@@ -453,49 +456,24 @@ evaluator_version
 ## 8. V1 代码结构
 
 ```text
-src/manimux/
-  cli.py                    # manimux run/list/replay
-  config.py                 # single YAML schema
-  types.py                  # shared typed dataclasses
-  runtime/
-    edge.py
-    timeline.py
-    safety.py
-    executors/
-      base.py
-      smooth.py
-      mpc.py
-  robots/
-    base.py
-    mock.py
-  sensors/
-    base.py
-    mock.py
-  policies/
-    base.py
-    worker.py
-    fake.py
-  recording/
-    episode.py
-  viewer/
-    bridge.py                # ManiMux runtime bridge
-    client.py                # policy-side observer API
-    protocol.py              # robot/policy-independent wire messages
-    transport.py             # ZMQ transport
-    dashboard.py             # Viser UI
-    robots/                  # robot adapter contract + YAM
-  integrations/
-    molmoact_yam/            # async launcher, policy/camera servers, recording
-    xpolicylab/              # XPolicy wire client + embodiment mapping
-  assets/
-    i2rt/robot_models/       # bundled YAM viewer geometry
-configs/
-tests/
-  unit/
-  integration/
-  hardware/
-docs/
-XPolicyLab/                  # submodule -> Cuzyoung/XPolicyLab fork
+repository/
+├── manimux/
+│   ├── configs/               # experiments / embodiment / policy / inference / executor
+│   ├── embodiments/           # robot / arm / end_effector / sensor
+│   ├── policy_adapter/        # observation/action conversion
+│   ├── policies/              # model clients and worker processes
+│   ├── servers/               # camera service and XPolicyLab launchers
+│   ├── runtime/               # strategies, timeline, executors, safety
+│   ├── kinematics/
+│   ├── collection/
+│   ├── viewer/
+│   ├── recording/
+│   ├── evaluation/
+│   └── cli.py / session.py / types.py / clock.py
+├── tests/
+├── docs/
+├── scripts/                   # maintenance, installation and data tools
+└── XPolicyLab/                # independent model repository
 ```
 
 首版保持一个 Python package。不要先拆 `apps/`、`packages/`、generated contracts 或多个 deployable service。
@@ -516,8 +494,8 @@ XPolicyLab/                  # submodule -> Cuzyoung/XPolicyLab fork
 
 ### Milestone 1：首个真机 + Python model
 
-- 首个 dual-arm RobotDriver；
-- RealSense SensorDriver；
+- 首个 dual-arm RobotBase；
+- RealSense SensorBase；
 - 一个真实 PolicyAdapter；
 - watchdog、limits、partial episode recovery；
 - Smooth 和 joint-space local MPC 真机低速验证；

@@ -1,8 +1,12 @@
 # 天机速度限制的来源与当前差异
 
+> Historical report: the old Tianji driver and its driver/recovery tests have
+> since been removed. Measurements below describe that revision, not validation
+> of the current component assembly. Current layout: [code organization](code-organization.md).
+
 核查日期：2026-09-13。通过 `git ls-remote origin refs/heads/main` 确认
 `SII-LiuLab/manimux` 远端 main 为 `9e313ebbe3ffea0b85de44e282ddfdc2a0f74765`。
-本地天机分支核查版本为 `d424996`。两者的 `src/manimux/config.py`、
+本地天机分支核查版本为 `d424996`。两者的 `manimux/config.py`、
 `runtime/safety.py` 和整个 `runtime/executors/` 目录没有代码差异。
 
 ## 结论
@@ -21,7 +25,7 @@ CalibWrist 的等比例关节限速来自 teleop 的 `algos.safety.SafetyGate`�
 | CalibWrist 的发送时步长检查 | `deploy/tianji/command_sink.py::TianjiCommandSink.send` | 超过速率 × 命令时间间隔 × 1.05 就停，不在这里削减 |
 | ManiMux 的命令削减 | `runtime/executors/limits.py` | 对每个关节分别限制速度、加速度 |
 | ManiMux 的拒绝检查 | `runtime/safety.py::SafetyGuard` | 对命令差分计算速度、加速度，越界报错 |
-| 天机在 ManiMux 中的具体限值 | `configs/robots/tianji/common.yaml` | 本地 `3d5beff` 为现有机制填写的本体参数 |
+| 天机在 ManiMux 中的具体限值 | `manimux/configs/embodiment/robot/tianji_control.yaml` | 本地 `3d5beff` 为现有机制填写的本体参数 |
 
 ## teleop 和 CalibWrist
 
@@ -59,17 +63,17 @@ teleop 和 CalibWrist 的这条 SafetyGate 没有对命令序列计算二阶差�
 
 ## 远端 ManiMux 确实已有的代码
 
-- [limit_velocity / limit_step（核实版本）](https://github.com/SII-LiuLab/manimux/blob/9e313ebbe3ffea0b85de44e282ddfdc2a0f74765/src/manimux/runtime/executors/limits.py)：先用 `np.clip` 逐元素限制速度，再限制相对上一次速度的变化。
-- [DirectExecutor（核实版本）](https://github.com/SII-LiuLab/manimux/blob/9e313ebbe3ffea0b85de44e282ddfdc2a0f74765/src/manimux/runtime/executors/direct.py)：配置 `motion_limits` 后，调用上述函数限制发出的关节命令；夹爪用自己的限值单独处理。
-- [SmoothExecutor（核实版本）](https://github.com/SII-LiuLab/manimux/blob/9e313ebbe3ffea0b85de44e282ddfdc2a0f74765/src/manimux/runtime/executors/smooth.py)：也使用同一套逐关节限速函数，另有跟踪和平滑逻辑。
-- [SafetyGuard（核实版本）](https://github.com/SII-LiuLab/manimux/blob/9e313ebbe3ffea0b85de44e282ddfdc2a0f74765/src/manimux/runtime/safety.py)：逐关节检查命令速度与加速度，超限报错。
+- [limit_velocity / limit_step（核实版本）](https://github.com/SII-LiuLab/manimux/blob/9e313ebbe3ffea0b85de44e282ddfdc2a0f74765/manimux/runtime/executors/limits.py)：先用 `np.clip` 逐元素限制速度，再限制相对上一次速度的变化。
+- [DirectExecutor（核实版本）](https://github.com/SII-LiuLab/manimux/blob/9e313ebbe3ffea0b85de44e282ddfdc2a0f74765/manimux/runtime/executors/direct.py)：配置 `motion_limits` 后，调用上述函数限制发出的关节命令；夹爪用自己的限值单独处理。
+- [SmoothExecutor（核实版本）](https://github.com/SII-LiuLab/manimux/blob/9e313ebbe3ffea0b85de44e282ddfdc2a0f74765/manimux/runtime/executors/smooth.py)：也使用同一套逐关节限速函数，另有跟踪和平滑逻辑。
+- [SafetyGuard（核实版本）](https://github.com/SII-LiuLab/manimux/blob/9e313ebbe3ffea0b85de44e282ddfdc2a0f74765/manimux/runtime/safety.py)：逐关节检查命令速度与加速度，超限报错。
 
 历史上，SafetyGuard 的这段速度/加速度拒绝检查来自 `a946b87`（2026-08-28）；
 共享 motion_limits 配置以及 DirectExecutor 的接入来自 `9d14670`（2026-09-12）。
 它们已在远端 main 中，早于今天的天机集成。
 
 框架支持与本体配置启用是两回事。远端
-[YAM common.yaml](https://github.com/SII-LiuLab/manimux/blob/9e313ebbe3ffea0b85de44e282ddfdc2a0f74765/configs/robots/yam/common.yaml)
+[YAM common.yaml](https://github.com/SII-LiuLab/manimux/blob/9e313ebbe3ffea0b85de44e282ddfdc2a0f74765/manimux/configs/embodiment/robot/yam_control.yaml)
 的 `command_safety` 为 null，arm 的速度/加速度限值也为 null，只显式限制夹爪
 闭合速度 1.0。不能因为默认 YAM 没启用手臂限值，就断言远端没有实现。
 
@@ -124,7 +128,7 @@ ManiMux 输出：   [1,    2,   2]  # 逐关节截断
 显式配置加速度限制时，isotropic 的两阶段分别整体缩放速度向量、速度变化向量；
 此时不能再声称最终位置增量一定保持原目标方向。默认 per_joint 的计算路径保留。
 Smooth 的滤波/制动、位置边界和夹爪配置继续独立生效。用法见
-[配置说明](../configs/README.md#选择手臂命令的削减方式)。
+[配置说明](../manimux/configs/README.md#选择手臂命令的削减方式)。
 
 验证：`test_executors.py`、`test_config.py`、`test_tianji_driver.py` 共 111 项通过。
 另在 30、100、250 Hz 下，以相同关节目标分别运行 teleop 的原始

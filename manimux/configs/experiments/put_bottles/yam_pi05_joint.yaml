@@ -1,0 +1,104 @@
+# Integrated YAM example; deployment reads configs/local/station.yaml by default.
+# execute: false permits observation/inference without submitting robot targets.
+# The paired policy_server recipe selects the joint step-30000 checkpoint.
+run:
+  task: Put the bottles into the bin.
+  output_dir: ./data/experiments/pi05-put-bottles-joint-step30000/rtc
+  max_steps: 12000
+robot:
+  type: yam
+  config: ../../embodiment/robot/yam_dual.yaml
+  control_hz: 100.0
+  group_dims:
+    left_arm: 7
+    right_arm: 7
+  options:
+    execute: false
+    move_to_start_on_connect: true
+    start_joints:
+      left_arm:
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 1.0
+      right_arm:
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 1.0
+    start_duration_s: 2.0
+    home_duration_s: 2.0
+    home_on_close: true
+sensors:
+- name: yam_cameras
+  driver: camera_server
+  options:
+    request_timeout_ms: 500
+    max_frame_age_sec: 0.5
+    camera_names:
+    - left_camera
+    - front_camera
+    - right_camera
+  service: camera
+policy:
+# 匹配原 put-bottles joint step-30000 服务；更换 checkpoint 时成对调整身份。
+# 模型输入保持 30 Hz、50 步、左右各六关节加一个归一化夹爪。
+  worker: xpolicylab_ws
+  adapter:
+    type: manimux.policy_adapter.joint:JointAdapter
+    group_order:
+    - left_arm
+    - right_arm
+    group_prefixes:
+      left_arm: left
+      right_arm: right
+    gripper_dofs: 1
+    camera_map:
+      cam_head: front_camera
+      cam_left_wrist: left_camera
+      cam_right_wrist: right_camera
+  timeout_s: 2.0
+  horizon_steps: 50
+  inference_delay_s: 0.0
+  expected_backend:
+    server: xpolicylab_policy_server
+    model:
+      policy_family: pi05
+      task_name: put_bottles_into_the_bin
+      checkpoint_variant: pi05_yam_put_bottles_joint_step_30000
+      checkpoint_source: qz_hdd3_put-bottles-joint-v1-s0-30k_step30000
+      norm_stats_source: checkpoint_matched_yam_put_bottles_into_the_bin_20260905_joint_ee_v1
+      train_config_name: pi05_yam
+      action_horizon: 50
+      num_steps: 10
+  startup_timeout_s: 30.0
+  options:
+    request_timeout_s: 10.0
+  action_dt_s: 0.03333333333333333
+viewer:
+  enabled: true
+  robot: yam
+  policy_label: Pi05 YAM put-bottles joint step-30000 - RTC max 12
+recording:
+  enabled: true
+  video_fps: 30.0
+camera_server:
+  cameras:
+    left_camera: {component: left_camera, type: realsense}
+    front_camera: {component: front_camera, type: realsense}
+    right_camera: {component: right_camera, type: realsense}
+# 推理算法决定请求与 chunk 交接；执行器独立负责命令平滑和限幅。
+inference:
+  algorithm: rtc
+  config: ../../inference/yam_rtc.yaml
+executor:
+  type: smooth
+  config: ../../executor/yam_smooth.yaml
+policy_server:
+  config: ../../policy/pi05/yam/put-bottles/joint-step30000.yaml

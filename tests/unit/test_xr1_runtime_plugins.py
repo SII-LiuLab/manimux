@@ -9,18 +9,15 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from manimux.embodiments.sensor.camera_server import CameraServerSensorDriver
 from manimux.cli import load_config
 from manimux.clock import SystemClock
-from manimux.integrations.xpolicylab.policy_plugin import XPolicyLabWsPolicyModel
-from manimux.integrations.xr1_yam.policy_plugin import (
-    ACTION_DIM,
-    XR1YamAdapter,
-    _axis_angle_to_rotation,
-)
-from manimux.policies import build_policy_adapter, build_policy_model
-from manimux.robots import build_robot
-from manimux.sensors import build_sensor
-from manimux.sensors.camera_server import CameraServerSensorDriver
+from manimux.embodiments.robot import build_robot
+from manimux.embodiments.sensor import build_sensor
+from manimux.policies import build_policy_model
+from manimux.policies.xpolicylab.client import XPolicyLabWsPolicyModel
+from manimux.policy_adapter import build_policy_adapter
+from manimux.policy_adapter.xr1.yam import ACTION_DIM, XR1YamAdapter, _axis_angle_to_rotation
 from manimux.types import ActionContext, InferenceRequest, ObservationSnapshot, RobotState
 
 pytest.importorskip("mujoco")
@@ -49,17 +46,17 @@ ANCHOR = np.array(
 
 @pytest.fixture(scope="module")
 def adapter() -> XR1YamAdapter:
-    config = load_config("configs/xiaomi-xr1/yam/infra/manimux.yaml")
+    config = load_config("manimux/configs/experiments/put_bottles/yam_xiaomi_xr1_manimux.yaml")
     return build_policy_adapter(config["robot"], config["policy"])
 
 
 def test_xr1_run_config_swaps_only_the_policy_layer() -> None:
-    from manimux.robots.yam import YamDualArmDriver
+    from manimux.embodiments.robot.yam import YamRobot
 
-    xr1 = load_config("configs/xiaomi-xr1/yam/infra/manimux.yaml")
-    molmoact = load_config("configs/molmoact2/yam/infra/manimux.yaml")
+    xr1 = load_config("manimux/configs/experiments/put_bottles/yam_xiaomi_xr1_manimux.yaml")
+    molmoact = load_config("manimux/configs/experiments/pick_red_object/yam_molmoact2_manimux.yaml")
 
-    assert isinstance(build_robot(xr1["robot"], SystemClock()), YamDualArmDriver)
+    assert isinstance(build_robot(xr1["robot"], SystemClock()), YamRobot)
     assert isinstance(build_sensor(xr1["sensors"][0], SystemClock()), CameraServerSensorDriver)
     assert isinstance(build_policy_model(xr1["policy"]), XPolicyLabWsPolicyModel)
 

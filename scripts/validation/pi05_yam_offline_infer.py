@@ -16,8 +16,8 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[2]
 XPOLICY_ROOT = REPO_ROOT / "XPolicyLab"
 OPENPI_SRC = XPOLICY_ROOT / "policy/Pi_05/openpi/src"
-DEFAULT_CONFIG = REPO_ROOT / "configs/pi05/yam/server/finetune.yaml"
-DEFAULT_INFRA_CONFIG = REPO_ROOT / "configs/pi05/yam/infra/manimux.yaml"
+DEFAULT_CONFIG = REPO_ROOT / "manimux/configs/policy/pi05/yam/finetune.yaml"
+DEFAULT_INFRA_CONFIG = REPO_ROOT / "manimux/configs/experiments/pick_red_object/yam_pi05_manimux.yaml"
 
 
 def _prepare_imports() -> None:

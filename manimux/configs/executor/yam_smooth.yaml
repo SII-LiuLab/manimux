@@ -1,0 +1,19 @@
+# 执行器参数；关节角使用 rad，时间使用 s，归一化夹爪沿用各本体约定。
+smooth:
+  cutoff_hz: 8.0
+  position_limit_abs: 3.14
+  gripper:
+    mode: continuous
+    closed_value: 0.0
+    open_value: 1.0
+motion_limits:
+  arm:
+    max_velocity:
+    max_acceleration:
+  gripper:
+    group_indices:
+      left_arm: 6
+      right_arm: 6
+    max_velocity:
+    max_acceleration:
+    max_closing_velocity: 1.0

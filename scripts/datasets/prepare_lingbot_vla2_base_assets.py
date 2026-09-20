@@ -16,7 +16,7 @@ DEFAULT_CHECKPOINT = REPO_ROOT / "checkpoints/pretrained/lingbot-vla-v2-6b"
 DEFAULT_PROCESSOR = REPO_ROOT / "checkpoints/pretrained/qwen3_vl_4b_processor"
 DEFAULT_STATS = (
     REPO_ROOT
-    / "src/manimux/integrations/lingbot_vla2_yam/norm_stats/yam_60ep.json"
+    / "manimux/integrations/lingbot_vla2_yam/norm_stats/yam_60ep.json"
 )
 DEFAULT_OUTPUT = REPO_ROOT / "checkpoints/pretrained/lingbot-vla-v2-6b-yam-projection"
 ROBOT_CONFIG = REPO_ROOT / "XPolicyLab/policy/LingBot_VLA2/robot_configs/yam_dual_absolute.yaml"

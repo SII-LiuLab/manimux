@@ -3,6 +3,9 @@
 # Local training jobs, cluster submission payloads, and TensorBoard operations.
 # These are intentionally kept out of the public ManiMux repository.
 /.local/
+# Private training recipes, launchers, notes and outputs stay outside the package.
+/training/
+/manimux/configs/local/station.yaml
 /.vscode/
 /qz/
 /weekly_report/
@@ -15,16 +18,18 @@
 .pytest_cache/
 .ruff_cache/
 .venv/
+# Local environment contents are machine-specific; keep the setup guide tracked.
+/envs/*
+!/envs/README.md
 *.egg-info/
 data/
-!src/manimux/collection/yam/data/
-!src/manimux/collection/yam/data/**
+!manimux/collection/yam/data/
+!manimux/collection/yam/data/**
 __pycache__/
 *.py[cod]
 dist/
 checkpoints/pretrained/
 checkpoints/finetuned/
-configs/robots/maniunicon_meshcat_dual.yaml
 recordings/
 logs/
 **/SOURCE.json
@@ -44,12 +49,10 @@ tests/
 !/tests/unit/test_sapolicy_xpl_transport.py
 !/tests/unit/test_sapolicy_decode_timing.py
 !/tests/unit/test_viewer_config.py
-!/tests/unit/test_tianji_driver.py
 !/tests/unit/test_taccap_camera.py
 
 !/tests/unit/test_umi_dp_tianji.py
 !/tests/unit/test_tianji_diff_ik.py
-!/tests/unit/test_tianji_recovery.py
 !/tests/unit/test_tianji_rtc.py
 !/tests/integration/
 /tests/integration/*
@@ -71,11 +74,29 @@ tests/
 !/tests/unit/test_local_config.py
 
 # Private embodiment SDKs and robot assets stay on the local installation.
-/src/manimux/embodiments/**/sdk/
-/src/manimux/embodiments/**/asset/
-/src/manimux/embodiments/**/assets/
+/manimux/embodiments/**/sdk/
+/manimux/embodiments/**/asset/
+/manimux/embodiments/**/assets/
 # Also exclude the pre-refactor locations and backup copies.
-/src/manimux/robots/tianji*/vendor/
-/src/manimux/end_effectors/taccap/vendor/
-/src/manimux/assets/tianji/
-/src/manimux/assets/end_effectors/umi_follower/
+/manimux/assets/tianji/
+/manimux/assets/end_effectors/umi_follower/
+
+# YAM 的公开 MIT 模型随组件发布，保留重构前已跟踪的资源。
+!/manimux/embodiments/arm/yam/assets/
+!/manimux/embodiments/arm/yam/assets/**
+!/tests/unit/test_yam_assembly.py
+!/tests/unit/test_policy_adapter_configuration.py
+!/tests/unit/test_station_entrypoints.py
+!/tests/unit/test_tianji_local_bindings.py
+
+# Hardware substitutes and fixtures are test-only; they are not runtime plugins.
+!/tests/__init__.py
+!/tests/conftest.py
+!/tests/support/
+!/tests/support/**
+!/tests/fixtures/
+!/tests/fixtures/**
+
+# Test-source inclusion above must not include generated Python bytecode.
+**/__pycache__/
+*.py[cod]

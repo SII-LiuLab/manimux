@@ -7,7 +7,8 @@ import pytest
 from scipy.spatial.transform import Rotation
 
 from manimux.cli import load_config, prepare_experiment
-from manimux.integrations.xpolicylab.aac import (
+from manimux.policies.fake import FakePolicyAdapter
+from manimux.policies.xpolicylab.aac import (
     AacPreviousAction,
     EeActionStats,
     build_ee_candidates,
@@ -18,8 +19,7 @@ from manimux.integrations.xpolicylab.aac import (
     select_candidate,
     select_ee_chunk,
 )
-from manimux.integrations.xpolicylab.obs_codec import GroupLayout
-from manimux.policies.fake import FakePolicyAdapter
+from manimux.policies.xpolicylab.codec import GroupLayout
 from manimux.runtime.aac import AacInferenceRequest
 from manimux.runtime.inference import RequestState, build_inference_strategy
 from manimux.runtime.safety import RuntimeState
@@ -77,7 +77,7 @@ def _candidate_chunks(samples: int = 3, horizon: int = 4) -> list[list[dict[str,
 
 
 def _aac_config() -> dict:
-    return load_config("configs/groot/yam/infra/aac.yaml")
+    return load_config("manimux/configs/experiments/pick_box/yam_groot_aac.yaml")
 
 
 def test_aac_elbow_and_motion_floor_match_official_indexing() -> None:
@@ -193,7 +193,7 @@ def test_aac_strategy_uses_the_server_capability_and_waits_for_chunk_end() -> No
     kwargs = {
         "session_id": "session",
         "snapshot": snapshot,
-        "adapter": FakePolicyAdapter(),
+        "adapter": FakePolicyAdapter({}, {}),
         "timeline": timeline,
         "request_state": request_state,
         "runtime_state": RuntimeState.RUNNING,
@@ -270,15 +270,15 @@ def test_aac_rebases_selected_chunk_after_synchronous_inference() -> None:
 
 def test_aac_config_rejects_runtime_blending() -> None:
     payload = deepcopy(_aac_config())
-    payload["execution"].pop("inference_schedule")
-    payload["execution"].pop("refill_threshold_s")
-    payload["execution"]["blend_steps"] = 1
+    payload["inference"].pop("inference_schedule")
+    payload["inference"].pop("refill_threshold_s")
+    payload["inference"]["blend_steps"] = 1
     with pytest.raises(ValueError, match="blend_steps=0"):
         prepare_experiment(**payload)
 
 
 def test_aac_config_requires_fixed_ee_stats() -> None:
     payload = deepcopy(_aac_config())
-    payload["execution"]["aac"]["ee_stats_path"] = None
+    payload["inference"]["aac"]["ee_stats_path"] = None
     with pytest.raises(ValueError, match="ee_stats_path"):
         prepare_experiment(**payload)

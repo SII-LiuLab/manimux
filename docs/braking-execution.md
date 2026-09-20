@@ -1,7 +1,7 @@
 # Braking-aware joint tracking and bounded execution prefixes
 
-`configs/sapolicy/yam/infra/manimux-braking-h25.yaml` enables the optional
-`execution.smooth.tracking_mode: braking` mode. Existing profiles retain the
+`manimux/configs/experiments/put_bottles/yam_sapolicy_manimux_braking_h25.yaml` enables the optional
+`executor.smooth.tracking_mode: braking` mode. Existing profiles retain the
 legacy mode unless explicitly changed. MPC is unchanged. The bottle profile also
 uses the optional [latched release](independent-ik-execution.md) rule.
 
@@ -20,7 +20,7 @@ and completes opening. Explicit Pause, Finish and Home retain their existing beh
 The fixed control period is used for command differences, as in the existing
 executor; controller overruns and motor tracking must still be monitored.
 
-`execution.max_chunk_steps: 25` limits the ordinary joint timeline to original
+`inference.max_chunk_steps: 25` limits the ordinary joint timeline to original
 source indices 0 through 24 **before** latency trimming. Model inference and
 recorded raw model chunks remain 50 rows; the decoder solves only the usable prefix.
 A three-row trim therefore commits

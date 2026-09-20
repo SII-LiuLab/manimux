@@ -1,0 +1,23 @@
+name: yam
+hardware:
+  stale_timeout_s: 0.2
+components:
+  left_yam:
+    config: ../arm/yam.yaml
+  right_yam:
+    config: ../arm/yam.yaml
+  left_camera:
+    config: ../sensor/realsense.yaml
+    parent: left_yam
+    mount: null  # 未提供标定，不猜测相机外参。
+  front_camera:
+    config: ../sensor/realsense.yaml
+    mount: null  # 未提供标定，不猜测相机外参。
+  right_camera:
+    config: ../sensor/realsense.yaml
+    parent: right_yam
+    mount: null  # 未提供标定，不猜测相机外参。
+groups:
+  # null 仅表示没有额外挂接的末端，YAM 自带夹爪始终属于组件的第七维。
+  left_arm: {arm: left_yam, end_effector: null}
+  right_arm: {arm: right_yam, end_effector: null}

@@ -60,15 +60,15 @@ policy:
 
 ## 需要修改的位置
 
-1. **统一相机服务支持 Orbbec。** `src/manimux/sensors/camera_server/server.py` 的构建函数目前只创建 RealSense。增加 camera type 工厂及 Orbbec RGB 驱动，复用 `yam-abc-reproduce/yam_abc_reproduce/camera/orbbec.py` 的发现逻辑：USB vendor `2bc5`、Gemini product `0840/0800`、interface `04`、capture capability、serial。使用 MJPG，正确转换 BGR→RGB，保持 640×480 以及原始方向。将这段驱动能力放入 ManiMux，避免运行时依赖另一 checkout。
+1. **统一相机服务支持 Orbbec。** `manimux/servers/camera/server.py` 的构建函数目前只创建 RealSense。增加 camera type 工厂及 Orbbec RGB 驱动，复用 `yam-abc-reproduce/yam_abc_reproduce/camera/orbbec.py` 的发现逻辑：USB vendor `2bc5`、Gemini product `0840/0800`、interface `04`、capture capability、serial。使用 MJPG，正确转换 BGR→RGB，保持 640×480 以及原始方向。将这段驱动能力放入 ManiMux，避免运行时依赖另一 checkout。
 
 2. **按本次选择读取、检查三路相机。** 服务端当前 `_snapshot()` 读取全部设备，client 又先检查全部时间戳，sensor driver 最后才筛选 `camera_names`。若直接启动五路，未使用的 Gemini 掉线也可能中断 top 测试。给 `obs` 请求增加可选 `camera_names`，服务端按请求读取，响应按相机报告健康状态；客户端仅要求所选三路存在、时间戳有效、帧未过期。未指定名称的旧客户端保留原协议行为。可让相机服务长期持有五个 worker，设备异常按相机隔离；选中异常设备时明确报错，不自动替换视角。预览帧时间必须来自最近一次成功采集，不能把读取缓存的时间当采集时间。
 
 3. **用一个入口选择 profile。** 将相机清单和三个预设独立于 SAPolicy 执行参数保存，先支持启动参数/配置中的 `view_profile`。复用当前 `manimux-braking-h25.yaml` 的执行设置，三个测试只改变观测视角；所有预设指向 MV51 RAW checkpoint 和匹配配置。仍保留 `expected_backend.model.model_path` 校验，防止误连 teleop50 服务。服务端可以保持加载同一个 MV51 模型。
 
-4. **GUI 显示并锁定实际视角。** `src/manimux/viewer/dashboard.py` 当前固定三个图像槽和 top 标签；`viewer/robots/yam.py` 不认识 Gemini 的显示映射。新增外部视角选择，在 Prepare 前生效，当前 episode 内锁定；显示 `Gemini 305 + left wrist + right wrist`。预览布局仍可保留三个槽，但标签和映射由实际配置提供。下一 episode 重新解析选择并清理旧请求、缓存和动作队列。
+4. **GUI 显示并锁定实际视角。** `manimux/viewer/dashboard.py` 当前固定三个图像槽和 top 标签；`viewer/robots/yam.py` 不认识 Gemini 的显示映射。新增外部视角选择，在 Prepare 前生效，当前 episode 内锁定；显示 `Gemini 305 + left wrist + right wrist`。预览布局仍可保留三个槽，但标签和映射由实际配置提供。下一 episode 重新解析选择并清理旧请求、缓存和动作队列。
 
-5. **保存可比较的实验记录。** `src/manimux/runtime/edge.py` 已向 recorder 写入 checkpoint 后端等信息，但未专门保存视角映射。给 episode metadata 增加 `view_profile`、`camera_map`、serial、分辨率、预处理版本、内参模式、checkpoint SHA-256 和解析后的配置哈希。视频保留物理相机名称，结果按视角汇总；未送入模型的监控视频另行标记。
+5. **保存可比较的实验记录。** `manimux/runtime/edge.py` 已向 recorder 写入 checkpoint 后端等信息，但未专门保存视角映射。给 episode metadata 增加 `view_profile`、`camera_map`、serial、分辨率、预处理版本、内参模式、checkpoint SHA-256 和解析后的配置哈希。视频保留物理相机名称，结果按视角汇总；未送入模型的监控视频另行标记。
 
 ## 内参处理
 

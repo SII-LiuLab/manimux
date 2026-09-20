@@ -1,0 +1,34 @@
+# XPolicyLab SAPolicy server for the dual-arm 3cam TCP bottles checkpoint.
+#
+# Launch inside the SpatialAlignPolicy Python environment after:
+#   pip install -e XPolicyLab
+#
+#   python manimux/servers/sapolicy.py --config manimux/configs/policy/sapolicy/yam/abc-bottles.yaml
+
+policy_name: SAPolicy
+protocol: ws
+host: 127.0.0.1
+port: 8500
+
+task_name: put_the_plastic_bottles_in_the_bin
+env_cfg_type: yam_dual
+action_type: ee
+eval_batch: false
+
+sapolicy_root: /home/ubuntu/sa/SpatialAlignPolicy
+cfg_file: /home/ubuntu/sa/checkpoints/sapolicy/dinov2lfrz_yam_bottles_realsim_top_tcp_dit_8gpu_bs256/training_source/configs/deploy/yam_bottles_3cam_tcp.yaml
+model_path: /home/ubuntu/manimux/3cam_tcp.ckpt
+workspace: /home/ubuntu/sa
+backbone_path: /home/ubuntu/sa/dinov2_vitl14_pretrain.pth
+normalizer_path: /home/ubuntu/sa/checkpoints/sapolicy/dinov2lfrz_yam_bottles_realsim_top_tcp_dit_8gpu_bs256/bottles_norm_stats_real.pt
+
+output_format: packed_ee_wire
+action_horizon: 16
+body_frame_actions: true
+# ABC TCP / YAM grasp_site on the wire; do not apply RoboTwin's 0.12 m offset.
+tcp_forward_offset_m: 0.0
+use_ema: true
+ckpt_type: ema
+camera_names: [top, left, right]
+device: cuda:0
+dry_run: false

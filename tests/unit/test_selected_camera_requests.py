@@ -6,8 +6,8 @@ import numpy as np
 import pytest
 import yaml
 
-from manimux.sensors.camera_server.client import CameraClient, CameraClientError
-from manimux.sensors.camera_server.server import CameraServer, _build_cameras_from_config
+from manimux.embodiments.sensor.camera_server.client import CameraClient, CameraClientError
+from manimux.servers.camera.server import CameraServer, _build_cameras_from_config
 
 
 def test_unselected_broken_camera_does_not_block_request():
@@ -83,21 +83,21 @@ def test_camera_factory_preserves_orbbec_and_taccap(monkeypatch, tmp_path, kinds
     discovery = []
 
     def factory(kind):
-        def open_camera(device_id, **options):
+        def open_camera(device_id=None, **options):
             return SimpleNamespace(
-                kind=kind, device_id=device_id, options=options, close=lambda: None
+                kind=kind, device_id=device_id or options.pop("camera_serial", None), options=options, close=lambda: None, start=lambda: None
             )
 
         return open_camera
 
-    monkeypatch.setitem(sys.modules, "manimux.sensors.realsense", SimpleNamespace(
-        RealSenseCamera=factory("realsense"),
+    monkeypatch.setitem(sys.modules, "manimux.embodiments.sensor.realsense", SimpleNamespace(
+        RealSenseSensor=factory("realsense"),
         get_device_ids=lambda: discovery.append("realsense") or ["rs-serial"],
     ))
-    monkeypatch.setitem(sys.modules, "manimux.sensors.orbbec", SimpleNamespace(
+    monkeypatch.setitem(sys.modules, "manimux.embodiments.sensor.orbbec", SimpleNamespace(
         OrbbecCamera=factory("orbbec"),
     ))
-    monkeypatch.setitem(sys.modules, "manimux.sensors.taccap", SimpleNamespace(
+    monkeypatch.setitem(sys.modules, "manimux.embodiments.sensor.taccap", SimpleNamespace(
         TacCapCamera=factory("taccap"),
     ))
     specs = {

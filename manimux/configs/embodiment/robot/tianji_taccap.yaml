@@ -1,0 +1,34 @@
+# 组件组合与控制参数；设备 IP/序列号由 local 绑定，离线装配不需要填写。
+# Geometry comes from the existing CAD installation, not a fresh calibration.
+name: tianji-taccap
+hardware:
+  stale_timeout_s: 0.2
+  ready_timeout_s: 3.0
+  max_tracking_error_deg: 5.0  # Original command-to-measured bound.
+components:
+  # FK/IK 在各臂自身基座中计算；这里仅保留参与 TCP 的末端安装关系。
+  left_arm:
+    config: ../arm/tianji_left.yaml
+  right_arm:
+    config: ../arm/tianji_right.yaml
+  left_end_effector:
+    config: ../end_effector/taccap.yaml
+    hardware: {side: left}
+    parent: left_arm.flange
+    mount: {xyz: [-0.01575, 0.0, 0.0505], rpy: [3.141592653589793, -1.5707963267948966, 0.0]}
+  right_end_effector:
+    config: ../end_effector/taccap.yaml
+    hardware: {side: right}
+    parent: right_arm.flange
+    mount: {xyz: [-0.01575, 0.0, 0.0505], rpy: [3.141592653589793, -1.5707963267948966, 0.0]}
+  left_wrist_camera:
+    config: ../sensor/taccap.yaml
+    parent: left_end_effector.base
+    mount: null  # optical extrinsics are not supplied; do not infer a 3D camera pose
+  right_wrist_camera:
+    config: ../sensor/taccap.yaml
+    parent: right_end_effector.base
+    mount: null
+groups:
+  left_arm: {arm: left_arm, end_effector: left_end_effector}
+  right_arm: {arm: right_arm, end_effector: right_end_effector}

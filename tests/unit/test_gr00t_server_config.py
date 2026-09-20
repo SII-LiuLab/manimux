@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 
-import scripts.servers.gr00t_yam_server as gr00t_server
+import manimux.servers.groot as gr00t_server
 from manimux.cli import load_config
 from manimux.policies.base import action_interval
-from scripts.servers.gr00t_yam_server import _runtime_readiness, _validate_checkpoint
+from manimux.servers.groot import _runtime_readiness, _validate_checkpoint
 
 STATE_KEYS = ("left_arm", "left_gripper", "right_arm", "right_gripper")
 DIMS = {"left_arm": 6, "left_gripper": 1, "right_arm": 6, "right_gripper": 1}
@@ -63,14 +63,14 @@ def test_gr00t_checkpoint_rejects_frequency_drift(tmp_path: Path) -> None:
 
 
 def test_gr00t_manimux_config_preserves_native_contract() -> None:
-    config = load_config("configs/groot/yam/infra/manimux.yaml")
+    config = load_config("manimux/configs/experiments/pick_box/yam_groot_manimux.yaml")
 
     assert config["policy"]["worker"] == "xpolicylab_ws"
-    assert config["policy"]["adapter"] == "xpolicylab"
+    assert config["policy"]["adapter"]["type"] == "manimux.policy_adapter.joint:JointAdapter"
     assert config["policy"]["horizon_steps"] == 16
     assert action_interval(config["policy"]) == pytest.approx(1.0 / 30.0)
     assert config["robot"]["group_dims"] == {"left_arm": 7, "right_arm": 7}
-    assert config["execution"]["runtime"] == "manimux"
+    assert config["inference"]["algorithm"] == "manimux"
 
 
 def test_runtime_readiness_does_not_call_contract_ready_inference_ready(

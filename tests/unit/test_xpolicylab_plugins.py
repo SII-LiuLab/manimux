@@ -13,18 +13,19 @@ import numpy as np
 import pytest
 
 from manimux.embodiments.robot import robot_parameters
-from manimux.integrations.xpolicylab.obs_codec import (
+from manimux.policies.base import policy_parameters
+from manimux.policies.xpolicylab.client import build_model
+from manimux.policies.xpolicylab.codec import (
     DATA_FORMAT_VERSION,
     GroupLayout,
     build_layouts,
     decode_action_steps,
     encode_observation,
 )
-from manimux.integrations.xpolicylab.policy_plugin import build_adapter, build_model
-from manimux.integrations.xpolicylab.ws_client import XPolicyLabWsClient, normalize_url
-from manimux.integrations.xr1_yam.policy_plugin import build_adapter as build_xr1_adapter
-from manimux.integrations.xr1_yam.policy_plugin import joint_condition_to_xr1_actions
-from manimux.policies.base import policy_parameters
+from manimux.policies.xpolicylab.ws_client import XPolicyLabWsClient, normalize_url
+from manimux.policy_adapter.joint import JointAdapter as build_adapter
+from manimux.policy_adapter.xr1.yam import XR1YamAdapter as build_xr1_adapter
+from manimux.policy_adapter.xr1.yam import joint_condition_to_xr1_actions
 from manimux.runtime.aac import AacInferenceRequest
 from manimux.runtime.dvac import DvacInferenceRequest
 from manimux.runtime.rtc import RtcInferenceRequest
@@ -89,16 +90,27 @@ def _policy_config(**options: object) -> dict:
     merged.update(options)
     return policy_parameters(
         worker="xpolicylab_ws",
-        adapter="xpolicylab",
+        adapter={
+            "type": "manimux.policy_adapter.joint:JointAdapter",
+            **{
+                k: v
+                for k, v in merged.items()
+                if k not in {"server", "request_timeout_s", "connect_timeout_s", "aac_kinematics"}
+            },
+        },
         action_dt_s=0.05,
         horizon_steps=30,
-        options=merged,
+        options={
+            k: v
+            for k, v in merged.items()
+            if k in {"server", "request_timeout_s", "connect_timeout_s", "aac_kinematics"}
+        },
     )
 
 
 def _robot_config() -> dict:
     return robot_parameters(
-        driver="mock",
+        type="mock",
         control_hz=30.0,
         group_dims={"left_arm": 7, "right_arm": 7},
     )
@@ -272,7 +284,7 @@ def test_adapter_unwraps_aac_metadata_without_changing_actions() -> None:
 def test_adapter_validate_rejects_a_group_order_mismatch() -> None:
     adapter = build_adapter(_robot_config(), _policy_config())
     swapped = robot_parameters(
-        driver="mock",
+        type="mock",
         control_hz=30.0,
         group_dims={"right_arm": 7, "left_arm": 7},
     )
@@ -494,9 +506,7 @@ def test_model_maps_aac_request_to_xpolicy_sampling(
         instruction="task",
         aac_num_samples=20,
         aac_motion_threshold=3.0,
-        aac_ee_stats_path=(
-            "src/manimux/integrations/xpolicylab/norm_stats/yam_60ep_ee_increment.json"
-        ),
+        aac_ee_stats_path=("manimux/policies/xpolicylab/norm_stats/yam_60ep_ee_increment.json"),
         aac_chunk_id_selector="mean",
         aac_backward_beta=0.99,
     )

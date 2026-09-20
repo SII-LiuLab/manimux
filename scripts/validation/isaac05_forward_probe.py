@@ -15,7 +15,7 @@ from manimux.integrations.isaac05 import (
     build_wire_observation,
     decode_wire_actions,
 )
-from manimux.integrations.xpolicylab.ws_client import XPolicyLabWsClient
+from manimux.policies.xpolicylab.ws_client import XPolicyLabWsClient
 
 
 def _image(height: int, width: int, offset: int) -> np.ndarray:

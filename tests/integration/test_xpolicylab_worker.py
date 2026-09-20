@@ -16,7 +16,8 @@ import numpy as np
 import pytest
 
 from manimux.cli import load_config
-from manimux.policies import build_policy_adapter, build_policy_model
+from manimux.policies import build_policy_model
+from manimux.policy_adapter import build_policy_adapter
 from manimux.types import (
     ActionContext,
     InferenceRequest,
@@ -29,11 +30,7 @@ pytest.importorskip("msgpack")
 pytest.importorskip("msgpack_numpy")
 pytest.importorskip("websockets")
 
-from manimux.integrations.xpolicylab.ws_client import (  # noqa: E402
-    XPolicyLabProtocolError,
-    pack_frame,
-    unpack_frame,
-)
+from manimux.policies.xpolicylab.ws_client import XPolicyLabProtocolError, pack_frame, unpack_frame
 
 HORIZON = 30
 
@@ -167,7 +164,7 @@ def server() -> Iterator[FakeXPolicyLabServer]:
 
 
 def _configs(server_url: str) -> tuple[Any, Any]:
-    config = load_config("configs/xpolicylab/yam/infra/smoke.yaml")
+    config = load_config("manimux/configs/experiments/pick_red_object/yam_xpolicylab_smoke.yaml")
     config["policy"]["options"]["server"] = server_url
     return config["robot"], config["policy"]
 

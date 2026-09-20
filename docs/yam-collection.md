@@ -10,21 +10,16 @@ The original YAM-ABC-Reproduce checkout is not modified or imported.
 Run from the repository root using the YAM environment. The optional
 `collection` extra includes the GUI and video dependencies; hardware additionally
 needs the existing ManiMux YAM/i2rt and camera SDK environment.
-For a hardware-free GUI preview in a separate project environment:
+Start the GUI with the existing YAM environment:
 
 ```bash
-uv sync --dev --extra collection
-uv run python -m manimux.collection --mock
+envs/yam/.venv/bin/python -m manimux.collection \
+  --config manimux/configs/collection/yam/station.yaml
 ```
 
-With the existing YAM environment:
-
-```bash
-envs/yam/.venv/bin/python -m manimux.collection --mock
-```
-
-Open **http://127.0.0.1:8043**. Without `--mock`, the same command enables the
-hardware path, but follower control starts only when **Start Teleop** is clicked.
+Open **http://127.0.0.1:8043**. The GUI starts without connecting the robot;
+follower control starts when **Start Teleop** is clicked. The former `--mock`
+mode has been removed; regression tests inject their own hardware substitutes.
 Start Teleop includes the original approximately one-second alignment ramp per
 arm; it is not a preview-only operation. Grippers without pinned travel limits
 may move during i2rt calibration. Support the arms before Reset Session or exit:
@@ -32,7 +27,7 @@ driver shutdown closes their motor connections, unlike Pause, which holds pose.
 
 ```bash
 envs/yam/.venv/bin/python -m manimux.collection \
-  --config configs/collection/yam/station.yaml
+  --config manimux/configs/collection/yam/station.yaml
 ```
 
 After reinstalling the editable package, `manimux-collect` is the equivalent entry
@@ -51,23 +46,23 @@ Original GUI / teaching-handle buttons
   → ManiMux SafetyGuard → YamDualArmDriver → i2rt → followers
 ```
 
-- `configs/collection/yam/station.yaml`: leader/follower mapping, leader calibration,
+- `manimux/configs/collection/yam/station.yaml`: leader/follower mapping, leader calibration,
   bilateral feedback, analog/toggle trigger, toggle closing duration, task and output directory.
   Follower hardware settings and the sample rate come from the control profile.
-- `configs/collection/yam/cameras.yaml`: independent copy of the original camera
+- `manimux/configs/collection/yam/cameras.yaml`: independent copy of the original camera
   roster, including optional Orbbec views. GUI camera edits write this copy only.
-- `configs/collection/yam/control.yaml`: standard ManiMux execution/robot config.
+- `manimux/configs/collection/yam/control.yaml`: standard ManiMux execution/robot config.
   Default `execution_mode: synchronous` runs one executor step and sends one
   dual-arm command per 30 Hz target update, with no extra command thread.
   `executor: direct` adds no filtering; the default common arm rate limits are disabled.
   The shared gripper closing limit preserves the original toggle-close curve.
   Finite common motion limits also apply to Direct. Hardware joint limits,
   PD gains, motor capabilities and configured command-safety limits still apply.
-- `configs/collection/yam/station-threaded.yaml` selects `execution_mode: threaded`
+- `manimux/configs/collection/yam/station-threaded.yaml` selects `execution_mode: threaded`
   and `control-threaded.yaml`: 30 Hz target updates, 100 Hz execution. These rates
   are configurable, not hard-coded. Threaded execution can also run at 30 Hz.
   Synchronous execution requires station and robot control frequencies to match.
-- To collect with inference-time smoothing, select `execution.executor: smooth`
+- To collect with inference-time smoothing, select `executor.type: smooth`
   and the same filter settings. Motion limits come from the shared profile for both
   executors. Existing inference configs without a profile are not changed automatically.
 - The installed ManiMux i2rt fixes gripper force at **50 N**; this copy uses 50 N,
@@ -87,8 +82,8 @@ do not expose it directly to an untrusted network.
 
 ## Code boundaries
 
-`src/manimux/collection/cli.py` reads `collector: yam` and dispatches to
-`src/manimux/collection/yam/cli.py`. The YAM folder owns its GUI, station config,
+`manimux/collection/cli.py` reads `collector: yam` and dispatches to
+`manimux/collection/yam/cli.py`. The YAM folder owns its GUI, station config,
 leader, control loop, execution backend, cameras and recorder. A future embodiment
 can register its own config-driven entry point without adopting the YAM GUI,
 dual-arm layout, gripper convention, or on-disk format.
@@ -103,7 +98,7 @@ not just the filename, when claiming collection/inference control equivalence.
 
 ## Shared control profile
 
-`configs/robots/yam/common.yaml` is the single shared source for the YAM driver,
+`manimux/configs/embodiment/robot/yam_control.yaml` is the single shared source for the YAM driver,
 group dimensions, follower CAN channels, arm/gripper types, gripper force and
 action-point interval. The YAM driver retains its six-joints-then-gripper order,
 radian joint units, and normalized gripper convention (0 closed, 1 open).
@@ -119,8 +114,8 @@ action interval. The collector fills omitted hardware/rate fields from this same
 and rechecks GUI-supplied hardware values before connecting.
 
 Current consumers are `control.yaml`, `control-threaded.yaml`, and both
-`configs/pi05/yam/infra/put-bottles/rtc-joint-step30000.yaml` and
-`configs/pi05/yam/infra/put-bottles/rtc-joint-ee-step30000.yaml`. Other inference
+`manimux/configs/experiments/put_bottles/yam_pi05_rtc_joint_step30000.yaml` and
+`manimux/configs/experiments/put_bottles/yam_pi05_rtc_joint_ee_step30000.yaml`. Other inference
 configs remain unchanged; they do not automatically inherit this profile.
 
 `command_safety: null` explicitly disables the *additional shared software envelope*,
@@ -184,10 +179,10 @@ Switch modes by selecting the station config:
 
 ```bash
 # Default: synchronous 30 Hz, DirectExecutor
-python -m manimux.collection --config configs/collection/yam/station.yaml --mock
+python -m manimux.collection --config manimux/configs/collection/yam/station.yaml
 
 # Optional: 30 Hz targets, independently executed at 100 Hz
-python -m manimux.collection --config configs/collection/yam/station-threaded.yaml --mock
+python -m manimux.collection --config manimux/configs/collection/yam/station-threaded.yaml
 ```
 
 ## Recorded evidence
@@ -198,7 +193,7 @@ the original state/action `.npy` files, RGB MP4 streams, optional FK fields,
 leader-policy targets, not smoothed executor outputs.
 
 `metadata.json → extra.manimux` records the resolved robot/executor configuration
-and whether mock hardware was used. `manimux-control.jsonl` records each active
+used for the hardware session. `manimux-control.jsonl` records each active
 executor tick (one per target in synchronous mode): target, executor command, observed feedback, source sequence and
 timestamps. `controller-*` arrays are latest executor outputs **before driver
 joint-limit clipping**, not measurements of the native MIT controller input.

@@ -1,4 +1,0 @@
-# Copy this file outside the repository and set the checkout path for the sim host.
-maniunicon_root: /path/to/ManiUniCon
-left: configs/robot/meshcat_xarm6.yaml
-right: configs/robot/meshcat_xarm6.yaml

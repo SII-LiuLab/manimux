@@ -25,7 +25,7 @@
 - Isaac repository: `be6507b4aed7472f2029606c22684d4ebc9d73e6`
 - Perceptron LeRobot: `e12389c1f8f591ad05dced4e284d4e92e48c5df4`
 - XPolicy source: `XPolicyLab/policy/Isaac_05/lerobot`
-- Server config: `configs/isaac05/libero/server/base.yaml`
+- Server config: `manimux/configs/policy/isaac05/libero/base.yaml`
 
 模型卡要求通过 Perceptron 的 LeRobot fork 使用该 checkpoint；stock Transformers 或
 stock LeRobot 不是兼容入口。当前官方 policy 也明确拒绝 LeRobot RTC，因此本接入只声明
@@ -72,8 +72,8 @@ bash XPolicyLab/policy/Isaac_05/install.sh
 该命令不加载 Torch 权重、不占用 GPU、不启动端口：
 
 ```bash
-envs/yam/.venv/bin/python scripts/servers/isaac05_server.py --check \
-  --config configs/isaac05/libero/server/base.yaml
+envs/yam/.venv/bin/python manimux/servers/isaac05.py --check \
+  --config manimux/configs/policy/isaac05/libero/base.yaml
 ```
 
 下载完成前会返回 `status: blocked` 和非零退出码。只有 source revision、配置、adapter、
@@ -89,7 +89,7 @@ Terminal 1：
 
 ```bash
 bash XPolicyLab/policy/Isaac_05/setup_eval_policy_server.sh \
-  configs/isaac05/libero/server/base.yaml
+  manimux/configs/policy/isaac05/libero/base.yaml
 ```
 
 Terminal 2：

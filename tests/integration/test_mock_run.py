@@ -8,8 +8,9 @@ import pytest
 import zarr
 
 from manimux.cli import load_config
+from manimux.policies.fake import FakePolicyAdapter
 from manimux.policies.capabilities import PolicyCapabilities
-from manimux.runtime import execution_parameters
+from manimux.runtime import inference_parameters
 from manimux.runtime.edge import EdgeRuntime
 from manimux.runtime.executors.smooth import (
     gripper_grasp_guard_parameters,
@@ -28,7 +29,7 @@ from manimux.viewer import ViewerControl
 
 
 def test_mock_run_records_async_episode(tmp_path: Path) -> None:
-    config = load_config("configs/mock.yaml")
+    config = load_config("tests/fixtures/runtime.yaml")
     config["run"]["output_dir"] = tmp_path
     config["run"]["max_steps"] = 80
     config["policy"]["inference_delay_s"] = 0.02
@@ -65,11 +66,11 @@ def test_mock_run_records_async_episode(tmp_path: Path) -> None:
 
 
 def test_single_inflight_schedule_refills_after_each_response(tmp_path: Path) -> None:
-    config = load_config("configs/mock.yaml")
+    config = load_config("tests/fixtures/runtime.yaml")
     config["run"]["output_dir"] = tmp_path
     config["run"]["max_steps"] = 120
     config["policy"]["inference_delay_s"] = 0.01
-    config["execution"]["inference_schedule"] = "single_inflight"
+    config["inference"]["inference_schedule"] = "single_inflight"
     run_dir = tmp_path / "run-single-inflight"
     run_dir.mkdir()
 
@@ -84,7 +85,7 @@ def test_serial_full_chunks_hold_during_inference_and_discard_paused_results(
     tmp_path: Path,
     pause_during_inference: bool,
 ) -> None:
-    from manimux.robots.mock import MockDualArmDriver
+    from tests.support.robot import RobotDouble
 
     class Clock:
         now = 0
@@ -98,7 +99,7 @@ def test_serial_full_chunks_hold_during_inference_and_discard_paused_results(
     clock = Clock()
     commands = []
 
-    class Robot(MockDualArmDriver):
+    class Robot(RobotDouble):
         def send_command(self, command):
             commands.append((clock.now, np.concatenate(list(command.groups.values())).copy()))
             super().send_command(command)
@@ -149,13 +150,17 @@ def test_serial_full_chunks_hold_during_inference_and_discard_paused_results(
             )
             return ViewerControl(paused=paused)
 
-    config = load_config("configs/mock.yaml")
+    config = load_config("tests/fixtures/runtime.yaml")
     config["policy"]["horizon_steps"] = 50
     config["policy"]["action_dt_s"] = 1 / 30
     config["run"]["max_steps"] = 500
     config["sensors"] = []
-    config["execution"] = execution_parameters(
-        inference_schedule="serial", chunk_steps=50, commit_lead_s=0, blend_steps=0
+    config["inference"] = inference_parameters(
+        executor=config["executor"],
+        inference_schedule="serial",
+        chunk_steps=50,
+        commit_lead_s=0,
+        blend_steps=0,
     )
     runtime = EdgeRuntime(config, tmp_path, clock=clock)
     robot = Robot(config["robot"]["group_dims"], clock)
@@ -326,7 +331,7 @@ class _FingerprintWorker(_HomeTestWorker):
 
 
 def test_policy_backend_fingerprint_is_written_after_worker_start(tmp_path: Path) -> None:
-    config = load_config("configs/mock.yaml")
+    config = load_config("tests/fixtures/runtime.yaml")
     config["run"]["max_steps"] = 1
     run_dir = tmp_path / "run-policy-fingerprint"
     run_dir.mkdir()
@@ -344,7 +349,7 @@ def test_policy_backend_fingerprint_is_written_after_worker_start(tmp_path: Path
 
 
 def test_max_steps_automatically_homes_and_exits(tmp_path: Path) -> None:
-    config = load_config("configs/mock.yaml")
+    config = load_config("tests/fixtures/runtime.yaml")
     config["viewer"]["enabled"] = True
     config["run"]["max_steps"] = 2
     config["robot"]["options"]["home_on_close"] = True
@@ -365,7 +370,7 @@ def test_max_steps_automatically_homes_and_exits(tmp_path: Path) -> None:
 
 
 def test_home_discards_pre_home_response_and_commands_fresh_measured_state(tmp_path: Path) -> None:
-    config = load_config("configs/mock.yaml")
+    config = load_config("tests/fixtures/runtime.yaml")
     config["viewer"]["enabled"] = True
     run_dir = tmp_path / "run-home-reset"
     run_dir.mkdir()
@@ -442,7 +447,7 @@ class _InterruptingSensor:
 
 
 def test_interrupt_stops_robot_first_then_saves_partial_episode(tmp_path: Path) -> None:
-    config = load_config("configs/mock.yaml")
+    config = load_config("tests/fixtures/runtime.yaml")
     run_dir = tmp_path / "run-interrupt"
     run_dir.mkdir()
     runtime = EdgeRuntime(config, run_dir)
@@ -465,7 +470,7 @@ def test_interrupt_stops_robot_first_then_saves_partial_episode(tmp_path: Path) 
 
 
 def test_interrupt_homes_only_when_configured(tmp_path: Path) -> None:
-    config = load_config("configs/mock.yaml")
+    config = load_config("tests/fixtures/runtime.yaml")
     config["robot"]["options"]["home_on_close"] = True
     run_dir = tmp_path / "run-interrupt-home"
     run_dir.mkdir()
@@ -486,16 +491,16 @@ def test_interrupt_homes_only_when_configured(tmp_path: Path) -> None:
 def test_decode_latency_is_included_in_commit_expiry(tmp_path: Path) -> None:
     import time
 
-    config = load_config("configs/mock.yaml")
+    config = load_config("tests/fixtures/runtime.yaml")
     config["run"]["max_steps"] = 3
-    config["execution"]["max_plan_age_s"] = 2
+    config["inference"]["max_plan_age_s"] = 2
     runtime = EdgeRuntime(config, tmp_path)
     runtime._robot = _HomeTestRobot(config["robot"]["group_dims"])
     runtime._worker = _HomeTestWorker()
     runtime._viewer = _AutoRunningViewer()
     runtime._sensors = []
 
-    class SlowAdapter:
+    class SlowAdapter(FakePolicyAdapter):
         def decode_action(self, raw, context):
             time.sleep(0.25)  # Longer than the response's entire 4 x 50 ms chunk.
             return raw
@@ -503,7 +508,7 @@ def test_decode_latency_is_included_in_commit_expiry(tmp_path: Path) -> None:
         def build_observation(self, snapshot):
             return snapshot
 
-    runtime._adapter = SlowAdapter()
+    runtime._adapter = SlowAdapter({}, {})
     result = runtime.run()
     assert result.accepted_plans == 0
     events = [
@@ -522,7 +527,7 @@ def test_decode_latency_is_included_in_commit_expiry(tmp_path: Path) -> None:
     ],
 )
 def test_close_latch_runtime_preserves_squeeze_through_inference_gaps(tmp_path, schedule, tracking):
-    from manimux.robots.mock import MockDualArmDriver
+    from tests.support.robot import RobotDouble
 
     class Clock:
         now = 0
@@ -535,7 +540,7 @@ def test_close_latch_runtime_preserves_squeeze_through_inference_gaps(tmp_path, 
 
     clock = Clock()
 
-    class ContactRobot(MockDualArmDriver):
+    class ContactRobot(RobotDouble):
         def get_state(self):
             state = super().get_state()
             for name, values in state.groups.items():
@@ -575,20 +580,20 @@ def test_close_latch_runtime_preserves_squeeze_through_inference_gaps(tmp_path, 
                 raw_action=chunk,
             )
 
-    config = load_config("configs/mock.yaml")
+    config = load_config("tests/fixtures/runtime.yaml")
     config["run"]["max_steps"] = 400
     config["sensors"] = []
     config["robot"]["group_dims"] = {"left_arm": 2, "right_arm": 2}
     execution = dict(commit_lead_s=0, blend_steps=0)
     if schedule == "rtc":
-        execution.update(runtime="rtc", rtc={"min_execute_steps": 13})
+        execution.update(algorithm="rtc", rtc={"min_execute_steps": 13})
     else:
         execution["inference_schedule"] = schedule
     if schedule == "single_inflight":
         execution["refill_threshold_s"] = 0.001
-    config["execution"] = execution_parameters(**execution)
-    config["execution"]["smooth"]["tracking_mode"] = tracking
-    config["execution"]["smooth"]["gripper"] = gripper_hysteresis_parameters(
+    config["inference"] = inference_parameters(executor=config["executor"], **execution)
+    config["executor"]["smooth"]["tracking_mode"] = tracking
+    config["executor"]["smooth"]["gripper"] = gripper_hysteresis_parameters(
         mode="close_latch",
         group_indices={"left_arm": 1, "right_arm": 1},
         close_threshold=0.6,
@@ -598,7 +603,7 @@ def test_close_latch_runtime_preserves_squeeze_through_inference_gaps(tmp_path, 
         max_acceleration=12.0,
         max_closing_velocity=1.0,
     )
-    config["execution"]["command_safety"] = command_safety_parameters(
+    config["executor"]["command_safety"] = command_safety_parameters(
         position_lower={name: [-3.0, 0.0] for name in config["robot"]["group_dims"]},
         position_upper={name: [3.0, 1.0] for name in config["robot"]["group_dims"]},
         max_velocity={name: [3.0, 3.3333333333333335] for name in config["robot"]["group_dims"]},
@@ -633,19 +638,19 @@ def test_close_latch_runtime_preserves_squeeze_through_inference_gaps(tmp_path, 
 
 
 def test_braking_runtime_keeps_50_predictions_and_executes_25_step_prefix(tmp_path: Path):
-    config = load_config("configs/mock.yaml")
+    config = load_config("tests/fixtures/runtime.yaml")
     config["run"]["max_steps"] = 180
     config["policy"]["horizon_steps"] = 50
     config["policy"]["action_dt_s"] = 1 / 30
     config["policy"]["inference_delay_s"] = 0.08
-    config["execution"]["smooth"]["tracking_mode"] = "braking"
-    config["execution"]["smooth"]["max_velocity"] = 0.8
-    config["execution"]["smooth"]["max_acceleration"] = 3.0
-    config["execution"]["max_chunk_steps"] = 25
-    config["execution"]["inference_schedule"] = "single_inflight"
-    config["execution"]["commit_lead_s"] = 0
+    config["executor"]["smooth"]["tracking_mode"] = "braking"
+    config["executor"]["smooth"]["max_velocity"] = 0.8
+    config["executor"]["smooth"]["max_acceleration"] = 3.0
+    config["inference"]["max_chunk_steps"] = 25
+    config["inference"]["inference_schedule"] = "single_inflight"
+    config["inference"]["commit_lead_s"] = 0
     # Force a gap after a moving plan so braking through missing inference is exercised.
-    config["execution"]["refill_threshold_s"] = 0.001
+    config["inference"]["refill_threshold_s"] = 0.001
     runtime = EdgeRuntime(config, tmp_path)
     gap_speeds = []
     original = runtime._executor.brake_hold
@@ -692,15 +697,15 @@ def test_release_guard_diagnostics_survive_runtime_json_recording(tmp_path):
                     values[:] = 0.0  # Already closed: non-opening comparison returns numpy.bool.
             return response
 
-    config = load_config("configs/mock.yaml")
+    config = load_config("tests/fixtures/runtime.yaml")
     config["run"]["max_steps"] = 25
     config["sensors"] = []
     config["robot"]["group_dims"] = {"left_arm": 7, "right_arm": 7}
-    config["execution"]["smooth"]["tracking_mode"] = "braking"
-    config["execution"]["smooth"]["gripper"] = gripper_hysteresis_parameters(
+    config["executor"]["smooth"]["tracking_mode"] = "braking"
+    config["executor"]["smooth"]["gripper"] = gripper_hysteresis_parameters(
         mode="continuous", group_indices={"left_arm": 6, "right_arm": 6}
     )
-    config["execution"]["smooth"]["release_guard"] = gripper_release_guard_parameters()
+    config["executor"]["smooth"]["release_guard"] = gripper_release_guard_parameters()
     runtime = EdgeRuntime(config, tmp_path)
     runtime._worker = Worker()
     result = runtime.run()
@@ -729,21 +734,21 @@ def test_latched_release_completes_through_timeline_gap_with_recorded_phases(tmp
                     values[:, -1] = 1.0
             return response
 
-    config = load_config("configs/mock.yaml")
+    config = load_config("tests/fixtures/runtime.yaml")
     config["run"]["max_steps"] = 180
     config["sensors"] = []
     config["robot"]["group_dims"] = {"left_arm": 7, "right_arm": 7}
     config["policy"]["timeout_s"] = 5
-    config["execution"]["smooth"]["tracking_mode"] = "braking"
-    config["execution"]["smooth"]["max_velocity"] = 0.6
-    config["execution"]["smooth"]["max_acceleration"] = 1.5
-    config["execution"]["smooth"]["gripper"] = gripper_hysteresis_parameters(
+    config["executor"]["smooth"]["tracking_mode"] = "braking"
+    config["executor"]["smooth"]["max_velocity"] = 0.6
+    config["executor"]["smooth"]["max_acceleration"] = 1.5
+    config["executor"]["smooth"]["gripper"] = gripper_hysteresis_parameters(
         mode="continuous",
         group_indices={"left_arm": 6, "right_arm": 6},
         max_velocity=1,
         max_acceleration=12,
     )
-    config["execution"]["smooth"]["release_guard"] = gripper_release_guard_parameters(
+    config["executor"]["smooth"]["release_guard"] = gripper_release_guard_parameters(
         mode="latched_release"
     )
     runtime = EdgeRuntime(config, tmp_path)
@@ -773,22 +778,22 @@ def test_grasp_guard_completes_before_lift_through_inference_gap(tmp_path):
                     values[:, -1] = 0.8
             return response
 
-    config = load_config("configs/mock.yaml")
+    config = load_config("tests/fixtures/runtime.yaml")
     config["run"]["max_steps"] = 240
     config["sensors"] = []
     config["robot"]["group_dims"] = {"left_arm": 7, "right_arm": 7}
     config["policy"]["timeout_s"] = 5
-    config["execution"]["smooth"]["tracking_mode"] = "braking"
-    config["execution"]["smooth"]["max_velocity"] = 0.6
-    config["execution"]["smooth"]["max_acceleration"] = 1.5
-    config["execution"]["smooth"]["gripper"] = gripper_hysteresis_parameters(
+    config["executor"]["smooth"]["tracking_mode"] = "braking"
+    config["executor"]["smooth"]["max_velocity"] = 0.6
+    config["executor"]["smooth"]["max_acceleration"] = 1.5
+    config["executor"]["smooth"]["gripper"] = gripper_hysteresis_parameters(
         mode="continuous",
         group_indices={"left_arm": 6, "right_arm": 6},
         max_velocity=1,
         max_acceleration=12,
     )
-    config["execution"]["smooth"]["release_guard"] = gripper_release_guard_parameters()
-    config["execution"]["smooth"]["grasp_guard"] = gripper_grasp_guard_parameters()
+    config["executor"]["smooth"]["release_guard"] = gripper_release_guard_parameters()
+    config["executor"]["smooth"]["grasp_guard"] = gripper_grasp_guard_parameters()
     runtime = EdgeRuntime(config, tmp_path)
     for n in config["robot"]["group_dims"]:
         runtime._robot._groups[n][-1] = 1.0

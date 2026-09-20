@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import manimux.robots as robots_pkg
+import manimux.embodiments as robots_pkg
 
 
 def test_robot_layer_does_not_import_any_policy_integration() -> None:
@@ -18,16 +18,14 @@ def test_every_run_config_shares_one_yam_body() -> None:
     """The YAM config is embodiment state; it must not live under a policy."""
     import yaml
 
-    repo = Path(robots_pkg.__file__).resolve().parents[2].parent
+    repo = Path(robots_pkg.__file__).resolve().parents[2]
     seen = set()
-    for config_path in sorted((repo / "configs").rglob("*.yaml")):
+    for config_path in sorted((repo / "manimux/configs").rglob("*.yaml")):
         config = yaml.safe_load(config_path.read_text())
-        if not isinstance(config, dict) or config.get("robot", {}).get("driver") != "yam_dual":
+        if not isinstance(config, dict) or config.get("robot", {}).get("type") != "yam":
             continue
-        seen.add((config["robot"]["config"], config["robot"]["options"]["right_config"]))
-    assert seen == {("configs/robots/yam_left.yaml", "configs/robots/yam_right.yaml")}
-
-    for side in ("left", "right"):
-        body = yaml.safe_load((repo / f"configs/robots/yam_{side}.yaml").read_text())
-        assert body["robot"]["_target_"] == "manimux.robots.yam.arm.YAMRobot"
-        assert len(body["agent"]["start_joints"]) == 7
+        robot = config["robot"]
+        if "config" in robot:
+            seen.add((config_path.parent / robot["config"]).resolve())
+            assert "right_config" not in robot.get("options", {})
+    assert seen == {(repo / "manimux/configs/embodiment/robot/yam_dual.yaml").resolve()}

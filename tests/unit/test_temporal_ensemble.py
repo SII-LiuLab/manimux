@@ -34,12 +34,12 @@ def _chunk(
 
 
 def _act_config(*, query_interval_steps: int = 4) -> dict:
-    payload = deepcopy(load_config("configs/mock.yaml"))
-    payload["execution"].pop("inference_schedule")
-    payload["execution"].pop("refill_threshold_s")
-    payload["execution"]["runtime"] = "act_temporal_ensemble"
-    payload["execution"]["blend_steps"] = 0
-    payload["execution"]["temporal_ensemble"] = {
+    payload = deepcopy(load_config("tests/fixtures/runtime.yaml"))
+    payload["inference"].pop("inference_schedule")
+    payload["inference"].pop("refill_threshold_s")
+    payload["inference"]["algorithm"] = "act_temporal_ensemble"
+    payload["inference"]["blend_steps"] = 0
+    payload["inference"]["temporal_ensemble"] = {
         "coefficient": 0.01,
         "query_interval_steps": query_interval_steps,
     }
@@ -88,7 +88,7 @@ def test_temporal_ensemble_queries_in_policy_steps_not_control_ticks() -> None:
     kwargs = {
         "session_id": "session",
         "snapshot": snapshot,
-        "adapter": FakePolicyAdapter(),
+        "adapter": FakePolicyAdapter({}, {}),
         "timeline": ActionTimeline(config["robot"]["group_dims"]),
         "request_state": request_state,
         "runtime_state": RuntimeState.RUNNING,
@@ -103,16 +103,16 @@ def test_temporal_ensemble_queries_in_policy_steps_not_control_ticks() -> None:
 
 def test_temporal_ensemble_rejects_double_blending_and_nonoverlap() -> None:
     payload = deepcopy(_act_config())
-    payload["execution"].pop("inference_schedule")
-    payload["execution"].pop("refill_threshold_s")
-    payload["execution"]["blend_steps"] = 2
+    payload["inference"].pop("inference_schedule")
+    payload["inference"].pop("refill_threshold_s")
+    payload["inference"]["blend_steps"] = 2
     with pytest.raises(ValueError, match="blend_steps=0"):
         prepare_experiment(**payload)
 
     payload = deepcopy(_act_config())
-    payload["execution"].pop("inference_schedule")
-    payload["execution"].pop("refill_threshold_s")
-    payload["execution"]["temporal_ensemble"]["query_interval_steps"] = payload["policy"][
+    payload["inference"].pop("inference_schedule")
+    payload["inference"].pop("refill_threshold_s")
+    payload["inference"]["temporal_ensemble"]["query_interval_steps"] = payload["policy"][
         "horizon_steps"
     ]
     with pytest.raises(ValueError, match="consecutive chunks overlap"):
@@ -120,22 +120,22 @@ def test_temporal_ensemble_rejects_double_blending_and_nonoverlap() -> None:
 
 
 def test_pi05_temporal_ensemble_config_loads_with_four_step_queries() -> None:
-    config = load_config("configs/pi05/yam/infra/act-temporal-ensemble.yaml")
+    config = load_config("manimux/configs/experiments/pick_red_object/yam_pi05_act_temporal_ensemble.yaml")
 
-    assert config["execution"]["runtime"] == "act_temporal_ensemble"
-    assert config["execution"]["temporal_ensemble"]["coefficient"] == pytest.approx(0.01)
-    assert config["execution"]["temporal_ensemble"]["query_interval_steps"] == 4
-    assert config["execution"]["blend_steps"] == 0
+    assert config["inference"]["algorithm"] == "act_temporal_ensemble"
+    assert config["inference"]["temporal_ensemble"]["coefficient"] == pytest.approx(0.01)
+    assert config["inference"]["temporal_ensemble"]["query_interval_steps"] == 4
+    assert config["inference"]["blend_steps"] == 0
     assert action_interval(config["policy"]) * 4 == pytest.approx(0.13333333333333333)
 
 
 def test_pi05_step1000_temporal_ensemble_preserves_checkpoint_contract() -> None:
     config = load_config(
-        "configs/pi05/yam/infra/pick-red-ball-box/act-temporal-ensemble-step1000.yaml"
+        "manimux/configs/experiments/pick_red_object/yam_pi05_act_temporal_ensemble_step1000.yaml"
     )
 
-    assert config["execution"]["runtime"] == "act_temporal_ensemble"
-    assert config["execution"]["temporal_ensemble"]["query_interval_steps"] == 4
+    assert config["inference"]["algorithm"] == "act_temporal_ensemble"
+    assert config["inference"]["temporal_ensemble"]["query_interval_steps"] == 4
     assert config["policy"]["horizon_steps"] == 50
     assert config["robot"]["control_hz"] == pytest.approx(100.0)
     assert config["run"]["task"] == "Pick the red ball up and place it into the box."

@@ -1,3 +1,4 @@
+import json
 import sys
 
 import pytest
@@ -8,8 +9,10 @@ from manimux.viewer.dashboard import load_robot_view, load_viewer_config
 
 
 def _write_config(tmp_path, **options):
-    config = load_viewer_config()
-    config["model"] = str(config["model"])
+    # 通用 Viewer 配置测试使用随包发布的 YAM 模型，不依赖私有天机 SDK。
+    config = load_viewer_config(robot="yam")
+    # 加载后的模型和场景资源都是 Path；写回自定义 YAML 时一起转成字符串。
+    config = json.loads(json.dumps(config, default=str))
     config.update(options)
     path = tmp_path / "viewer.yaml"
     path.write_text(yaml.safe_dump(config))
@@ -37,12 +40,17 @@ def test_model_path_is_relative_to_selected_yaml(tmp_path):
 
 def test_camera_list_can_add_agent_view_without_changing_robot(tmp_path):
     cameras = [
-        {"source": "agent_view", "label": "External", "slot": "top"},
-        *load_viewer_config()["cameras"],
+        {"source": "agent_view", "label": "External", "slot": "external"},
+        *load_viewer_config(robot="yam")["cameras"],
     ]
     config = load_viewer_config(_write_config(tmp_path, cameras=cameras, camera_mode="manual"))
     robot = load_robot_view(config)
-    assert [c["source"] for c in config["cameras"]] == ["agent_view", "left_wrist", "right_wrist"]
+    assert [c["source"] for c in config["cameras"]] == [
+        "agent_view",
+        "front_camera",
+        "left_camera",
+        "right_camera",
+    ]
     assert set(robot.model.groups) == {"left_arm", "right_arm"}
 
 
@@ -81,7 +89,7 @@ def test_startup_uses_selected_model_scene_and_cameras(monkeypatch, tmp_path):
     monkeypatch.setattr(dashboard, "PolicyViewer", capture)
     with pytest.raises(StopBeforeServing):
         dashboard.main()
-    assert selected["robot"].name == "tianji-taccap"
+    assert selected["robot"].name == "yam"
     assert selected["config"]["camera_mode"] == "manual"
     assert selected["config"]["cameras"][0]["source"] == "agent_view"
-    assert selected["robot"].scene_boxes[0].position == (0.65, 0, 0.68)
+    assert selected["robot"].scene_boxes[0].position == (0.38, 0, 0.02)

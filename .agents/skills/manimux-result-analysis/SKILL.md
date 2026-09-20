@@ -12,7 +12,7 @@ Keep original recordings unchanged and put derived plots/clips in a separate loc
 
 ## Find the recording format
 
-Runtime episodes are written by `src/manimux/recording/episode.py`:
+Runtime episodes are written by `manimux/recording/episode.py`:
 
 | Artifact | What it contains |
 |---|---|
@@ -24,7 +24,7 @@ Runtime episodes are written by `src/manimux/recording/episode.py`:
 | `videos/index.json` and camera MP4s | Written-frame timestamps, configured FPS and dropped-bundle summary, when video is enabled |
 
 Interrupted episodes may remain in `.partial` directories and lack finalized arrays.
-Collection has its own format: inspect `src/manimux/collection/yam/data/recorder.py`
+Collection has its own format: inspect `manimux/collection/yam/data/recorder.py`
 and its writer rather than assuming runtime Zarr paths. YAM collection can include
 `manimux-control.jsonl`, controller targets, measured joints and separate timestamps.
 

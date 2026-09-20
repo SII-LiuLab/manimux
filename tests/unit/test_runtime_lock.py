@@ -11,13 +11,13 @@ def test_runtime_lock_rejects_a_second_owner_and_can_be_reacquired(tmp_path: Pat
     first = RuntimeInstanceLock(
         "yam",
         mode="serve",
-        config_path=Path("configs/mock.yaml"),
+        config_path=Path("tests/fixtures/runtime.yaml"),
         lock_dir=tmp_path,
     )
     second = RuntimeInstanceLock(
         "yam",
         mode="run",
-        config_path=Path("configs/mock.yaml"),
+        config_path=Path("tests/fixtures/runtime.yaml"),
         lock_dir=tmp_path,
     )
 

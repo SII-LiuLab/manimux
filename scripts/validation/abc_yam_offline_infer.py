@@ -16,7 +16,8 @@ import numpy as np
 import requests
 
 from manimux.cli import load_config
-from manimux.policies import build_policy_adapter, build_policy_model
+from manimux.policies import build_policy_model
+from manimux.policy_adapter import build_policy_adapter
 from manimux.types import (
     ActionContext,
     InferenceRequest,
@@ -30,7 +31,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--episode", type=Path, required=True)
     parser.add_argument("--indices", type=int, nargs="+", default=[0, 150, 300])
-    parser.add_argument("--config", default="configs/abc/yam/infra/official-bottles-75k.yaml")
+    parser.add_argument(
+        "--config", default="manimux/configs/experiments/put_bottles/yam_abc_official_bottles_75k.yaml"
+    )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     config = load_config(args.config)

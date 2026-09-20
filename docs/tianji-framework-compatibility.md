@@ -1,5 +1,9 @@
 # Tianji integration: framework compatibility audit
 
+> Historical report: the old Tianji driver and its driver/recovery tests have
+> since been removed. Measurements below describe that revision, not validation
+> of the current component assembly. Current layout: [code organization](code-organization.md).
+
 Audit date: 2026-09-13. Comparison baseline: original remote `main` commit
 `9e313ebbe3ffea0b85de44e282ddfdc2a0f74765`, including both the existing Tianji
 commits and the current working-tree changes. This is an offline code and

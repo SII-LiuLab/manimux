@@ -14,7 +14,8 @@ import numpy as np
 from xpolicylab_yam_forward_probe import _snapshot
 
 from manimux.cli import load_config
-from manimux.policies import build_policy_adapter, build_policy_model
+from manimux.policies import build_policy_model
+from manimux.policy_adapter import build_policy_adapter
 from manimux.runtime.dvac import DvacInferenceRequest
 from manimux.types import ActionContext
 
@@ -36,12 +37,12 @@ def main() -> int:
     config = load_config(config_path)
     if config["policy"]["worker"] != "xpolicylab_ws":
         raise ValueError("DVAC probe requires policy.worker: xpolicylab_ws")
-    if config["execution"]["runtime"] != "dvac":
-        raise ValueError("DVAC probe requires execution.runtime: dvac")
+    if config["inference"]["algorithm"] != "dvac":
+        raise ValueError("DVAC probe requires inference.algorithm: dvac")
 
-    settings = config["execution"]["dvac"]
+    settings = config["inference"]["dvac"]
     maximum = settings["max_execution_steps"] or config["policy"]["horizon_steps"]
-    group_order = list(config["policy"]["options"]["group_order"])
+    group_order = list(config["policy"]["adapter"]["group_order"])
     expected_width = sum(int(config["robot"]["group_dims"][name]) for name in group_order)
     session_id = f"xpolicy-dvac-probe-{uuid.uuid4().hex[:8]}"
     model = build_policy_model(config["policy"])

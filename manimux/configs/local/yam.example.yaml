@@ -1,0 +1,20 @@
+# Copy to station.yaml in this directory, then fill in this machine's devices.
+# CAN names below are examples; use the actual Linux interfaces on your station.
+robot:
+  components:
+    left_yam: {channel: can_left}
+    right_yam: {channel: can_right}
+    left_camera: {camera_serial: "REPLACE_LEFT_CAMERA"}
+    front_camera: {camera_serial: "REPLACE_FRONT_CAMERA"}
+    right_camera: {camera_serial: "REPLACE_RIGHT_CAMERA"}
+services:
+  camera:
+    endpoint: tcp://127.0.0.1:5555
+    request_endpoint: tcp://127.0.0.1:5555
+    bind_endpoint: tcp://0.0.0.0:5556
+    bind_request_endpoint: tcp://0.0.0.0:5555
+  policy:
+    endpoint: ws://127.0.0.1:8500
+paths:
+  # Recipes select paths inside this root. Relative roots are based on station.yaml.
+  checkpoints: ../../../checkpoints

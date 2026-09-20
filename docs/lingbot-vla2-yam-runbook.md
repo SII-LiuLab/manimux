@@ -81,11 +81,11 @@ adapter 只负责协议与 YAM 字段映射；ManiMux 只负责任务生命周�
 ## 当前文件
 
 ```text
-finetune server: configs/lingbot-vla2/yam/server/finetune.yaml
-base server:     configs/lingbot-vla2/yam/server/base.yaml
-infra:   configs/lingbot-vla2/yam/infra/manimux.yaml
-rtc:     configs/lingbot-vla2/yam/infra/rtc.yaml
-step-15000 rtc: configs/lingbot-vla2/yam/infra/rtc-assemble-screwdriver-step15000.yaml
+finetune server: manimux/configs/policy/lingbot-vla2/yam/finetune.yaml
+base server:     manimux/configs/policy/lingbot-vla2/yam/base.yaml
+infra:   manimux/configs/experiments/pick_red_object/yam_lingbot_vla2_manimux.yaml
+rtc:     manimux/configs/experiments/pick_place/yam_lingbot_vla2_rtc.yaml
+step-15000 rtc: manimux/configs/experiments/assemble_screwdriver/yam_lingbot_vla2_rtc_step15000.yaml
 adapter: XPolicyLab/policy/LingBot_VLA2/model.py
 sampler: XPolicyLab/policy/LingBot_VLA2/rtc.py
 server:  XPolicyLab/policy/LingBot_VLA2/setup_eval_policy_server.sh
@@ -94,10 +94,14 @@ source:  XPolicyLab/policy/LingBot_VLA2/lingbot_vla_v2/  # vendored upstream sou
 check:   scripts/validation/check_lingbot_vla2_yam.py
 audit:   scripts/validation/lingbot_vla2_yam_audit.py
 prepare: scripts/datasets/prepare_lingbot_vla2_base_assets.py
-joint+EEF train: scripts/training/train_lingbot_vla2_yam_joint_ee_cluster.sh
-joint+EEF profile: configs/lingbot-vla2/yam/robot_configs/yam_dual_joint_ee_relative.yaml
-stats:   src/manimux/integrations/lingbot_vla2_yam/norm_stats/yam_60ep.json
+joint+EEF train: training/scripts/train_lingbot_vla2_yam_joint_ee_cluster.sh
+joint+EEF profile: training/configs/lingbot-vla2/yam_dual_joint_ee_relative.yaml
+stats:   manimux/integrations/lingbot_vla2_yam/norm_stats/yam_60ep.json
 ```
+
+The `training/` entries above belong to the optional private workspace, which is
+ignored by Git and absent from a fresh clone. Deployment uses the policy recipes
+and checkpoint artifacts independently of those local training launchers.
 
 服务端不存在第二套 native 入口。标准 launcher 调用
 `XPolicyLab/setup_policy_server.py`，后者只按 `policy_name: LingBot_VLA2` 加载
@@ -173,12 +177,12 @@ envs/yam/.venv/bin/python scripts/validation/check_lingbot_vla2_yam.py
 检查器读取 server config 中的显式路径；缺少任何权重 shard、训练配置、robot
 config 或 norm stats 都会返回 `status: blocked`，且不会加载 GPU 模型。
 
-检查器同时读取 `configs/lingbot-vla2/yam/infra/manimux.yaml`，要求：
+检查器同时读取 `manimux/configs/experiments/pick_red_object/yam_lingbot_vla2_manimux.yaml`，要求：
 
 - `policy.action_dt_s == 1 / native_hz`；
 - `policy.horizon_steps == action_horizon`；
 - relative checkpoint 必须使用 `policy.adapter: lingbot_vla2_yam`；
-- baseline `execution.runtime == manimux`。
+- baseline `inference.algorithm == manimux`。
 
 所以训练产物与执行时序不一致时会在模型加载前失败，而不是在真机循环中静默
 拉伸动作。
@@ -187,8 +191,8 @@ RTC 配置使用同一个检查入口：
 
 ```bash
 envs/yam/.venv/bin/python scripts/validation/check_lingbot_vla2_yam.py \
-  --config configs/lingbot-vla2/yam/server/finetune-assemble-screwdriver-step15000.yaml \
-  --infra-config configs/lingbot-vla2/yam/infra/rtc-assemble-screwdriver-step15000.yaml
+  --config manimux/configs/policy/lingbot-vla2/yam/finetune-assemble-screwdriver-step15000.yaml \
+  --infra-config manimux/configs/experiments/assemble_screwdriver/yam_lingbot_vla2_rtc_step15000.yaml
 ```
 
 除相同的 Hz/dt/horizon 契约外，它还验证 sampler capability、`beta > 0`、delay
@@ -219,7 +223,7 @@ LingBot 不能复用 XR-1 的 stats。XR-1 是 `30 x 60` anchor-relative EE delt
 
 ```bash
 cd /home/ubuntu/manimux
-PYTHONPATH=src envs/yam/.venv/bin/python -m \
+PYTHONPATH=. envs/yam/.venv/bin/python -m \
   manimux.integrations.lingbot_vla2_yam.compute_norm_stats \
   --episodes /path/to/yam/episodes \
   --out /path/to/norm_stats.json
@@ -235,8 +239,8 @@ cd /home/ubuntu/manimux
 envs/yam/.venv/bin/python scripts/datasets/prepare_lingbot_vla2_base_assets.py
 
 envs/yam/.venv/bin/python scripts/validation/check_lingbot_vla2_yam.py \
-  --config configs/lingbot-vla2/yam/server/base.yaml \
-  --infra-config configs/lingbot-vla2/yam/infra/manimux.yaml
+  --config manimux/configs/policy/lingbot-vla2/yam/base.yaml \
+  --infra-config manimux/configs/experiments/pick_red_object/yam_lingbot_vla2_manimux.yaml
 ```
 
 第二条必须输出 `status: ready`、
@@ -263,11 +267,11 @@ depth 依赖、LingBot-VLA2 与 XPolicyLab。安装完成后先做 GPU/WS forwar
 # terminal 1: XPolicy foundation base server
 cd /home/ubuntu/manimux
 bash XPolicyLab/policy/LingBot_VLA2/setup_eval_policy_server.sh \
-  configs/lingbot-vla2/yam/server/base.yaml
+  manimux/configs/policy/lingbot-vla2/yam/base.yaml
 
 # terminal 2: no-CAN forward probe
 envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
-  --config configs/lingbot-vla2/yam/infra/manimux.yaml
+  --config manimux/configs/experiments/pick_red_object/yam_lingbot_vla2_manimux.yaml
 ```
 
 只有 probe 返回有限的 `native_shape: [50, 14]` 和
@@ -292,7 +296,7 @@ envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
 ```bash
 cd /home/ubuntu/manimux
 bash XPolicyLab/policy/LingBot_VLA2/setup_eval_policy_server.sh \
-  configs/lingbot-vla2/yam/server/base.yaml
+  manimux/configs/policy/lingbot-vla2/yam/base.yaml
 ```
 
 看到 `Model initialized ...` 后等待服务监听 `127.0.0.1:8501`。如需再次确认模型输出，
@@ -301,7 +305,7 @@ bash XPolicyLab/policy/LingBot_VLA2/setup_eval_policy_server.sh \
 ```bash
 cd /home/ubuntu/manimux
 envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
-  --config configs/lingbot-vla2/yam/infra/manimux.yaml
+  --config manimux/configs/experiments/pick_red_object/yam_lingbot_vla2_manimux.yaml
 ```
 
 ### Terminal 2：三相机服务
@@ -310,7 +314,7 @@ envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/manimux-camera-server --config configs/cameras.yaml
+envs/yam/.venv/bin/manimux-camera-server --config manimux/configs/embodiment/sensor/cameras/yam.yaml
 ```
 
 确认三台 RealSense 均已打开，并看到 `REP bound` 与 `PUB bound`。
@@ -340,7 +344,7 @@ done
 ```bash
 cd /home/ubuntu/manimux
 envs/yam/.venv/bin/manimux run \
-  --config configs/lingbot-vla2/yam/infra/manimux.yaml
+  --config manimux/configs/experiments/pick_red_object/yam_lingbot_vla2_manimux.yaml
 ```
 
 连接后机械臂按配置用 `3.5 s` 移到起始姿态，结束时用 `3.5 s` 回 Home。正常停止时只在
@@ -377,14 +381,14 @@ server 代码。
 # terminal 1: model server
 cd /home/ubuntu/manimux
 bash XPolicyLab/policy/LingBot_VLA2/setup_eval_policy_server.sh \
-  configs/lingbot-vla2/yam/server/finetune.yaml
+  manimux/configs/policy/lingbot-vla2/yam/finetune.yaml
 
 # terminal 2: cameras
 # 使用现场已经验证过的 camera server 命令。
 
 # terminal 3: ManiMux
 envs/yam/.venv/bin/manimux run \
-  --config configs/lingbot-vla2/yam/infra/manimux.yaml
+  --config manimux/configs/experiments/pick_red_object/yam_lingbot_vla2_manimux.yaml
 ```
 
 这些 finetune 命令当前仍没有 GPU forward、server handshake、相机、CAN 或真机证据。

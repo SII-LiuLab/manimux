@@ -65,11 +65,11 @@ def test_infra_must_match_server_timing(monkeypatch: pytest.MonkeyPatch) -> None
     infra = {
         "robot": {"control_hz": 30.0},
         "policy": {
-            "adapter": "xpolicylab",
+            "adapter": {'type': 'manimux.policy_adapter.joint:JointAdapter'},
             "horizon_steps": 50,
             "action_dt_s": 1 / 30,
         },
-        "execution": {"runtime": "manimux"},
+        'inference': {'algorithm': "manimux"}, 'executor': {},
     }
     report = _validate(_minimal_config(), infra)
     assert report["status"] == "blocked"
@@ -96,19 +96,16 @@ def test_structurally_feasible_rtc_config_is_accepted(
     infra = {
         "robot": {"control_hz": 30.0},
         "policy": {
-            "adapter": "xpolicylab",
+            "adapter": {'type': 'manimux.policy_adapter.joint:JointAdapter'},
             "horizon_steps": 50,
             "action_dt_s": 1 / 30,
         },
-        "execution": {
-            "runtime": "rtc",
-            "rtc": {
+        'inference': {'algorithm': "rtc", 'rtc': {
                 "initial_delay_steps": 12,
                 "min_execute_steps": 20,
                 "delay_buffer_size": 10,
                 "beta": 5.0,
-            },
-        },
+            }}, 'executor': {},
     }
     report = _validate(_minimal_config(), infra)
     assert report["status"] == "ready"
@@ -139,11 +136,11 @@ def test_base_variant_is_reported_without_claiming_inference(
     infra = {
         "robot": {"control_hz": 30.0},
         "policy": {
-            "adapter": "xpolicylab",
+            "adapter": {'type': 'manimux.policy_adapter.joint:JointAdapter'},
             "horizon_steps": 50,
             "action_dt_s": 1 / 30,
         },
-        "execution": {"runtime": "manimux"},
+        'inference': {'algorithm': "manimux"}, 'executor': {},
     }
     report = _validate(config, infra)
     assert report["status"] == "ready"
@@ -166,7 +163,7 @@ def test_xpolicy_and_manimux_configs_use_explicit_artifact_paths() -> None:
         )
     )
     manimux = yaml.safe_load(
-        (REPO_ROOT / "configs/lingbot-vla2/yam/server/base.yaml").read_text(
+        (REPO_ROOT / "manimux/configs/policy/lingbot-vla2/yam/base.yaml").read_text(
             encoding="utf-8"
         )
     )

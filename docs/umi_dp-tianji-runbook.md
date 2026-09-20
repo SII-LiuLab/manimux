@@ -12,13 +12,13 @@ runtime needs the normal Tianji dependencies plus ManiMux's `xpolicylab` extra.
 ```bash
 bash XPolicyLab/policy/UMI_DP/install.sh envs/umi_dp/.venv
 # Check the actual EMA/model, SHA, H, dt, first offset, and preprocessing:
-envs/umi_dp/.venv/bin/python scripts/servers/umi_dp_tianji_server.py \
+envs/umi_dp/.venv/bin/python manimux/servers/umi_dp.py \
   --checkpoint /path/to/trusted/pass_ball.ckpt --check
 # Write a paired model-server and runtime config, bound to those artifacts:
-envs/umi_dp/.venv/bin/python scripts/servers/umi_dp_tianji_server.py \
+envs/umi_dp/.venv/bin/python manimux/servers/umi_dp.py \
   --checkpoint /path/to/trusted/pass_ball.ckpt \
   --bind-runtime-config data/experiments/pass-ball-bound.yaml
-# Select RTC with --runtime-template configs/umi_dp/tianji/infra/pass_ball/rtc.yaml.
+# Select RTC with --runtime-template manimux/configs/experiments/pass_ball/tianji_umi_dp_rtc.yaml.
 ```
 
 The binder updates H16/H64 and observation/action timing from the checkpoint,
@@ -27,7 +27,7 @@ checks the paired `expected_artifacts`; ManiMux verifies the server's identity
 and sampling capabilities before execution. The checked-in templates are
 intentionally unbound and rejected by the actual Tianji adapter until bound.
 
-`configs/robots/tianji/common.yaml` owns all device/command limits and has 30Hz
+`manimux/configs/embodiment/robot/tianji_control.yaml` owns runtime command limits and has 30Hz
 action points. A legacy 100ms-action checkpoint cannot bind to that profile.
 To use one, explicitly create/select a matching control profile and runtime
 template with its action interval, retaining reviewed hardware and motion limits;
@@ -37,7 +37,7 @@ is still 1/source_fps (33.3ms at 30fps).
 ## Start the model service
 
 ```bash
-envs/umi_dp/.venv/bin/python scripts/servers/umi_dp_tianji_server.py \
+envs/umi_dp/.venv/bin/python manimux/servers/umi_dp.py \
   --config data/experiments/pass-ball-bound-server.yaml
 ```
 
@@ -50,80 +50,22 @@ The hardware-side configuration uses the existing camera server's PUB endpoint
 (default `tcp://127.0.0.1:5556`) and configured wrist names `left_wrist` and
 `right_wrist`. Start camera/runtime services only as part of the intended hardware
 session, using the existing Tianji camera config and the paired runtime config.
-The common Tianji profile remains `execute: false`, `gripper_control: false` by
+The common Tianji profile remains `execute: false`, `end_effector_control: false` by
 default. No devices are accessed by model validation or binding.
 
-## Viewer: manual drag and direct homing
+## Component assembly and Viewer
 
-Use `manimux serve --config <runtime-config>` with the Tianji viewer. The
-**Manual recovery** panel is always visible below the task heading, independent
-of preparation, execution, interruption or evaluation:
+Both runtime templates now select `tianji_taccap` and the assembly at
+`manimux/configs/embodiment/robot/tianji_taccap.yaml`. Arm control parameters and TacCap
+settings belong to their component YAMLs. Supply controller IP and component
+serials through `manimux run/serve --local <station.yaml>`; see
+`manimux/configs/local/tianji_taccap.example.yaml`.
 
-- **Finish & Home** saves the current rollout and returns home directly.
-- **Finish without homing** saves and releases the robot at its current pose,
-  overriding `robot.options.home_on_close` for that finish request.
-- During an active rollout, select **Drag arms: A / B / AB** and click
-  **Stop rollout & drag**. This ends the rollout without homing, waits for
-  runtime cleanup to release the controller, then enters the selected drag.
-  **Cancel drag** cancels that pending transition; the rollout still stops.
-- Once cleanup finishes, select **Drag arms: A / B / AB** and **Start drag**.
-  A is the left arm, B the right. Use **Exit drag** to leave drag mode and
-  disable the selected arms. Then **Return Home** homes without creating a
-  rollout; it can also be used directly without dragging first.
-
-After a physical emergency stop, release the E-stop before clicking **Start
-drag** or **Return Home**. The drag worker uses teleop's `ensure_clear` to clear
-latched errors and verify all selected arms before enabling torque mode. If any error remains,
-neither arm enters drag. Direct **Return Home** also checks and clears latched
-controller errors before enabling position mode or gripper control. It retries
-at most five times, 0.3 seconds apart, and requires fresh, error-free feedback
-from both arms before proceeding. It only clears arms in `active_arms`; a fault
-on another arm blocks homing and is reported without clearing that arm. If
-clearing fails, no homing targets are sent and **Last error** shows the remaining
-controller state/error. Normal rollout connection does not automatically clear
-faults, and an E-stop during homing aborts the move without retrying recovery.
-The panel reports the interrupted rollout and keeps
-the underlying error in **Last error**, including when startup failed before
-an episode could begin. Recovery state is restored from periodic service
-heartbeats even if the one-time failure event was lost. A service disconnect
-keeps the recovery panel visible but disables motion until it returns.
-
-Recovery requires `robot.options.execute: true`. Drag respects `active_arms`;
-homing reuses the configured Tianji driver, home waypoints and speed. New
-rollouts and homing remain locked during drag and its cleanup. Closing the last
-viewer browser tab or losing the viewer connection requests drag exit. A
-one-shot `manimux run` exits its runtime and does not offer idle recovery; use
-`serve` for this workflow. Automatic completion still follows `home_on_close`.
-
-With `gripper_control: true`, every home operation first completes the joint
-move and waits until both arms are within 0.5 degrees of home, then opens both
-grippers to at least 0.98 normalized aperture while holding the home joints.
-Opening uses the existing force-limited targets and must finish before home
-returns or cleanup disables the motors. Joint settling and gripper opening
-each have a 5-second timeout; faults or timeouts stop the operation and report
-an error. With gripper control disabled, homing only moves the arms.
-
-The drag worker runs in `project/teleop/.venv`, using teleop's `ArmDriver`,
-`RobotConnection` and `load_tool_config` with **`--tool umi`**. It matches
-`set-state <A|B> drag --tool umi`: joint drag at 250 Hz, K=1, D=0.3,
-15 deg/s reference tracking, and separate A/B tool calibration. AB uses one
-connection and batched joint commands. It does not start teleoperation sensors
-or a policy. It never enters drag with an uncleared controller fault.
-
-By default, teleop is the sibling checkout next to ManiMux. For another layout,
-set the path in the **runtime** config (not the model-server config):
-
-```yaml
-viewer:
-  enabled: true
-  robot_adapter: tianji
-  tianji_teleop_root: /path/to/project/teleop
-```
-
-The worker always uses the runtime's configured robot IP and teleop's current
-`configs/tool/umi.yaml`; it does not copy calibration values into ManiMux.
-The UI reports startup, active drag, exit and errors separately. Failure to
-confirm drag cleanup keeps subsequent motion blocked.
+The old driver, its recovery service and drag worker have been removed.
+The component assembly does not implement Home or manual drag recovery; the
+service advertises recovery as unavailable. Use the normal runtime pause,
+resume and finish controls. Current assembly setup is documented in
+[the component runbook](umi-dp-tianji-taccap-runbook.md).
 
 ## Measured observation history
 
@@ -205,23 +147,23 @@ takeover tracking with the configured executor and motion limits on hardware.
 Bind the actual checkpoint and explicitly select the existing IK backend:
 
 ```bash
-envs/umi_dp/.venv/bin/python scripts/servers/umi_dp_tianji_server.py \
+envs/umi_dp/.venv/bin/python manimux/servers/umi_dp.py \
   --checkpoint /path/to/trusted/pass_ball.ckpt \
-  --runtime-template configs/umi_dp/tianji/infra/pass_ball/rtc.yaml \
+  --runtime-template manimux/configs/experiments/pass_ball/tianji_umi_dp_rtc.yaml \
   --ik-backend diff \
   --bind-runtime-config data/experiments/pass-ball-rtc.yaml
 ```
 
 For a station with a reviewed custom profile or diff-IK options, create a new
 runtime template from that station's bound configuration. Set
-`policy.options.history_strategy: rtc`, `policy.action_decoding: process`, and
-keep `execution.runtime: manimux.integrations.umi_dp_tianji.history:build_strategy`.
-Remove `execution.inference_schedule` and `execution.refill_threshold_s`; RTC
+`inference.algorithm: rtc`, `policy.action_decoding: process`, and
+keep `inference.algorithm: manimux.policy_adapter.umi_dp.history:build_strategy`.
+Remove `inference.inference_schedule` and `inference.refill_threshold_s`; RTC
 rejects these unused fields. Preserve the selected profile, IK limits, gripper
 semantics and executor settings. Rebind the copied template to produce a new
 paired configuration; do not change artifact identities by hand.
 
-`execution.rtc.initial_delay_steps` is an initial estimate in **model action
+`inference.rtc.initial_delay_steps` is an initial estimate in **model action
 steps**, not control ticks. The template uses 4, `min_execute_steps: null` (half
 the source horizon, bounded by feasibility) and PiGDM `beta: 5.0`. Runtime
 forecasting takes the maximum of the recent delay buffer and rounds fractional
@@ -235,7 +177,7 @@ approximately 233 ms. The first chunk is unconditioned.
 Both pass-ball infra templates enable the shared executor's `close_latch` mode:
 
 ```yaml
-execution:
+executor:
   smooth:
     gripper:
       mode: close_latch
@@ -309,7 +251,7 @@ Seeding IK from the measured state at submission failed on hardware: both
 125ms after a plan commit. In 17 of 17 moving commits the new plan's first row
 lay behind the arm (median 1.97 degrees), so the command reversed at up to
 ~40 deg/s without an acceleration limit. `pass-ball-h64.yaml` therefore sets
-`execution.expected_decode_s: 0.065`, seeding from the previous plan's reference
+`inference.expected_decode_s: 0.065`, seeding from the previous plan's reference
 at the expected commit (see [process decoding](parallel-ik-execution.md)). On
 those recordings that seed lay ahead of the arm in 16 of 17 commits (median
 2.29 degrees); this replay does not rerun IK, and the fix is unverified on
@@ -339,29 +281,10 @@ submit-to-commit time. The driver's home move and `set-state drag` keep their ow
 250Hz loops. How position mode follows 10ms targets is not yet validated on
 hardware.
 
-Run the real model on a temporary evaluation port, then evaluate RTC against
-the same model, IK, control profile and executor using a simulated plant:
-
-```bash
-# Uses the paired config's server URL; --server may select a temporary server.
-.venv/bin/python -m scripts.validation.umi_dp_tianji_rtc_eval \
-  --config data/experiments/pass-ball-rtc.yaml --strategy rtc \
-  --seconds 20 --output data/rtc-evaluation/rtc
-.venv/bin/python -m scripts.validation.umi_dp_tianji_rtc_eval \
-  --config data/experiments/pass-ball-rtc.yaml --strategy manimux \
-  --seconds 20 --output data/rtc-evaluation/manimux
-```
-
-This harness always substitutes simulated robot/camera drivers before runtime
-construction, and keeps backend identity and sampling capability checks. It
-defaults to fixed synthetic RGB and a reachable joint pose. `--fixture input.npz`
-can supply RGB uint8 `left_wrist`/`right_wrist` arrays and 8D radian/aperture
-`left_arm`/`right_arm` states. Images remain fixed while simulated capture times
-advance: this is a scheduling test with real inference, not visual task success.
-Each new output directory contains events, plan/tick Zarr data and `summary.json`.
-The summary reports conditioned accepted chunks, rejection reasons, complete
-observation-to-commit latency, decode latency, tick intervals and joint tracking.
-See [RTC evaluation results](tianji-rtc-evaluation.md) for measured evidence.
+The former simulated-plant RTC evaluation launcher has been retired with the
+mock robot driver. Its historical measurements remain in
+[RTC evaluation results](tianji-rtc-evaluation.md); they are not current hardware
+validation. Runtime regression tests use substitutes under `tests/support/`.
 
 See the UMI_DP README for real recorded-window forward/parity and shared-server
 commands. Runtime tests cover capture identity, wrong-time history rejection,

@@ -17,7 +17,9 @@ import pytest
 
 from manimux.cli import load_config
 from manimux.clock import SystemClock
-from manimux.robots.yam import YamDualArmDriver
+from manimux.embodiments.arm.base import ArmState
+from manimux.embodiments.robot import build_robot
+from manimux.embodiments.robot.yam import YamRobot
 
 
 class _SleepingArm:
@@ -67,14 +69,24 @@ class _Bimanual:
         self._robot_r.robot.position = np.asarray(command[7:], dtype=np.float64).copy()
 
 
-def _live_driver() -> tuple[YamDualArmDriver, _Bimanual]:
-    config = load_config("configs/molmoact2/yam/infra/manimux.yaml")
+def _live_driver() -> tuple[YamRobot, _Bimanual]:
+    config = load_config("manimux/configs/experiments/pick_red_object/yam_molmoact2_manimux.yaml")
     config["robot"]["options"]["home_duration_s"] = 0.4
     config["robot"]["options"]["home_gripper_release_duration_s"] = 0.1
     config["robot"]["options"]["start_duration_s"] = 0.4
-    driver = YamDualArmDriver(config["robot"], SystemClock())
+    driver = build_robot(config["robot"], SystemClock())
     backend = _Bimanual()
-    driver._robot = backend
+    for group, arm in zip(
+        driver.arm_components.values(), (backend._robot_l, backend._robot_r), strict=True
+    ):
+        controller = group.controller
+        controller.move_joints = lambda target, *, time_interval_s, arm=arm: arm.robot.move_joints(
+            target, time_interval_s
+        )
+        controller.get_states = lambda controller=controller, arm=arm: {
+            controller.channel: ArmState(arm.get_joint_state(), time.monotonic_ns(), 1)
+        }
+    driver._ready = True
     return driver, backend
 
 
@@ -108,7 +120,7 @@ def test_home_moves_both_arms_concurrently_before_releasing_grippers(monkeypatch
                 started.wait()
                 if name == "right":
                     assert completed["left"].wait(timeout=2.0)
-                assert time_interval_s == driver._home_duration_s
+                assert time_interval_s == driver._home_duration
                 native.position = target
                 calls[name].append(target)
                 completed[name].set()
@@ -158,12 +170,7 @@ def test_ctrl_c_during_start_move_finishes_then_propagates() -> None:
     thread = _interrupt_after(0.1)
     try:
         with pytest.raises(KeyboardInterrupt):
-            driver._move_joints(
-                np.concatenate([HOME, HOME]),
-                duration_s=0.4,
-                transition="start pose",
-                parallel=True,
-            )
+            driver._move({"left_arm": HOME, "right_arm": HOME}, 0.4, "start pose", interrupt=True)
     finally:
         thread.join(timeout=2.0)
         signal.signal(signal.SIGINT, original)
@@ -183,13 +190,7 @@ def test_second_ctrl_c_aborts_a_stuck_move() -> None:
     thread = _interrupt_after(0.15, count=2)
     try:
         with pytest.raises(KeyboardInterrupt):
-            driver._move_joints(
-                np.concatenate([HOME, HOME]),
-                duration_s=8.0,
-                transition="zero home",
-                parallel=False,
-                reraise_interrupt=False,
-            )
+            driver._move({"left_arm": HOME, "right_arm": HOME}, 8.0, "zero home", parallel=False)
     finally:
         thread.join(timeout=3.0)
         signal.signal(signal.SIGINT, original)

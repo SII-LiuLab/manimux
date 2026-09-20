@@ -4,12 +4,12 @@
 
 ```bash
 envs/yam/.venv/bin/manimux serve \
-  --config configs/pi05/yam/infra/put-bottles/serial-joint-step30000.yaml
+  --config manimux/configs/experiments/put_bottles/yam_pi05_serial_joint_step30000.yaml
 ```
 
 ```yaml
-execution:
-  runtime: manimux
+inference:
+  algorithm: manimux
   inference_schedule: serial
   chunk_steps: 12
   commit_lead_s: 0.0
@@ -21,7 +21,7 @@ execution:
 指令并处理 GUI Pause/Finish；这里的串行是任务时序，不是阻塞控制线程。
 
 轨迹从结果提交时开始计时，不按推理延迟跳过前几行。Pi05 模型输出 contract
-仍是 50 步，OpenWAM 仍是 32 步；`execution.chunk_steps: 12` 只在 timeline
+仍是 50 步，OpenWAM 仍是 32 步；`inference.chunk_steps: 12` 只在 timeline
 commit 边界保留原始前 12 行。
 记录保留真实观测时间，
 `max_plan_age_s` 仍限制过期结果，不能用重设观测时间掩盖延迟。每行按模型

@@ -1,0 +1,24 @@
+# Official Xiaomi-Robotics-1-5B base checkpoint with YAM projection stats.
+# The statistics define input/output units but are not matched training stats.
+policy_name: Xiaomi_Robotics_1
+protocol: ws
+host: 127.0.0.1
+port: 8500
+
+bench_name: RoboDojo_real
+task_name: pick_place
+env_cfg_type: yam_dual
+action_type: ee
+eval_batch: false
+checkpoint_variant: xiaomi_robotics_1_5b_base_with_yam_stats
+
+checkpoint_path: /home/ubuntu/manimux/checkpoints/pretrained/xiaomi/model_states.pt
+checkpoint_source: XiaomiRobotics/Xiaomi-Robotics-1-5B
+norm_stats_path: /home/ubuntu/manimux/manimux/integrations/xr1_yam/norm_stats/yam.json
+norm_stats_role: yam_projection_only_not_checkpoint_matched
+vlm_processor_path: /home/ubuntu/manimux/checkpoints/pretrained/qwen3_vl_4b_processor
+output_format: packed_ee_delta
+action_length: 30
+image_factor: 32
+image_max_pixels: 160000
+default_prompt: Put the bottle into the bin.

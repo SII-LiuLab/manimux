@@ -50,9 +50,9 @@ class _FailingRuntime:
 
 
 def test_session_service_waits_for_viewer_then_runs_one_isolated_episode(tmp_path: Path) -> None:
-    config = load_config("configs/mock.yaml")
+    config = load_config("tests/fixtures/runtime.yaml")
     config["viewer"]["enabled"] = True
-    config["policy"]["options"]["camera_map"] = {"cam_head": "gemini305", "cam_left": "left_camera"}
+    config["policy"]["adapter"]["camera_map"] = {"cam_head": "gemini305", "cam_left": "left_camera"}
     run_dir = tmp_path / "run-session"
     run_dir.mkdir()
     episode_dir = run_dir / "episode-one"
@@ -90,13 +90,13 @@ def test_session_service_waits_for_viewer_then_runs_one_isolated_episode(tmp_pat
     assert runtime.run_count == 1
     assert controls[0].closed
     ready = next(message for message in messages if message["event"] == "runtime_service_ready")
-    assert ready["metadata"]["camera_map"] == config["policy"]["options"]["camera_map"]
+    assert ready["metadata"]["camera_map"] == config["policy"]["adapter"]["camera_map"]
 
 
 def test_cli_keeps_run_and_adds_serve() -> None:
     parser = build_parser()
-    assert parser.parse_args(["run", "--config", "configs/mock.yaml"]).command == "run"
-    assert parser.parse_args(["serve", "--config", "configs/mock.yaml"]).command == "serve"
+    assert parser.parse_args(["run", "--config", "tests/fixtures/runtime.yaml"]).command == "run"
+    assert parser.parse_args(["serve", "--config", "tests/fixtures/runtime.yaml"]).command == "serve"
 
 
 def test_sigterm_uses_keyboard_interrupt_cleanup_path() -> None:
@@ -117,7 +117,7 @@ def test_rollout_ids_are_readable_and_include_partial_attempts(tmp_path: Path) -
 
 
 def test_session_manifest_records_config_identity(tmp_path: Path) -> None:
-    config_path = Path("configs/mock.yaml")
+    config_path = Path("tests/fixtures/runtime.yaml")
     config = load_config(config_path)
     config["run"]["output_dir"] = tmp_path
 
@@ -131,7 +131,7 @@ def test_session_manifest_records_config_identity(tmp_path: Path) -> None:
 
 
 def test_session_service_builds_a_fresh_runtime_for_every_episode(tmp_path: Path) -> None:
-    config = load_config("configs/mock.yaml")
+    config = load_config("tests/fixtures/runtime.yaml")
     config["viewer"]["enabled"] = True
     run_dir = tmp_path / "run-session"
     run_dir.mkdir()
@@ -162,7 +162,7 @@ def test_session_service_builds_a_fresh_runtime_for_every_episode(tmp_path: Path
 
 
 def test_viewer_request_selects_task_and_experiment_metadata(tmp_path: Path) -> None:
-    config = load_config("configs/mock.yaml")
+    config = load_config("tests/fixtures/runtime.yaml")
     config["viewer"]["enabled"] = True
     run_dir = tmp_path / "session"
     run_dir.mkdir()
@@ -201,7 +201,7 @@ def test_viewer_request_selects_task_and_experiment_metadata(tmp_path: Path) -> 
 
 
 def test_session_service_survives_one_failed_rollout_attempt(tmp_path: Path) -> None:
-    config = load_config("configs/mock.yaml")
+    config = load_config("tests/fixtures/runtime.yaml")
     config["viewer"]["enabled"] = True
     run_dir = tmp_path / "run-session"
     run_dir.mkdir()
@@ -233,7 +233,7 @@ def test_session_service_survives_one_failed_rollout_attempt(tmp_path: Path) -> 
 
 
 def test_repeated_failures_have_distinct_ids_republished_in_idle_heartbeats(tmp_path: Path) -> None:
-    config = load_config("configs/mock.yaml")
+    config = load_config("tests/fixtures/runtime.yaml")
     config["viewer"]["enabled"] = True
     messages: list[dict[str, Any]] = []
     attempts = 0

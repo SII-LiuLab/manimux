@@ -21,7 +21,7 @@ from pathlib import Path
 import numpy as np
 
 REPO = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO / "src"))
+sys.path.insert(0, str(REPO))
 
 
 def load_module(name, path):
@@ -33,8 +33,6 @@ def load_module(name, path):
 
 
 def main():
-    from manimux.robots.tianji.sdk import load_marvin_kine
-
     from manimux.cli import load_config
     from manimux.kinematics.tianji import BD67_REAL, DH_TABLE_M6_40, TianjiKinematics
     from manimux.kinematics.tianji_diff import DifferentialIKConfig, TianjiDifferentialIK
@@ -66,9 +64,11 @@ def main():
     load_module("algos.nullspace", reference / "algos/nullspace.py")
     old = load_module("algos.diff_ik", reference / "algos/diff_ik.py")
     old_kin = load_module("algos.kinematics", reference / "algos/kinematics.py")
-    converter = load_marvin_kine().Marvin_Kine()
-    profile = load_config(REPO / "configs/umi_dp/tianji/infra/pass_ball/default.yaml")
-    motion = profile["execution"]["motion_limits"]["arm"]
+    from manimux.embodiments.arm.tianji.sdk.marvin import fx_kine
+
+    converter = fx_kine.Marvin_Kine()
+    profile = load_config(REPO / "manimux/configs/experiments/pass_ball/tianji_umi_dp_default.yaml")
+    motion = profile["executor"]["motion_limits"]["arm"]
     tuning = DifferentialIKConfig(
         max_velocity_rad_s=motion["max_velocity"], dt_max_s=motion["max_step_dt_s"]
     )

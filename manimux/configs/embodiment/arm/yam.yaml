@@ -1,0 +1,8 @@
+# YAM 自带 linear_4310 夹爪，模型和 SDK 一次处理完整的 7 维坐标。
+type: arm
+implementation: manimux.embodiments.arm.yam:YamArm
+options: {}
+hardware:
+  arm_type: yam
+  gripper_type: linear_4310
+  # channel 由 local 工位文件提供；加载模型无需 CAN。

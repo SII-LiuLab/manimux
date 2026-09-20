@@ -1,7 +1,7 @@
 # ACT Temporal Ensembling
 
 ManiMux 的 ACT strategy 复用现有模型服务、PolicyAdapter、ActionTimeline、Executor 和
-RobotDriver。它不修改模型权重、输入输出、归一化、关节顺序或 XPolicy server。
+RobotBase。它不修改模型权重、输入输出、归一化、关节顺序或 XPolicy server。
 
 ## 上游依据
 
@@ -23,8 +23,8 @@ w_i = exp(-0.01 * i) / sum_j exp(-0.01 * j)
 查询一次。ManiMux 保持这一行为作为默认值，但增加：
 
 ```yaml
-execution:
-  runtime: act_temporal_ensemble
+inference:
+  algorithm: act_temporal_ensemble
   blend_steps: 0
   temporal_ensemble:
     coefficient: 0.01
@@ -50,7 +50,7 @@ scheduling**，不是未经改动的官方 rollout loop。
 
 ```bash
 envs/yam/.venv/bin/manimux run \
-  --config configs/pi05/yam/infra/act-temporal-ensemble.yaml
+  --config manimux/configs/experiments/pick_red_object/yam_pi05_act_temporal_ensemble.yaml
 ```
 
 该入口已完成离线公式、配置、Runtime 回归和 Pi05/YAM 真机执行。操作者在 step-1000
@@ -63,5 +63,5 @@ checkpoint 混用：
 
 ```bash
 envs/yam/.venv/bin/manimux run \
-  --config configs/pi05/yam/infra/pick-red-ball-box/act-temporal-ensemble-step1000.yaml
+  --config manimux/configs/experiments/pick_red_object/yam_pi05_act_temporal_ensemble_step1000.yaml
 ```

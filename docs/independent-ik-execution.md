@@ -1,6 +1,6 @@
 # Independent group IK execution
 
-The SAPolicy braking profile enables `execution.independent_group_decoding` for
+The SAPolicy braking profile enables `inference.independent_group_decoding` for
 independent bottle manipulation. Coupled tasks retain the default atomic decode
 failure behavior. The model still predicts 50 source rows; `max_chunk_steps: 25`
 is now passed into decode, so the SA adapter skips expired rows and rows 25–49
@@ -47,7 +47,7 @@ it did not send hardware commands or verify task success.
 
 ## Bounded orientation recovery
 
-The bottle profile now opts into `policy.options.kinematics_options.recovery_ori_threshold`
+The bottle profile now opts into `policy.adapter.kinematics_options.recovery_ori_threshold`
 (5 degrees) and `recovery_max_joint_delta` (0.35 rad per waypoint relative to its seed).
 Strict full-pose IK remains the first attempt. On failure, orientation costs 0.1 and
 0.02 are tried within the same arm budget. Acceptance still requires position error
@@ -120,7 +120,7 @@ This is a working deployment baseline, not a measured grasp-success rate.
 
 ## Finish grasp closure before lifting
 
-The bottle profile also enables `execution.smooth.grasp_guard`, sharing the
+The bottle profile also enables `executor.smooth.grasp_guard`, sharing the
 release guard's FK model and event scheduling. After the gripper has been open,
 the first unblended reference below the existing open threshold (0.85) captures
 the closure-onset pose. Capturing a later fully-closed waypoint would risk using

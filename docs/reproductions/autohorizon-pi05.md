@@ -119,13 +119,13 @@ autohorizon:
 
 ### ManiMux Runtime
 
-`src/manimux/runtime/autohorizon.py` owns only official execution cadence:
+`manimux/runtime/autohorizon.py` owns only official execution cadence:
 
 - wait until the previous selected prefix is exhausted;
 - request one new full chunk from the latest observation;
 - reject missing or out-of-range `execution_steps`;
 - retain exactly `chunk[:execution_steps]`;
-- execute that prefix through the configured Executor and RobotDriver;
+- execute that prefix through the configured Executor and RobotBase;
 - query again only after the prefix ends.
 
 There is no asynchronous prefetch, temporal ensemble or seam blend. `blend_steps` must be zero.
@@ -134,12 +134,12 @@ Smooth/MPC limits and Safety remain explicit outer real-robot layers and are not
 ## 5. Configuration
 
 ```text
-server: configs/pi05/yam/server/finetune-pick-red-ball-box-step1000.yaml
-infra:  configs/pi05/yam/infra/pick-red-ball-box/autohorizon-step1000.yaml
+server: manimux/configs/policy/pi05/yam/finetune-pick-red-ball-box-step1000.yaml
+infra:  manimux/configs/experiments/pick_red_object/yam_pi05_autohorizon_step1000.yaml
 ```
 
 The server config is unchanged because AutoHorizon reuses the same JAX checkpoint and matching norm
-stats. The infra config selects only `execution.runtime: autohorizon` and disables seam blending.
+stats. The infra config selects only `inference.algorithm: autohorizon` and disables seam blending.
 
 ## 6. User-Run Validation
 
@@ -148,8 +148,8 @@ Start the unchanged Pi05 server:
 ```bash
 cd /home/ubuntu/manimux
 XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
-  scripts/servers/pi05_yam_server.py \
-  --config configs/pi05/yam/server/finetune-pick-red-ball-box-step1000.yaml
+  manimux/servers/pi05.py \
+  --config manimux/configs/policy/pi05/yam/finetune-pick-red-ball-box-step1000.yaml
 ```
 
 Before any robot process, run the forward probe:
@@ -157,7 +157,7 @@ Before any robot process, run the forward probe:
 ```bash
 cd /home/ubuntu/manimux
 envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
-  --config configs/pi05/yam/infra/pick-red-ball-box/autohorizon-step1000.yaml
+  --config manimux/configs/experiments/pick_red_object/yam_pi05_autohorizon_step1000.yaml
 ```
 
 The probe must report a finite `50 x 14` native/canonical chunk and an `autohorizon` metadata block
@@ -195,7 +195,7 @@ run:
 ```bash
 cd /home/ubuntu/manimux
 envs/yam/.venv/bin/manimux run \
-  --config configs/pi05/yam/infra/pick-red-ball-box/autohorizon-step1000.yaml
+  --config manimux/configs/experiments/pick_red_object/yam_pi05_autohorizon_step1000.yaml
 ```
 
 ## 7. Validation Matrix

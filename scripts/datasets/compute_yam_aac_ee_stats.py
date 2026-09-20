@@ -7,8 +7,8 @@ from pathlib import Path
 import numpy as np
 from scipy.spatial.transform import Rotation
 
-from manimux.integrations.xpolicylab.aac import ee_pose_increment
 from manimux.kinematics import build_kinematics
+from manimux.policies.xpolicylab.aac import ee_pose_increment
 
 GROUP_FILES = {
     "left_arm": (

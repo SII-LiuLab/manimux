@@ -1,5 +1,10 @@
 # Tianji RTC evaluation — 2026-09-14
 
+Historical report: the simulated-plant launcher and mock robot driver used for
+these measurements have been retired. Recorded findings below remain historical
+evidence, not a runnable deployment entry or real-robot validation.
+
+
 The RTC integration now runs the real UMI_DP sampler, measured-history adapter,
 parallel Tianji IK decoders and shared executor together. This evaluation used
 simulated robot feedback and fixed synthetic RGB fixtures. It did not connect
@@ -13,7 +18,7 @@ to cameras or the robot, and establishes no pass-ball task success rate.
   `640c2ad99f939e5d1a39f32880266a17fd7cefdb960b5e1da9a2af46d14be548`.
 - UMI_DP shared WebSocket server, real 16-step DDIM with PiGDM, beta 5.
   Checkpoint/backend identity and sampling capability negotiation remained enabled.
-- Both runs use `configs/robots/tianji/common.yaml`, bound differential IK,
+- Both runs use `manimux/configs/embodiment/robot/tianji_control.yaml`, bound differential IK,
   two decoder processes, smooth execution, continuous grippers, 250 Hz control,
   30 Hz action knots, H64, and zero commit lead.
 - RTC starts with a 4-action-step delay estimate and the default half-horizon

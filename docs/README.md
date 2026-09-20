@@ -4,8 +4,10 @@
 
 ## Start here
 
+- [Connect your own robot](../manimux/configs/local/README.md): first steps for users and agents; one private station file for CAN/IP/USB and shared deployment service bindings.
 - [Guideline](guideline.md): installation, hardware-free demos and complete YAM startup commands.
-- [Configuration guide](../configs/README.md): config layout, field meanings and shared control profiles.
+- [Python environments](../envs/README.md) · [XPolicyLab action metadata](../env_cfg/README.md): why these differ from experiment and station configuration.
+- [Configuration guide](../manimux/configs/README.md): config layout, field meanings and shared control profiles.
 - [Viewer tutorial](viewer-tutorial.html): rollout controls, camera views and experiment labels.
 - [Experiment workflow](experiment-infra.md): persistent services, normal/experiment modes and saved evidence.
 - [YAM collection](yam-collection.md): the original-style collection GUI with ManiMux follower control.
@@ -42,7 +44,7 @@ does not mean every checkpoint or inference-method combination has passed a real
 - [Xiaomi XR-1](xiaomi-xr1-yam-runbook.md) · [OpenWAM](openwam-yam-runbook.md).
 - [SAPolicy](sapolicy-yam-runbook.md) · [Shared XPolicyLab bridge](xpolicylab-runbook.md).
 - Offline / simulation paths: [Cosmos3](cosmos3-offline-runbook.md),
-  [Isaac 0.5](isaac05-offline-runbook.md), [ManiUniCon](maniunicon-sim.md).
+  [Isaac 0.5](isaac05-offline-runbook.md).
 
 ## Support counts
 
@@ -53,16 +55,16 @@ checkpoint, or support for every policy × embodiment × inference combination.
   Pi05, MolmoAct2, ABC, GR00T, LingBot-VLA2, Xiaomi XR-1, OpenWAM and SAPolicy.
   Cosmos3 and Isaac 0.5 add two model-only / offline paths, not two more YAM-ready policies.
   Checkpoint variants, the generic XPolicyLab bridge and the collection leader policy are not counted separately.
-- **1 real + 1 simulation embodiment integration:** the dual-YAM driver and the
-  ManiUniCon/Meshcat simulation driver. Mock hardware is excluded. A model's DROID or LIBERO
-  checkpoint does not itself establish a ManiMux robot-driver integration.
+- **Hardware assemblies:** YAM uses the component implementation; Tianji–TacCap migration
+  boundaries are listed in [code organization](code-organization.md). Simulator drivers
+  have been retired. A model checkpoint does not itself establish a hardware integration.
 - **8 inference modes:** seven built-in strategies—ManiMux, RTC, ACT temporal ensembling,
   AAC, PAINT, AutoHorizon and DVAC—plus serial prefix execution. Serial is a scheduling mode
   of the ManiMux strategy, not an eighth registered strategy. Direct, Smooth and MPC are
   executors and are not counted as inference methods.
 
-Sources: [model configurations](../configs/), [robot factories](../src/manimux/robots/__init__.py),
-[strategy registry](../src/manimux/runtime/inference.py) and [serial execution](serial-execution.md).
+Sources: [model configurations](../manimux/configs/), [robot factories](../manimux/embodiments/robot/__init__.py),
+[strategy registry](../manimux/runtime/inference.py) and [serial execution](serial-execution.md).
 UMI and DAgger are collection roadmap items and do not contribute to these implementation counts.
 
 ## Inference and execution
@@ -78,10 +80,13 @@ Choose a method supported by the policy backend; these are not interchangeable s
 - [Pi05 AutoHorizon](reproductions/autohorizon-pi05.md) · [Pi05 DVAC](reproductions/dvac-pi05.md).
 - [Braking execution](braking-execution.md) · [Independent IK](independent-ik-execution.md).
 
-## Experiments, evaluation and training
+## Experiments and evaluation
 
 - [Experiment design](experiment-design.md): controlled comparisons and evaluation planning.
 - [PRM-as-a-Judge](prm-as-a-judge.md): offline video manifests, judge setup and reports.
 - [Reference-layout overlay](evaluation-layout-overlay.md): reproduce an experiment's initial scene.
-- [YAM training pipeline](yam-training-pipeline.md) · [Pi05 joint+EE training](pi05-bottles-joint-ee-training.md).
 - [CAN setup](can-bus.md): YAM-specific hardware configuration.
+
+Private training recipes, launchers and experiment notes live under the root
+`training/` directory, which is ignored by Git and is not part of the public package.
+XPolicyLab and upstream frameworks own model training and checkpoint loading.

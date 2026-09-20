@@ -8,11 +8,11 @@ import pytest
 from scipy.spatial.transform import Rotation
 
 from manimux.cli import load_config
-from manimux.integrations.umi_dp_tianji.history import HistoryStrategy
-from manimux.integrations.umi_dp_tianji.ik_config import bind_diff_ik_profile
 from manimux.kinematics.tianji import TianjiKinematics, j67_ok
 from manimux.kinematics.tianji_diff import DifferentialIKConfig, TianjiDifferentialIK
 from manimux.policies.base import action_interval
+from manimux.policy_adapter.umi_dp.history import HistoryStrategy
+from manimux.policy_adapter.umi_dp.ik_config import bind_diff_ik_profile
 
 pytest.importorskip("osqp")
 ROOT = Path(__file__).resolve().parents[2]
@@ -22,10 +22,10 @@ START = np.radians([50, -40, -30, -100, -65, 0, 40])
 @pytest.fixture
 def solver():
     kin = TianjiKinematics(end_effector="umi_follower")
-    config = load_config(ROOT / "configs/umi_dp/tianji/infra/pass_ball/default.yaml")
-    config["policy"]["options"]["ik_backend"] = "diff"
+    config = load_config(ROOT / "manimux/configs/experiments/pass_ball/tianji_umi_dp_default.yaml")
+    config["policy"]["adapter"]["ik_backend"] = "diff"
     bind_diff_ik_profile(config)
-    return TianjiDifferentialIK(kin, DifferentialIKConfig(**config["policy"]["options"]["diff_ik"]))
+    return TianjiDifferentialIK(kin, DifferentialIKConfig(**config["policy"]["adapter"]["diff_ik"]))
 
 
 def test_flange_jacobian_matches_finite_difference():
@@ -173,16 +173,16 @@ def test_nullspace_objective_pushes_joint_toward_interior(solver):
 
 
 def test_diff_rate_profile_binding_and_runtime_stale_rejection():
-    config = load_config(ROOT / "configs/umi_dp/tianji/infra/pass_ball/default.yaml")
-    config["policy"]["options"]["ik_backend"] = "diff"
+    config = load_config(ROOT / "manimux/configs/experiments/pass_ball/tianji_umi_dp_default.yaml")
+    config["policy"]["adapter"]["ik_backend"] = "diff"
     with pytest.raises(ValueError, match="max_velocity_rad_s"):
         HistoryStrategy(config)
-    config["execution"]["motion_limits"]["arm"]["max_velocity"] = 0.37
-    config["execution"]["motion_limits"]["arm"]["max_step_dt_s"] = 0.012
+    config["executor"]["motion_limits"]["arm"]["max_velocity"] = 0.37
+    config["executor"]["motion_limits"]["arm"]["max_step_dt_s"] = 0.012
     bind_diff_ik_profile(config)
-    assert config["policy"]["options"]["diff_ik"]["max_velocity_rad_s"] == 0.37
+    assert config["policy"]["adapter"]["diff_ik"]["max_velocity_rad_s"] == 0.37
     HistoryStrategy(config)
-    config["execution"]["motion_limits"]["arm"]["max_velocity"] = 0.31
+    config["executor"]["motion_limits"]["arm"]["max_velocity"] = 0.31
     with pytest.raises(ValueError, match="conflicts with the shared motion profile"):
         HistoryStrategy(config)
 
@@ -191,21 +191,21 @@ def test_cannot_relax_embodiment_margin_or_disable_umi_interference(solver):
     config = solver.config.model_copy(update={"limit_margin_deg": 3.0})
     with pytest.raises(ValueError, match="cannot reduce"):
         TianjiDifferentialIK(solver.kinematics, config)
-    from manimux.integrations.umi_dp_tianji.policy_plugin import UmiDpTianjiAdapter
+    from manimux.policy_adapter.umi_dp.tianji import UmiDpTianjiAdapter
 
-    runtime = load_config(ROOT / "configs/umi_dp/tianji/infra/pass_ball/default.yaml")
+    runtime = load_config(ROOT / "manimux/configs/experiments/pass_ball/tianji_umi_dp_default.yaml")
     runtime["robot"]["type"] = "mock"
-    runtime["policy"]["options"]["ik_backend"] = "diff"
+    runtime["policy"]["adapter"]["ik_backend"] = "diff"
     bind_diff_ik_profile(runtime)
-    runtime["policy"]["options"]["diff_ik"]["check_j67"] = False
+    runtime["policy"]["adapter"]["diff_ik"]["check_j67"] = False
     with pytest.raises(ValueError, match="requires the J6/J7 constraint"):
         UmiDpTianjiAdapter(runtime["robot"], runtime["policy"])
 
 
 @pytest.mark.parametrize("horizon,offset", [(16, 1 / 30), (64, 0.1)])
 def test_real_diff_adapter_chunk_timing_and_atomic_rejection(horizon, offset):
-    from manimux.integrations.umi_dp_tianji.history import WindowSnapshot
-    from manimux.integrations.umi_dp_tianji.policy_plugin import UmiDpTianjiAdapter, matrix_pose
+    from manimux.policy_adapter.umi_dp.history import WindowSnapshot
+    from manimux.policy_adapter.umi_dp.tianji import UmiDpTianjiAdapter, matrix_pose
     from manimux.types import (
         ActionContext,
         InferenceRequest,
@@ -214,7 +214,7 @@ def test_real_diff_adapter_chunk_timing_and_atomic_rejection(horizon, offset):
         SensorFrame,
     )
 
-    config = load_config(ROOT / "configs/umi_dp/tianji/infra/pass_ball/default.yaml")
+    config = load_config(ROOT / "manimux/configs/experiments/pass_ball/tianji_umi_dp_default.yaml")
     config["robot"]["type"] = "mock"
     config["policy"]["horizon_steps"] = horizon
     config["policy"]["options"].update(ik_backend="diff", first_action_offset_s=offset)
@@ -247,7 +247,7 @@ def test_real_diff_adapter_chunk_timing_and_atomic_rejection(horizon, offset):
         dt = action_interval(config["policy"])
         assert (
             np.max(np.abs(delta))
-            <= config["execution"]["motion_limits"]["arm"]["max_velocity"] * dt
+            <= config["executor"]["motion_limits"]["arm"]["max_velocity"] * dt
         )
     # Failure in the right arm's last row must not return the completed left arm.
     adapter.prepare_request(InferenceRequest("test", 2, 10**9, 2 * 10**9, window))
@@ -256,7 +256,7 @@ def test_real_diff_adapter_chunk_timing_and_atomic_rejection(horizon, offset):
         adapter.decode_action({"actions": actions}, ActionContext(2, 10**9, 10**9))
     assert 2 not in adapter.anchors
     # The report policy keeps that bounded, lagging chunk and records the lag.
-    config["policy"]["options"]["diff_ik"]["lag_policy"] = "report"
+    config["policy"]["adapter"]["diff_ik"]["lag_policy"] = "report"
     reporting = UmiDpTianjiAdapter(config["robot"], config["policy"])
     reporting.prepare_request(InferenceRequest("test", 3, 10**9, 2 * 10**9, window))
     chunk = reporting.decode_action({"actions": actions}, ActionContext(3, 10**9, 10**9))

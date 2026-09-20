@@ -151,7 +151,7 @@ stats or normalizing each candidate batch would change the entropy meaning. Mani
 a fixed external stats file for AAC:
 
 ```text
-src/manimux/integrations/xpolicylab/norm_stats/yam_60ep_ee_increment.json
+manimux/policies/xpolicylab/norm_stats/yam_60ep_ee_increment.json
 ```
 
 Generation command:
@@ -160,7 +160,7 @@ Generation command:
 cd /home/ubuntu/manimux
 envs/yam/.venv/bin/python scripts/datasets/compute_yam_aac_ee_stats.py \
   --episodes /home/ubuntu/yam-abc-reproduce/data/episodes \
-  --out src/manimux/integrations/xpolicylab/norm_stats/yam_60ep_ee_increment.json
+  --out manimux/policies/xpolicylab/norm_stats/yam_60ep_ee_increment.json
 ```
 
 The file records 60 complete YAM episodes and two kinds of action increments:
@@ -228,16 +228,16 @@ selectors are ManiMux concerns and are not sent to the model server.
 
 | File | Responsibility |
 |---|---|
-| `src/manimux/integrations/xpolicylab/aac.py` | FK, incremental EE features, min-max, entropy, motion, selectors and truncation |
-| `src/manimux/integrations/xpolicylab/policy_plugin.py` | Capability request, stats loading/cache and candidate selection |
-| `src/manimux/integrations/xpolicylab/ws_client.py` | Preserve the structured candidate response |
-| `src/manimux/runtime/aac.py` | Official synchronous query cadence and selected-chunk metadata |
-| `src/manimux/runtime/aac.py` and `runtime/__init__.py` | Plain AAC parameters and required stats validation |
+| `manimux/policies/xpolicylab/aac.py` | FK, incremental EE features, min-max, entropy, motion, selectors and truncation |
+| `manimux/policies/xpolicylab/client.py` | Capability request, stats loading/cache and candidate selection |
+| `manimux/policies/xpolicylab/ws_client.py` | Preserve the structured candidate response |
+| `manimux/runtime/aac.py` | Official synchronous query cadence and selected-chunk metadata |
+| `manimux/runtime/aac.py` and `runtime/__init__.py` | Plain AAC parameters and required stats validation |
 | `scripts/datasets/compute_yam_aac_ee_stats.py` | Reproducible embodiment stats and motion calibration |
 | `scripts/validation/xpolicylab_yam_forward_probe.py` | Hardware-free AAC request and selected-horizon report |
-| `configs/groot/yam/infra/aac.yaml` | Complete GR00T/YAM experiment composition |
-| `configs/pi05/yam/infra/aac.yaml` | Robocurve 16-step Pi05/YAM composition |
-| `configs/pi05/yam/infra/pick-red-ball-box/aac-step1000.yaml` | Local 50-step Pi05/YAM composition |
+| `manimux/configs/experiments/pick_box/yam_groot_aac.yaml` | Complete GR00T/YAM experiment composition |
+| `manimux/configs/experiments/pick_red_object/yam_pi05_aac.yaml` | Robocurve 16-step Pi05/YAM composition |
+| `manimux/configs/experiments/pick_red_object/yam_pi05_aac_step1000.yaml` | Local 50-step Pi05/YAM composition |
 
 AAC waits until the selected chunk ends before submitting the next observation, matching the official
 synchronous rollout cadence. During model latency, the robot holds; AAC is not RTC.
@@ -254,14 +254,14 @@ policy:
     allow_short_horizon: true
     aac_kinematics: yam
 
-execution:
-  runtime: aac
+inference:
+  algorithm: aac
   blend_steps: 0
   aac:
     num_samples: 20
     motion_threshold: 0.2
-    ee_stats_path: src/manimux/integrations/xpolicylab/norm_stats/yam_60ep_ee_increment.json
-    chunk_id_selector: "0"
+    ee_stats_path: manimux/policies/xpolicylab/norm_stats/yam_60ep_ee_increment.json
+    chunk_id_selector: '0'
     backward_beta: 0.99
 ```
 
@@ -324,9 +324,9 @@ Before handoff also run:
 ```bash
 envs/yam/.venv/bin/python -m pytest -q tests/unit
 envs/yam/.venv/bin/ruff check \
-  src/manimux/integrations/xpolicylab/aac.py \
-  src/manimux/integrations/xpolicylab/policy_plugin.py \
-  src/manimux/runtime/aac.py \
+  manimux/policies/xpolicylab/aac.py \
+  manimux/policies/xpolicylab/client.py \
+  manimux/runtime/aac.py \
   scripts/datasets/compute_yam_aac_ee_stats.py \
   scripts/validation/xpolicylab_yam_forward_probe.py \
   tests/unit/test_aac.py tests/unit/test_xpolicylab_plugins.py
@@ -340,7 +340,7 @@ Operator starts the existing GR00T server using the GR00T environment, then runs
 ```bash
 cd /home/ubuntu/manimux
 envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
-  --config configs/groot/yam/infra/aac.yaml
+  --config manimux/configs/experiments/pick_box/yam_groot_aac.yaml
 ```
 
 Pass criteria:
@@ -359,7 +359,7 @@ checks in `docs/gr00t-yam-runbook.md`:
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/manimux run --config configs/groot/yam/infra/aac.yaml
+envs/yam/.venv/bin/manimux run --config manimux/configs/experiments/pick_box/yam_groot_aac.yaml
 ```
 
 First run is an infrastructure characterization, not a task-success claim. Record:
@@ -391,7 +391,7 @@ repeated large oscillation or any mismatch between viewer and physical achieved 
 
 - Stop the hardware runtime before stopping model/camera services.
 - Return to the previously verified default path with
-  `configs/groot/yam/infra/manimux.yaml`; it does not request AAC capability.
+  `manimux/configs/experiments/pick_box/yam_groot_manimux.yaml`; it does not request AAC capability.
 - No checkpoint, checkpoint norm stats or robot driver files need to change when switching runtimes.
 - Do not delete AAC logs: they are required to explain why a selected horizon behaved differently.
 

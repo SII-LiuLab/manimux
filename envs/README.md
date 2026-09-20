@@ -1,71 +1,48 @@
-# 硬件/模型环境 —— 请勿用 uv 管理
+# Local Python environments
 
-> **Do not run `uv sync` / `uv run` here.** These are plain venvs created with
-> `uv venv`; they hold packages that are not in `uv.lock` (`i2rt`, `torch`,
-> `flash-attn`), and any uv project command would uninstall them.
+`envs/` is a conventional location for local virtual environments, such as
+`envs/yam/.venv`. It does not contain robot IPs, CAN bindings or experiment YAML.
+Cloning the repository does not create these environments; a checkout containing only
+this README does not imply that environments in another checkout are missing.
 
-这些目录是用 `uv venv` 建的**普通 venv**，不是 uv 的项目环境。uv 的项目环境只有
-仓库根目录的 `.venv` 一个，由 `pyproject.toml` + `uv.lock` 声明。
+| Location | Purpose |
+| --- | --- |
+| Root `.venv/` | ManiMux core, development tools and offline Viewer; managed by the root project |
+| `envs/yam/.venv/` | YAM runtime, i2rt, cameras, Viewer and optional collection dependencies |
+| `envs/tianji/.venv/` | Tianji/TacCap hardware dependencies, prepared with the body runbook |
+| Model-specific environment | XPolicyLab model inference/training, such as `XPolicyLab/policy/Pi_05/openpi/.venv/` |
+| Existing `envs/umi_dp/`, `envs/xr1/`, etc. | Local environment conventions still referenced by some model launchers; follow their runbooks |
 
-## 禁止事项
+The hardware process does not need torch/JAX to consume Pi05 predictions from a separate
+model service. An interpreter path alone does not identify the imported ManiMux checkout:
+that depends on its installation and import path. Install the intended checkout into the
+appropriate environment instead of treating an old interpreter path as a source migration.
 
-- 不要在这些环境上运行 `uv sync` 或 `uv run`；
-- 不要设置 `UV_PROJECT_ENVIRONMENT` 指向它们。
+## Installation entry points
 
-原因：`uv sync` 是**声明式**的 —— 它会把目标环境校准成 `uv.lock` 描述的样子，
-**卸掉一切未声明的包**。而这三个环境里最关键的依赖恰恰都不在 lock 里
-（`i2rt`、各自的 `torch`、`flash-attn` 都是 `uv pip install` 手动装的）。
+- First connection to your own robot: [local station setup](../manimux/configs/local/README.md).
+- YAM SDK: [YAM component README](../manimux/embodiments/arm/yam/README.md).
+- Cameras: [RealSense README](../manimux/embodiments/sensor/realsense/README.md).
+- Tianji/TacCap: [deployment runbook](../docs/umi-dp-tianji-taccap-runbook.md).
+- Models: [deployment runbook index](../docs/README.md#policies-and-deployment).
 
-实测（`--dry-run`，未真正执行）：
-
-```console
-$ UV_PROJECT_ENVIRONMENT=envs/yam/.venv uv sync --dev --dry-run
-Would uninstall 72 packages
- - i2rt==1.1.2 (from git+https://github.com/i2rt-robotics/i2rt.git@5d47b358...)
- - pyrealsense2==2.58.3.10794
- - torch==2.5.1+cu121
-```
-
-`i2rt` 一旦被卸掉，真机 runtime 会在 connect 阶段直接报 `ModuleNotFoundError`。
-
-## 各环境的分工
-
-| 目录 | torch | 跑什么 |
-|---|---|---|
-| `../.venv` | 无 | uv 托管：`make` 目标、mock 运行、viewer demo。只有 core + dev，不装任何 extra |
-| `yam/.venv` | 2.5.1+cu121 | **一切真机进程** —— MolmoAct 服务、相机服务、viewer、runtime（唯一装了 `i2rt`） |
-| `abc/.venv` | 2.11.0+cu128 | 只跑 `manimux-abc-server`；runtime 仍从 `yam` 起 |
-| `xr1/.venv` | 2.8.0+cu126 | 只跑 `manimux-xr1-server`（含 flash-attn）；runtime 仍从 `yam` 起 |
-| `lingbot-vla2/.venv` | 2.8.0+cu128 | 只跑 LingBot-VLA2 XPolicy 模型服务；runtime 仍从 `yam` 起 |
-| `umi_dp/.venv` | 2.7.1+cu128 | UMI DP XPolicyLab 模型/训练；用 `XPolicyLab/policy/UMI_DP/install.sh` 创建，硬件 runtime 不导入模型依赖 |
-
-## 正确的操作方式
-
-安装或增补依赖时，用 `uv pip install --python` 显式指定解释器，不要用项目命令：
+Hardware/model environments are usually created with `uv venv`, then populated with
+`uv pip install --python`. When adding dependencies, target the interpreter explicitly:
 
 ```bash
-uv pip install --python envs/yam/.venv/bin/python -e ".[molmoact-yam]"
-uv pip install --python envs/yam/.venv/bin/python \
-  "git+https://github.com/i2rt-robotics/i2rt.git@5d47b358bafb30c65e397f2ece506550a0db4594"
-
-# XR-1 XPolicy model server dependencies
-uv pip install --python envs/xr1/.venv/bin/python -e XPolicyLab
+uv pip install --python envs/yam/.venv/bin/python -e '.[collection,realsense,xpolicylab]'
 ```
 
-运行时一律走显式路径（不要 `source` 之后裸敲命令，容易跑错环境）：
+Do not point root-project `uv sync` or `UV_PROJECT_ENVIRONMENT` at an existing independent
+hardware/model environment: syncing the root lockfile can remove SDK/model dependencies
+not declared there. Manage the root development environment through the root project normally.
 
-```bash
-Y=envs/yam/.venv/bin
-$Y/manimux-molmoact-server --host 127.0.0.1 --port 8202
-$Y/manimux run --config configs/molmoact2/yam/infra/manimux.yaml
-```
+## Different from configuration
 
-需要跑完整测试（不 skip）时也用这里，它同时装了 `i2rt` 和开发工具：
+- `manimux/configs/`: experiments, assemblies, inference, executors, model-service settings
+  and station templates. The private `manimux/configs/local/station.yaml` binds local devices.
+- [`env_cfg/`](../env_cfg/README.md): action-field dimensions and environment batch metadata
+  consumed by XPolicyLab. It is not a Python environment or a station file.
 
-```bash
-envs/yam/.venv/bin/pytest tests/unit tests/integration
-```
-
-各环境的完整建立步骤见 [../docs/molmoact-yam-runbook.md](../docs/molmoact-yam-runbook.md)、
-[../docs/abc-yam-runbook.md](../docs/abc-yam-runbook.md)、
-[../docs/xr1-yam-runbook.md](../docs/xr1-yam-runbook.md)。
+Environment locations and all model launchers have not been unified into one layout.
+They should not be confused with the robot's CAN, serial and IP bindings.

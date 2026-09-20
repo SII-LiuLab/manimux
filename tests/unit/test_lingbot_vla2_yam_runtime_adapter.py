@@ -4,11 +4,8 @@ import numpy as np
 import pytest
 
 from manimux.embodiments.robot import robot_parameters
-from manimux.integrations.lingbot_vla2_yam.policy_plugin import (
-    ACTION_SEMANTICS,
-    LingBotVLA2YamAdapter,
-)
 from manimux.policies.base import policy_parameters
+from manimux.policy_adapter.lingbot_vla2.yam import ACTION_SEMANTICS, LingBotVLA2YamAdapter
 from manimux.types import (
     ActionContext,
     InferenceRequest,
@@ -19,13 +16,13 @@ from manimux.types import (
 
 def _adapter() -> LingBotVLA2YamAdapter:
     robot = robot_parameters(
-        driver="fake",
+        type="fake",
         control_hz=100.0,
         group_dims={"left_arm": 7, "right_arm": 7},
     )
     policy = policy_parameters(
         worker="fake",
-        adapter="lingbot_vla2_yam",
+        adapter={"type": "manimux.policy_adapter.lingbot_vla2.yam:LingBotVLA2YamAdapter"},
         action_dt_s=1 / 30,
         horizon_steps=2,
         options={

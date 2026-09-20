@@ -18,6 +18,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+realsense = ["pyrealsense2>=2.55"]
 tianji-diff-ik = [
   "osqp>=1,<2",
 ]
@@ -94,8 +95,7 @@ dev = [
 manimux = "manimux.cli:main"
 manimux-collect = "manimux.collection.cli:main"
 manimux-viewer = "manimux.viewer.dashboard:main"
-manimux-molmoact-yam = "manimux.integrations.molmoact_yam.viewer_launch:main"
-manimux-camera-server = "manimux.sensors.camera_server.server:main"
+manimux-camera-server = "manimux.servers.camera.server:main"
 manimux-molmoact-server = "manimux.integrations.molmoact_yam.host_server_yam:main"
 manimux-abc-server = "manimux.integrations.abc_yam.host_server_abc:main"
 
@@ -116,17 +116,16 @@ url = "https://download.pytorch.org/whl/cu121"
 explicit = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/manimux"]
+packages = ["manimux"]
+exclude = ["manimux/configs/local/station.yaml"]
 
 [tool.hatch.build.targets.wheel.force-include]
-"configs/embodiment" = "manimux/configs/embodiment"
 "THIRD_PARTY_NOTICES.md" = "manimux/THIRD_PARTY_NOTICES.md"
 "licenses/MolmoAct2-APACHE-2.0.txt" = "manimux/licenses/MolmoAct2-APACHE-2.0.txt"
 "licenses/i2rt-MIT.txt" = "manimux/licenses/i2rt-MIT.txt"
-"src/manimux/integrations/abc_yam/abc_minimal/third_party/clip/LICENSE" = "manimux/licenses/abc-clip-MIT.txt"
-"src/manimux/integrations/abc_yam/abc_minimal/third_party/dinov3/LICENSE.md" = "manimux/licenses/abc-dinov3.md"
-"src/manimux/integrations/xr1_yam/mibot/LICENSE" = "manimux/licenses/xiaomi-robotics-1-APACHE-2.0.txt"
-"src/manimux/embodiments/arm/tianji/sdk/marvin/LICENSE" = "manimux/licenses/marvin-sdk-APACHE-2.0.txt"
+"manimux/integrations/abc_yam/abc_minimal/third_party/clip/LICENSE" = "manimux/licenses/abc-clip-MIT.txt"
+"manimux/integrations/abc_yam/abc_minimal/third_party/dinov3/LICENSE.md" = "manimux/licenses/abc-dinov3.md"
+"manimux/integrations/xr1_yam/mibot/LICENSE" = "manimux/licenses/xiaomi-robotics-1-APACHE-2.0.txt"
 
 [tool.pytest.ini_options]
 addopts = "-q"
@@ -135,14 +134,14 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-extend-exclude = ["src/manimux/embodiments/arm/tianji/sdk"]
+extend-exclude = []
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.pyright]
-include = ["src", "tests", "scripts"]
-extraPaths = ["src"]
+include = ["manimux", "tests", "scripts"]
+extraPaths = ["."]
 venvPath = "."
 venv = ".venv"
 pythonVersion = "3.12"
@@ -152,7 +151,7 @@ typeCheckingMode = "off"
 python_version = "3.11"
 strict = true
 packages = ["manimux"]
-exclude = ["src/manimux/integrations/molmoact_yam", "src/manimux/embodiments/arm/tianji/sdk"]
+exclude = ["manimux/integrations/molmoact_yam"]
 
 [[tool.mypy.overrides]]
 module = [

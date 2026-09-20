@@ -10,14 +10,14 @@ from pathlib import Path
 import numpy as np
 
 REPO = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO / "src"))
+sys.path.insert(0, str(REPO))
 
 
 def main():
     from manimux.cli import load_config
-    from manimux.integrations.umi_dp_tianji.history import WindowSnapshot
-    from manimux.integrations.umi_dp_tianji.ik_config import bind_diff_ik_profile
-    from manimux.integrations.umi_dp_tianji.policy_plugin import UmiDpTianjiAdapter, matrix_pose
+    from manimux.policy_adapter.umi_dp.history import WindowSnapshot
+    from manimux.policy_adapter.umi_dp.ik_config import bind_diff_ik_profile
+    from manimux.policy_adapter.umi_dp.tianji import UmiDpTianjiAdapter, matrix_pose
     from manimux.types import (
         ActionContext,
         InferenceRequest,
@@ -28,7 +28,9 @@ def main():
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--config", type=Path, default=REPO / "configs/umi_dp/tianji/infra/pass_ball/default.yaml"
+        "--config",
+        type=Path,
+        default=REPO / "manimux/configs/experiments/pass_ball/tianji_umi_dp_default.yaml",
     )
     parser.add_argument("--horizons", type=int, nargs="+", default=[16, 64])
     parser.add_argument("--repeat", type=int, default=3)
@@ -39,9 +41,9 @@ def main():
         parser.error("repeat and horizons must be positive")
     config = load_config(args.config)
     if args.ik_backend:
-        config["policy"]["options"]["ik_backend"] = args.ik_backend
+        config["policy"]["adapter"]["ik_backend"] = args.ik_backend
     bind_diff_ik_profile(config)
-    # Only kinematics is constructed: neither a RobotDriver nor sensor is opened.
+    # Only kinematics is constructed: neither a RobotBase nor sensor is opened.
     config["robot"]["type"] = "mock"
     report = {}
     for horizon in args.horizons:

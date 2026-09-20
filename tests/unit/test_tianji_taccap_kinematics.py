@@ -14,13 +14,13 @@ from manimux.embodiments.end_effector.taccap import TacCapGeometry
 from manimux.embodiments.robot import RobotModel
 from manimux.kinematics.end_effector import Frame
 
-CONFIG = Path(__file__).resolve().parents[2] / "configs/embodiment/robot/tianji_taccap.yaml"
+CONFIG = Path(__file__).resolve().parents[2] / "manimux/configs/embodiment/robot/tianji_taccap.yaml"
 
 
 def test_geometry_and_mount_match_existing_cad_data():
     path = (
         Path(__file__).resolve().parents[2]
-        / "src/manimux/embodiments/end_effector/taccap/assets/umi_follower/end_effector.yaml"
+        / "manimux/embodiments/end_effector/taccap/assets/umi_follower/end_effector.yaml"
     )
     spec = yaml.safe_load(path.read_text())
 

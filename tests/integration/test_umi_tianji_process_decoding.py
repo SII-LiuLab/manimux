@@ -34,8 +34,8 @@ class SlowAdapter(FakePolicyAdapter):
         return super().decode_action(raw, context)
 
 
-def build_slow_adapter(robot, policy):
-    return SlowAdapter()
+def build_slow_adapter(robot, policy, *, kinematics=None):
+    return SlowAdapter({}, {})
 
 
 class DelegatingStrategy:
@@ -53,12 +53,12 @@ def build_delegating_strategy(config):
 
 
 def plugin_config():
-    config = load_config(ROOT / "configs/mock.yaml")
-    config["policy"]["adapter"] = f"{__name__}:build_slow_adapter"
+    config = load_config(ROOT / "tests/fixtures/runtime.yaml")
+    config["policy"]["adapter"]["type"] = f"{__name__}:build_slow_adapter"
     config["policy"]["action_decoding"] = "process"
     config["policy"]["inference_delay_s"] = 0.01
-    config["execution"]["runtime"] = f"{__name__}:build_delegating_strategy"
-    config["execution"]["inference_schedule"] = "single_inflight"
+    config["inference"]["algorithm"] = f"{__name__}:build_delegating_strategy"
+    config["inference"]["inference_schedule"] = "single_inflight"
     return config
 
 
@@ -71,7 +71,7 @@ def events_of(result):
 def test_delegating_plugin_keeps_control_ticking_during_process_decode(tmp_path, expired):
     config = plugin_config()
     config["policy"]["horizon_steps"] = 6 if expired else 20
-    config["execution"]["executor"] = "direct"
+    config["executor"]["type"] = "direct"
     config["run"]["max_steps"] = 100
     runtime = build_runtime(config, tmp_path)
     assert isinstance(runtime._strategy, DelegatingStrategy)
@@ -147,8 +147,8 @@ def test_process_decoding_rejects_a_plugin_delegating_to_an_unsupported_strategy
 
 def test_expected_decode_time_requires_process_decoding():
 
-    data = deepcopy(load_config(ROOT / "configs/mock.yaml"))
-    data["execution"]["expected_decode_s"] = 0.05
+    data = deepcopy(load_config(ROOT / "tests/fixtures/runtime.yaml"))
+    data["inference"]["expected_decode_s"] = 0.05
     with pytest.raises(ValueError, match="expected_decode_s requires process action decoding"):
         prepare_experiment(**data)
 
@@ -157,8 +157,8 @@ def test_decode_seed_follows_the_active_reference_to_the_expected_start(tmp_path
     from manimux.types import ActionChunk, RobotState
 
     config = plugin_config()
-    config["execution"]["commit_lead_s"] = 0.02
-    config["execution"]["expected_decode_s"] = 0.065
+    config["inference"]["commit_lead_s"] = 0.02
+    config["inference"]["expected_decode_s"] = 0.065
     runtime = EdgeRuntime(config, tmp_path)
     state = RobotState(
         {name: np.full(dim, -1.0) for name, dim in config["robot"]["group_dims"].items()}, 10**9, 7
@@ -201,13 +201,13 @@ def test_decode_seed_follows_the_active_reference_to_the_expected_start(tmp_path
     assert source == "active_reference"
     np.testing.assert_allclose(seed.groups["left_arm"], 0.19)
     # Without an expected decode time the measurement stays the seed.
-    config["execution"]["expected_decode_s"] = 0.0
+    config["inference"]["expected_decode_s"] = 0.0
     assert runtime._decode_seed(state, now) == (now + 20_000_000, state, "measured_state")
 
 
 def test_runtime_seeds_later_decodes_from_the_active_reference(tmp_path):
     config = plugin_config()
-    config["execution"]["expected_decode_s"] = 0.05
+    config["inference"]["expected_decode_s"] = 0.05
     config["run"]["max_steps"] = 250
     result = build_runtime(config, tmp_path).run()
     sent = [e for e in events_of(result) if e["kind"] == "decode_submitted"]
@@ -238,15 +238,15 @@ def wait_for_decode(decoder):
 
 def test_umi_tianji_per_arm_processes_match_inline_diff_decode():
     pytest.importorskip("osqp")
-    from manimux.integrations.umi_dp_tianji.ik_config import bind_diff_ik_profile
-    from manimux.integrations.umi_dp_tianji.policy_plugin import UmiDpTianjiAdapter, matrix_pose
     from manimux.policies.decoder import ActionDecoderClient
+    from manimux.policy_adapter.umi_dp.ik_config import bind_diff_ik_profile
+    from manimux.policy_adapter.umi_dp.tianji import UmiDpTianjiAdapter, matrix_pose
     from manimux.types import ActionContext, InferenceResponse, RobotState
 
-    config = load_config(ROOT / "configs/umi_dp/tianji/infra/pass_ball/default.yaml")
+    config = load_config(ROOT / "manimux/configs/experiments/pass_ball/tianji_umi_dp_default.yaml")
     config["robot"]["type"] = "mock"
     config["policy"]["horizon_steps"] = 64
-    config["policy"]["options"]["ik_backend"] = "diff"
+    config["policy"]["adapter"]["ik_backend"] = "diff"
     bind_diff_ik_profile(config)
     adapter = UmiDpTianjiAdapter(config["robot"], config["policy"])
     actions = []

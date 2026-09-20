@@ -1,0 +1,22 @@
+# Copy to station.yaml in this directory and fill in real devices; 192.0.2.10 is an example.
+# paths.checkpoint selects the UMI_DP artifact directory, relative to this station file.
+# Remote endpoints use reachable addresses; bind_host/bind_endpoint select listeners.
+robot:
+  hardware:
+    ip: 192.0.2.10
+  components:
+    left_end_effector:
+      serial: REPLACE_LEFT_GRIPPER
+    right_end_effector:
+      serial: REPLACE_RIGHT_GRIPPER
+    left_wrist_camera:
+      camera_serial: REPLACE_LEFT_CAMERA
+    right_wrist_camera:
+      camera_serial: REPLACE_RIGHT_CAMERA
+services:
+  camera:
+    endpoint: tcp://127.0.0.1:5556
+    request_endpoint: tcp://127.0.0.1:5555
+  policy:
+    endpoint: ws://127.0.0.1:8560
+paths: {}

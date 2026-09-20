@@ -17,6 +17,24 @@ repository root. They describe existing code and workflows, not permission to ru
 | Select configs, give startup commands or run an experiment | [Experiment](.agents/skills/manimux-experiment/SKILL.md) |
 | Analyze recorded rollouts, chunks, tracking or video | [Result analysis](.agents/skills/manimux-result-analysis/SKILL.md) |
 
+## First connection to a local robot
+
+For another installation of a supported robot, start with
+[local station setup](manimux/configs/local/README.md) and its matching template.
+Keep machine-specific CAN interfaces, controller IPs, device serials and service addresses
+in one private station file. Read an existing file before editing it, preserve component
+names, and establish physical device mappings instead of assuming enumeration order means left/right.
+
+The default private file is `manimux/configs/local/station.yaml`. Runtime startup and the
+camera, Pi05 and UMI_DP `--experiment` entry points read it automatically; `--local` selects
+another station. Follow the guide's scope table for entry points that still have separate
+configuration. Configuration inspection does not authorize starting services or connecting
+or moving hardware. Keep action semantics, FK/IK, timing and execution settings unchanged
+when binding another installation of the same robot model.
+
+Write new code comments and general `README.md` documentation in English. Keep the Chinese
+homepage in `README.zh-CN.md`; historical Chinese runbooks can be translated separately.
+
 ## Model integration: XPolicyLab only
 
 **Every new learned-policy integration or model reproduction must be implemented inside
@@ -34,9 +52,9 @@ Do not add another standalone native model implementation to ManiMux.
   Do not depend on an unrelated local checkout, absolute developer path or untracked symlink.
 - Implement the actual model loading, preprocessing, normalization, sampling and output
   conversion there. A `model.py` that merely forwards to a legacy ManiMux native server,
-  or imports its model implementation from `src/manimux/integrations/`, is not a migration.
+  or imports its model implementation from `manimux/integrations/`, is not a migration.
 - Do not add model weights, network implementations, processors, training pipelines or
-  model-specific inference servers under ManiMux's `src/`, `scripts/` or `envs/`.
+  model-specific inference servers under ManiMux's `manimux/`, `scripts/` or `envs/`.
   Lightweight launchers that load config and start the XPolicyLab server are allowed.
 - Use ManiMux's existing `xpolicylab_ws` worker. Do not introduce another per-model HTTP/TCP
   protocol or register a new native model worker to bypass the shared policy interface.
@@ -53,10 +71,19 @@ XPolicyLab/policy/<POLICY>/
     upstream model source / pinned source submodule
     installation, data, training and evaluation entry points
     README.md
-configs/<model>/<embodiment>/server/<task>/
-configs/<model>/<embodiment>/infra/<task>/
+manimux/configs/policy/<model>/<embodiment>/<task>/
+manimux/configs/experiments/<task>/<embodiment>_<model>_<variant>.yaml
+manimux/configs/inference/
+manimux/configs/executor/
 docs/<model>-<embodiment>-runbook.md
+training/  # Private configurations, launchers and notes; ignored by Git
 ```
+
+Policy recipes select deployment artifacts and inference parameters. XPolicyLab owns
+model defaults and the shared server; complete runtime choices live in experiments.
+Keep policy recipes free of `server/`, `infra/` and `training/` subdirectories. Put
+installation-specific training work in the root `training/` workspace; deployment
+metadata needed for inference remains with the checkpoint and policy recipe.
 
 The policy files and scripts must follow the full XPolicyLab contribution standard,
 including `Model(ModelTemplate)`, observation/action/batch/reset interfaces, standard
@@ -66,9 +93,9 @@ do not substitute fake training, dummy actions or silent fallbacks for an implem
 | Layer | Responsibility |
 |---|---|
 | XPolicyLab model adapter | Model source, checkpoint loading, model transforms and sampler hooks |
-| ManiMux policy / embodiment adapter | Observation mapping, robot groups, action semantics and necessary FK/IK |
+| ManiMux `policy_adapter/` | Observation mapping, robot groups, action semantics and necessary FK/IK |
 | ManiMux runtime | Inference scheduling, chunk handoff, timelines and rollout lifecycle |
-| Executor / RobotDriver | Command generation, configured limits and hardware communication |
+| Executor / RobotBase | Command generation, configured limits and hardware communication |
 | Collection / Robo GUI / recording | Demonstrations, experiment controls, visualization and execution evidence |
 
 Model servers must not connect to cameras/CAN or command a robot. The hardware runtime
@@ -98,7 +125,7 @@ When migrating a legacy model:
 2. Validate the real adapter and shared server independently of the old native server.
 3. Compare checkpoint, transforms, observation/action contracts, timing and reset behavior
    against the old path; do not silently change runtime or control settings during migration.
-4. Add matching server/infra configs, tests and documented commands before switching defaults.
+4. Add matching policy recipes and experiments, tests and commands before switching defaults.
 5. Retire the native implementation only after the replacement is validated and the migration
    is in scope. Until then, identify it as legacy and do not claim migration is complete.
 

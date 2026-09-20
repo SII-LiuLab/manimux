@@ -1,9 +1,9 @@
 # Tianji differential IK
 
-UMI/Tianji now selects `policy.options.ik_backend: analytic | diff`. The default
+UMI/Tianji now selects `policy.adapter.ik_backend: analytic | diff`. The default
 remains `analytic`: its SDK solution, FK tolerances, 1.8-degree branch check,
 joint-limit margins and J6/J7 check are unchanged. The optional `diff` backend
-is implemented in `src/manimux/kinematics/tianji_diff.py`, using the existing
+is implemented in `manimux/kinematics/tianji_diff.py`, using the existing
 `TianjiKinematics` DH chain, flange FK, tool transform and joint limits.
 
 The port follows `SII-LiuLab/tianji-control` revision
@@ -25,14 +25,14 @@ uv pip install --python .venv/bin/python -e '.[xpolicylab,tianji-diff-ik]'
 Use the same checkpoint binder as the analytic path:
 
 ```bash
-envs/umi_dp/.venv/bin/python scripts/servers/umi_dp_tianji_server.py \
+envs/umi_dp/.venv/bin/python manimux/servers/umi_dp.py \
   --checkpoint /path/to/trusted/pass_ball.ckpt \
   --ik-backend diff \
-  --diff-ik-config configs/umi_dp/tianji/ik/diff.yaml \
+  --diff-ik-config manimux/configs/embodiment/arm/tianji_diff_ik.yaml \
   --bind-runtime-config data/experiments/pass-ball-diff.yaml
 ```
 
-Add `--runtime-template configs/umi_dp/tianji/infra/pass_ball/rtc.yaml` for RTC.
+Add `--runtime-template manimux/configs/experiments/pass_ball/tianji_umi_dp_rtc.yaml` for RTC.
 The model, checkpoint identity and RTC sampler stay the same. IK selection is
 an embodiment setting. The binder writes these effective runtime options:
 
@@ -42,7 +42,7 @@ policy:
     ik_backend: diff
     ik_validation_dt_s: 0.004
     diff_ik:
-      # max_velocity_rad_s and dt_max_s are inserted from execution.motion_limits.arm.
+      # max_velocity_rad_s and dt_max_s are inserted from executor.motion_limits.arm.
       w_pos: 1.0
       w_rot: 1.0
       lam: 0.001
@@ -106,7 +106,7 @@ therefore defaults to CalibWrist's 5 mm guard. This residual is measured at the
 not a geodesic rotation angle. It defaults to null, as in CalibWrist.
 `lag_policy` decides what a residual over these thresholds means. `abort` (the
 library default) turns it into a `tracking_lag` failure. `report`, the default of
-CalibWrist's `real_run` and of `configs/umi_dp/tianji/ik/diff.yaml`, keeps the
+CalibWrist's `real_run` and of `manimux/configs/embodiment/arm/tianji_diff_ik.yaml`, keeps the
 bounded step and only counts it; the adapter records each arm's worst residual
 and exceedance count in the chunk metadata as `diff_ik_lag`. Failed or empty QPs,
 nonfinite solutions, joint margins and J6/J7 interference reject under both
@@ -173,7 +173,7 @@ real H16/H64 chunk decoding and atomic rejection on the final right-arm action.
 The final combined viewer/session/config/executor/Tianji/camera/UMI/diff-IK and
 mock-runtime regression suite passed 218 tests in 13.02 seconds. Ruff passed
 on the changed source, scripts and tests. A real H16 checkpoint was bound with
-`--ik-backend diff --diff-ik-config configs/umi_dp/tianji/ik/diff.yaml` in the
+`--ik-backend diff --diff-ik-config manimux/configs/embodiment/arm/tianji_diff_ik.yaml` in the
 model environment; the runtime environment loaded the paired config, validated
 the shared profile, and constructed both QP solvers with no torch or SDK loaded.
 No hardware motion, real closed-loop policy rollout or task success was tested.

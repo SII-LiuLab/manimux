@@ -1,0 +1,39 @@
+# Viewer 仅加载离线一体模型，无需 i2rt/CAN，也不创建相机设备。
+label: YAM
+model: ../../../configs/embodiment/robot/yam_dual.yaml
+camera_mode: policy
+cameras:
+  - {source: front_camera, label: Top, slot: top}
+  - {source: left_camera, label: Left wrist, slot: left}
+  - {source: right_camera, label: Right wrist, slot: right}
+camera_aliases:
+  front_camera: top
+  front_camera_rgb: top
+  top_camera: top
+  top_camera_rgb: top
+  left_camera: left
+  left_camera_rgb: left
+  right_camera: right
+  right_camera_rgb: right
+groups:
+  left_arm:
+    label: Left arm
+    # 仅供场景摆放，沿用旧 Viewer 布局；不进入本体 FK/IK。
+    viewer_display_frame: {xyz: [0.0, 0.32, 0.0], rpy: [0.0, 0.0, 0.0]}
+    prediction_color: [52, 111, 255]
+    trail_color: [33, 180, 106]
+    # 六个弧度关节 + 内置夹爪开度（0 闭合、1 张开）。
+    initial: [0.0, 0.8, 1.25, -0.35, 0.1, -0.2, 0.7]
+    aperture: gripper
+  right_arm:
+    label: Right arm
+    viewer_display_frame: {xyz: [0.0, -0.32, 0.0], rpy: [0.0, 0.0, 0.0]}
+    prediction_color: [255, 94, 87]
+    trail_color: [255, 170, 0]
+    initial: [0.0, 0.75, 1.2, -0.25, -0.1, 0.2, 0.4]
+    aperture: gripper
+scene:
+  boxes:
+    - name: table
+      dimensions: [0.75, 0.82, 0.035]
+      position: [0.38, 0.0, 0.02]

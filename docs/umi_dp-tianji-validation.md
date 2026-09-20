@@ -1,5 +1,9 @@
 # UMI DP integration validation — 2026-09-13
 
+> Historical report: the old Tianji driver and its driver/recovery tests have
+> since been removed. Measurements below describe that revision, not validation
+> of the current component assembly. Current layout: [code organization](code-organization.md).
+
 All checks below were offline or used temporary localhost model-server ports.
 No camera or robot driver was opened, no robot was commanded, and no training
 run or dataset/cache modification was performed. The existing CalibWrist Python

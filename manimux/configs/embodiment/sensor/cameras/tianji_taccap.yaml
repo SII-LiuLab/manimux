@@ -1,0 +1,21 @@
+# Tianji wrist cameras for the camera server (TacCap IMX385 fisheye, MJPG).
+#
+#   envs/tianji/.venv/bin/manimux-camera-server --config manimux/configs/embodiment/sensor/cameras/tianji_taccap.yaml
+#
+# Serials from CalibWrist deploy/tianji/hardware.json (arm A = left, arm B = right).
+# The names must match the run config's sensors camera_names and the policy
+# camera_map. List the connected cameras with: ls /dev/v4l/by-id/ | grep imx385
+sensors:
+  cameras:
+    left_wrist:
+      type: taccap
+      camera_serial: XCA28Z0041s
+      width: 640
+      height: 480
+      fps: 30
+    right_wrist:
+      type: taccap
+      camera_serial: XCA28Z0042s
+      width: 640
+      height: 480
+      fps: 30

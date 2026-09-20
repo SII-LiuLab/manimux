@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 cd "${ROOT}"
 PYTHON=${MANIMUX_TEST_PYTHON:-${ROOT}/envs/yam/.venv/bin/python}
-export PYTHONPATH="${ROOT}/src:${ROOT}:${ROOT}/XPolicyLab:${PYTHONPATH:-}"
+export PYTHONPATH="${ROOT}:${ROOT}/XPolicyLab:${PYTHONPATH:-}"
 "${PYTHON}" -m pytest -o addopts='' -q \
     tests/unit/test_config.py tests/unit/test_executors.py \
     tests/unit/test_kinematics.py tests/unit/test_timeline.py \

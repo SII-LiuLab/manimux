@@ -12,13 +12,14 @@ from manimux.cli import load_config
 from manimux.clock import SystemClock
 from manimux.embodiments.end_effector import GripperState
 from manimux.embodiments.robot import RobotModel, build_robot, robot_parameters
-from manimux.integrations.umi_dp_tianji.history import WindowSnapshot
-from manimux.integrations.umi_dp_tianji.policy_plugin import matrix_pose
+from manimux.embodiments.sensor import sensor_parameters
 from manimux.kinematics.tianji import TianjiKinematics
-from manimux.policies import ActionDecoderClient, build_policy_adapter
+from manimux.policies import ActionDecoderClient
 from manimux.policies.base import action_interval
+from manimux.policy_adapter import build_policy_adapter
+from manimux.policy_adapter.umi_dp.history import WindowSnapshot
+from manimux.policy_adapter.umi_dp.tianji import matrix_pose
 from manimux.runtime.edge import EdgeRuntime
-from manimux.sensors import sensor_parameters
 from manimux.types import (
     ActionContext,
     InferenceRequest,
@@ -30,17 +31,17 @@ from manimux.types import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-ASSEMBLY = ROOT / "configs/embodiment/robot/tianji_taccap.yaml"
+ASSEMBLY = ROOT / "manimux/configs/embodiment/robot/tianji_taccap.yaml"
 Q = np.radians([21.8, -41, -4.74, -63.67, 10.15, 14.72, 7.68])
 
 
 def configured():
-    cfg = load_config(ROOT / "configs/umi_dp/tianji/infra/pass_ball/default.yaml")
+    cfg = load_config(ROOT / "manimux/configs/experiments/pass_ball/tianji_umi_dp_default.yaml")
     cfg["robot"] = robot_parameters(
         type="tianji_taccap", config=ASSEMBLY, group_dims={"left_arm": 8, "right_arm": 8}
     )
     # A test identity satisfies the existing handshake contract; no model is loaded.
-    cfg["policy"]["options"]["deployment_bound"] = True
+    cfg["policy"]["adapter"]["deployment_bound"] = True
     for key in ("kinematics", "kinematics_options", "right_kinematics_options"):
         cfg["policy"]["options"].pop(key, None)
     cfg["policy"]["expected_backend"]["model"].update(
@@ -51,8 +52,8 @@ def configured():
         rgb_normalize=True,
         action_horizon=cfg["policy"]["horizon_steps"],
         action_dt_s=action_interval(cfg["policy"]),
-        first_action_offset_s=cfg["policy"]["options"]["first_action_offset_s"],
-        observation_period_s=cfg["policy"]["options"]["observation_period_s"],
+        first_action_offset_s=cfg["policy"]["adapter"]["first_action_offset_s"],
+        observation_period_s=cfg["policy"]["adapter"]["observation_period_s"],
     )
     return cfg
 
@@ -144,9 +145,9 @@ def test_observation_and_action_stay_in_each_arm_base():
 @pytest.mark.parametrize("backend", ["analytic", "diff"])
 def test_spawned_action_decode_matches_inline(backend):
     cfg = configured()
-    cfg["policy"]["options"]["ik_backend"] = backend
+    cfg["policy"]["adapter"]["ik_backend"] = backend
     if backend == "diff":
-        from manimux.integrations.umi_dp_tianji.ik_config import bind_diff_ik_profile
+        from manimux.policy_adapter.umi_dp.ik_config import bind_diff_ik_profile
 
         bind_diff_ik_profile(cfg)
     adapter = build_policy_adapter(cfg["robot"], cfg["policy"])
@@ -222,17 +223,18 @@ def test_decoded_actions_reach_shared_controller_only_when_enabled(monkeypatch, 
 
 
 def test_new_recipe_keeps_original_timing_and_control_envelopes():
-    old = load_config(ROOT / "configs/umi_dp/tianji/infra/pass_ball/default.yaml")
-    new = load_config(ROOT / "configs/experiments/pass_ball/tianji_taccap_umi_dp.yaml")
+    old = load_config(ROOT / "manimux/configs/experiments/pass_ball/tianji_umi_dp_default.yaml")
+    new = load_config(ROOT / "manimux/configs/experiments/pass_ball/tianji_taccap_umi_dp.yaml")
     assert new["robot"]["type"] == "tianji_taccap" and new["robot"]["config"] == ASSEMBLY
     assert new["robot"]["group_dims"] == old["robot"]["group_dims"]
     assert new["robot"]["control_hz"] == old["robot"]["control_hz"]
     assert action_interval(new["policy"]) == action_interval(old["policy"])
     assert (
-        new["policy"]["options"]["first_action_offset_s"]
-        == old["policy"]["options"]["first_action_offset_s"]
+        new["policy"]["adapter"]["first_action_offset_s"]
+        == old["policy"]["adapter"]["first_action_offset_s"]
     )
-    assert new["execution"] == old["execution"]
+    assert new["inference"] == old["inference"]
+    assert new["executor"] == old["executor"]
     assert not new["robot"]["options"]["execute"]
     assert not new["robot"]["options"]["end_effector_control"]
     robot = build_robot(new["robot"], SystemClock())
@@ -241,7 +243,7 @@ def test_new_recipe_keeps_original_timing_and_control_envelopes():
 
 
 def test_renaming_camera_frames_preserves_pixels_time_and_sequence(monkeypatch):
-    from manimux.integrations.umi_dp_tianji.camera_sensor import TimestampedCameraSensor
+    from manimux.embodiments.sensor.camera_server.timestamped import TimestampedCameraSensor
 
     now = 1_000_000_000
     monkeypatch.setattr(time, "time_ns", lambda: now)
@@ -293,15 +295,15 @@ def test_checkpoint_binding_preserves_assembly_path_when_relocated(tmp_path, mon
         [
             "umi_dp_tianji_server.py",
             "--experiment",
-            str(ROOT / "configs/experiments/pass_ball/tianji_taccap_umi_dp.yaml"),
+            str(ROOT / "manimux/configs/experiments/pass_ball/tianji_taccap_umi_dp.yaml"),
             "--local",
-            str(ROOT / "configs/local/tianji_taccap.example.yaml"),
+            str(ROOT / "manimux/configs/local/tianji_taccap.example.yaml"),
             "--bind-runtime-config",
             str(output),
         ],
     )
-    runpy.run_path(str(ROOT / "scripts/servers/umi_dp_tianji_server.py"), run_name="__main__")
+    runpy.run_path(str(ROOT / "manimux/servers/umi_dp.py"), run_name="__main__")
     bound = load_config(output)
     assert bound["robot"]["type"] == "tianji_taccap" and bound["robot"]["config"] == ASSEMBLY
-    assert bound["policy"]["options"]["deployment_bound"]
+    assert bound["policy"]["adapter"]["deployment_bound"]
     assert output.with_name("run-server.yaml").is_file()

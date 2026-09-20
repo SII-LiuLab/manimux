@@ -73,7 +73,7 @@ No physical frequency or tracking test was performed here.
 
 | Behavior | Owner in ManiMux |
 | --- | --- |
-| Connection, mode transition, SDK encoding, feedback, stop and hardware errors | Tianji RobotDriver / vendor SDK |
+| Connection, mode transition, SDK encoding, feedback, stop and hardware errors | Tianji RobotBase / vendor SDK |
 | Controller velocity/acceleration percentages and control-mode parameters | Body profile and driver / controller |
 | DH geometry, TCP transform, joint limits, J6/J7 constraints, FK/IK solver | Body kinematics capability |
 | Choice to interpolate joint values or TCP poses, and when/how often to call IK | General trajectory preparation / execution configuration |

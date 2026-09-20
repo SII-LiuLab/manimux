@@ -1,5 +1,6 @@
 """Configured assembly, official FK/IK and exported URDF agree without hardware."""
 
+from copy import deepcopy
 from pathlib import Path
 
 import numpy as np
@@ -11,7 +12,7 @@ from yourdfpy import URDF
 from manimux.embodiments.robot import RobotModel
 from manimux.embodiments.robot.tianji_taccap import TianjiTaccapRobot
 
-CONFIG = Path(__file__).resolve().parents[2] / "configs/embodiment/robot/tianji_taccap.yaml"
+CONFIG = Path(__file__).resolve().parents[2] / "manimux/configs/embodiment/robot/tianji_taccap.yaml"
 
 
 def configuration(model):
@@ -35,11 +36,6 @@ def edited_config(tmp_path, edit):
 def test_mounts_and_tcp_are_shared_by_official_fk_ik_and_urdf(tmp_path, modified):
     def edit(spec):
         if modified:
-            for name in ("left_arm", "right_arm"):
-                spec["components"][name]["mount"] = {
-                    "xyz": [0.4, -0.2, 1.3],
-                    "rpy": [0.2, -0.4, 0.3],
-                }
             for name in ("left_end_effector", "right_end_effector"):
                 spec["components"][name]["mount"] = {
                     "xyz": [0.03, -0.01, 0.07],
@@ -120,7 +116,7 @@ def test_invalid_assembly_is_rejected(tmp_path, case):
         elif case == "unused":
             del spec["groups"]["right_arm"]
         elif case == "nonfinite":
-            spec["components"]["left_arm"]["mount"]["xyz"][0] = float("nan")
+            spec["components"]["left_end_effector"]["mount"]["xyz"][0] = float("nan")
 
     with pytest.raises(ValueError):
         RobotModel.from_config(edited_config(tmp_path, edit))
@@ -141,19 +137,19 @@ def test_robot_model_uses_configured_group_layout(tmp_path):
         model.groups["manipulator"].visual_configuration(np.zeros(16))
 
 
-def test_scene_placement_does_not_change_control_fk_or_ik(tmp_path):
-    original = RobotModel.from_config(CONFIG)
+def test_scene_placement_does_not_change_control_fk_or_ik():
+    from manimux.viewer.dashboard import load_robot_view, load_viewer_config
 
-    def relocate(spec):
-        spec["root_frame"] = "display_scene"
-        for name in ("left_arm", "right_arm"):
-            spec["components"][name]["parent"] = "display_scene"
-            spec["components"][name]["mount"] = {
-                "xyz": [3, -4, 5],
-                "rpy": [0.3, -0.4, 0.7],
-            }
-
-    moved = RobotModel.from_config(edited_config(tmp_path, relocate))
+    config = load_viewer_config(robot="tianji")
+    original_view = load_robot_view(config)
+    relocated = deepcopy(config)
+    for style in relocated["groups"].values():
+        style["viewer_display_frame"] = {
+            "xyz": [3, -4, 5],
+            "rpy": [0.3, -0.4, 0.7],
+        }
+    moved_view = load_robot_view(relocated)
+    original, moved = original_view.model, moved_view.model
     q = configuration(original)
     targets = original.kinematics.fk(q)
     before = original.kinematics.ik(
@@ -171,5 +167,5 @@ def test_scene_placement_does_not_change_control_fk_or_ik(tmp_path):
         assert before[name].converged and after[name].converged
         np.testing.assert_allclose(before[name].joints, after[name].joints, atol=1e-12)
         assert not np.allclose(
-            original.groups[name].base_transform, moved.groups[name].base_transform
+            original_view.group(name).base_position, moved_view.group(name).base_position
         )

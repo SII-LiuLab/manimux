@@ -5,8 +5,8 @@
 ## 配置位置
 
 ```text
-ManiMux: configs/molmoact2/yam/infra/manimux.yaml
-RTC:     configs/molmoact2/yam/infra/rtc.yaml
+ManiMux: manimux/configs/experiments/pick_red_object/yam_molmoact2_manimux.yaml
+RTC:     manimux/configs/experiments/pick_red_object/yam_molmoact2_rtc.yaml
 ```
 
 以后增加其他本体时放在 `configs/molmoact2/<embodiment>/`，不要再创建顶层扁平 YAML。
@@ -30,7 +30,7 @@ manimux-molmoact-server \
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/manimux-camera-server --config configs/cameras.yaml
+envs/yam/.venv/bin/manimux-camera-server --config manimux/configs/embodiment/sensor/cameras/yam.yaml
 ```
 
 确认三台相机均已打开，并看到 `REP bound` 和 `PUB bound`。
@@ -59,14 +59,14 @@ for c in can_left can_right; do printf '%s: ' "$c"; ip -details link show "$c" |
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/manimux run --config configs/molmoact2/yam/infra/manimux.yaml
+envs/yam/.venv/bin/manimux run --config manimux/configs/experiments/pick_red_object/yam_molmoact2_manimux.yaml
 ```
 
-真机速度和时间直接修改 `configs/molmoact2/yam/infra/manimux.yaml`：
+真机速度和时间直接修改 `manimux/configs/experiments/pick_red_object/yam_molmoact2_manimux.yaml`：
 
 - `policy.action_dt_s`：相邻 Policy 轨迹点的时间间隔（秒）；
-- `execution.smooth.max_velocity`：关节最大速度（rad/s）；
-- `execution.smooth.max_acceleration`：关节最大加速度（rad/s²）；
+- `executor.smooth.max_velocity`：关节最大速度（rad/s）；
+- `executor.smooth.max_acceleration`：关节最大加速度（rad/s²）；
 - `robot.options.start_duration_s` / `home_duration_s`：起始姿态和回零秒数。
 
 当前 ManiMux infra 配置使用老师原 ManiMux 的 `action_dt_s: 0.05`；30 个轨迹点约覆盖

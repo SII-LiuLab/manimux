@@ -1,0 +1,48 @@
+# Tianji-TacCap component assembly. FK/IK and controller settings are owned by
+# manimux/configs/embodiment/; this shared profile retains the original runtime envelopes.
+# Device bindings belong in --local; both command switches remain disabled here.
+robot:
+  type: tianji_taccap
+  group_dims:
+    left_arm: 8
+    right_arm: 8
+  options:
+    execute: false
+    end_effector_control: false
+
+# Runtime guard, radians (index 7 is the aperture). Derived from the controller:
+#   position: ccs_m6_40 PNVA limits minus the 5 deg LIMIT_MARGIN_DEG; arm B J6
+#             narrowed to +-58 deg (JOINT_LIMIT_OVERRIDE)
+#   velocity: 180 deg/s x vel_ratio 32 %
+#   acceleration: not checked in software, as in teleop's SafetyGate;
+#                 acc_ratio still configures acceleration inside the controller
+#   aperture: the shaping limits below divided by 0.9
+command_safety:
+  position_lower:
+    left_arm: [-2.8797932657906435, -2.007128639793479, -2.8797932657906435, -2.443460952792061, -2.8797932657906435, -0.9599310885968813, -1.4835298641951802, 0.0]
+    right_arm: [-2.8797932657906435, -2.007128639793479, -2.8797932657906435, -2.443460952792061, -2.8797932657906435, -0.9250245035569946, -1.4835298641951802, 0.0]
+  position_upper:
+    left_arm: [2.8797932657906435, 2.007128639793479, 2.8797932657906435, 0.9599310885968813, 2.8797932657906435, 0.9599310885968813, 1.4835298641951802, 1.0]
+    right_arm: [2.8797932657906435, 2.007128639793479, 2.8797932657906435, 0.9599310885968813, 2.8797932657906435, 0.9250245035569946, 1.4835298641951802, 1.0]
+  max_velocity:
+    left_arm: [1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 3.3333333333333335]
+    right_arm: [1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 3.3333333333333335]
+  max_acceleration: null
+
+# Executor shaping, kept inside the guard by tianji-control's CMD_RATE_MARGIN 0.9:
+#   arm: scale all seven joint increments together; same velocity budget and
+#        16 ms maximum step time as teleop, with no software acceleration clamp
+#   gripper: ManiMux's default aperture rates; closing as for YAM
+motion_limits:
+  arm:
+    mode: isotropic
+    max_velocity: 0.9047786842338605
+    max_step_dt_s: 0.016
+    max_acceleration: null
+  gripper:
+    group_indices:
+      left_arm: 7
+      right_arm: 7
+    max_velocity: 3.0
+    max_acceleration: 12.0
+    max_closing_velocity: 1.0

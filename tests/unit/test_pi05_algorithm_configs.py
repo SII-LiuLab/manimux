@@ -8,7 +8,7 @@ from manimux.policies.base import action_interval
 from manimux.runtime.inference import build_inference_strategy
 
 ROOT = Path(__file__).resolve().parents[2]
-INFRA = ROOT / "configs/pi05/yam/infra"
+EXPERIMENTS = ROOT / "manimux/configs/experiments"
 SUFFIX = "assemble-screwdriver-step15000"
 METHODS = {
     "manimux": ("manimux", "default"),
@@ -23,11 +23,14 @@ METHODS = {
 
 @pytest.mark.parametrize("method", METHODS)
 def test_screwdriver_algorithms_share_model_and_executor(method: str) -> None:
-    baseline = load_config(INFRA / f"manimux-{SUFFIX}.yaml")
-    config = load_config(INFRA / f"{method}-{SUFFIX}.yaml")
+    baseline = load_config(EXPERIMENTS / "assemble_screwdriver/yam_pi05_manimux_step15000.yaml")
+    config = load_config(
+        EXPERIMENTS
+        / f"assemble_screwdriver/yam_pi05_{method.replace(chr(45), chr(95))}_step15000.yaml"
+    )
     runtime, sampling = METHODS[method]
 
-    assert config["execution"]["runtime"] == runtime
+    assert config["inference"]["algorithm"] == runtime
     strategy = build_inference_strategy(config)
     assert strategy.name == runtime
     assert strategy.required_sampling_modes == frozenset({sampling})
@@ -40,10 +43,10 @@ def test_screwdriver_algorithms_share_model_and_executor(method: str) -> None:
     assert config["run"]["task"] == baseline["run"]["task"]
     assert config["run"]["max_steps"] == baseline["run"]["max_steps"]
     assert config["run"]["output_dir"] == baseline["run"]["output_dir"].parent / method
-    assert config["execution"]["executor"] == "smooth"
-    assert config["execution"]["smooth"] == baseline["execution"]["smooth"]
-    assert config["execution"]["command_safety"] == baseline["execution"]["command_safety"]
-    gripper = config["execution"]["smooth"]["gripper"]
+    assert config["executor"]["type"] == "smooth"
+    assert config["executor"]["smooth"] == baseline["executor"]["smooth"]
+    assert config["executor"]["command_safety"] == baseline["executor"]["command_safety"]
+    gripper = config["executor"]["smooth"]["gripper"]
     assert gripper is not None
     assert gripper["mode"] == "continuous"
     assert gripper["group_indices"] == {"left_arm": 6, "right_arm": 6}
@@ -52,7 +55,7 @@ def test_screwdriver_algorithms_share_model_and_executor(method: str) -> None:
 
     # Cold-start timeouts may differ; checkpoint, stats and action semantics may not.
     for key in ("worker", "adapter", "action_dt_s", "horizon_steps", "expected_backend"):
-        assert getattr(config["policy"], key) == getattr(baseline["policy"], key)
+        assert config["policy"][key] == baseline["policy"][key]
     options = {k: v for k, v in config["policy"]["options"].items() if k != "request_timeout_s"}
     base_options = {
         k: v for k, v in baseline["policy"]["options"].items() if k != "request_timeout_s"
@@ -61,14 +64,17 @@ def test_screwdriver_algorithms_share_model_and_executor(method: str) -> None:
     assert config["policy"]["horizon_steps"] == 50
     assert action_interval(config["policy"]) == pytest.approx(1 / 30)
     if method not in {"manimux", "rtc"}:
-        assert config["execution"]["blend_steps"] == 0
+        assert config["inference"]["blend_steps"] == 0
         # Keep algorithm defaults except the screwdriver ACT query interval.
-        previous = load_config(INFRA / f"{method}-pick-red-ball-box-step1000.yaml")
+        previous = load_config(
+            EXPERIMENTS
+            / f"pick_red_object/yam_pi05_{method.replace(chr(45), chr(95))}_step1000.yaml"
+        )
         for key in ("paint", "aac", "dvac", "temporal_ensemble"):
-            expected = getattr(previous["execution"], key)
+            expected = previous["inference"][key]
             if method == "act-temporal-ensemble" and key == "temporal_ensemble":
-                expected = expected.model_copy(update={"query_interval_steps": 20})
-            assert getattr(config["execution"], key) == expected
+                expected = {**expected, "query_interval_steps": 20}
+            assert config["inference"][key] == expected
         assert config["policy"]["timeout_s"] == previous["policy"]["timeout_s"]
         assert (
             config["policy"]["options"]["request_timeout_s"]
@@ -77,8 +83,8 @@ def test_screwdriver_algorithms_share_model_and_executor(method: str) -> None:
 
 
 def test_screwdriver_backend_identity_matches_shared_server() -> None:
-    config = load_config(INFRA / f"manimux-{SUFFIX}.yaml")
-    server_path = ROOT / f"configs/pi05/yam/server/finetune-{SUFFIX}.yaml"
+    config = load_config(EXPERIMENTS / "assemble_screwdriver/yam_pi05_manimux_step15000.yaml")
+    server_path = ROOT / f"manimux/configs/policy/pi05/yam/finetune-{SUFFIX}.yaml"
     server = yaml.safe_load(server_path.read_text())
     assert config["policy"]["expected_backend"] is not None
     identity = config["policy"]["expected_backend"]["model"]
@@ -98,8 +104,8 @@ def test_screwdriver_backend_identity_matches_shared_server() -> None:
 
 
 def test_screwdriver_aac_scoring_stats_are_present_and_separate() -> None:
-    config = load_config(INFRA / f"aac-{SUFFIX}.yaml")
-    stats = config["execution"]["aac"]["ee_stats_path"]
+    config = load_config(EXPERIMENTS / "assemble_screwdriver/yam_pi05_aac_step15000.yaml")
+    stats = config["inference"]["aac"]["ee_stats_path"]
     assert stats is not None
     assert (ROOT / stats).is_file()
     assert config["policy"]["expected_backend"] is not None

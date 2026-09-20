@@ -26,19 +26,19 @@ class SlowAdapter(FakePolicyAdapter):
         return super().decode_action(raw, context)
 
 
-def build_slow_adapter(robot, policy):
-    return SlowAdapter()
+def build_slow_adapter(robot, policy, *, kinematics=None):
+    return SlowAdapter({}, {})
 
 
 @pytest.mark.parametrize("expired", [False, True])
 def test_process_decoding_keeps_control_ticking_and_checks_actual_expiry(tmp_path, expired):
-    config = load_config("configs/mock.yaml")
-    config["policy"]["adapter"] = f"{__name__}:build_slow_adapter"
+    config = load_config("tests/fixtures/runtime.yaml")
+    config["policy"]["adapter"]["type"] = f"{__name__}:build_slow_adapter"
     config["policy"]["action_decoding"] = "process"
     config["policy"]["horizon_steps"] = 6 if expired else 20
     config["policy"]["inference_delay_s"] = 0.01
-    config["execution"]["executor"] = "direct"
-    config["execution"]["inference_schedule"] = "single_inflight"
+    config["executor"]["type"] = "direct"
+    config["inference"]["inference_schedule"] = "single_inflight"
     config["run"]["max_steps"] = 100
     runtime = EdgeRuntime(config, tmp_path)
     result = runtime.run()
@@ -100,11 +100,11 @@ class PauseDuringDecode:
 
 @pytest.mark.parametrize("home", [False, True])
 def test_pause_discards_pending_decode_and_resume_needs_fresh_observation(tmp_path, home):
-    config = load_config("configs/mock.yaml")
-    config["policy"]["adapter"] = f"{__name__}:build_slow_adapter"
+    config = load_config("tests/fixtures/runtime.yaml")
+    config["policy"]["adapter"]["type"] = f"{__name__}:build_slow_adapter"
     config["policy"]["action_decoding"] = "process"
     config["policy"]["inference_delay_s"] = 0.01
-    config["execution"]["inference_schedule"] = "single_inflight"
+    config["inference"]["inference_schedule"] = "single_inflight"
     config["run"]["max_steps"] = 120
     runtime = EdgeRuntime(config, tmp_path)
     runtime._viewer = PauseDuringDecode(runtime, home=home)
@@ -117,12 +117,12 @@ def test_pause_discards_pending_decode_and_resume_needs_fresh_observation(tmp_pa
 
 
 def test_decode_deadline_failure_closes_robot_and_children(tmp_path):
-    config = load_config("configs/mock.yaml")
-    config["policy"]["adapter"] = f"{__name__}:build_slow_adapter"
+    config = load_config("tests/fixtures/runtime.yaml")
+    config["policy"]["adapter"]["type"] = f"{__name__}:build_slow_adapter"
     config["policy"]["action_decoding"] = "process"
     config["policy"]["inference_delay_s"] = 0.001
     config["policy"]["timeout_s"] = 0.12
-    config["execution"]["inference_schedule"] = "single_inflight"
+    config["inference"]["inference_schedule"] = "single_inflight"
     config["run"]["max_steps"] = 100
     runtime = EdgeRuntime(config, tmp_path)
     with pytest.raises(TimeoutError, match="decoder exceeded"):
@@ -134,14 +134,11 @@ def test_decode_deadline_failure_closes_robot_and_children(tmp_path):
 def test_parallel_sapolicy_ik_matches_serial_including_failed_waypoints():
     pytest.importorskip("mujoco")
     pytest.importorskip("i2rt")
-    from manimux.integrations.sapolicy_yam.policy_plugin import (
-        SAPolicyYamAdapter,
-        _pose_to_wire_endpose,
-    )
     from manimux.policies.decoder import ActionDecoderClient
+    from manimux.policy_adapter.sapolicy.yam import SAPolicyYamAdapter, _pose_to_wire_endpose
     from manimux.types import ActionContext, InferenceResponse, RobotState
 
-    cfg = load_config("configs/sapolicy/yam/infra/manimux-xpl.yaml")
+    cfg = load_config("manimux/configs/experiments/put_bottles/yam_sapolicy_manimux_xpl.yaml")
     adapter = SAPolicyYamAdapter(cfg["robot"], cfg["policy"])
     groups = {
         name: np.array([0.1, 0.8, 1.0, -0.2, 0.1, 0.2, 0.5]) for name in cfg["robot"]["group_dims"]
@@ -199,7 +196,7 @@ def test_parallel_sapolicy_ik_matches_serial_including_failed_waypoints():
         decoder.close()
 
 
-class PartitionAdapter:
+class PartitionAdapter(FakePolicyAdapter):
     supports_context_only_decode = True
     supports_independent_group_decode = True
     decode_partitions = ("left_arm", "right_arm")
@@ -241,17 +238,19 @@ class PartitionAdapter:
         )
 
 
-def build_partition_adapter(robot, policy):
-    return PartitionAdapter()
+def build_partition_adapter(robot, policy, *, kinematics=None):
+    return PartitionAdapter(robot, policy)
 
 
 def test_late_arm_holds_without_blocking_other_arm_and_late_result_cannot_replace_new_plan():
     from manimux.policies.decoder import ActionDecoderClient
     from manimux.types import ActionContext, InferenceResponse, RobotState
 
-    config = load_config("configs/mock.yaml")
-    config["policy"]["adapter"] = f"{__name__}:build_partition_adapter"
-    decoder = ActionDecoderClient(config["robot"], config["policy"], PartitionAdapter())
+    config = load_config("tests/fixtures/runtime.yaml")
+    config["policy"]["adapter"]["type"] = f"{__name__}:build_partition_adapter"
+    decoder = ActionDecoderClient(
+        config["robot"], config["policy"], PartitionAdapter(config["robot"], config["policy"])
+    )
     try:
         decoder.start()
 
@@ -294,19 +293,19 @@ def test_late_arm_holds_without_blocking_other_arm_and_late_result_cannot_replac
 
 
 def test_independent_runtime_executes_left_while_right_worker_times_out(tmp_path):
-    config = load_config("configs/mock.yaml")
+    config = load_config("tests/fixtures/runtime.yaml")
     config["robot"]["group_dims"] = {"left_arm": 2, "right_arm": 2}
-    config["policy"]["adapter"] = f"{__name__}:build_partition_adapter"
+    config["policy"]["adapter"]["type"] = f"{__name__}:build_partition_adapter"
     config["policy"]["action_decoding"] = "process"
     config["policy"]["horizon_steps"] = 25
-    config["execution"]["max_chunk_steps"] = 25
-    config["execution"]["independent_group_decoding"] = True
-    config["execution"]["decode_budget_ms"] = 40
-    config["execution"]["inference_schedule"] = "single_inflight"
-    config["execution"]["smooth"]["tracking_mode"] = "braking"
-    config["execution"]["smooth"]["max_velocity"] = 0.8
-    config["execution"]["smooth"]["max_acceleration"] = 3
-    config["execution"]["smooth"]["gripper"] = gripper_hysteresis_parameters(
+    config["inference"]["max_chunk_steps"] = 25
+    config["inference"]["independent_group_decoding"] = True
+    config["inference"]["decode_budget_ms"] = 40
+    config["inference"]["inference_schedule"] = "single_inflight"
+    config["executor"]["smooth"]["tracking_mode"] = "braking"
+    config["executor"]["smooth"]["max_velocity"] = 0.8
+    config["executor"]["smooth"]["max_acceleration"] = 3
+    config["executor"]["smooth"]["gripper"] = gripper_hysteresis_parameters(
         mode="continuous",
         group_indices={"left_arm": 1, "right_arm": 1},
         max_velocity=1,

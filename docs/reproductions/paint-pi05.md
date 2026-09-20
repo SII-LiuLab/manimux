@@ -101,7 +101,7 @@ delay_steps: d
 
 ### ManiMux runtime
 
-`src/manimux/runtime/paint.py` owns only deployment timing:
+`manimux/runtime/paint.py` owns only deployment timing:
 
 - wait until the old chunk has reached `s`;
 - forecast `d` from completed request latency;
@@ -115,7 +115,7 @@ while the next PAINT request still conditions on its pre-blend values. Smooth/MP
 Safety remain explicit outer hardware layers; their effect must be reported separately from PAINT's
 chunk-space prefix consistency.
 
-RobotDriver, SensorDriver, Smooth/MPC Executor, Safety, Recorder and Viewer remain unchanged.
+RobotBase, SensorBase, Smooth/MPC Executor, Safety, Recorder and Viewer remain unchanged.
 
 ## 6. Delay Forecast Adaptation
 
@@ -138,8 +138,8 @@ deliberately stricter than switching to an unanchored suffix.
 The initial Pi05 experiment is:
 
 ```text
-server: configs/pi05/yam/server/finetune-pick-red-ball-box-step1000.yaml
-infra:  configs/pi05/yam/infra/pick-red-ball-box/paint-step1000.yaml
+server: manimux/configs/policy/pi05/yam/finetune-pick-red-ball-box-step1000.yaml
+infra:  manimux/configs/experiments/pick_red_object/yam_pi05_paint_step1000.yaml
 H:      50
 N:      10
 s:      12
@@ -161,8 +161,8 @@ Start the same step-1000 Pi05 model server used by the ordinary ManiMux baseline
 ```bash
 cd /home/ubuntu/manimux
 XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
-  scripts/servers/pi05_yam_server.py \
-  --config configs/pi05/yam/server/finetune-pick-red-ball-box-step1000.yaml
+  manimux/servers/pi05.py \
+  --config manimux/configs/policy/pi05/yam/finetune-pick-red-ball-box-step1000.yaml
 ```
 
 After every server restart, warm the PAINT-specific JAX shape without camera, CAN or robot commands:
@@ -170,7 +170,7 @@ After every server restart, warm the PAINT-specific JAX shape without camera, CA
 ```bash
 cd /home/ubuntu/manimux
 envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
-  --config configs/pi05/yam/infra/pick-red-ball-box/paint-step1000.yaml
+  --config manimux/configs/experiments/pick_red_object/yam_pi05_paint_step1000.yaml
 ```
 
 Record at least three warmed `round_trip_ms` values. Then complete the normal camera, CAN,
@@ -179,7 +179,7 @@ achieved-state, start-pose and emergency-stop checks. Only the operator starts t
 ```bash
 cd /home/ubuntu/manimux
 envs/yam/.venv/bin/manimux run \
-  --config configs/pi05/yam/infra/pick-red-ball-box/paint-step1000.yaml
+  --config manimux/configs/experiments/pick_red_object/yam_pi05_paint_step1000.yaml
 ```
 
 Stop with one `Ctrl-C` and wait for the configured Home return and partial episode save. Do not stop

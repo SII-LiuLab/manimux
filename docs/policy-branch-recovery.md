@@ -61,7 +61,7 @@ survive smoke gating without launching training. These are not full training,
 convergence, task success, or real-robot evaluations.
 
 OpenWAM's downloaded foundation weights are not a YAM fine-tuned checkpoint.
-Keep `configs/openwam/yam/server/finetune.yaml` as an unbound template until a
+Keep `manimux/configs/policy/openwam/yam/finetune.yaml` as an unbound template until a
 YAM checkpoint with matching configuration/statistics exists. Do not relabel
 the foundation weights or disable artifact checks to make this template pass.
 The refactored preparation, training and checkpoint-binding commands remain in

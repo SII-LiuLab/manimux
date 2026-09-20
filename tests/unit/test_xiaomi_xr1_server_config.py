@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-import scripts.servers.xiaomi_xr1_yam_server as xr1_server
-from scripts.servers.xiaomi_xr1_yam_server import _validate
+import manimux.servers.xr1 as xr1_server
+from manimux.servers.xr1 import _validate
 
 
 def _minimal_config(**overrides: object) -> dict[str, object]:
@@ -54,7 +54,7 @@ def test_xr1_runtime_status_does_not_claim_inference_ready(
 
 def test_xr1_base_config_does_not_claim_task_capability() -> None:
     config = xr1_server._load_config(
-        xr1_server.REPO_ROOT / "configs/xiaomi-xr1/yam/server/base.yaml"
+        xr1_server.REPO_ROOT / "manimux/configs/policy/xiaomi-xr1/yam/base.yaml"
     )
     report = _validate(config)
     assert report["contract_status"] == "ready"
@@ -66,7 +66,7 @@ def test_xr1_base_config_does_not_claim_task_capability() -> None:
 def test_xr1_screwdriver_finetune_has_checkpoint_matched_contract() -> None:
     config = xr1_server._load_config(
         xr1_server.REPO_ROOT
-        / "configs/xiaomi-xr1/yam/server/finetune-assemble-screwdriver-step12000.yaml"
+        / "manimux/configs/policy/xiaomi-xr1/yam/finetune-assemble-screwdriver-step12000.yaml"
     )
     report = _validate(config)
 

@@ -124,7 +124,7 @@ def test_clip_arm_joints_projects_mink_overshoot_onto_model_stops(yam) -> None:
 def test_joint4_lower_limit_matches_urdf_and_reaches_below_minus_90_degrees(yam):
     import xml.etree.ElementTree as ET
 
-    from manimux.kinematics.yam import DEFAULT_ASSETS_ROOT
+    from manimux.embodiments.arm.yam.kinematics import DEFAULT_ASSETS_ROOT
 
     urdf = ET.parse(DEFAULT_ASSETS_ROOT / "i2rt/robot_models/arm/yam/yam.urdf")
     joint = urdf.find("joint[@name='joint4']/limit")

@@ -1,0 +1,10 @@
+# 设备序列号由 local.robot.components 绑定；构造和模型加载不打开 USB。
+type: sensor
+implementation: manimux.embodiments.sensor.realsense:RealSenseSensor
+options: {}
+hardware:
+  width: 640
+  height: 480
+  fps: 30
+  enable_depth: false
+  align_depth: false

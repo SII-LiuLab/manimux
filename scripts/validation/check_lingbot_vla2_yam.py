@@ -16,8 +16,8 @@ sys.dont_write_bytecode = True
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 XPOLICY_ROOT = REPO_ROOT / "XPolicyLab"
-DEFAULT_CONFIG = REPO_ROOT / "configs/lingbot-vla2/yam/server/base.yaml"
-DEFAULT_INFRA_CONFIG = REPO_ROOT / "configs/lingbot-vla2/yam/infra/manimux.yaml"
+DEFAULT_CONFIG = REPO_ROOT / "manimux/configs/policy/lingbot-vla2/yam/base.yaml"
+DEFAULT_INFRA_CONFIG = REPO_ROOT / "manimux/configs/experiments/pick_red_object/yam_lingbot_vla2_manimux.yaml"
 
 
 def _load_config(path: Path) -> dict[str, Any]:
@@ -50,7 +50,7 @@ def _validate(
     infra_errors: list[str] = []
     if infra_config is not None:
         policy = infra_config.get("policy", {})
-        execution = infra_config.get("execution", {})
+        execution = infra_config.get("inference", {})
         configured_horizon = int(policy.get("horizon_steps", 0))
         if report["status"] == "ready":
             native_hz = float(report["native_hz"])
@@ -75,9 +75,9 @@ def _validate(
                 infra_errors.append(
                     f"infra policy.adapter must be {expected_adapter} for this checkpoint"
                 )
-        runtime = execution.get("runtime")
+        runtime = execution.get("algorithm")
         if runtime not in {"manimux", "rtc"}:
-            infra_errors.append("infra execution.runtime must be manimux or rtc")
+            infra_errors.append("infra inference.algorithm must be manimux or rtc")
         if runtime == "rtc":
             if report.get("rtc_capability") != "pi_guided_v1_sampler":
                 infra_errors.append("RTC config requires sampler-level pi_guided_v1 support")

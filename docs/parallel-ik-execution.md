@@ -1,10 +1,10 @@
 # Full IK with independent decoding processes
 
-`configs/sapolicy/yam/infra/manimux-direct-async.yaml` preserves SAPolicy's
+`manimux/configs/experiments/put_bottles/yam_sapolicy_manimux_direct_async.yaml` preserves SAPolicy's
 full-pose IK and direct joint execution. It enables `policy.action_decoding:
 process`; the default remains `inline` for existing configurations.
 
-Pair it with `configs/sapolicy/yam/server/teleop50-raw.yaml`: both now use a
+Pair it with `manimux/configs/policy/sapolicy/yam/teleop50-raw.yaml`: both now use a
 50-step horizon at 30 Hz (about 1.67 seconds). The server returns all 50 model
 steps and the adapter decodes all 50. Rolling replanning still removes expired
 prefixes and replaces the remaining trajectory when a new plan arrives; it does
@@ -45,7 +45,7 @@ so identical closed-loop hardware motion is not guaranteed by identical IK outpu
 
 By default the measured state at submission seeds IK. The arm keeps following
 the previous plan while decoding runs, so on a fast arm that seed lies behind
-the arm when the new plan is committed. `execution.expected_decode_s` (process
+the arm when the new plan is committed. `inference.expected_decode_s` (process
 decoding only, default 0) sets the expected submit-to-commit time. The seed is
 then the active plan's reference at `now + commit_lead_s + expected_decode_s`
 (or at its end if it finishes earlier), and the adapter's execution time moves

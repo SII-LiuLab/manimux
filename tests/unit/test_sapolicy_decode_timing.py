@@ -5,7 +5,7 @@ import pytest
 
 import manimux.kinematics
 from manimux.cli import load_config
-from manimux.integrations.sapolicy_yam.policy_plugin import (
+from manimux.policy_adapter.sapolicy.yam import (
     ARM_JOINTS,
     GROUP_DIM,
     WIRE_ACTION_DIM,
@@ -20,7 +20,7 @@ from manimux.types import (
     SensorFrame,
 )
 
-CONFIG = "configs/sapolicy/yam/infra/manimux-xpl.yaml"
+CONFIG = "manimux/configs/experiments/put_bottles/yam_sapolicy_manimux_xpl.yaml"
 
 
 class _FakeKinematics:
@@ -233,7 +233,7 @@ def test_expired_prefix_never_invokes_ik(monkeypatch):
 
 def test_retired_eef_execution_mode_is_rejected_before_robot_connection():
     config = load_config(CONFIG)
-    config["policy"]["options"]["action_space"] = "eef_pose"
+    config["policy"]["adapter"]["action_space"] = "eef_pose"
     with pytest.raises(ValueError, match="EEF targets require IK"):
         SAPolicyYamAdapter(config["robot"], config["policy"])
 

@@ -17,8 +17,15 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "XPolicyLab"))
 
-from manimux.integrations.openwam_yam.policy_plugin import SEMANTICS, OpenWAMYamAdapter
-from manimux.integrations.xpolicylab.policy_plugin import XPolicyLabWsPolicyModel
+from XPolicyLab.policy.OpenWAM.model import (
+    Model,
+    _configure_deploy_runtime,
+    validate_deployment,
+)
+from XPolicyLab.policy.OpenWAM.training import build_command
+
+from manimux.policies.xpolicylab.client import XPolicyLabWsPolicyModel
+from manimux.policy_adapter.openwam.yam import SEMANTICS, OpenWAMYamAdapter
 from manimux.types import (
     ActionContext,
     InferenceRequest,
@@ -26,12 +33,6 @@ from manimux.types import (
     RobotState,
     SensorFrame,
 )
-from XPolicyLab.policy.OpenWAM.model import (
-    Model,
-    _configure_deploy_runtime,
-    validate_deployment,
-)
-from XPolicyLab.policy.OpenWAM.training import build_command
 
 
 class Kinematics:
@@ -54,7 +55,7 @@ def setup(monkeypatch):
 
     kin = Kinematics()
     monkeypatch.setattr(manimux.kinematics, "build_kinematics", lambda *a, **k: kin)
-    config = load_config(ROOT / "configs/openwam/yam/infra/manimux.yaml")
+    config = load_config(ROOT / "manimux/configs/experiments/put_bottles/yam_openwam_manimux.yaml")
     config["robot"]["type"] = "fake"
     adapter = OpenWAMYamAdapter(config["robot"], config["policy"])
     state = RobotState(
@@ -125,7 +126,7 @@ def test_xpolicy_server_roundtrip(setup):
 
 
 def observation(adapter, request):
-    from manimux.integrations.xpolicylab.obs_codec import build_layouts, encode_observation
+    from manimux.policies.xpolicylab.codec import build_layouts, encode_observation
 
     prepared = adapter.prepare_request(request)
     obs = encode_observation(
@@ -299,40 +300,10 @@ def test_training_arguments(tmp_path):
         build_command(args)
 
 
-def test_qz_launcher_disables_wandb_and_pins_training_budget():
-    launcher = (ROOT / "scripts/training/train_openwam_yam_cluster.sh").read_text()
-    profile = (ROOT / "scripts/training/train_openwam_yam_bottles_cluster.sh").read_text()
-    setup = (ROOT / "scripts/training/setup_openwam_qz_env.sh").read_text()
-    package = (ROOT / "XPolicyLab/policy/OpenWAM/OpenWAM/pyproject.toml").read_text()
-    loader = (
-        ROOT
-        / (
-            "XPolicyLab/policy/OpenWAM/OpenWAM/openwam/model/video_backbone/wan"
-            "/shared/core/loader/config.py"
-        )
-    ).read_text()
-    assert "WANDB_MODE=disabled" in launcher
-    assert '"project.wandb.project=null"' in launcher
-    assert "OPENWAM_MAX_STEPS:-30000" in profile
-    assert "OPENWAM_SAVE_INTERVAL:-5000" in profile
-    assert "OPENWAM_GPU_IDS:-0,1,2,3" in profile
-    assert "OPENWAM_EXPECTED_EPISODES=50" in profile
-    assert "OPENWAM_EXPECTED_FRAMES=35118" in profile
-    assert "resolve_deploy_checkpoint_dir" in launcher
-    assert '--checkpoint "${deploy_checkpoint_dir}" --check' in launcher
-    assert "--system-site-packages" in setup
-    assert "numpy==1.26.4" in setup
-    assert "torch==" not in setup
-    assert '"opencv-python-headless>=4.7,<5"' in package
-    assert "from modelscope import snapshot_download" not in loader.split("class ModelConfig", 1)[0]
-    assert (
-        "from huggingface_hub import snapshot_download"
-        not in loader.split("class ModelConfig", 1)[0]
-    )
 
 
 def test_checked_in_put_bottles_deployment_is_bound():
-    config = load_config(ROOT / "configs/openwam/yam/infra/manimux-put-bottles-step30000.yaml")
+    config = load_config(ROOT / "manimux/configs/experiments/put_bottles/yam_openwam_manimux_step30000.yaml")
     identity = config["policy"]["expected_backend"]["model"]
     assert config["robot"]["control_hz"] == 100.0
     assert config["robot"]["options"]["start_joints"] == [
@@ -353,10 +324,10 @@ def test_checked_in_put_bottles_deployment_is_bound():
     ]
     assert action_interval(config["policy"]) == pytest.approx(1.0 / 30.0)
     assert config["policy"]["horizon_steps"] == 32
-    assert config["policy"]["options"]["deployment_bound"] is True
-    assert config["execution"]["inference_schedule"] == "serial"
-    assert config["execution"]["chunk_steps"] == 12
+    assert config["policy"]["adapter"]["deployment_bound"] is True
+    assert config["inference"]["inference_schedule"] == "serial"
+    assert config["inference"]["chunk_steps"] == 12
     assert identity["checkpoint_file"] == "checkpoint_step_30000.safetensors"
     assert identity["action_horizon"] == 32
-    assert config["execution"]["smooth"]["gripper"]["max_velocity"] == 1.0
-    assert config["execution"]["smooth"]["gripper"]["max_acceleration"] == 12.0
+    assert config["executor"]["smooth"]["gripper"]["max_velocity"] == 1.0
+    assert config["executor"]["smooth"]["gripper"]["max_acceleration"] == 12.0

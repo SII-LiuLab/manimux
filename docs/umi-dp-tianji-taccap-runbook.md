@@ -1,114 +1,177 @@
-# UMI Diffusion Policy 与 Tianji–TacCap
+# UMI Diffusion Policy on Tianji–TacCap
 
-新入口将可复用本体、policy、本地工位和实验分开。仅迁移 Tianji–TacCap；
-旧 Tianji/YAM 配置入口保留。Tianji Viewer 已接入新整机模型，见
-[Viewer 配置与启动](viewer.md)；回零/拖动恢复尚未迁移。
+Start with the [local station guide](../manimux/configs/local/README.md) when connecting
+another Tianji–TacCap installation. One private station file supplies the controller IP,
+gripper and camera serials, service addresses and local artifact paths. The experiment
+selects the robot assembly, policy adapter, inference algorithm and execution settings.
 
-## 配置职责
+## Prepare the environments
 
-| 位置 | 内容 |
-| --- | --- |
-| `configs/embodiment/{arm,end_effector,sensor}/` | 组件实现、模型、控制和采集参数 |
-| `configs/embodiment/robot/tianji_taccap.yaml` | 整机安装关系、左右组、显示资产 |
-| `configs/policy/umi_dp/server.yaml` | 模型服务基础参数 |
-| `configs/policy/umi_dp/adapter/tianji_taccap.yaml` | 观察映射、动作约定、动作时间 |
-| `configs/experiments/runtime/tianji_taccap.yaml` | 原实验的调度、平滑、命令包络和运动限幅 |
-| `configs/experiments/pass_ball/tianji_taccap_umi_dp.yaml` | 实验入口及配套模型/相机服务选择 |
-| `configs/local/tianji_taccap.example.yaml` | 可复制的工位模板 |
-| `.local/tianji_taccap.yaml` | 个人实际设备和服务绑定，不提交 Git |
+Run the commands below from the repository root. Hardware and model processes use
+separate Python environments; see [Python environments](../envs/README.md).
 
-`policy`、`execution`、`policy_server` 各可用 `config:` 引用一份基础 YAML，
-实验中的同名字段覆盖基础值；字典逐项合并，列表整体替换。不递归继承。
-这些引用以及 `robot.config` 都相对实验文件解析。旧 `control_profile` 的冲突规则不变。
-
-local 中的 `robot.hardware` 绑定共享控制器，`robot.components` 按整机组件名绑定设备。
-字段由组件决定：Tianji 用 IP/序列号，CAN 组件可以用 `channel`，串口组件可以用 `port`。
-不需要的字段直接省略；一体化夹爪不需要伪造独立组件或填写 null。
-此格式不依赖 Tianji，但 YAM 的具体驱动接入本轮未迁移，仍使用原配置。
-
-`local` 不选择机械臂类型、安装关系、TCP 或执行开关。它只覆盖设备参数、服务地址与路径。
-`paths.checkpoint`、`paths.output_dir` 相对 local 文件解析。可在实验中写 `local: 路径`；
-CLI `--local` 优先，CLI 路径相对当前工作目录。未指定 local 时可以加载离线模型，
-连接设备时仍需要实际绑定。
-
-相机由独立 camera server 采集。实验将流名 `left_wrist/right_wrist` 映射到整机组件
-`left_wrist_camera/right_wrist_camera`。camera server 和 runtime 读取同一份组件参数和
-local 序列号；RGB、采集时间戳、历史帧顺序与原实验一致。夹爪序列号与相机序列号不同。
-
-## 准备本地工位
-
-从仓库根目录执行：
+- Install this ManiMux checkout and its `xpolicylab` extra in the Tianji hardware
+  environment. The commands below use `envs/tianji/.venv/bin/python`.
+- Obtain the private Marvin SDK from the Tianji installation owner. The current arm
+  implementation imports `manimux.embodiments.arm.tianji.sdk.marvin.fx_robot` for control
+  and `fx_kine` for kinematics. Place the supplied wrappers, required native libraries
+  and `ccs_m6_40.MvKDCfg` under that component's `sdk/marvin/` layout. The SDK is not
+  installed by filling a station file and is absent from a clean checkout.
+- Install the TacCap native package `xense.taccap` into the hardware environment,
+  following the SDK's installation instructions. Both the gripper and wrist camera
+  use this dependency; see the [TacCap component](../manimux/embodiments/end_effector/taccap/README.md).
+- Initialize the repository's XPolicyLab submodule and use its UMI_DP installation
+  entry point in a separate model environment:
 
 ```bash
-mkdir -p .local
-cp -n configs/local/tianji_taccap.example.yaml .local/tianji_taccap.yaml
+git submodule update --init --recursive XPolicyLab
+bash XPolicyLab/policy/UMI_DP/install.sh envs/umi_dp/.venv
 ```
 
-填写实际控制器 IP、左右夹爪与相机序列号，并在 `paths.checkpoint` 指定真实模型目录。
-模板使用示例地址和占位序列号。当前开发工位的已知绑定已从旧配置迁入该私有文件；
-不会自动探测或猜测物理左右位置、checkpoint 路径。
+These paths name environments to prepare; cloning the repository does not create them.
+The station and configuration commands below do not install SDKs or test hardware.
 
-`services.policy.endpoint` 是 runtime 访问模型的地址；远程服务可另写 `bind_host: 0.0.0.0`。
-`services.camera.endpoint/request_endpoint` 分别是 PUB/REP 客户端地址，服务端可另写
-`bind_endpoint/bind_request_endpoint`。同机默认使用 127.0.0.1。
-
-环境安装沿用 [原 Tianji runbook](umi_dp-tianji-runbook.md)。克隆仓库不会创建本地 venv；
-TacCap 原生 SDK 仍需安装。硬件进程和模型进程使用各自的 Python 环境。
-
-## 绑定 checkpoint
-
-在安装了 UMI_DP/XPolicyLab 的模型环境执行：
+## Create the station file
 
 ```bash
-envs/umi_dp/.venv/bin/python scripts/servers/umi_dp_tianji_server.py \
-  --experiment configs/experiments/pass_ball/tianji_taccap_umi_dp.yaml \
-  --local .local/tianji_taccap.yaml \
+cp -n manimux/configs/local/tianji_taccap.example.yaml manimux/configs/local/station.yaml
+```
+
+Read an existing `station.yaml` before changing it. Fill these fields with confirmed
+bindings for the local installation:
+
+| Field | Meaning |
+| --- | --- |
+| `robot.hardware.ip` | Shared Tianji controller IP for both arms |
+| `robot.components.left_end_effector.serial` / `right_end_effector.serial` | TacCap gripper firmware serial; the driver also matches follower role and side |
+| `robot.components.left_wrist_camera.camera_serial` / `right_wrist_camera.camera_serial` | UVC camera serial used to select its IMX385 capture node under `/dev/v4l/by-id` |
+| `services.policy.endpoint` | Runtime-accessible UMI_DP WebSocket address, normally `ws://127.0.0.1:8560` |
+| `services.camera.endpoint` | Timestamped camera subscription address, normally PUB `tcp://127.0.0.1:5556` |
+| `services.camera.request_endpoint` | Camera request address, normally REP `tcp://127.0.0.1:5555` |
+| `paths.checkpoint` | Trusted UMI artifact path to bind |
+| `paths.output_dir` | Optional run-output override |
+
+Gripper firmware serials and camera UVC serials are separate identifiers. Establish
+physical left/right placement before assigning them; enumeration order is not a mapping.
+Paths under `paths` resolve relative to the station file, or may be absolute.
+
+For remote services, client endpoints contain reachable host addresses. Set
+`services.policy.bind_host` and camera `bind_endpoint` / `bind_request_endpoint`
+when their listen addresses differ. Tianji consumes PUB frames on port 5556; port 5555
+is the separate request socket. A remote camera server also needs clock alignment within
+the experiment's state/camera tolerances, because timestamps are backend host receipt times.
+
+Runtime and camera/UMI `--experiment` entry points select the station in this order:
+`--local <path>`, the experiment's `local:` reference, then
+`manimux/configs/local/station.yaml`. A missing selected file produces the normal file-read
+error. Use `--local` only to select another station. Pure `read_experiment()` and
+`load_config()` calls still allow offline inspection without an implicit station.
+
+The station does not select TCP geometry, the adapter, control frequency or execution
+switches. These remain in the assembly and experiment.
+
+## Select and bind the experiment
+
+The following recipes all support the shared station file:
+
+| Experiment under `manimux/configs/experiments/pass_ball/` | Scheduling |
+| --- | --- |
+| `tianji_taccap_umi_dp.yaml` | Component-based experiment with `manimux` scheduling |
+| `tianji_umi_dp_default.yaml` | Existing `manimux` recipe and shared control profile |
+| `tianji_umi_dp_rtc.yaml` | RTC recipe with process action decoding |
+
+Each recipe maps camera-server streams `left_wrist` / `right_wrist` to assembly components
+`left_wrist_camera` / `right_wrist_camera`. The component-based recipe also renames the
+runtime images to the component names; the other two retain their existing stream names.
+Their `policy.adapter.camera_map` matches the corresponding image names.
+
+Bind checkpoint identity in the model environment before launching a runtime:
+
+```bash
+envs/umi_dp/.venv/bin/python -m manimux.servers.umi_dp \
+  --experiment manimux/configs/experiments/pass_ball/tianji_taccap_umi_dp.yaml \
   --bind-runtime-config .local/pass_ball/run.yaml
 ```
 
-这一步读取并核对真实 checkpoint 身份、horizon、动作时间和图像约定，不启动服务。
-产生配对的 `run.yaml` 和 `run-server.yaml`，展开 policy/execution 引用并重定位整机路径，
-保留绝对 local 引用。输出已存在时不会覆盖。改变 checkpoint 后需要重新绑定，不能
-只修改路径绕过模型身份检查。仍支持原 `--config/--runtime-template/--checkpoint` 用法。
+Select `tianji_umi_dp_rtc.yaml` in that command for RTC. Append `--local <station.yaml>`
+when selecting another station. Add `--check` without `--bind-runtime-config` to inspect
+artifact identity without exporting a pair.
 
-## 启动入口
+Binding reads the actual artifacts and records checkpoint identity, horizon, observation
+period, first-action offset and preprocessing conventions. The checkpoint action interval
+must match the experiment; binding does not silently change it. It starts no model,
+camera or robot service. Existing output files are not overwritten.
 
-以下命令用于正式连接，不是离线测试命令。硬件和 checkpoint 就绪后按服务角色分别运行。
+The command writes `.local/pass_ball/run.yaml` and `run-server.yaml`:
 
-模型环境启动已绑定的服务：
+- `run.yaml` retains an absolute reference to the selected station. Runtime and
+  `--experiment` service launches reread its current bindings; hardware identifiers
+  are not copied into the exported runtime.
+- `run-server.yaml` is a standalone resolved snapshot. Launching it with `--config`
+  uses the saved addresses and artifact path, without consulting the station.
+
+After changing service addresses, use `--experiment` to read the updated station or
+regenerate the standalone snapshot. After changing the checkpoint, bind a new pair so
+its expected identity matches the selected artifacts. Do not bypass identity checks.
+
+## Start the services
+
+Use the bound experiment for all three roles. The following commands open services or
+hardware and belong to an intended deployment session.
+
+Start the model in its environment:
 
 ```bash
-envs/umi_dp/.venv/bin/python scripts/servers/umi_dp_tianji_server.py \
-  --config .local/pass_ball/run-server.yaml
+envs/umi_dp/.venv/bin/python -m manimux.servers.umi_dp \
+  --experiment .local/pass_ball/run.yaml
 ```
 
-设备所在电脑的 Tianji 环境启动 camera server，直接读取同一实验和 local：
+Start the camera service on the computer with the wrist cameras:
 
 ```bash
-envs/tianji/.venv/bin/manimux-camera-server \
-  --experiment configs/experiments/pass_ball/tianji_taccap_umi_dp.yaml \
-  --local .local/tianji_taccap.yaml
+envs/tianji/.venv/bin/python -m manimux.servers.camera.server \
+  --experiment .local/pass_ball/run.yaml
 ```
 
-硬件 runtime 读取已绑定的实验：
+Start the hardware runtime:
 
 ```bash
 envs/tianji/.venv/bin/python -m manimux run \
-  --config .local/pass_ball/run.yaml \
-  --local .local/tianji_taccap.yaml
+  --config .local/pass_ball/run.yaml
 ```
 
-`run` 会连接硬件并读取反馈；实验默认 `execute: false`、`end_effector_control: false`。
-执行开关位于实验的 `robot.options`，local 不负责启用动作。Tianji 连接本身不回零；
-首次实际执行命令时按已有逻辑使能。已有 camera server 的 `--config cameras.yaml` 用法保留。
+All three read the station referenced by the bound experiment. For another station,
+append the same `--local <path>` to each command. To intentionally launch the standalone
+model-server snapshot instead, use:
 
-## 保持的接口语义与验证范围
+```bash
+envs/umi_dp/.venv/bin/python -m manimux.servers.umi_dp \
+  --config .local/pass_ball/run-server.yaml
+```
 
-- 左右组 `left_arm/right_arm`，七个弧度关节和一个归一化夹爪开度。
-- FK/IK 和模型目标均在各臂基座下；场景安装矩阵不进入控制计算。
-- 保留官方 `ik + ik_nsp`、限位余量、J6/J7 干涉和原分支选择。
-- 同进程复用整机运动学；action decode 子进程只加载同一装配文件的离线模型。
-- 原实验 100 Hz 控制、30 Hz 动作点、首动作偏移、平滑和运动约束未变。
+The experiment defaults to `robot.options.execute: false` and
+`robot.options.end_effector_control: false`. Runtime still connects and reads feedback.
+Execution settings belong to the experiment, not the station. Tianji connection does
+not Home; the existing controller enables on the first executed command. The component
+assembly does not implement Home or manual drag recovery. See [Viewer](viewer.md) for
+its separate display and control interface.
 
-本次验证使用离线 libKine、假硬件和假的模型身份报告测试配置接线。
-没有启动真实相机、机器人或模型服务，也没有验证实机任务成功率。
+## Preserved action and timing conventions
+
+- Groups are `left_arm` and `right_arm`: seven arm joints in radians followed by one
+  normalized gripper opening, zero closed and one open. Arm A is left; arm B is right.
+- UMI outputs absolute TCP poses in each arm's own base frame, with translation in
+  metres and quaternion order WXYZ. ManiMux applies the configured tool transform
+  and IK. Viewer placement does not enter FK/IK.
+- These experiments command at `robot.control_hz: 100` with model action spacing
+  `policy.action_dt_s: 1/30` seconds. Model action spacing and command frequency are
+  independent. The first-action offset is bound from the matching checkpoint.
+- Observation history, camera mapping, IK selection, smoothing and motion limits
+  retain each recipe's existing values. Local binding changes device and service
+  connections without selecting different control behavior.
+
+This configuration update was checked with pure configuration tests and a fake artifact
+provider. No Tianji numerical, SDK, hardware or physical-task validation was rerun.
+For the existing model/action contract details and historical evidence, see the
+[UMI deployment reference](umi_dp-tianji-runbook.md) and
+[validation report](umi_dp-tianji-validation.md).

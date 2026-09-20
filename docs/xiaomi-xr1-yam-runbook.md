@@ -51,10 +51,10 @@ uv pip install --python envs/xr1/.venv/bin/python -e XPolicyLab
 ## 配置
 
 ```text
-base server:    configs/xiaomi-xr1/yam/server/base.yaml
-ManiMux:        configs/xiaomi-xr1/yam/infra/manimux.yaml
-RTC:            configs/xiaomi-xr1/yam/infra/rtc.yaml
-step-15000 RTC: configs/xiaomi-xr1/yam/infra/rtc-assemble-screwdriver-step15000.yaml
+base server:    manimux/configs/policy/xiaomi-xr1/yam/base.yaml
+ManiMux:        manimux/configs/experiments/put_bottles/yam_xiaomi_xr1_manimux.yaml
+RTC:            manimux/configs/experiments/put_bottles/yam_xiaomi_xr1_rtc.yaml
+step-15000 RTC: manimux/configs/experiments/assemble_screwdriver/yam_xiaomi_xr1_rtc_step15000.yaml
 ```
 
 RTC 将 ManiMux `30 x 14` overlap condition 通过 FK 反编码到模型原生 `30 x 60` 空间，
@@ -87,10 +87,10 @@ demo stats 反而会把另一台机器的单位送给 YAM。
 
 ```bash
 cd /home/ubuntu/manimux
-PYTHONPATH=src envs/yam/.venv/bin/python -m \
+PYTHONPATH=. envs/yam/.venv/bin/python -m \
   manimux.integrations.xr1_yam.compute_norm_stats \
   --episodes /path/to/yam/episodes \
-  --out src/manimux/integrations/xr1_yam/norm_stats/yam.json
+  --out manimux/integrations/xr1_yam/norm_stats/yam.json
 ```
 
 ## Base 权重能力测试
@@ -100,17 +100,17 @@ base 权重使用独立 server config，不覆盖未来的 YAM finetune；执行
 ```bash
 # offline contract check
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/python scripts/servers/xiaomi_xr1_yam_server.py \
-  --config configs/xiaomi-xr1/yam/server/base.yaml \
+envs/yam/.venv/bin/python manimux/servers/xr1.py \
+  --config manimux/configs/policy/xiaomi-xr1/yam/base.yaml \
   --check
 
 # terminal 1: model server
-envs/xr1/.venv/bin/python scripts/servers/xiaomi_xr1_yam_server.py \
-  --config configs/xiaomi-xr1/yam/server/base.yaml
+envs/xr1/.venv/bin/python manimux/servers/xr1.py \
+  --config manimux/configs/policy/xiaomi-xr1/yam/base.yaml
 
 # terminal 2: no-CAN GPU/WS/FK/IK probe
 envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
-  --config configs/xiaomi-xr1/yam/infra/manimux.yaml
+  --config manimux/configs/experiments/put_bottles/yam_xiaomi_xr1_manimux.yaml
 ```
 
 probe 必须返回有限的 `native_shape: [30, 60]` 与 `canonical_shape: [30, 14]`。
@@ -118,7 +118,7 @@ probe 必须返回有限的 `native_shape: [30, 60]` 与 `canonical_shape: [30, 
 
 ```bash
 envs/yam/.venv/bin/manimux run \
-  --config configs/xiaomi-xr1/yam/infra/manimux.yaml
+  --config manimux/configs/experiments/put_bottles/yam_xiaomi_xr1_manimux.yaml
 ```
 
 30 Hz 仍是 YAM 对照实验假设，不是官方 checkpoint 元数据。base 能否做任务是
@@ -139,8 +139,8 @@ XR-1 server 或 RTC runtime。
 
 ```bash
 cd /home/ubuntu/manimux
-envs/xr1/.venv/bin/python scripts/servers/xiaomi_xr1_yam_server.py \
-  --config configs/xiaomi-xr1/yam/server/base.yaml
+envs/xr1/.venv/bin/python manimux/servers/xr1.py \
+  --config manimux/configs/policy/xiaomi-xr1/yam/base.yaml
 ```
 
 看到模型加载完成并监听 `127.0.0.1:8500` 后，先在另一个终端完成无 CAN probe：
@@ -148,7 +148,7 @@ envs/xr1/.venv/bin/python scripts/servers/xiaomi_xr1_yam_server.py \
 ```bash
 cd /home/ubuntu/manimux
 envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
-  --config configs/xiaomi-xr1/yam/infra/manimux.yaml
+  --config manimux/configs/experiments/put_bottles/yam_xiaomi_xr1_manimux.yaml
 ```
 
 只有 probe 返回有限的 `native_shape: [30, 60]` 和
@@ -160,7 +160,7 @@ envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/manimux-camera-server --config configs/cameras.yaml
+envs/yam/.venv/bin/manimux-camera-server --config manimux/configs/embodiment/sensor/cameras/yam.yaml
 ```
 
 ### Terminal 3：Viewer
@@ -184,7 +184,7 @@ done
 ```bash
 cd /home/ubuntu/manimux
 envs/yam/.venv/bin/manimux run \
-  --config configs/xiaomi-xr1/yam/infra/manimux.yaml
+  --config manimux/configs/experiments/put_bottles/yam_xiaomi_xr1_manimux.yaml
 ```
 
 连接后的前 `5.0 s` 是配置规定的起始姿态移动，不是模型动作；之后才执行 XR-1 经
@@ -203,8 +203,8 @@ envs/xr1/.venv/bin/python scripts/validation/check_xr1_rtc_sampler.py
 通过后，才使用同一个 server 做 RTC 对照：
 
 ```bash
-envs/yam/.venv/bin/manimux run --config configs/xiaomi-xr1/yam/infra/manimux-assemble-screwdriver-step15000.yaml
-envs/yam/.venv/bin/manimux run --config configs/xiaomi-xr1/yam/infra/rtc-assemble-screwdriver-step15000.yaml
+envs/yam/.venv/bin/manimux run --config manimux/configs/experiments/assemble_screwdriver/yam_xiaomi_xr1_manimux_step15000.yaml
+envs/yam/.venv/bin/manimux run --config manimux/configs/experiments/assemble_screwdriver/yam_xiaomi_xr1_rtc_step15000.yaml
 ```
 
 不要同时运行 ManiMux 与 RTC。相机、Viewer、CAN 检查和停止顺序参考

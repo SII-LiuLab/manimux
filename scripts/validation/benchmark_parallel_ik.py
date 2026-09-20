@@ -10,8 +10,8 @@ from pathlib import Path
 import numpy as np
 
 from manimux.cli import load_config
-from manimux.integrations.sapolicy_yam.policy_plugin import SAPolicyYamAdapter
 from manimux.policies.decoder import ActionDecoderClient
+from manimux.policy_adapter.sapolicy.yam import SAPolicyYamAdapter
 from manimux.types import ActionContext, InferenceResponse, RobotState
 
 
@@ -21,7 +21,7 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--repeats", type=int, default=3)
     args = parser.parse_args()
-    cfg = load_config("configs/sapolicy/yam/infra/manimux-direct-async.yaml")
+    cfg = load_config("manimux/configs/experiments/put_bottles/yam_sapolicy_manimux_direct_async.yaml")
     source = args.recorded_diagnostics
     predictions = np.load(source / "offline-ik-profile.npz")
     signals = np.load(source / "signals.npz")

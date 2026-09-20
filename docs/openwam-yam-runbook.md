@@ -39,6 +39,10 @@ standard XPolicy batch evaluation are separate from the YAM profile.
 
 ## Data and training
 
+Commands under `training/` use the optional private training workspace, which is
+ignored by Git and is not included in a fresh clone. Public data conversion tools
+remain under `scripts/datasets/`; the model trainer belongs to XPolicyLab.
+
 Only pass **training episodes** to data preparation; hold out evaluation
 episodes in another root. The upstream reader computes statistics over all
 tasks in that root. It uses future achieved states as action labels, not the
@@ -53,7 +57,7 @@ python scripts/datasets/prepare_openwam_yam_dataset.py \
   --task assemble_the_screwdriver --instruction 'Assemble the screwdriver.' \
   --frequency 30
 export OPENWAM_DATASET_DIR=/path/to/openwam_train
-bash scripts/training/train_openwam_yam_cluster.sh prepare screwdriver-v1
+bash training/scripts/train_openwam_yam_cluster.sh prepare screwdriver-v1
 ```
 
 This writes native `<root>/<task>/yam_dual/data/episode_*.hdf5`, validates
@@ -64,7 +68,7 @@ Do not reuse ARX statistics or place validation episodes in the training root.
 ```bash
 export OPENWAM_FINETUNE_CKPT_PATH=/path/to/openwam_foundation_checkpoint
 export OPENWAM_GPU_IDS=0,1
-bash scripts/training/train_openwam_yam_cluster.sh gate-train screwdriver-v1
+bash training/scripts/train_openwam_yam_cluster.sh gate-train screwdriver-v1
 ```
 
 `prepare`, `smoke`, `train`, `gate-train` mirror the other cluster launchers.
@@ -94,7 +98,7 @@ No environment installation is performed. Select an existing interpreter with
 ### QZ hdd3 put-bottles profile
 
 The fixed, non-submitting QZ profile is
-`scripts/training/train_openwam_yam_bottles_cluster.sh`. It uses the 50-episode,
+`training/scripts/train_openwam_yam_bottles_cluster.sh`. It uses the 50-episode,
 35,118-frame, 30 Hz `put_bottles_into_the_bin` dataset, four visible GPUs,
 30,000 OpenWAM global/micro-steps, and checkpoints every 5,000 global steps.
 Per-GPU batch is 1 with gradient accumulation 8 (effective optimizer batch 32),
@@ -105,8 +109,8 @@ truth.
 Before any job is created, run its CPU-only readiness gate on a QZ notebook:
 
 ```bash
-bash scripts/training/setup_openwam_qz_env.sh
-bash scripts/training/train_openwam_yam_bottles_cluster.sh ready
+bash training/scripts/setup_openwam_qz_env.sh
+bash training/scripts/train_openwam_yam_bottles_cluster.sh ready
 ```
 
 The QZ setup script creates an isolated venv but deliberately inherits the
@@ -122,14 +126,14 @@ preparation/statistics/sample check, and prints the exact four-GPU command via
 After resource/job approval, the command used inside the allocated job is:
 
 ```bash
-bash scripts/training/train_openwam_yam_bottles_cluster.sh gate-train
+bash training/scripts/train_openwam_yam_bottles_cluster.sh gate-train
 ```
 
 `gate-train` first produces a one-step smoke checkpoint and only then enters the
 30k run. Do not call it from a login/notebook shell.
 
 The prepared QZ request is
-`configs/openwam/qz/put-bottles-4xh200.json`. It pins the `embodied-world-model`
+`.local/training/openwam/put-bottles-4xh200.json`. It pins the `embodied-world-model`
 project, its private training workspace, the official PyTorch 25.06 image, and
 the predefined 4xH200/80-CPU/900-GiB specification. Keeping the JSON in the
 repository does not submit it. Re-check identity, duplicate job names, hashes,
@@ -156,8 +160,8 @@ then requests the next chunk instead of sampling concurrently.
 Start the policy server:
 
 ```bash
-envs/openwam/.venv/bin/python scripts/servers/openwam_yam_server.py \
-  --config configs/openwam/yam/server/finetune-put-bottles-step30000.yaml
+envs/openwam/.venv/bin/python manimux/servers/openwam.py \
+  --config manimux/configs/policy/openwam/yam/finetune-put-bottles-step30000.yaml
 ```
 
 Then validate one real model forward plus the YAM IK boundary without touching
@@ -165,23 +169,23 @@ the robot:
 
 ```bash
 envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
-  --config configs/openwam/yam/infra/manimux-put-bottles-step30000.yaml \
+  --config manimux/configs/experiments/put_bottles/yam_openwam_manimux_step30000.yaml \
   --instruction "Put the bottles into the bin."
 ```
 
 After the probe succeeds, start the camera service and ManiMux runtime:
 
 ```bash
-envs/yam/.venv/bin/manimux-camera-server --config configs/cameras.yaml
+envs/yam/.venv/bin/manimux-camera-server --config manimux/configs/embodiment/sensor/cameras/yam.yaml
 
 envs/yam/.venv/bin/manimux serve \
-  --config configs/openwam/yam/infra/manimux-put-bottles-step30000.yaml
+  --config manimux/configs/experiments/put_bottles/yam_openwam_manimux_step30000.yaml
 ```
 
 ```bash
-python scripts/servers/openwam_yam_server.py --checkpoint /path/to/yam_run \
+python manimux/servers/openwam.py --checkpoint /path/to/yam_run \
   --bind-runtime-config /path/to/deployment/openwam.yaml
-python scripts/servers/openwam_yam_server.py \
+python manimux/servers/openwam.py \
   --config /path/to/deployment/openwam-server.yaml
 ```
 

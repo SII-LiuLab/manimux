@@ -40,8 +40,8 @@ Pi05 的 stats、XPolicy 原 ARX modality config 或 base 模型默认 embodimen
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/python scripts/servers/gr00t_yam_server.py \
-  --config configs/groot/yam/server/finetune.yaml \
+envs/yam/.venv/bin/python manimux/servers/groot.py \
+  --config manimux/configs/policy/groot/yam/finetune.yaml \
   --check
 ```
 
@@ -62,7 +62,7 @@ bash install.sh
 ```
 
 GR00T N1.7 的 processor 还需要 gated `nvidia/Cosmos-Reason2-2B`。先完成 Hugging Face
-授权；若使用本地模型，把 `configs/groot/yam/server/finetune.yaml` 中
+授权；若使用本地模型，把 `manimux/configs/policy/groot/yam/finetune.yaml` 中
 `cosmos_model_path` 改为本地目录。
 
 安装结束后重新运行第 1 步检查；不要在 `runtime_status` 仍为 blocked/operator action
@@ -79,8 +79,8 @@ Terminal 1：
 ```bash
 cd /home/ubuntu/manimux
 XPolicyLab/policy/GR00T_N17/gr00t_n17/.venv/bin/python \
-  scripts/servers/gr00t_yam_server.py \
-  --config configs/groot/yam/server/finetune.yaml
+  manimux/servers/groot.py \
+  --config manimux/configs/policy/groot/yam/finetune.yaml
 ```
 
 Terminal 2：先运行不接相机、不接 CAN 的单次 forward probe。它发送三张确定性的合成 RGB
@@ -90,7 +90,7 @@ Terminal 2：先运行不接相机、不接 CAN 的单次 forward probe。它发
 ```bash
 cd /home/ubuntu/manimux
 envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
-  --config configs/groot/yam/infra/manimux.yaml
+  --config manimux/configs/experiments/pick_box/yam_groot_manimux.yaml
 ```
 
 只有输出 `"status": "ok"`、`"action_space": "joint_position"`、
@@ -106,7 +106,7 @@ cd /home/ubuntu/manimux
 for i in 1 2 3; do
   echo "===== Probe $i ====="
   envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
-    --config configs/groot/yam/infra/manimux.yaml
+    --config manimux/configs/experiments/pick_box/yam_groot_manimux.yaml
 done
 ```
 
@@ -123,7 +123,7 @@ Terminal 2 启动共享相机服务；已有 `5555` 服务时不要重复启动�
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/manimux-camera-server --config configs/cameras.yaml
+envs/yam/.venv/bin/manimux-camera-server --config manimux/configs/embodiment/sensor/cameras/yam.yaml
 ```
 
 先检查两路 CAN：
@@ -140,7 +140,7 @@ done
 ```bash
 cd /home/ubuntu/manimux
 envs/yam/.venv/bin/python scripts/validation/pi05_base_yam_preflight.py \
-  --config configs/groot/yam/infra/manimux.yaml
+  --config manimux/configs/experiments/pick_box/yam_groot_manimux.yaml
 ```
 
 确认 `contract_checks` 全为 `true`，并人工检查 measured state、first action、
@@ -151,7 +151,7 @@ Pi05 命名，但其实现使用传入配置构建通用 YAM policy/adapter，�
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/manimux run --config configs/groot/yam/infra/manimux.yaml
+envs/yam/.venv/bin/manimux run --config manimux/configs/experiments/pick_box/yam_groot_manimux.yaml
 ```
 
 真机 runtime 连接后会用 `3.5 s` 移动到配置起始位；正常 `Ctrl-C` 退出时会用 `3.5 s`
