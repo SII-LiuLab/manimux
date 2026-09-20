@@ -263,10 +263,10 @@ class EpisodeRecorder:
         self._partial_dir.rename(self._final_dir)
         return self._final_dir
 
-    def abort(self, reason: str) -> None:
+    def abort(self, reason: str, *, detail: str = "") -> None:
         if self._events.closed:
             return
-        self.event("episode_aborted", terminal_reason=reason)
+        self.event("episode_aborted", terminal_reason=reason, detail=detail)
         self._events.close()
         video = self._video.close()
         self._write_zarr()
@@ -275,6 +275,7 @@ class EpisodeRecorder:
             {
                 "success": False,
                 "terminal_reason": reason,
+                "detail": detail,
                 "steps": len(self._ticks),
                 "incomplete": True,
                 "video_recording": {

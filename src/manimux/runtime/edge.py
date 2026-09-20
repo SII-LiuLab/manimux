@@ -87,6 +87,28 @@ def _group_action_summary(groups: Mapping[str, np.ndarray]) -> dict[str, object]
     }
 
 
+def _exception_detail(exc: BaseException, *, depth: int = 3) -> str:
+    """Render a failure in one line, expanding groups and the chained cause.
+
+    ``robot/base.py`` reports a failed command as an ExceptionGroup holding both
+    the original error and the emergency stop error, so the type name alone says
+    nothing about what actually went wrong.
+    """
+    text = f"{type(exc).__name__}: {exc}"
+    if depth <= 0:
+        return text
+    if isinstance(exc, BaseExceptionGroup):
+        # exc.message drops str()'s redundant "(N sub-exceptions)" suffix.
+        inner = "; ".join(_exception_detail(item, depth=depth - 1) for item in exc.exceptions)
+        return f"{type(exc).__name__}: {exc.message} [{inner}]"
+    cause = exc.__cause__
+    if cause is None and not exc.__suppress_context__:
+        cause = exc.__context__
+    if cause is None:
+        return text
+    return f"{text} <- {_exception_detail(cause, depth=depth - 1)}"
+
+
 @dataclass(frozen=True, slots=True)
 class RunResult:
     episode_dir: Path
@@ -337,6 +359,7 @@ class EdgeRuntime:
         completed = False
         terminal_reason = "completed"
         abort_reason = "runtime_exception"
+        abort_detail = ""
         home_on_close = bool(self._config["robot"]["options"].get("home_on_close", False))
         try:
             for sensor in self._sensors:
@@ -1076,6 +1099,8 @@ class EdgeRuntime:
             raise
         except BaseException as exc:
             abort_reason = type(exc).__name__
+            abort_detail = _exception_detail(exc)
+            logger.error("episode_aborted %s", abort_detail)
             raise
         finally:
             faulted = not completed and abort_reason != "KeyboardInterrupt"
@@ -1111,7 +1136,7 @@ class EdgeRuntime:
                 cleanup_errors.append(exc)
             if not completed:
                 try:
-                    recorder.abort(abort_reason)
+                    recorder.abort(abort_reason, detail=abort_detail)
                 except BaseException as exc:
                     cleanup_errors.append(exc)
             if cleanup_errors:
