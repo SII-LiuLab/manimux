@@ -3,7 +3,10 @@ runtime: manimux.integrations.umi_dp_tianji.history:build_strategy
 executor: smooth
 inference_schedule: single_inflight
 refill_threshold_s: 0.25
+# 0.06 既是首块解码前的估计，也是预测值的下限；此后按实测 decode_stage_ms 上调。
 expected_decode_s: 0.06
+decode_forecast_size: 10
+decode_forecast_mode: max
 max_plan_age_s: 2.0
 blend_steps: 2
 smooth:

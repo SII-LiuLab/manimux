@@ -9,6 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from manimux.runtime.decode_forecast import FORECAST_MODES
 from manimux.runtime.inference import build_inference_strategy
 
 if TYPE_CHECKING:
@@ -90,6 +91,8 @@ def execution_parameters(**options) -> dict:
         "independent_group_decoding": False,
         "decode_budget_ms": 40.0,
         "expected_decode_s": 0.0,
+        "decode_forecast_size": 0,
+        "decode_forecast_mode": "max",
         "smooth": {},
         "mpc": {},
         "command_safety": {},
@@ -163,6 +166,12 @@ def validate_runtime_parameters(config: dict) -> None:
         and config["policy"]["action_decoding"] != "process"
     ):
         raise ValueError("execution.expected_decode_s requires process action decoding")
+    # A positive expected_decode_s already implies process decoding, checked above.
+    if config["execution"]["decode_forecast_size"] and not config["execution"]["expected_decode_s"]:
+        raise ValueError(
+            "execution.decode_forecast_size requires a positive expected_decode_s "
+            "to use as its initial estimate and lower bound"
+        )
     if (
         config["execution"]["max_chunk_steps"] is not None
         and config["execution"]["max_chunk_steps"] > config["policy"]["horizon_steps"]
@@ -209,6 +218,8 @@ def validate_runtime_parameters(config: dict) -> None:
 
 def validate_execution_parameters(values: dict, *, provided=frozenset()) -> None:
     """检查调度和执行方式的组合；provided 仅用于识别 YAML 中明确给出的字段。"""
+    if values["decode_forecast_mode"] not in FORECAST_MODES:
+        raise ValueError(f"execution.decode_forecast_mode must be one of {FORECAST_MODES}")
     if values["inference_schedule"] == "serial":
         if values["runtime"] != "manimux":
             raise ValueError("serial scheduling requires execution.runtime=manimux")
