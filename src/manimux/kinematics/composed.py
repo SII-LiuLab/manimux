@@ -167,6 +167,9 @@ class ComposedManipulatorKinematics(ManipulatorKinematicsBase):
         self._base_frame = base_frame
         self._position_tolerance = position_tolerance
         self._rotation_tolerance = rotation_tolerance
+        self._coordinate_indices = {item.name: index for index, item in enumerate(layout)}
+        self._tool_names = frozenset(item.name for item in tool_layout)
+        self._offset_inverse_cache: tuple[bytes, FloatArray] | None = None
 
     @property
     def coordinates(self) -> tuple[KinematicCoordinate, ...]:
@@ -218,11 +221,25 @@ class ComposedManipulatorKinematics(ManipulatorKinematicsBase):
         flange = self._arm.fk(state[: self._arm_size].copy())
         return flange @ self._offset(state[self._arm_size :])
 
+    def _offset_inverse(self, tool_state: FloatArray) -> FloatArray:
+        """Inverse mount/tool offset for one tool state, memoised for the next call.
+
+        ``tcp_transform`` is a function of the tool state alone, so this only
+        changes when a tool coordinate does: the substeps of one IK knot share
+        one inverse, and a tool with a fixed TCP shares it for the whole
+        rollout. There is no IK over the tool; it only moves the target from
+        the TCP frame to the flange the arm solver actually solves for.
+        """
+        key = tool_state.tobytes()
+        cached = self._offset_inverse_cache
+        if cached is None or cached[0] != key:
+            cached = (key, np.linalg.inv(self._offset(tool_state)))
+            self._offset_inverse_cache = cached
+        return cached[1]
+
     def flange_target(self, target_tcp: FloatArray, tool_state: FloatArray) -> FloatArray:
         """Remove the mounted-tool offset while staying in the arm base frame."""
-        return rigid_transform(target_tcp, "target_tcp") @ np.linalg.inv(
-            self._offset(tool_state)
-        )
+        return rigid_transform(target_tcp, "target_tcp") @ self._offset_inverse(tool_state)
 
     def ik(
         self,
@@ -234,23 +251,23 @@ class ComposedManipulatorKinematics(ManipulatorKinematicsBase):
     ) -> IKResult:
         target = rigid_transform(target_tcp, "target_tcp")
         seed = self._configuration(seed_configuration)
-        indices = {coordinate.name: index for index, coordinate in enumerate(self.coordinates)}
         for name, value in fixed_coordinates.items():
-            if name not in indices:
+            if name not in self._coordinate_indices:
                 raise KeyError(f"unknown fixed coordinate {name!r}")
             scalar = np.asarray(value, dtype=np.float64)
             if scalar.shape != () or not np.isfinite(scalar):
                 raise ValueError(f"fixed coordinate {name!r} must be a finite scalar")
-            seed[indices[name]] = float(scalar)
+            seed[self._coordinate_indices[name]] = float(scalar)
         seed = self._configuration(seed)
-        tool_names = {item.name for item in self.coordinates[self._arm_size :]}
-        if set(fixed_coordinates) != tool_names:
+        if self._tool_names != fixed_coordinates.keys():
             raise NotImplementedError(
                 "IK requires all tool coordinates fixed and all arm joints free"
             )
         tool_state = seed[self._arm_size :].copy()
+        # target is already this call's validated copy; flange_target would
+        # validate the same matrix a second time on every substep.
         result = self._arm.ik(
-            self.flange_target(target, tool_state),
+            target @ self._offset_inverse(tool_state),
             seed[: self._arm_size].copy(),
             duration_s=duration_s,
         )
