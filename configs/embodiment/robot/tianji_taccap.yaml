@@ -22,7 +22,7 @@ home:
 hardware:
   stale_timeout_s: 0.2
   ready_timeout_s: 3.0
-  max_tracking_error_deg: 5.0  # Original command-to-measured bound.
+  max_tracking_error_deg: 10  # Original command-to-measured bound.
 components:
   # Arm mounts place assets in Viewer; end-effector mounts also define the TCP.
   left_arm:

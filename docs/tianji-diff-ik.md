@@ -168,13 +168,25 @@ post-step flange Jacobian reused as the next step's start. A chained step droppe
 from ~205 us to ~95 us (OSQP itself ~7–8 us); decoding took ~28 ms for H16 and
 ~112 ms for H64. Against the previous code, verdicts were unchanged and joint
 differences stayed below 3e-13 rad over 7,684 recorded steps and 12 chunk decodes.
+On 2026-09-21 the same treatment was applied to the composed layer, where the
+assembled TCP kinematics had reintroduced per-substep work around the unchanged
+solver: `kinematics.base.rigid_transform` now writes out the allclose/isclose
+route it has always used (24 us to 3 us for identical verdicts over 7,909 cases,
+including reflections and perturbations at each tolerance), `ik` validates the
+target once instead of again inside `flange_target`, and the inverse mount/tool
+offset is kept for one tool state. IK remains arm-only; the tool contributes the
+constant TCP-to-flange change of frame, not a solve. A substep dropped from
+~190 us to ~127 us and a two-arm H16 decode from ~55 ms to ~37 ms. Replaying six
+frozen chunks (16 knots x 9 substeps, both arms) reproduced the previous joint
+trajectories bit for bit, and the full unit suite's failure set was unchanged.
 This aggregate chunk work must not block the control thread. The Tianji UMI
 profile therefore decodes the complete dual-arm chunk in one isolated process
-and includes its measured decode allowance in the execution clock. The adapter removes expired source
-knots before stateful IK, preserves their count in `source_offset_steps`, and
-uses the remaining time to the first executable knot as its first integration
-duration. Hardware-free process/RTC tests verify that the control loop continues
-ticking during decode and that either arm's failure rejects the whole chunk.
+and includes its measured decode allowance when selecting the future IK seed.
+The adapter converts every source knot with the fixed policy action interval;
+the shared timeline alone removes rows that have expired at the actual commit
+time, selecting the first source row at or after execution starts. Hardware-free
+process/RTC tests verify that the control loop continues ticking during decode
+and that either arm's failure rejects the whole chunk.
 
 Twenty-three differential/adapter tests plus twelve existing UMI tests passed,
 including finite-difference Jacobians, velocity and dt caps, invalid inputs,
