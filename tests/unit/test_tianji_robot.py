@@ -233,6 +233,20 @@ def test_stop_attempts_other_components_and_retry(setup):
     assert sdk.releases == 1
 
 
+def test_estop_fault_state_releases_controller_session(setup):
+    robot, sdk, _, _ = setup
+    robot.connect()
+    robot.send_command(command())
+    before = len(sdk.batches)
+
+    sdk.modes = [100, 100]
+    sdk.faults = [13, 13]
+    robot.close()
+
+    assert len(sdk.batches) == before
+    assert sdk.releases == 1
+
+
 def test_stale_arm_feedback(setup):
     robot, sdk, clock, _ = setup
     robot.connect()

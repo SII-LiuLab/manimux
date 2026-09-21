@@ -464,12 +464,13 @@ def test_tianji_clear_error_recovery_acknowledges_selected_controller() -> None:
     }
 
 
-def test_tianji_recovery_moves_to_configured_home_without_moving_grippers() -> None:
+def test_tianji_recovery_moves_home_then_fully_opens_grippers() -> None:
     sdk = _FakeMarvin()
     sdk.faults = [0, 0]
     sdk.modes = [0, 0]
     robot = _FakeHomeRobot()
     clock = _FakeTime()
+    built_configs = []
     config = {
         "robot": {
             "type": "tianji_taccap",
@@ -480,7 +481,7 @@ def test_tianji_recovery_moves_to_configured_home_without_moving_grippers() -> N
     recovery = _TianjiRecovery(
         config,
         sdk_factory=lambda: (sdk, object()),
-        robot_factory=lambda _config, _clock: robot,
+        robot_factory=lambda robot_config, _clock: built_configs.append(robot_config) or robot,
         monotonic=clock.monotonic,
         sleep=clock.sleep,
     )
@@ -494,8 +495,10 @@ def test_tianji_recovery_moves_to_configured_home_without_moving_grippers() -> N
     assert robot.commands
     np.testing.assert_allclose(robot.groups["left_arm"][:7], 0.02)
     np.testing.assert_allclose(robot.groups["right_arm"][:7], -0.02)
-    assert robot.groups["left_arm"][7] == 0.3
-    assert robot.groups["right_arm"][7] == 0.4
+    assert robot.groups["left_arm"][7] == 1.0
+    assert robot.groups["right_arm"][7] == 1.0
+    assert built_configs[0]["options"]["end_effector_control"] is True
+    assert "end_effector_control" not in config["robot"]["options"]
     assert recovery.metadata()["error"] == ""
     assert recovery.metadata()["ack"] == "home-1"
 

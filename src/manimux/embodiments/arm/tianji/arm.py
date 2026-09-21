@@ -306,11 +306,15 @@ class TianjiController(ArmController):
             # disable request reaching the other arm or another owned arm.
             for name in tuple(self._enabled):
                 try:
+                    _, modes, _ = self._read(allow_fault=True)
+                    if modes[name] in {0, 100}:
+                        self._enabled.remove(name)
+                        continue
                     previous = self._serial.get(name)
                     self._write({}, {name: 0})
                     self._wait(
                         lambda modes, data, name=name, previous=previous: (
-                            self._serial[name] != previous and modes[name] == 0
+                            self._serial[name] != previous and modes[name] in {0, 100}
                         ),
                         allow_fault=True,
                     )
