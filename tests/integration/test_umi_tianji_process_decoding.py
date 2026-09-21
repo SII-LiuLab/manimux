@@ -38,6 +38,14 @@ def build_slow_adapter(robot, policy, *, kinematics=None):
     return SlowAdapter({}, {})
 
 
+class ObservationSeedSlowAdapter(SlowAdapter):
+    decode_seed_source = "observation_state"
+
+
+def build_observation_seed_slow_adapter(robot, policy, *, kinematics=None):
+    return ObservationSeedSlowAdapter({}, {})
+
+
 class DelegatingStrategy:
     """Wraps a strategy the way the UMI measured-history plugin does."""
 
@@ -206,6 +214,46 @@ def test_decode_seed_follows_the_active_reference_to_the_expected_start(tmp_path
     assert idle._decode_seed(state, now) == (now + 20_000_000, state, "measured_state")
 
 
+def test_observation_anchored_adapter_uses_the_request_state_for_process_decode(tmp_path):
+    from manimux.types import RobotState
+
+    config = plugin_config()
+    config["policy"]["adapter"]["type"] = f"{__name__}:build_observation_seed_slow_adapter"
+    config["inference"]["commit_lead_s"] = 0.02
+    config["inference"]["expected_decode_s"] = 0.065
+    runtime = EdgeRuntime(config, tmp_path)
+    response_state = RobotState(
+        {name: np.full(dim, -1.0) for name, dim in config["robot"]["group_dims"].items()},
+        2 * 10**9,
+        8,
+    )
+    observation_state = RobotState(
+        {name: np.full(dim, 0.5) for name, dim in config["robot"]["group_dims"].items()},
+        10**9,
+        7,
+    )
+
+    start_ns, seed, source = runtime._decode_seed(
+        response_state,
+        3 * 10**9,
+        observation_state,
+    )
+
+    assert source == "observation_state"
+    assert seed is observation_state
+    assert seed.monotonic_ns == 10**9
+    assert start_ns == 3_085_000_000
+    with pytest.raises(ValueError, match="observation state is unavailable"):
+        runtime._decode_seed(response_state, 3 * 10**9)
+
+    config["run"]["max_steps"] = 100
+    result = runtime.run()
+    submitted = [e for e in events_of(result) if e["kind"] == "decode_submitted"]
+    assert submitted
+    assert all(e["seed_source"] == "observation_state" for e in submitted)
+    assert all(e["seed_to_expected_start_ms"] > 0 for e in submitted)
+
+
 def test_decode_forecast_requires_a_positive_expected_decode_floor():
     data = deepcopy(load_config(ROOT / "tests/fixtures/runtime.yaml"))
     data["policy"]["action_decoding"] = "process"
@@ -308,7 +356,13 @@ def test_umi_tianji_per_arm_processes_match_inline_diff_decode():
 
     def submit(seq):
         # No prepare_request: neither inline nor child decoding may need the anchors.
-        context = ActionContext(seq, now, now, execution_time_ns=now, measured_state=measured)
+        context = ActionContext(
+            seq,
+            now,
+            now,
+            execution_time_ns=now + 10**12,
+            measured_state=measured,
+        )
         response = InferenceResponse(
             "test", seq, now, 1.0, {"actions": actions}, observation_time_ns=now
         )
@@ -316,6 +370,8 @@ def test_umi_tianji_per_arm_processes_match_inline_diff_decode():
         return context
 
     decoder = ActionDecoderClient(config["robot"], config["policy"], adapter)
+    # One process per arm; the client merges the two partitions into one chunk.
+    assert len(decoder._processes) == 2
     try:
         decoder.start()
         context = submit(1)
@@ -325,6 +381,8 @@ def test_umi_tianji_per_arm_processes_match_inline_diff_decode():
         chunk = result.chunk
         assert chunk.metadata["decode_mode"] == "process"
         assert set(chunk.metadata["decode_partition_ms"]) == {"left_arm", "right_arm"}
+        assert chunk.source_offset_steps == 0
+        assert chunk.horizon_steps == 64
         assert chunk.source_offset_steps == inline.source_offset_steps
         assert chunk.observation_time_ns == inline.observation_time_ns
         for side in ("left", "right"):

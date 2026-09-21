@@ -18,6 +18,7 @@ class CommitResult:
     accepted: bool
     reason: str
     trimmed_steps: int = 0
+    timeline_latency_ns: int = 0
 
 
 @dataclass(slots=True)
@@ -140,8 +141,14 @@ class ActionTimeline:
         start_time_ns = now_ns + commit_lead_ns
         # Elapsed source-trajectory time when execution starts.
         age_at_commit_ns = max(0, start_time_ns - chunk.observation_time_ns)
-        # Current row in the original policy trajectory at start_time_ns.
-        source_cursor = int(age_at_commit_ns // chunk.dt_ns)
+        # First source row whose timestamp is not earlier than start_time_ns.
+        # An exact row boundary keeps that row; a start between rows discards
+        # the earlier row instead of retiming an already-expired target.
+        source_cursor = int(
+            (age_at_commit_ns + chunk.dt_ns - 1) // chunk.dt_ns
+            if age_at_commit_ns
+            else 0
+        )
         # Rows to remove from this chunk, excluding rows already removed upstream.
         trimmed_steps = (
             0 if self._start_on_commit else max(0, source_cursor - chunk.source_offset_steps)
@@ -181,7 +188,12 @@ class ActionTimeline:
         self._outgoing = self._active
         self._active = new_plan
         self._accepted_request_seq = chunk.request_seq
-        return CommitResult(True, "accepted", trimmed_steps)
+        return CommitResult(
+            True,
+            "accepted",
+            trimmed_steps=trimmed_steps,
+            timeline_latency_ns=age_at_commit_ns,
+        )
 
     def _plan_at(self, time_ns: int) -> _ActivePlan | None:
         """The plan that owns ``time_ns``: the outgoing one until _active starts."""
