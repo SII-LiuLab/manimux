@@ -6,9 +6,57 @@ import numpy as np
 import zmq
 
 from manimux.types import ActionChunk, RobotState, SensorFrame
+from manimux.viewer.chunk_timeline import ChunkTimelineView
 from manimux.viewer.communication import ViewerPublisher
 from manimux.viewer.dashboard import PolicyViewer, load_robot_view, load_viewer_config
 from manimux.viewer.publisher import ViewerBridge
+
+
+def test_chunk_summary_uses_timeline_latency_matching_trimmed_cells() -> None:
+    timeline = ChunkTimelineView()
+    timeline.update(
+        {
+            "kind": "plan",
+            "chunk_id": 8,
+            "groups": {"arm": [[0.0]] * 52},
+            "action_dt": 1 / 30,
+            "inference_ms": 96.7,
+            "metadata": {
+                "raw_horizon_steps": 64,
+                "trimmed_steps": 12,
+                "timeline_latency_ms": 396.54,
+                "decode_stage_ms": 219.6,
+                "commit_lead_ms": 50.0,
+            },
+        }
+    )
+
+    lane = next(lane for lane in timeline.lanes if lane.chunk_id == 8)
+    assert timeline._lane_summary(lane) == "397 ms"
+    rendered = timeline.render_html()
+    assert rendered.count('class="manimux-chunk-cell latency-trimmed"') == 12
+    assert "Timeline latency: 396.5 ms" in rendered
+    assert "Inference: 96.7 ms" in rendered
+    assert "Decode: 219.6 ms" in rendered
+    assert "Commit lead: 50.0 ms" in rendered
+    assert "trimmed latency" in rendered
+    assert "handoff wait" in rendered
+
+
+def test_chunk_summary_falls_back_for_old_plan_messages() -> None:
+    timeline = ChunkTimelineView()
+    timeline.update(
+        {
+            "kind": "plan",
+            "chunk_id": 1,
+            "groups": {"arm": [[0.0]]},
+            "inference_ms": 12.6,
+            "metadata": {},
+        }
+    )
+
+    lane = next(lane for lane in timeline.lanes if lane.chunk_id == 1)
+    assert timeline._lane_summary(lane) == "13 ms"
 
 
 def test_tianji_offline_scene_receives_runtime_groups_and_frames(tmp_path):
