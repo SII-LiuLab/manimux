@@ -71,6 +71,14 @@ class UmiDpTianjiAdapter(PolicyAdapterBase):
     """Translate between Tianji runtime data and the UMI-DP policy contract."""
 
     supports_context_only_decode = True
+    # The full source trajectory starts at the request observation.  Seed IK
+    # from that same state; Timeline alone removes source rows that are stale
+    # by commit time.
+    decode_seed_source = "observation_state"
+    # Each arm solves from its own seed with its own solver state and OSQP warm
+    # start, so the two never exchange anything during a decode: one decoder
+    # process per arm turns the chunk's serial IK into wall-clock parallel work.
+    decode_partitions = ("left_arm", "right_arm")
 
     def __init__(self, robot: dict, policy: dict, *, kinematics=None) -> None:
         options = policy["options"]
@@ -199,22 +207,10 @@ class UmiDpTianjiAdapter(PolicyAdapterBase):
 
         return current
 
-    def _action_window(self, context: ActionContext) -> tuple[int, int, float]:
-        origin_ns = context.observation_time_ns + self.offset_ns
-        execution_ns = context.execution_time_ns or context.created_time_ns
-        skip = max(0, math.ceil((execution_ns - origin_ns) / self.dt_ns))
-        if skip >= self.horizon:
-            raise ValueError("UMI-DP response has no future actions")
-        first_duration_s = max(
-            self.validation_dt,
-            min(self.dt_ns / 1e9, (origin_ns + skip * self.dt_ns - execution_ns) / 1e9),
-        )
-        return origin_ns, skip, first_duration_s
-
-    def _decode_side(self, side, steps, measured, first_duration_s):
+    def _decode_side(self, side, steps, seed_state):
         model = self.kin[side]
         model.reset()
-        current = state_vector(measured).copy()
+        current = state_vector(seed_state).copy()
         lag = {
             "samples": 0,
             "worst_lag_mm": 0.0,
@@ -222,7 +218,7 @@ class UmiDpTianjiAdapter(PolicyAdapterBase):
             "lag_exceedances": 0,
         }
         rows = []
-        for index, step in enumerate(steps):
+        for step in steps:
             target = pose_matrix(step[f"{side}_ee_pose"])
             gripper = np.asarray(step[f"{side}_ee_joint_state"], dtype=float)
             if (
@@ -231,13 +227,12 @@ class UmiDpTianjiAdapter(PolicyAdapterBase):
                 or not 0 <= gripper[0] <= 1
             ):
                 raise ValueError("UMI-DP gripper action must be one value in [0, 1]")
-            duration_s = first_duration_s if index == 0 else self.dt_ns / 1e9
             current = self._solve_knot(
                 model,
                 current,
                 target,
                 float(gripper[0]),
-                duration_s,
+                self.dt_ns / 1e9,
                 lag=lag,
             )
             rows.append(current)
@@ -245,22 +240,37 @@ class UmiDpTianjiAdapter(PolicyAdapterBase):
         return np.asarray(rows), lag if samples else None
 
     def decode_action(self, raw: object, context: ActionContext) -> ActionChunk:
+        return self._decode(raw, context, ("left", "right"))
+
+    def decode_action_partition(
+        self, raw: object, context: ActionContext, partition: str
+    ) -> ActionChunk:
+        """Decode one arm; the decoder client merges the partitions it asked for."""
+        if partition not in self.decode_partitions:
+            raise ValueError(f"unknown UMI-DP decode partition {partition!r}")
+        return self._decode(raw, context, (partition.removesuffix("_arm"),))
+
+    def _decode(self, raw: object, context: ActionContext, sides: tuple[str, ...]) -> ActionChunk:
         if context.measured_state is None:
-            raise ValueError("UMI-DP decoding requires a measured robot state")
+            raise ValueError("UMI-DP decoding requires the request observation state")
+        if context.measured_state.monotonic_ns != context.observation_time_ns:
+            raise ValueError(
+                "UMI-DP IK seed time must equal the request observation time "
+                f"({context.measured_state.monotonic_ns} != {context.observation_time_ns})"
+            )
 
         steps = raw.get("actions") if isinstance(raw, Mapping) else raw
         assert isinstance(steps, Sequence) and len(steps) == self.horizon
-        origin_ns, skip, first_duration_s = self._action_window(context)
+        origin_ns = context.observation_time_ns + self.offset_ns
 
         groups = {}
         lag_stats = {}
-        for side in ("left", "right"):
+        for side in sides:
             group = f"{side}_arm"
             groups[group], lag = self._decode_side(
                 side,
-                steps[skip:],
+                steps,
                 context.measured_state.groups[group],
-                first_duration_s,
             )
             if lag is not None:
                 lag_stats[side] = lag
@@ -273,12 +283,14 @@ class UmiDpTianjiAdapter(PolicyAdapterBase):
             action_space="joint_position",
             dt_ns=self.dt_ns,
             groups=groups,
-            source_offset_steps=skip,
+            source_offset_steps=0,
             metadata={
                 "native_action_semantics": SEMANTICS,
                 "measured_observation_time_ns": context.observation_time_ns,
                 "first_action_offset_ns": self.offset_ns,
                 "ik_backend": self.ik_backend,
+                "ik_seed_source": self.decode_seed_source,
+                "ik_seed_time_ns": context.measured_state.monotonic_ns,
                 **({"diff_ik_lag": lag_stats} if lag_stats else {}),
             },
         )

@@ -45,7 +45,7 @@ def setup_plan(commit_lead_s=0.0):
         current_command={name: np.zeros(8) for name in groups},
         blend_steps=0,
     )
-    assert result.accepted and result.trimmed_steps == 1
+    assert result.accepted and result.trimmed_steps == 2
     response = InferenceResponse(
         "test", 1, chunk.created_time_ns, 20.0, None, observation_time_ns=origin
     )
@@ -71,9 +71,9 @@ def test_rtc_keeps_source_horizon_across_both_trims_and_conditions_committed_clo
     strategy.prepare_chunk(chunk=chunk, response=response, now_ns=now)
     event = strategy.on_plan_accepted(chunk=chunk, result=result, response=response, now_ns=now)
     assert event["rtc_source_horizon"] == 16
-    assert event["rtc_executed_steps_at_commit"] == 6
-    assert submit(strategy, config, timeline, now + chunk.dt_ns) is None
-    now += 2 * chunk.dt_ns
+    assert event["rtc_executed_steps_at_commit"] == 7
+    assert submit(strategy, config, timeline, now) is None
+    now += chunk.dt_ns
     submission = submit(strategy, config, timeline, now)
     assert submission.event_fields["executed_steps"] == 8
     request = submission.request

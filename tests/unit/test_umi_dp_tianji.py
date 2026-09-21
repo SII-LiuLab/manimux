@@ -17,6 +17,7 @@ from manimux.integrations.umi_dp_tianji.history import (
 )
 from manimux.kinematics.base import IKResult
 from manimux.runtime.rtc.request import RtcInferenceRequest
+from manimux.runtime.timeline import ActionTimeline
 from manimux.types import (
     ActionContext,
     ActionHorizon,
@@ -220,18 +221,65 @@ def test_adapter_output_clock_reset_and_ik_failure(adapter):
     model, kin, _ = adapter
     request = request_for(model)
     raw = actions_for(request, model.horizon)
-    context = ActionContext(1, 10**9, 10**9, measured_state=request.observation.state)
+    context = ActionContext(
+        1,
+        10**9,
+        10**9,
+        execution_time_ns=10**9 + 10**12,
+        measured_state=request.observation.state,
+    )
     chunk = model.decode_action(raw, context)
     assert chunk.observation_time_ns == 10**9 + model.offset_ns
+    assert chunk.source_offset_steps == 0
     assert chunk.horizon_steps == model.horizon
+    assert chunk.metadata["ik_seed_source"] == "observation_state"
+    assert chunk.metadata["ik_seed_time_ns"] == context.observation_time_ns
     np.testing.assert_allclose(
         chunk.groups["left_arm"][0], request.observation.state.groups["left_arm"]
     )
-    with pytest.raises(ValueError, match="measured robot state"):
+    with pytest.raises(ValueError, match="request observation state"):
         model.decode_action(raw, ActionContext(1, 10**9, 10**9))
+    wrong_time = RobotState(
+        groups=request.observation.state.groups,
+        monotonic_ns=context.observation_time_ns + 1,
+        sequence=request.observation.state.sequence,
+    )
+    with pytest.raises(ValueError, match="seed time must equal"):
+        model.decode_action(
+            raw,
+            ActionContext(1, 10**9, 10**9, measured_state=wrong_time),
+        )
     kin.fail = True
     with pytest.raises(ValueError, match="IK test_failure"):
         model.decode_action(raw, context)
+
+
+def test_timeline_alone_trims_expired_umi_rows(adapter):
+    model, _, config = adapter
+    request = request_for(model)
+    chunk = model.decode_action(
+        actions_for(request, model.horizon),
+        ActionContext(
+            1,
+            10**9,
+            10**9,
+            execution_time_ns=10**9 + 10**12,
+            measured_state=request.observation.state,
+        ),
+    )
+    timeline = ActionTimeline(config["robot"]["group_dims"])
+    result = timeline.commit(
+        chunk,
+        now_ns=chunk.observation_time_ns + 2 * chunk.dt_ns + 1,
+        commit_lead_ns=0,
+        max_plan_age_ns=10**12,
+        current_command=request.observation.state.groups,
+        blend_steps=0,
+    )
+
+    assert result.accepted
+    assert result.trimmed_steps == 3
+    assert timeline.active_horizon().horizon_steps == model.horizon - 3
 
 
 def test_adapter_accepts_the_ws_client_unwrapped_action_list(adapter):
@@ -244,11 +292,11 @@ def test_adapter_accepts_the_ws_client_unwrapped_action_list(adapter):
     assert chunk.horizon_steps == model.horizon
 
 
-def test_adapter_decodes_both_arms_from_measured_state(adapter):
+def test_adapter_decodes_both_arms_from_observation_state(adapter):
     model, _, _ = adapter
     assert model.supports_context_only_decode
-    assert not hasattr(model, "decode_partitions")
-    assert not hasattr(model, "decode_action_partition")
+    assert model.decode_seed_source == "observation_state"
+    assert model.decode_partitions == ("left_arm", "right_arm")
     raw = actions_for(request_for(model), model.horizon)
     measured = RobotState(
         {name: np.array([0, 0, 0, 0, 0, 0, 0.3, 0.8]) for name in ("left_arm", "right_arm")},
@@ -261,6 +309,19 @@ def test_adapter_decodes_both_arms_from_measured_state(adapter):
     # FakeKin carries the seed's seventh joint from the measured state.
     np.testing.assert_array_equal(whole.groups["left_arm"][:, 6], 0.3)
     np.testing.assert_array_equal(whole.groups["right_arm"][:, 6], 0.3)
+
+    # One decoder process per arm: each partition must reproduce its own half of
+    # the whole decode, on a contract the client can merge without adjustment.
+    for group in ("left_arm", "right_arm"):
+        piece = model.decode_action_partition(raw, context, group)
+        assert set(piece.groups) == {group}
+        np.testing.assert_array_equal(piece.groups[group], whole.groups[group])
+        assert piece.horizon_steps == whole.horizon_steps
+        assert piece.dt_ns == whole.dt_ns
+        assert piece.observation_time_ns == whole.observation_time_ns
+        assert piece.source_offset_steps == whole.source_offset_steps
+    with pytest.raises(ValueError, match="unknown UMI-DP decode partition"):
+        model.decode_action_partition(raw, context, "middle_arm")
 
 
 @pytest.mark.parametrize("failure", ["horizon", "quaternion", "gripper"])

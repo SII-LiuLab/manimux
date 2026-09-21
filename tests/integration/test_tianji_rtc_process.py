@@ -60,7 +60,8 @@ def test_real_tianji_process_ik_matches_inline_and_rejects_whole_chunk(backend, 
         actions.append(step)
     context = ActionContext(1, now, now, now + adapter.offset_ns + 2 * adapter.dt_ns, state)
     serial = adapter.decode_action(actions, context)
-    assert serial.source_offset_steps == 2
+    assert serial.source_offset_steps == 0
+    assert serial.horizon_steps == horizon
     decoder = ActionDecoderClient(config["robot"], config["policy"], adapter)
     try:
         decoder.start()
@@ -79,8 +80,8 @@ def test_real_tianji_process_ik_matches_inline_and_rejects_whole_chunk(backend, 
 
         result = decode(1)
         assert result.error is None
-        assert result.chunk.source_offset_steps == 2
-        assert result.chunk.horizon_steps == horizon - 2
+        assert result.chunk.source_offset_steps == 0
+        assert result.chunk.horizon_steps == horizon
         for name in config["robot"]["group_dims"]:
             np.testing.assert_allclose(result.chunk.groups[name], serial.groups[name], atol=1e-9)
         actions[3]["right_ee_joint_state"] = np.array([1.1])

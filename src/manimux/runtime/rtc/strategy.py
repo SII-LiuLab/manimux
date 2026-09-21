@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections import deque
 
 import numpy as np
@@ -21,6 +22,8 @@ from manimux.types import (
     ObservationSnapshot,
     copy_group_vector,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class RtcInferenceStrategy:
@@ -154,9 +157,16 @@ class RtcInferenceStrategy:
         last_command: GroupVector,
     ) -> CommitSettings:
         conditioned = response.request_seq in self._conditioned_requests
+        blend_steps = 0 if conditioned else self._config["execution"]["blend_steps"]
+        logger.info(
+            "rtc_commit_settings seq=%d conditioned=%s blend_steps=%d",
+            response.request_seq,
+            conditioned,
+            blend_steps,
+        )
         return CommitSettings(
             current_command=copy_group_vector(last_command),
-            blend_steps=0 if conditioned else self._config["execution"]["blend_steps"],
+            blend_steps=blend_steps,
             anchor_source="last_command",
         )
 

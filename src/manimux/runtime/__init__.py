@@ -35,13 +35,7 @@ def build_runtime(
     from manimux.runtime.edge import EdgeRuntime
 
     strategy = build_inference_strategy(config)
-    # A history plugin can delegate to RTC while retaining its observation and
-    # condition alignment hooks. Only the literal built-in uses RtcRuntime.
-    if config["execution"]["runtime"] != "rtc":
-        return EdgeRuntime(config, run_dir, strategy=strategy, launch_mode=launch_mode)
-    from manimux.runtime.rtc import RtcRuntime
-
-    return RtcRuntime(config, run_dir, strategy=strategy, launch_mode=launch_mode)
+    return EdgeRuntime(config, run_dir, strategy=strategy, launch_mode=launch_mode)
 
 
 __all__ = ["EdgeRuntime", "RunResult", "build_runtime"]

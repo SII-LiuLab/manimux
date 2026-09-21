@@ -184,6 +184,14 @@ class EdgeRuntime:
         else:
             self._adapter = build_policy_adapter(config["robot"], config["policy"])
         self._adapter.validate(config["robot"], config["policy"])
+        self._decode_seed_source = getattr(
+            self._adapter, "decode_seed_source", "execution_reference"
+        )
+        if self._decode_seed_source not in {"execution_reference", "observation_state"}:
+            raise ValueError(
+                "adapter decode_seed_source must be 'execution_reference' or "
+                f"'observation_state', got {self._decode_seed_source!r}"
+            )
         if config["execution"]["independent_group_decoding"] and not getattr(
             self._adapter, "supports_independent_group_decode", False
         ):
@@ -268,18 +276,26 @@ class EdgeRuntime:
             plan_id=self._timeline.active_plan_id,
         )
 
-    def _decode_seed(self, state: RobotState, now_ns: int) -> tuple[int, RobotState, str]:
+    def _decode_seed(
+        self,
+        state: RobotState,
+        now_ns: int,
+        observation_state: RobotState | None = None,
+    ) -> tuple[int, RobotState, str]:
         """Expected plan start and IK seed for a process decode.
 
-        The arm keeps following the active plan while decoding runs, so a seed
-        measured at submission starts the new plan behind the arm. With
-        expected_decode_s the seed is the active reference at the expected start,
-        or at its end if it finishes first. Without an active reference the arm
-        holds still and the measurement remains the seed.
+        Most adapters follow the active plan while decoding, so their seed is
+        the active reference at the expected start (or its final row).  An
+        adapter that decodes the complete observation-anchored source trajectory
+        can instead require the exact state captured with that observation.
         """
         execution = self._config["execution"]
         expected_decode_s = self._decode_forecast.seconds
         start_ns = now_ns + int((execution["commit_lead_s"] + expected_decode_s) * 1e9)
+        if self._decode_seed_source == "observation_state":
+            if observation_state is None:
+                raise ValueError("request observation state is unavailable for action decoding")
+            return start_ns, observation_state, "observation_state"
         remaining_ns = self._timeline.remaining_ns(now_ns)
         if expected_decode_s > 0 and remaining_ns > 0:
             reference = self._timeline.sample(min(start_ns, now_ns + remaining_ns))
@@ -351,6 +367,7 @@ class EdgeRuntime:
         last_inference_ms: float | None = None
         discard_responses_through = -1
         pending_visuals: dict[int, dict[str, object]] = {}
+        pending_observation_states: dict[int, RobotState] = {}
         worker_failure_reported = False
         last_dispatch_log_ns = 0
         last_dispatch_plan_id: object = object()
@@ -446,6 +463,7 @@ class EdgeRuntime:
                     previous_command = copy_group_vector(state.groups)
                     last_command = copy_group_vector(state.groups)
                     discard_responses_through = max(discard_responses_through, request_seq)
+                    pending_observation_states.clear()
                     self._state = RuntimeState.PAUSED
                     recorder.event("viewer_home_requested", step=steps)
                     next_tick_ns = self._clock.now_ns()
@@ -461,6 +479,7 @@ class EdgeRuntime:
                         self._strategy.reset()
                     self._timeline = self._build_timeline()
                     discard_responses_through = max(discard_responses_through, request_seq)
+                    pending_observation_states.clear()
                 self._state = (
                     RuntimeState.RUNNING if not viewer_control.paused else RuntimeState.PAUSED
                 )
@@ -502,41 +521,63 @@ class EdgeRuntime:
                         if self._clock.now_ns() > last_request_deadline_ns:
                             response = replace(response, error="deadline_exceeded_before_decode")
                         else:
-                            start_ns, seed, seed_source = self._decode_seed(
-                                state, self._clock.now_ns()
+                            observation_state = pending_observation_states.pop(
+                                response.request_seq, None
                             )
-                            self._decoder.submit(
-                                response,
-                                ActionContext(
-                                    request_seq=response.request_seq,
-                                    observation_time_ns=response.observation_time_ns,
-                                    created_time_ns=response.finished_time_ns,
-                                    execution_time_ns=start_ns,
-                                    measured_state=seed,
-                                    max_source_steps=self._config["execution"]["max_chunk_steps"],
-                                    independent_groups=self._config["execution"][
-                                        "independent_group_decoding"
-                                    ],
-                                    decode_budget_ms=(
-                                        self._config["execution"]["decode_budget_ms"]
-                                        if self._config["execution"]["independent_group_decoding"]
-                                        else None
+                            try:
+                                start_ns, seed, seed_source = self._decode_seed(
+                                    state,
+                                    self._clock.now_ns(),
+                                    observation_state,
+                                )
+                            except ValueError as exc:
+                                response = replace(response, error=f"decode_seed_unavailable:{exc}")
+                            else:
+                                self._decoder.submit(
+                                    response,
+                                    ActionContext(
+                                        request_seq=response.request_seq,
+                                        observation_time_ns=response.observation_time_ns,
+                                        created_time_ns=response.finished_time_ns,
+                                        execution_time_ns=start_ns,
+                                        measured_state=seed,
+                                        max_source_steps=self._config["execution"][
+                                            "max_chunk_steps"
+                                        ],
+                                        independent_groups=self._config["execution"][
+                                            "independent_group_decoding"
+                                        ],
+                                        decode_budget_ms=(
+                                            self._config["execution"]["decode_budget_ms"]
+                                            if self._config["execution"][
+                                                "independent_group_decoding"
+                                            ]
+                                            else None
+                                        ),
                                     ),
-                                ),
-                                last_request_deadline_ns,
-                            )
-                            recorder.event(
-                                "decode_submitted",
-                                request_seq=response.request_seq,
-                                seed_time_ns=seed.monotonic_ns,
-                                seed_source=seed_source,
-                                expected_start_ns=start_ns,
-                                expected_decode_ms=round(self._decode_forecast.seconds * 1e3, 3),
-                            )
-                            # Keep inference+decode in flight until both arms finish.
-                            response = None
+                                    last_request_deadline_ns,
+                                )
+                                recorder.event(
+                                    "decode_submitted",
+                                    request_seq=response.request_seq,
+                                    seed_time_ns=seed.monotonic_ns,
+                                    seed_source=seed_source,
+                                    expected_start_ns=start_ns,
+                                    seed_to_expected_start_ms=(
+                                        start_ns - seed.monotonic_ns
+                                    )
+                                    / 1e6,
+                                    expected_decode_ms=round(
+                                        self._decode_forecast.seconds * 1e3, 3
+                                    ),
+                                )
+                                # Keep inference+decode in flight until both arms finish.
+                                response = None
                 if response is not None:
                     request_in_flight = False
+                    observation_state = pending_observation_states.pop(
+                        response.request_seq, None
+                    )
                     submission_visuals = pending_visuals.get(response.request_seq, {})
                     rejection_reason = None
                     if response.error is not None:
@@ -591,7 +632,11 @@ class EdgeRuntime:
                                             if self._strategy.name in {"manimux", "rtc"}
                                             else None
                                         ),
-                                        measured_state=state,
+                                        measured_state=(
+                                            observation_state
+                                            if self._decode_seed_source == "observation_state"
+                                            else state
+                                        ),
                                         max_source_steps=self._config["execution"][
                                             "max_chunk_steps"
                                         ],
@@ -723,6 +768,9 @@ class EdgeRuntime:
                             if result.accepted:
                                 accepted_plans += 1
                                 last_inference_ms = response.inference_ms
+                                chunk.metadata["timeline_latency_ms"] = (
+                                    result.timeline_latency_ns / 1_000_000
+                                )
                                 committed = self._timeline.active_horizon()
                                 if committed is None:
                                     raise RuntimeError("accepted plan missing committed horizon")
@@ -778,6 +826,11 @@ class EdgeRuntime:
                                         "raw_horizon_steps": chunk.horizon_steps,
                                         "committed_horizon_steps": committed.horizon_steps,
                                         "trimmed_steps": result.trimmed_steps,
+                                        "timeline_latency_ms": (
+                                            result.timeline_latency_ns / 1_000_000
+                                        ),
+                                        "commit_lead_ms": commit_lead_ns / 1_000_000,
+                                        "decode_stage_ms": chunk.metadata.get("decode_stage_ms"),
                                         "previous_chunk_id": previous_chunk_id,
                                         "previous_chunk_index": previous_chunk_index,
                                         "previous_chunk_horizon_steps": (
@@ -850,6 +903,13 @@ class EdgeRuntime:
                             submission.request,
                         )
                         request_seq = submission.request.request_seq
+                        if self._decode_seed_source == "observation_state":
+                            observation_state = prepared_request.observation.state
+                            pending_observation_states[request_seq] = RobotState(
+                                groups=copy_group_vector(observation_state.groups),
+                                monotonic_ns=observation_state.monotonic_ns,
+                                sequence=observation_state.sequence,
+                            )
                         self._worker.submit_latest(prepared_request)
                         logger.info(
                             "inference_submitted seq=%d observation_ns=%d deadline_ns=%d "
