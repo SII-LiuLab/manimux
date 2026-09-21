@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import math
 import uuid
-from collections import OrderedDict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
@@ -45,7 +44,6 @@ def state_vector(value):
 
 class UmiDpTianjiAdapter(PolicyAdapter):
     supports_context_only_decode = True
-    decode_partitions = ("left_arm", "right_arm")
 
     def __init__(self, robot, policy, *, kinematics=None):
         self.validate(robot, policy)
@@ -99,7 +97,6 @@ class UmiDpTianjiAdapter(PolicyAdapter):
                 if not config.check_j67:
                     raise ValueError("UMI differential IK requires the J6/J7 constraint")
                 self.diff_solvers[side] = TianjiDifferentialIK(arm_solver, config)
-        self.anchors = OrderedDict()
 
     def validate(self, robot, policy):
         if policy["worker"] != "xpolicylab_ws":
@@ -149,7 +146,7 @@ class UmiDpTianjiAdapter(PolicyAdapter):
 
     def prepare_request(self, request):
         snapshot = self.build_observation(request.observation)
-        extra, anchors = {}, {}
+        extra = {}
         for side in ("left", "right"):
             group = f"{side}_arm"
             for suffix, source in (("_prev", snapshot.previous), ("", snapshot)):
@@ -159,11 +156,6 @@ class UmiDpTianjiAdapter(PolicyAdapter):
                 )
                 if suffix:
                     extra[f"{side}_ee_joint_state_prev"] = values[-1:].copy()
-                else:
-                    anchors[group] = values.copy()
-        self.anchors[request.request_seq] = anchors
-        while len(self.anchors) > 8:
-            self.anchors.popitem(last=False)
         condition, weights = (
             getattr(request, "action_condition", None),
             getattr(request, "condition_weights", None),
@@ -269,8 +261,9 @@ class UmiDpTianjiAdapter(PolicyAdapter):
 
     def warmup_decode(self, partition):
         # Load libKine and build the OSQP problem before the first real chunk.
-        sides = ("left", "right") if partition is None else (partition.removesuffix("_arm"),)
-        for side in sides:
+        if partition is not None:
+            raise ValueError("UMI-DP Tianji decoding is not partitioned")
+        for side in ("left", "right"):
             target = self._fk(self.kin[side], WARMUP_JOINTS, 0.5)
             target[:3, 3] += (0.001, 0.0, 0.0)
             solver = self.diff_solvers.get(side)
@@ -286,12 +279,7 @@ class UmiDpTianjiAdapter(PolicyAdapter):
                 solver.reset()
 
     def decode_action(self, raw, context):
-        return self._decode(raw, context, ("left", "right"))
-
-    def decode_action_partition(self, raw, context, partition):
-        if partition not in self.decode_partitions:
-            raise ValueError(f"unknown UMI decode partition {partition!r}")
-        return self._decode(raw, context, (partition.removesuffix("_arm"),))
+        return self._decode(raw, context)
 
     def _decode_side(self, side, steps, measured, first_duration_s):
         current = state_vector(measured)[:7].copy()
@@ -319,17 +307,16 @@ class UmiDpTianjiAdapter(PolicyAdapter):
             rows.append(np.r_[current, grip])
         return np.asarray(rows), lag
 
-    def _decode(self, raw, context, sides):
+    def _decode(self, raw, context):
         # The WebSocket client unwraps a plain response to its action list.
         steps = raw.get("actions") if isinstance(raw, Mapping) else raw
         if not isinstance(steps, Sequence) or len(steps) != self.horizon:
             raise ValueError("UMI action horizon differs from the checkpoint")
-        anchors = self.anchors.pop(context.request_seq, None)
-        if anchors is None and context.measured_state is None:
-            raise ValueError("UMI action has no matching observation")
+        if context.measured_state is None:
+            raise ValueError("UMI-DP decoding requires a measured robot state")
         action_origin = context.observation_time_ns + self.offset_ns
         execution_ns = context.execution_time_ns or context.created_time_ns
-        skip = max(0, (execution_ns - action_origin) // self.dt_ns)
+        skip = max(0, math.ceil((execution_ns - action_origin) / self.dt_ns))
         if skip >= self.horizon:
             raise ValueError("UMI response has no future actions")
         first_duration_s = max(
@@ -338,13 +325,9 @@ class UmiDpTianjiAdapter(PolicyAdapter):
         )
         groups = {}
         lag_stats = {}
-        for side in sides:
+        for side in ("left", "right"):
             group = f"{side}_arm"
-            measured = (
-                anchors[group]
-                if context.measured_state is None
-                else context.measured_state.groups[group]
-            )
+            measured = context.measured_state.groups[group]
             groups[group], lag = self._decode_side(side, steps[skip:], measured, first_duration_s)
             if lag is not None:
                 lag_stats[side] = lag

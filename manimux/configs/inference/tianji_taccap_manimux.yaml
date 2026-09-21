@@ -1,6 +1,7 @@
 # 推理调度参数；algorithm 在实验入口显式选择。动作间隔由 policy.action_dt_s 指定。
 inference_schedule: single_inflight
 refill_threshold_s: 0.25
+expected_decode_s: 0.06
 max_plan_age_s: 2.0
 blend_steps: 2
 strategy: manimux.policy_adapter.umi_dp.history:build_strategy

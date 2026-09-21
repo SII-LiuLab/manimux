@@ -37,6 +37,7 @@ recording:
 policy:
 # UMI_DP 的 Tianji–TacCap 观察/动作约定。服务地址来自 local。
   worker: xpolicylab_ws
+  action_decoding: process
   adapter:
     type: manimux.policy_adapter.umi_dp.tianji:UmiDpTianjiAdapter
     deployment_bound: false
