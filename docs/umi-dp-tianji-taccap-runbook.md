@@ -77,6 +77,7 @@ The following recipes all support the shared station file:
 | Experiment under `manimux/configs/experiments/pass_ball/` | Scheduling |
 | --- | --- |
 | `tianji_taccap_umi_dp.yaml` | Component-based experiment with `manimux` scheduling |
+| `tianji_taccap_umi_dp_diff.yaml` | Component-based `manimux` experiment using differential IK |
 | `tianji_umi_dp_default.yaml` | Existing `manimux` recipe and shared control profile |
 | `tianji_umi_dp_rtc.yaml` | RTC recipe with process action decoding |
 
@@ -93,9 +94,10 @@ envs/umi_dp/.venv/bin/python -m manimux.servers.umi_dp \
   --bind-runtime-config .local/pass_ball/run.yaml
 ```
 
-Select `tianji_umi_dp_rtc.yaml` in that command for RTC. Append `--local <station.yaml>`
-when selecting another station. Add `--check` without `--bind-runtime-config` to inspect
-artifact identity without exporting a pair.
+Select `tianji_taccap_umi_dp_diff.yaml` for differential IK or
+`tianji_umi_dp_rtc.yaml` for RTC. Append `--local <station.yaml>` when selecting another
+station. Add `--check` without `--bind-runtime-config` to inspect artifact identity without
+exporting a pair.
 
 Binding reads the actual artifacts and records checkpoint identity, horizon, observation
 period, first-action offset and preprocessing conventions. The checkpoint action interval

@@ -13,13 +13,17 @@ runtime needs the normal Tianji dependencies plus ManiMux's `xpolicylab` extra.
 bash XPolicyLab/policy/UMI_DP/install.sh envs/umi_dp/.venv
 # Check the actual EMA/model, SHA, H, dt, first offset, and preprocessing:
 envs/umi_dp/.venv/bin/python manimux/servers/umi_dp.py \
+  --experiment manimux/configs/experiments/pass_ball/tianji_taccap_umi_dp.yaml \
   --checkpoint /path/to/trusted/pass_ball.ckpt --check
 # Write a paired model-server and runtime config, bound to those artifacts:
 envs/umi_dp/.venv/bin/python manimux/servers/umi_dp.py \
+  --experiment manimux/configs/experiments/pass_ball/tianji_taccap_umi_dp.yaml \
   --checkpoint /path/to/trusted/pass_ball.ckpt \
   --bind-runtime-config data/experiments/pass-ball-bound.yaml
-# Select RTC with --runtime-template manimux/configs/experiments/pass_ball/tianji_umi_dp_rtc.yaml.
 ```
+
+Select `tianji_umi_dp_rtc.yaml` as `--experiment` for RTC, or
+`tianji_taccap_umi_dp_diff.yaml` for the reviewed differential-IK configuration.
 
 The binder updates H16/H64 and observation/action timing from the checkpoint,
 checks the shared control profile, and refuses to overwrite outputs. The model
@@ -90,10 +94,10 @@ Serial scheduling and max_chunk_steps remain restricted to the built-in
 `manimux` runtime name, so this history plugin does not use them. Process action
 decoding checks the constructed strategy instead, which this wrapper delegates:
 either its `manimux` or `rtc` delegate may use `policy.action_decoding: process`.
-The RTC template selects process decoding; the ordinary template retains inline
-decoding unless explicitly selected. The wrapper revalidates the delegated
-strategy's full configuration, including RTC delay/horizon constraints. Runtime
-construction preserves the wrapper's observation and condition-alignment hooks.
+The component-based Tianji-TacCap and RTC templates select process decoding. The wrapper
+revalidates the delegated strategy's full configuration, including RTC delay/horizon
+constraints. Runtime construction preserves the wrapper's observation and
+condition-alignment hooks.
 
 ## Action conversion and execution differences
 
@@ -105,14 +109,14 @@ optional `diff` uses the ported OSQP velocity solver. See
 [differential IK configuration and validation](tianji-diff-ik.md) for binding it
 to the shared motion profile. Arm A/robot0 is left; arm B/robot1 is right.
 
-The first action origin includes the checkpoint's first offset. Already expired
-source rows are removed before IK and recorded in `source_offset_steps`. Each
-remaining knot's SE(3) segment is checked through the selected IK in at-most-4ms
-substeps. Analytic retains the original branch/limits/FK checks; diff uses its
-rate, position/interference and tracking-lag checks, where `lag_policy: report`
-records the lag in `diff_ik_lag` instead of rejecting. The first knot uses
-its remaining time to the target; subsequent knots use action_dt. Any invalid
-pose, aperture or IK rejects the entire chunk. Intermediate IK samples are
+The first action origin includes the checkpoint's first offset. The adapter converts the
+complete source trajectory using the fixed policy action interval. At commit time, the
+shared timeline removes expired source rows, records `source_offset_steps`, and starts with
+the first row at or after the execution boundary. Each knot's SE(3) segment is checked
+through the selected IK in at-most-4ms substeps. Analytic retains the original
+branch/limits/FK checks; diff uses its rate, position/interference and tracking-lag checks,
+where `lag_policy: report` records the lag in `diff_ik_lag` instead of rejecting. Any
+invalid pose, aperture or IK rejects the entire chunk. Intermediate IK samples are
 validation points; the shared executor interpolates final **joint** knots.
 CalibWrist retains all control-rate TCP/IK samples as dense joint commands and
 can precompute them; its async runtime sends them from a separate thread. This
@@ -148,16 +152,17 @@ Bind the actual checkpoint and explicitly select the existing IK backend:
 
 ```bash
 envs/umi_dp/.venv/bin/python manimux/servers/umi_dp.py \
+  --experiment manimux/configs/experiments/pass_ball/tianji_umi_dp_rtc.yaml \
   --checkpoint /path/to/trusted/pass_ball.ckpt \
-  --runtime-template manimux/configs/experiments/pass_ball/tianji_umi_dp_rtc.yaml \
   --ik-backend diff \
+  --diff-ik-config manimux/configs/embodiment/arm/tianji_diff_ik.yaml \
   --bind-runtime-config data/experiments/pass-ball-rtc.yaml
 ```
 
 For a station with a reviewed custom profile or diff-IK options, create a new
 runtime template from that station's bound configuration. Set
 `inference.algorithm: rtc`, `policy.action_decoding: process`, and
-keep `inference.algorithm: manimux.policy_adapter.umi_dp.history:build_strategy`.
+keep `inference.strategy: manimux.policy_adapter.umi_dp.history:build_strategy`.
 Remove `inference.inference_schedule` and `inference.refill_threshold_s`; RTC
 rejects these unused fields. Preserve the selected profile, IK limits, gripper
 semantics and executor settings. Rebind the copied template to produce a new

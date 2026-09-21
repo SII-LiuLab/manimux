@@ -37,7 +37,12 @@ def write_station(tmp_path):
 
 @pytest.mark.parametrize(
     "filename",
-    ["tianji_taccap_umi_dp.yaml", "tianji_umi_dp_default.yaml", "tianji_umi_dp_rtc.yaml"],
+    [
+        "tianji_taccap_umi_dp.yaml",
+        "tianji_taccap_umi_dp_diff.yaml",
+        "tianji_umi_dp_default.yaml",
+        "tianji_umi_dp_rtc.yaml",
+    ],
 )
 def test_tianji_station_binds_controller_grippers_and_camera_streams(tmp_path, filename):
     station = write_station(tmp_path)
@@ -61,7 +66,7 @@ def test_tianji_station_binds_controller_grippers_and_camera_streams(tmp_path, f
     assert bound["policy"]["options"]["server"] == "ws://192.0.2.30:8561"
     assert bound["policy_server"]["host"] == "0.0.0.0"
     assert bound["policy_server"]["port"] == 8561
-    if filename != "tianji_taccap_umi_dp.yaml":
+    if filename.startswith("tianji_umi_dp_"):
         # Existing model input names stay unchanged when device bindings move to local.
         assert bound["policy"]["adapter"]["camera_map"] == {
             "cam_left_wrist": "left_wrist",
