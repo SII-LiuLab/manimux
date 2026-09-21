@@ -9,6 +9,7 @@ from manimux.kinematics import (
     IKResult,
     KinematicCoordinate,
     ToolGeometryBase,
+    composed,
 )
 
 
@@ -148,3 +149,38 @@ def test_duplicate_coordinate_names():
     tool = FixedToolGeometry(np.eye(4), coordinates=(KinematicCoordinate("j0", "normalized"),))
     with pytest.raises(ValueError, match="unique"):
         make_model(tool=tool)
+
+
+def test_ik_validates_the_target_once_and_inverts_the_tool_offset_once(monkeypatch):
+    """Per-call work in ik() is paid once per differential substep.
+
+    A 30 Hz action knot is nine substeps at ik_validation_dt_s=0.004, so
+    validating the same target twice or re-inverting an unchanged tool offset
+    costs about 290 times per two-arm chunk. There is no IK over the tool: it
+    only moves the target from the TCP frame to the flange.
+    """
+    model = make_model()
+    seed = np.r_[np.zeros(6), 0.4]
+    target = model.fk(seed)
+    validated, inverted = [], []
+    real_validate, real_inverse = composed.rigid_transform, np.linalg.inv
+
+    def counting_validate(value, name):
+        validated.append(name)
+        return real_validate(value, name)
+
+    def counting_inverse(matrix):
+        inverted.append(matrix)
+        return real_inverse(matrix)
+
+    monkeypatch.setattr(composed, "rigid_transform", counting_validate)
+    monkeypatch.setattr(np.linalg, "inv", counting_inverse)
+    for _ in range(9):
+        assert model.ik(target, seed, fixed_coordinates={"opening": 0.4}).converged
+    assert validated == ["target_tcp"] * 9
+    assert len(inverted) == 1
+
+    moved = np.r_[np.zeros(6), 0.7]
+    assert model.ik(model.fk(moved), moved, fixed_coordinates={"opening": 0.7}).converged
+    # A tool whose TCP moves with its state still gets its own offset.
+    assert len(inverted) == 2

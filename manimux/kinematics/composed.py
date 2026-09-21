@@ -62,6 +62,9 @@ class ComposedManipulatorKinematics(ManipulatorKinematicsBase):
         self._tcp_frame = tool.tcp_frame
         self._position_tolerance = position_tolerance
         self._rotation_tolerance = rotation_tolerance
+        self._coordinate_indices = {item.name: index for index, item in enumerate(layout)}
+        self._tool_names = frozenset(item.name for item in tool_layout)
+        self._offset_inverse_cache: tuple[bytes, FloatArray] | None = None
 
     @property
     def coordinates(self) -> tuple[KinematicCoordinate, ...]:
@@ -103,11 +106,20 @@ class ComposedManipulatorKinematics(ManipulatorKinematicsBase):
         """Official arm solver; useful for its optional differential IK support."""
         return self._arm
 
+    def _offset_inverse(self, tool_state: FloatArray) -> FloatArray:
+        """Return the inverse tool offset, reusing it while tool state is unchanged."""
+        key = tool_state.tobytes()
+        cached = self._offset_inverse_cache
+        if cached is None or cached[0] != key:
+            cached = (key, np.linalg.inv(self._offset(tool_state)))
+            self._offset_inverse_cache = cached
+        return cached[1]
+
     def flange_target(self, target_tcp: FloatArray, tool_state: FloatArray) -> FloatArray:
         """Remove only the mounted tool offset, staying in the same arm base."""
         # T_arm_base_flange = T_arm_base_tcp @ inv(T_flange_tcp)。
         # 转换后的目标交给 arm 官方 IK，避免 SDK 与组合层重复补偿工具偏移。
-        return target_tcp @ np.linalg.inv(self._offset(tool_state))
+        return rigid_transform(target_tcp, "target_tcp") @ self._offset_inverse(tool_state)
 
     def ik(
         self,
@@ -118,20 +130,22 @@ class ComposedManipulatorKinematics(ManipulatorKinematicsBase):
     ) -> IKResult:
         target = rigid_transform(target_tcp, "target_tcp")
         seed = self._configuration(seed_configuration)
-        indices = {coordinate.name: index for index, coordinate in enumerate(self.coordinates)}
         for name, value in fixed_coordinates.items():
+            if name not in self._coordinate_indices:
+                raise KeyError(f"unknown fixed coordinate {name!r}")
             scalar = np.asarray(value, dtype=np.float64)
             if scalar.shape != () or not np.isfinite(scalar):
                 raise ValueError(f"fixed coordinate {name!r} must be a finite scalar")
-            seed[indices[name]] = float(scalar)
+            seed[self._coordinate_indices[name]] = float(scalar)
         seed = self._configuration(seed)
-        tool_names = {item.name for item in self.coordinates[self._arm_size :]}
-        if set(fixed_coordinates) != tool_names:
+        if self._tool_names != fixed_coordinates.keys():
             raise NotImplementedError(
                 "IK requires all tool coordinates fixed and all arm joints free"
             )
         tool_state = seed[self._arm_size :].copy()
-        target_flange = self.flange_target(target, tool_state)
+        # The target is already this call's validated copy. Avoid repeating
+        # that work for each differential-IK substep.
+        target_flange = target @ self._offset_inverse(tool_state)
         result = self._arm.ik_flange(target_flange, seed[: self._arm_size].copy())
         if not result.converged:
             return result

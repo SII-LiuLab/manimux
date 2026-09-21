@@ -20,6 +20,8 @@ from numpy.typing import NDArray
 
 FloatArray = NDArray[np.float64]
 
+_IDENTITY3 = np.eye(3)
+
 
 def rigid_transform(value: FloatArray, name: str) -> FloatArray:
     """Copy a finite rigid transform at the configuration/pose input boundary."""
@@ -27,10 +29,20 @@ def rigid_transform(value: FloatArray, name: str) -> FloatArray:
     if pose.shape != (4, 4) or not np.isfinite(pose).all():
         raise ValueError(f"{name} must be a finite 4x4 matrix")
     rotation = pose[:3, :3]
+    bottom = pose[3]
+    (m00, m01, m02), (m10, m11, m12), (m20, m21, m22) = rotation.tolist()
+    determinant = (
+        m00 * (m11 * m22 - m12 * m21)
+        - m01 * (m10 * m22 - m12 * m20)
+        + m02 * (m10 * m21 - m11 * m20)
+    )
     if (
-        not np.allclose(pose[3], [0, 0, 0, 1], atol=1e-9, rtol=0)
-        or not np.allclose(rotation.T @ rotation, np.eye(3), atol=1e-6, rtol=0)
-        or not np.isclose(np.linalg.det(rotation), 1, atol=1e-6, rtol=0)
+        abs(bottom[0]) > 1e-9
+        or abs(bottom[1]) > 1e-9
+        or abs(bottom[2]) > 1e-9
+        or abs(bottom[3] - 1.0) > 1e-9
+        or not np.all(np.abs(rotation.T @ rotation - _IDENTITY3) <= 1e-6)
+        or abs(determinant - 1.0) > 1e-6
     ):
         raise ValueError(f"{name} must be a rigid homogeneous transform")
     return pose
