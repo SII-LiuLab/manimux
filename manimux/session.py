@@ -444,7 +444,9 @@ class _TianjiRecovery:
             # Return Home is also the recovery path after an E-stop. Clear and
             # confirm faults before the normal robot connection can enable arms.
             self._clear_errors()
-            robot = self._robot_factory(self._robot_config, SystemClock())
+            robot_config = deepcopy(self._robot_config)
+            robot_config.setdefault("options", {})["end_effector_control"] = True
+            robot = self._robot_factory(robot_config, SystemClock())
             model = getattr(robot, "model", None)
             targets = {} if model is None else dict(model.home_joints)
             if not targets:
@@ -502,6 +504,22 @@ class _TianjiRecovery:
                 for name, target in targets.items():
                     groups[name][: len(target)] = target
                 robot.send_command(RobotCommand(groups, time.monotonic_ns(), None))
+                self._sleep(self._period_s)
+
+            state = robot.get_state()
+            groups = {name: np.asarray(values).copy() for name, values in state.groups.items()}
+            if any(len(groups[name]) != len(target) + 1 for name, target in targets.items()):
+                raise RuntimeError("Tianji-TacCap groups must include one gripper coordinate")
+            for name in targets:
+                groups[name][-1] = 1.0
+            robot.send_command(RobotCommand(groups, time.monotonic_ns(), None))
+            deadline = self._monotonic() + 5.0
+            while True:
+                state = robot.get_state()
+                if all(state.groups[name][-1] >= 0.98 for name in targets):
+                    break
+                if self._monotonic() >= deadline:
+                    raise TimeoutError("Tianji-TacCap grippers did not fully open")
                 self._sleep(self._period_s)
         except Exception as exc:  # noqa: BLE001 - report recovery failure to Viewer
             errors.append(f"{type(exc).__name__}: {exc}")
