@@ -18,6 +18,9 @@ class ChunkLane:
     frozen_steps: int = 0
     superseded_steps: int = 0
     inference_ms: float | None = None
+    timeline_latency_ms: float | None = None
+    decode_stage_ms: float | None = None
+    commit_lead_ms: float | None = None
     state: str = "empty"
     conditioned: bool = False
     source_chunk_id: int | None = None
@@ -219,6 +222,11 @@ class ChunkTimelineView:
                 metadata.get("gripper_closed_steps_by_group") or {}
             ).items()
         }
+
+        def optional_ms(name: str) -> float | None:
+            value = metadata.get(name)
+            return None if value is None else max(0.0, float(value))
+
         lane = ChunkLane(
             chunk_id=chunk_id,
             horizon_steps=raw_horizon,
@@ -228,6 +236,9 @@ class ChunkTimelineView:
             overlap_steps=overlap,
             frozen_steps=frozen,
             inference_ms=float(message.get("inference_ms", 0.0)),
+            timeline_latency_ms=optional_ms("timeline_latency_ms"),
+            decode_stage_ms=optional_ms("decode_stage_ms"),
+            commit_lead_ms=optional_ms("commit_lead_ms"),
             state="active",
             conditioned=conditioned,
             source_chunk_id=(None if previous_chunk_id is None else int(previous_chunk_id)),
@@ -296,9 +307,24 @@ class ChunkTimelineView:
             return "sampling"
         if lane.state == "rejected":
             return "rejected"
+        if lane.timeline_latency_ms is not None:
+            return f"{lane.timeline_latency_ms:.0f} ms"
         if lane.inference_ms is not None:
             return f"{lane.inference_ms:.0f} ms"
         return lane.state
+
+    @staticmethod
+    def _lane_summary_title(lane: ChunkLane) -> str:
+        details: list[str] = []
+        if lane.timeline_latency_ms is not None:
+            details.append(f"Timeline latency: {lane.timeline_latency_ms:.1f} ms")
+        if lane.inference_ms is not None:
+            details.append(f"Inference: {lane.inference_ms:.1f} ms")
+        if lane.decode_stage_ms is not None:
+            details.append(f"Decode: {lane.decode_stage_ms:.1f} ms")
+        if lane.commit_lead_ms is not None:
+            details.append(f"Commit lead: {lane.commit_lead_ms:.1f} ms")
+        return " · ".join(details)
 
     def _handoff_html(self) -> str:
         target_index = next(
@@ -385,6 +411,8 @@ class ChunkTimelineView:
         for index, lane in enumerate(self.lanes):
             chunk = "—" if lane.chunk_id is None else f"#{lane.chunk_id}"
             lane_class = f"{html.escape(lane.state)} {'reverse' if index else ''}"
+            summary = html.escape(self._lane_summary(lane))
+            summary_title = html.escape(self._lane_summary_title(lane), quote=True)
             cells_html = [
                 f'<span class="manimux-chunk-cell {self._cell_state(lane, cell)}"></span>'
                 for cell in range(lane.horizon_steps)
@@ -418,7 +446,7 @@ class ChunkTimelineView:
                 <div class="manimux-chunk-lane {lane_class}">
                   <div class="manimux-chunk-lane-head">
                     <strong>{"A" if index == 0 else "B"} · {chunk}</strong>
-                    <span>{html.escape(self._lane_summary(lane))}</span>
+                    <span title="{summary_title}">{summary}</span>
                   </div>
                   <div class="manimux-chunk-track">
                     {upper}
@@ -597,7 +625,10 @@ class ChunkTimelineView:
   <div class="manimux-chunk-legend">
     <span><i style="background:#7c3aed"></i>executed</span>
     <span><i style="background:#a78bfa;box-shadow:0 0 5px rgba(167,139,250,.9)"></i>current</span>
-    <span><i style="background:#f59e0b"></i>latency</span>
+    <span><i
+      style="background:repeating-linear-gradient(135deg,#f59e0b 0 3px,#9a5d08 3px 6px)"
+    ></i>trimmed latency</span>
+    <span><i style="background:#f59e0b"></i>handoff wait</span>
     <span><i style="border:2px solid #94a3b8;background:transparent"></i>condition</span>
     <span><i style="border:1px solid #4b5565"></i>future</span>
     <span class="manimux-gripper-legend">
