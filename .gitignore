@@ -103,3 +103,6 @@ tests/
 # Test-source inclusion above must not include generated Python bytecode.
 **/__pycache__/
 *.py[cod]
+
+# Local backup of the pre-refactor package tree; the active package is /manimux.
+/src/

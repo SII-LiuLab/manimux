@@ -236,7 +236,13 @@ def test_new_recipe_keeps_original_timing_and_control_envelopes():
         new["policy"]["adapter"]["first_action_offset_s"]
         == old["policy"]["adapter"]["first_action_offset_s"]
     )
-    assert new["inference"] == old["inference"]
+    forecast_keys = {"expected_decode_s", "decode_forecast_size", "decode_forecast_mode"}
+    assert {key: value for key, value in new["inference"].items() if key not in forecast_keys} == {
+        key: value for key, value in old["inference"].items() if key not in forecast_keys
+    }
+    assert new["inference"]["expected_decode_s"] == 0.06
+    assert new["inference"]["decode_forecast_size"] == 10
+    assert new["inference"]["decode_forecast_mode"] == "max"
     assert new["executor"] == old["executor"]
     assert not new["robot"]["options"]["execute"]
     assert not new["robot"]["options"]["end_effector_control"]

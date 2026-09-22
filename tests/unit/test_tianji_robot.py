@@ -8,7 +8,7 @@ import pytest
 from manimux.embodiments.end_effector import GripperBase, GripperState
 from manimux.embodiments.robot.tianji_taccap import TianjiArmConfig, TianjiTaccapRobot
 from manimux.kinematics import IKResult, KinematicCoordinate, ManipulatorKinematicsBase
-from manimux.types import RobotCommand
+from manimux.types import RobotCommand, SensorFrame
 
 
 class Clock:
@@ -380,6 +380,8 @@ def test_robot_sensor_failed_cleanup_requires_retry(setup):
 
     original, _, clock, cfg = setup
 
+    frame = SensorFrame("wrist", np.zeros((2, 2, 3), dtype=np.uint8), clock.now_ns(), 1)
+
     class Sensor(SensorBase):
         fail = True
         starts = 0
@@ -390,7 +392,7 @@ def test_robot_sensor_failed_cleanup_requires_retry(setup):
                 raise RuntimeError("start failed")
 
         def read(self):
-            return "frame"
+            return frame
 
         def close(self):
             if self.fail:
@@ -419,7 +421,7 @@ def test_robot_sensor_failed_cleanup_requires_retry(setup):
     robot.start_sensors()
     robot.start_sensors()
     assert sensor.starts == 2
-    assert robot.read_sensors() == {"wrist": "frame"}
+    assert robot.read_sensors()["wrist"] is frame
     robot.close()
 
 
