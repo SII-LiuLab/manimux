@@ -72,6 +72,22 @@ def _prefill_task(current: str, incoming: str) -> str:
     return incoming.strip() if not current.strip() else current
 
 
+def _configure_gui(gui: Any) -> None:
+    """Keep the operator panel on the right across Viser layout APIs."""
+
+    main_panel = getattr(gui, "main_panel", None)
+    gui.configure_theme(
+        control_layout="floating" if main_panel is not None else "fixed",
+        control_width="medium",
+        dark_mode=False,
+        show_logo=False,
+        show_share_button=False,
+        brand_color=(70, 103, 190),
+    )
+    if main_panel is not None:
+        main_panel.dock_right()
+
+
 class PolicyViewer:
     """Robot-independent dashboard consuming an offline RobotModel view."""
 
@@ -89,14 +105,7 @@ class PolicyViewer:
         self.viewer_config = viewer_config if viewer_config is not None else robot.options
         self.reference_root = reference_root
         self.server = viser.ViserServer(host=host, port=port, label="Universal Policy Viewer")
-        self.server.gui.configure_theme(
-            control_layout="fixed",
-            control_width="medium",
-            dark_mode=False,
-            show_logo=False,
-            show_share_button=False,
-            brand_color=(70, 103, 190),
-        )
+        _configure_gui(self.server.gui)
         self.server.gui.set_panel_label("UNIVERSAL · POLICY VIEWER")
         self.lock = threading.RLock()
         self.running = True

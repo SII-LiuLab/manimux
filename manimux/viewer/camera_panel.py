@@ -37,7 +37,11 @@ def _camera_panel_html(
     --manimux-camera-small-width: clamp(136px, calc(13vw - 14px), 216px);
     --manimux-camera-height: clamp(262px, calc(21.9375vw + 8.875px), 397px);
   }
-  .mantine-Paper-root:has(.manimux-left-overlay-root):not([style*="position: absolute"]) {
+  /* Select only the innermost Paper that owns the camera folder. Viser 1.1
+     wraps it in a dock Paper; matching that ancestor moves the main panel left. */
+  .mantine-Paper-root:has(.manimux-left-overlay-root):not(
+    :has(.mantine-Paper-root .manimux-left-overlay-root)
+  ):not([style*="position: absolute"]) {
     position: fixed; left: 16px; top: var(--manimux-camera-top); bottom: 16px;
     width: calc(var(--manimux-camera-width) + 8px); z-index: 4;
     box-sizing: border-box; margin: 0; padding: 0 8px 0 0;
@@ -45,23 +49,33 @@ def _camera_panel_html(
     overflow-x: hidden; overflow-y: auto; scrollbar-width: thin;
     scrollbar-color: rgba(135,148,167,.72) rgba(18,23,32,.38);
   }
-  .mantine-Paper-root:has(.manimux-left-overlay-root):not([style*="position: absolute"])
+  .mantine-Paper-root:has(.manimux-left-overlay-root):not(
+    :has(.mantine-Paper-root .manimux-left-overlay-root)
+  ):not([style*="position: absolute"])
     > .mantine-Paper-root:first-child { display: none; }
-  .mantine-Paper-root:has(.manimux-left-overlay-root):not([style*="position: absolute"])
+  .mantine-Paper-root:has(.manimux-left-overlay-root):not(
+    :has(.mantine-Paper-root .manimux-left-overlay-root)
+  ):not([style*="position: absolute"])
     > div:not(:first-child) > div > div { padding-top: 0 !important; }
   .mantine-Paper-root:has(
     .manimux-left-overlay-root
-  ):not([style*="position: absolute"])::-webkit-scrollbar {
+  ):not(:has(
+    .mantine-Paper-root .manimux-left-overlay-root
+  )):not([style*="position: absolute"])::-webkit-scrollbar {
     width: 6px;
   }
   .mantine-Paper-root:has(
     .manimux-left-overlay-root
-  ):not([style*="position: absolute"])::-webkit-scrollbar-thumb {
+  ):not(:has(
+    .mantine-Paper-root .manimux-left-overlay-root
+  )):not([style*="position: absolute"])::-webkit-scrollbar-thumb {
     border-radius: 999px; background: rgba(135,148,167,.72);
   }
   .mantine-Paper-root:has(
     .manimux-left-overlay-root
-  ):not([style*="position: absolute"])::-webkit-scrollbar-track {
+  ):not(:has(
+    .mantine-Paper-root .manimux-left-overlay-root
+  )):not([style*="position: absolute"])::-webkit-scrollbar-track {
     background: rgba(18,23,32,.38);
   }
   div:has(> .manimux-camera-anchor) {
@@ -124,7 +138,9 @@ def _camera_panel_html(
     object-fit: cover; display: block;
   }
   @media (max-width: 900px) {
-    .mantine-Paper-root:has(.manimux-left-overlay-root):not([style*="position: absolute"]) {
+    .mantine-Paper-root:has(.manimux-left-overlay-root):not(
+      :has(.mantine-Paper-root .manimux-left-overlay-root)
+    ):not([style*="position: absolute"]) {
       position: static; width: auto; height: auto; margin: 8px 0; padding: 0;
       overflow: visible;
     }

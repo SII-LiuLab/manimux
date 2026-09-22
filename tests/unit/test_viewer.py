@@ -17,6 +17,7 @@ from manimux.viewer.communication import PolicyPlan, RobotSnapshot, RuntimeEvent
 from manimux.viewer.dashboard import (
     PolicyViewer,
     _camera_panel_html,
+    _configure_gui,
     _demo_sample,
     _instruction_markdown,
     _prefill_task,
@@ -47,6 +48,29 @@ def _camera_config(camera_mode="policy", **options):
 
 def _tianji_view():
     return load_robot_view(load_viewer_config())
+
+
+def test_gui_uses_explicit_right_dock_when_supported() -> None:
+    calls = []
+    gui = SimpleNamespace(
+        configure_theme=lambda **kwargs: calls.append(("theme", kwargs)),
+        main_panel=SimpleNamespace(dock_right=lambda: calls.append(("dock_right", None))),
+    )
+
+    _configure_gui(gui)
+
+    assert calls[0][0] == "theme"
+    assert calls[0][1]["control_layout"] == "floating"
+    assert calls[1] == ("dock_right", None)
+
+
+def test_gui_falls_back_to_fixed_layout_for_older_viser() -> None:
+    calls = []
+    gui = SimpleNamespace(configure_theme=lambda **kwargs: calls.append(kwargs))
+
+    _configure_gui(gui)
+
+    assert calls[0]["control_layout"] == "fixed"
 
 
 @pytest.mark.parametrize("experiment_mode", [False, True])
@@ -129,6 +153,7 @@ def test_camera_panel_is_screen_fixed_and_targets_stable_image_handles() -> None
     assert "overflow-y: auto" in html
     assert "scrollbar-width: thin" in html
     assert "manimux-camera-anchor" in html
+    assert ":has(.mantine-Paper-root .manimux-left-overlay-root)" in html
     assert "data:image/jpeg;base64" not in html
     assert "--manimux-camera-width: clamp(300px, 26vw, 460px)" in html
     assert "--manimux-camera-top: 16px" in html
