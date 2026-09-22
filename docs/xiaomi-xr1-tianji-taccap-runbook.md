@@ -14,9 +14,13 @@ DeepSpeed 模型文件，并通过共享 `xpolicylab_ws` worker 服务 ManiMux�
   第三路按左腕分辨率生成纯黑图，然后进入 XR-1 的公共 resize。
 - action：30×60 anchor-relative EE delta。每一行都相对于发起请求时的 TCP pose，
   不是逐行累加；adapter 再用 Tianji 装配后的 TCP FK/IK 转为两组 30×8 joint position。
-- TacCap 保持 checkpoint 的连续 `[0,1]` 开合量，不启用 close-latch 语义替换。
+- TacCap 保持 checkpoint 的连续 `[0,1]` 开合量，不启用 close-latch 语义替换。gripper
+  delta 解码后若越界不超过配置的 `gripper_clip_tolerance: 0.1`，会饱和到物理范围；
+  更大的越界仍拒绝整个 action chunk。
 - `[16:20]` 的腰部/底盘槽位在 Tianji 上无对应执行器，明确丢弃并记录最大绝对值。
-- 第一版只启用普通 ManiMux single-inflight；Tianji 的 XR-1 RTC condition codec 尚未实现。
+- Diff-IK 在两个独立 spawn 进程中按左右臂并行解码，两个结果都成功后才原子提交；
+  控制线程不再同步执行整段 IK。Diff-IK 的速度和步长上限与共享 motion profile 一致。
+- 仍只启用普通 ManiMux single-inflight；Tianji 的 XR-1 RTC condition codec 尚未实现。
 
 ## 文件
 
