@@ -43,7 +43,8 @@ def test_real_tianji_parallel_ik_matches_serial_and_rejects_whole_chunk(backend,
         actions.append(step)
     context = ActionContext(1, now, now, now + adapter.offset_ns + 2 * adapter.dt_ns, state)
     serial = adapter.decode_action(actions, context)
-    assert serial.source_offset_steps == 2
+    assert serial.source_offset_steps == 0
+    assert serial.horizon_steps == horizon
     decoder = ActionDecoderClient(config["robot"], config["policy"], adapter)
     try:
         decoder.start()
@@ -62,8 +63,8 @@ def test_real_tianji_parallel_ik_matches_serial_and_rejects_whole_chunk(backend,
 
         result = decode(1)
         assert result.error is None
-        assert result.chunk.source_offset_steps == 2
-        assert result.chunk.horizon_steps == horizon - 2
+        assert result.chunk.source_offset_steps == 0
+        assert result.chunk.horizon_steps == horizon
         for name in config["robot"]["group_dims"]:
             np.testing.assert_allclose(result.chunk.groups[name], serial.groups[name], atol=1e-9)
         assert set(result.chunk.metadata["decode_partition_ms"]) == set(
@@ -99,7 +100,7 @@ class SlowPartitionAdapter(FakePolicyAdapter):
 
 
 def build_slow_adapter(robot, policy, *, kinematics=None):
-    return SlowPartitionAdapter()
+    return SlowPartitionAdapter(robot, policy, kinematics=kinematics)
 
 
 def rtc_config():
@@ -107,8 +108,8 @@ def rtc_config():
     data["inference"].pop("refill_threshold_s")
     data["inference"].update(algorithm="rtc", strategy=None, commit_lead_s=0.0)
     data["robot"].update(control_hz=250, group_dims={"left_arm": 6, "right_arm": 6})
+    data["policy"]["adapter"]["type"] = f"{__name__}:build_slow_adapter"
     data["policy"].update(
-        adapter=f"{__name__}:build_slow_adapter",
         action_decoding="process",
         action_dt_s=1 / 30,
         horizon_steps=64,

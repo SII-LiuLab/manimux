@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import logging
+import math
 import multiprocessing as mp
 import signal
 import subprocess
@@ -163,6 +165,10 @@ def bind_station(config: dict, local: str | Path) -> dict:
                 server[key] = str((paths["checkpoints"] / server[key]).resolve())
         elif "checkpoint" in paths:
             server["checkpoint_path"] = str(paths["checkpoint"])
+        if "norm_stats" in paths:
+            server["norm_stats_path"] = str(paths["norm_stats"])
+        if "vlm_processor" in paths:
+            server["vlm_processor_path"] = str(paths["vlm_processor"])
         expected = raw.get("policy", {}).get("expected_backend") or {}
         model = expected.get("model", {})
         if pi05 and model.get("policy_family") == "pi05":
@@ -290,6 +296,12 @@ def _add_runtime_arguments(parser: argparse.ArgumentParser) -> None:
         help="Station bindings (default: manimux/configs/local/station.yaml)",
     )
     parser.add_argument("--executor", choices=("direct", "smooth", "mpc"))
+    parser.add_argument(
+        "--log-level",
+        choices=("DEBUG", "INFO", "WARNING", "ERROR"),
+        default="INFO",
+        help="Runtime diagnostic verbosity (default: INFO)",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -308,6 +320,10 @@ def main(argv: list[str] | None = None) -> int:
     mp.freeze_support()
     signal.signal(signal.SIGTERM, _handle_termination)
     args = build_parser().parse_args(argv)
+    logging.basicConfig(
+        level=getattr(logging, args.log_level),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
     if args.command == "run":
         return _run(args.config, args.executor, local=args.local)
     if args.command == "serve":

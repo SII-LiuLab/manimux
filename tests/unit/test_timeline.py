@@ -57,6 +57,7 @@ def test_commit_trims_obsolete_prefix_and_interpolates() -> None:
     )
     assert result.accepted
     assert result.trimmed_steps == 2
+    assert result.timeline_latency_ns == 20
     sample = timeline.sample(25)
     assert sample is not None
     np.testing.assert_allclose(sample["left_arm"], [5.0, 6.0])
@@ -70,6 +71,27 @@ def test_commit_trims_obsolete_prefix_and_interpolates() -> None:
     assert timeline.cursor(20) == 0
     assert timeline.cursor(31) == 1
     assert timeline.cursor(100) == 3
+
+
+def test_commit_trims_to_first_source_row_at_or_after_execution_start() -> None:
+    timeline = ActionTimeline({"left_arm": 2, "right_arm": 2})
+    current = {"left_arm": np.zeros(2), "right_arm": np.zeros(2)}
+    result = timeline.commit(
+        _chunk(1),
+        now_ns=21,
+        commit_lead_ns=0,
+        max_plan_age_ns=100,
+        current_command=current,
+        blend_steps=0,
+    )
+
+    assert result.accepted
+    assert result.trimmed_steps == 3
+    assert result.timeline_latency_ns == 21
+    np.testing.assert_array_equal(
+        timeline.active_horizon().groups["left_arm"][0],
+        [6.0, 7.0],
+    )
 
 
 def test_commit_does_not_trim_adapter_source_offset_twice() -> None:
@@ -172,7 +194,9 @@ def test_group_hold_survives_source_and_commit_trim_and_clears_on_new_plan():
                            current_command=current, blend_steps=4).accepted
     # Source 8 fails. Hold before the 7->8 interpolation and 10ns feedforward enter it.
     assert timeline.reference_horizon(now_ns=689, dt_ns=10, horizon_steps=2).hold_groups == ()
-    assert timeline.reference_horizon(now_ns=690, dt_ns=10, horizon_steps=2).hold_groups == ('right_arm',)
+    assert timeline.reference_horizon(
+        now_ns=690, dt_ns=10, horizon_steps=2
+    ).hold_groups == ("right_arm",)
     chunk.request_seq = 2
     chunk.hold_from_step = {}
     assert timeline.commit(chunk, now_ns=800, commit_lead_ns=0, max_plan_age_ns=10000,
@@ -199,3 +223,71 @@ def test_reference_preserves_observation_time_for_release_completion_barrier():
     ref = timeline.reference_horizon(now_ns=230,dt_ns=10,horizon_steps=2)
     assert ref.observation_time_ns == 100
     assert timeline.active_horizon().observation_time_ns == 100
+
+
+def _commit(timeline, chunk, *, now_ns, commit_lead_ns):
+    return timeline.commit(
+        chunk,
+        now_ns=now_ns,
+        commit_lead_ns=commit_lead_ns,
+        max_plan_age_ns=10_000,
+        current_command={"left_arm": np.zeros(2), "right_arm": np.zeros(2)},
+        blend_steps=0,
+    )
+
+
+def _later_chunk(request_seq: int, observation_time_ns: int) -> ActionChunk:
+    """A second chunk whose values cannot be confused with _chunk's."""
+    values = np.arange(100, 110, dtype=np.float64).reshape(5, 2)
+    return ActionChunk(
+        plan_id=f"plan-{request_seq}",
+        request_seq=request_seq,
+        observation_time_ns=observation_time_ns,
+        created_time_ns=observation_time_ns,
+        action_space="joint_position",
+        dt_ns=10,
+        groups={"left_arm": values, "right_arm": -values},
+    )
+
+
+def test_a_commit_lead_window_keeps_playing_the_outgoing_plan() -> None:
+    timeline = ActionTimeline({"left_arm": 2, "right_arm": 2})
+    assert _commit(timeline, _chunk(1), now_ns=0, commit_lead_ns=0).accepted
+    np.testing.assert_allclose(timeline.sample(20)["left_arm"], [4.0, 5.0])
+
+    # plan-2 is committed at t=15 with a 20 ns lead, so it only starts at t=35.
+    assert _commit(timeline, _later_chunk(2, 15), now_ns=15, commit_lead_ns=20).accepted
+    # Across the lead window plan-1 keeps answering, exactly as before the commit.
+    np.testing.assert_allclose(timeline.sample(20)["left_arm"], [4.0, 5.0])
+    np.testing.assert_allclose(timeline.sample(30)["left_arm"], [6.0, 7.0])
+    # Its start time hands over to plan-2, whose leading rows the commit trimmed
+    # so that row 0 is the one that belongs at t=35.
+    np.testing.assert_allclose(timeline.sample(35)["left_arm"], [104.0, 105.0])
+
+
+def test_a_reference_horizon_straddles_the_commit_lead_window() -> None:
+    timeline = ActionTimeline({"left_arm": 2, "right_arm": 2})
+    assert _commit(timeline, _chunk(1), now_ns=0, commit_lead_ns=0).accepted
+    assert _commit(timeline, _later_chunk(2, 15), now_ns=15, commit_lead_ns=20).accepted
+    horizon = timeline.reference_horizon(now_ns=25, dt_ns=10, horizon_steps=3)
+    np.testing.assert_allclose(horizon.groups["left_arm"][0], [5.0, 6.0])
+    np.testing.assert_allclose(horizon.groups["left_arm"][1], [104.0, 105.0])
+    np.testing.assert_allclose(horizon.groups["left_arm"][2], [106.0, 107.0])
+    # The horizon is attributed to the plan that owns now_ns.
+    assert horizon.plan_id == "plan-1"
+
+
+def test_an_exhausted_outgoing_plan_still_yields_no_reference() -> None:
+    timeline = ActionTimeline({"left_arm": 2, "right_arm": 2})
+    assert _commit(timeline, _chunk(1), now_ns=0, commit_lead_ns=0).accepted
+    # plan-1 ends at t=40, and plan-2 committed at t=38 only starts at t=58.
+    assert _commit(timeline, _later_chunk(2, 38), now_ns=38, commit_lead_ns=20).accepted
+    assert timeline.sample(45) is None
+    assert timeline.reference_horizon(now_ns=45, dt_ns=10, horizon_steps=2) is None
+
+
+def test_the_first_plan_has_no_outgoing_plan_to_fall_back_on() -> None:
+    timeline = ActionTimeline({"left_arm": 2, "right_arm": 2})
+    assert _commit(timeline, _chunk(1), now_ns=0, commit_lead_ns=20).accepted
+    assert timeline.sample(10) is None
+    np.testing.assert_allclose(timeline.sample(20)["left_arm"], [4.0, 5.0])

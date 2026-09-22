@@ -72,6 +72,22 @@ def _prefill_task(current: str, incoming: str) -> str:
     return incoming.strip() if not current.strip() else current
 
 
+def _configure_gui(gui: Any) -> None:
+    """Keep the operator panel on the right across Viser layout APIs."""
+
+    main_panel = getattr(gui, "main_panel", None)
+    gui.configure_theme(
+        control_layout="floating" if main_panel is not None else "fixed",
+        control_width="medium",
+        dark_mode=False,
+        show_logo=False,
+        show_share_button=False,
+        brand_color=(70, 103, 190),
+    )
+    if main_panel is not None:
+        main_panel.dock_right()
+
+
 class PolicyViewer:
     """Robot-independent dashboard consuming an offline RobotModel view."""
 
@@ -89,14 +105,7 @@ class PolicyViewer:
         self.viewer_config = viewer_config if viewer_config is not None else robot.options
         self.reference_root = reference_root
         self.server = viser.ViserServer(host=host, port=port, label="Universal Policy Viewer")
-        self.server.gui.configure_theme(
-            control_layout="fixed",
-            control_width="medium",
-            dark_mode=False,
-            show_logo=False,
-            show_share_button=False,
-            brand_color=(70, 103, 190),
-        )
+        _configure_gui(self.server.gui)
         self.server.gui.set_panel_label("UNIVERSAL · POLICY VIEWER")
         self.lock = threading.RLock()
         self.running = True
@@ -220,11 +229,13 @@ class PolicyViewer:
                 )
 
     def _build_gui(self) -> None:
+        self.top_overlay: TopViewOverlay | None = None
         self.camera_view = CameraPanel(
             self.server.gui,
             self.viewer_config,
             self.robot.camera_slot,
-            lambda image: self.top_overlay.update(image),
+            lambda image: self.top_overlay.update(image) if self.top_overlay is not None else None,
+            defer_diagnostics=True,
         )
         with self.camera_view.display_container:
             self.chunk_timeline_panel = self.server.gui.add_html(self.chunk_timeline.render_html())
@@ -232,11 +243,6 @@ class PolicyViewer:
         self.instruction = self.server.gui.add_markdown(_instruction_markdown(""))
         if self.robot.name in {"tianji", "tianji-taccap"}:
             self._build_recovery_gui()
-        self.top_overlay = TopViewOverlay(
-            self.server.gui,
-            self.reference_root,
-            display_container=self.camera_view.display_container,
-        )
         self.new_rollout_folder = self.server.gui.add_folder(
             "① New rollout", expand_by_default=True
         )
@@ -263,15 +269,17 @@ class PolicyViewer:
             )
             self.pause_btn = self.server.gui.add_button("Pause / Hold", color="gray", disabled=True)
             self.finish_btn = self.server.gui.add_button(
-                "Finish & Home", color="red", disabled=True
+                "Finish rollout" if self.robot.name == "tianji-taccap" else "Finish & Home",
+                color="red", disabled=True
             )
             if self.robot.name in {"tianji", "tianji-taccap"}:
                 self.finish_no_home_btn = self.server.gui.add_button(
-                    "Finish without homing", color="gray", disabled=True
+                    "Finish without homing", color="gray", disabled=True,
+                    visible=self.robot.name != "tianji-taccap",
                 )
         if self.robot.name not in {"tianji", "tianji-taccap"}:
             self._build_recovery_gui()
-        self.run_folder = self.server.gui.add_folder("Live run", expand_by_default=True)
+        self.run_folder = self.server.gui.add_folder("Run", expand_by_default=True)
         with self.run_folder:
             self.robot_name = self.server.gui.add_text("Robot", self.robot.label, disabled=True)
             self.policy_name = self.server.gui.add_text("Policy", "waiting", disabled=True)
@@ -325,7 +333,7 @@ class PolicyViewer:
                 "Save evaluation", color="blue", disabled=True
             )
         self.overlay_folder = self.server.gui.add_folder(
-            "Trajectory overlays", expand_by_default=False
+            "Overlay controls", expand_by_default=True
         )
         with self.overlay_folder:
             self.show_plan = self.server.gui.add_checkbox("Predicted EE trajectory", True)
@@ -339,6 +347,16 @@ class PolicyViewer:
             )
             self.clear_history_btn = self.server.gui.add_button("Clear trajectory history")
             self.clear_btn = self.server.gui.add_button("Clear trails")
+        if any(
+            camera.get("slot", camera.get("source")) == "top"
+            for camera in self.viewer_config.get("cameras", [])
+        ):
+            self.top_overlay = TopViewOverlay(
+                self.server.gui,
+                self.reference_root,
+                display_container=self.camera_view.display_container,
+            )
+        self.camera_view.add_diagnostics(expand_by_default=True)
         self._set_stage("waiting")
 
         @self.start_btn.on_click
@@ -398,6 +416,10 @@ class PolicyViewer:
             def _stop_drag(_event: Any) -> None:
                 self._request_recovery("stop")
 
+            @self.clear_error_btn.on_click
+            def _clear_error(_event: Any) -> None:
+                self._request_recovery("clear_error")
+
         @self.clear_btn.on_click
         def _clear(_event: Any) -> None:
             self._clear_achieved_tails()
@@ -440,6 +462,9 @@ class PolicyViewer:
                 self.recovery_status = self.server.gui.add_markdown(
                     "⚪ Waiting for a Tianji runtime service."
                 )
+                self.clear_error_btn = self.server.gui.add_button(
+                    "Clear controller error", color="red", disabled=True
+                )
                 self.drag_arm = self.server.gui.add_dropdown(
                     "Drag arms", ("A", "B", "AB"), initial_value="AB", disabled=True
                 )
@@ -465,7 +490,12 @@ class PolicyViewer:
                 return
             self.paused = True
             self.finish_requested = True
-            self.finish_home = home if self.robot.name in {"tianji", "tianji-taccap"} else None
+            # The new assembly has no Home trajectory. Its primary Finish
+            # action must save/close cleanly instead of requesting robot.home().
+            self.finish_home = (
+                False if self.robot.name == "tianji-taccap"
+                else home if self.robot.name == "tianji" else None
+            )
             self.service_ready = False
             self._set_policy_controls_enabled(False)
             self._update_recovery_controls()
@@ -473,6 +503,7 @@ class PolicyViewer:
 
     def _clear_recovery(self) -> None:
         self.recovery_available = False
+        self.recovery_actions: set[str] = set()
         self.recovery_busy = False
         self.recovery_state = "idle"
         self.recovery_request = ""
@@ -488,6 +519,7 @@ class PolicyViewer:
             self.episode_active
             and self.launch_mode == "serve"
             and self.recovery_available
+            and "drag" in self.recovery_actions
             and not self.observe_only
             and not self.finish_btn.disabled
         )
@@ -504,6 +536,8 @@ class PolicyViewer:
                     return
             else:
                 if not self.recovery_available or self._recovery_pending():
+                    return
+                if action.partition(":")[0] not in self.recovery_actions:
                     return
                 if self.episode_active:
                     if not action.startswith("drag:") or not self._can_stop_and_drag():
@@ -525,7 +559,11 @@ class PolicyViewer:
             return
         idle = self.service_ready and not self.episode_active and not self.preparing_rollout
         allowed = idle and self.recovery_available and not self._recovery_pending()
-        can_drag = allowed or (self._can_stop_and_drag() and not self._recovery_pending())
+        can_clear = allowed and "clear_error" in self.recovery_actions
+        can_drag = (allowed and "drag" in self.recovery_actions) or (
+            self._can_stop_and_drag() and not self._recovery_pending()
+        )
+        self.clear_error_btn.disabled = not can_clear
         self.drag_arm.disabled = not can_drag
         self.drag_btn.disabled = not can_drag
         self.drag_btn.label = "Stop rollout & drag" if self.episode_active else "Start drag"
@@ -538,7 +576,7 @@ class PolicyViewer:
             else "Exit drag"
         )
         if not self.episode_active:
-            self.home_btn.disabled = not allowed
+            self.home_btn.disabled = not (allowed and "home" in self.recovery_actions)
         self._render_recovery_status()
 
     def _render_recovery_status(self) -> None:
@@ -546,6 +584,8 @@ class PolicyViewer:
         arm = self.recovery_arm
         if self.recovery_request == "stop":
             text = "🟠 **Exiting / cancelling drag**"
+        elif self.recovery_request == "clear_error":
+            text = "🟠 **Clearing controller error** · no arm will be enabled."
         elif self.recovery_lease and self.episode_active:
             text = "🟠 **Stopping rollout without homing · waiting to enter drag**"
         elif self.recovery_request:
@@ -558,6 +598,13 @@ class PolicyViewer:
             text = "🟠 **Exiting drag · waiting for servo-off**"
         elif self.recovery_state == "homing":
             text = "🟡 **Returning home**"
+        elif self.recovery_state == "clearing":
+            text = "🟠 **Clearing controller error** · sending the Marvin SDK command."
+        elif self.recovery_state == "cleared":
+            text = (
+                f"🟢 **Controller {arm} clear-error command accepted** · no enable or motion "
+                "command was sent; verify the workspace, then Prepare rollout."
+            )
         elif error:
             text = "🔴 **Recovery failed** · check Last error before retrying."
         elif self.preparing_rollout:
@@ -570,6 +617,16 @@ class PolicyViewer:
             )
         elif not self.service_ready:
             text = "⚪ Waiting for the runtime service to release the robot."
+        elif "clear_error" in self.recovery_actions and (
+            "controller fault" in self.last_rollout_error.lower()
+            or "emergency stop" in self.last_rollout_error.lower()
+        ):
+            text = (
+                "🔴 **Controller fault is latched** · release the physical E-stop if active, "
+                "then press Clear controller error."
+            )
+        elif self.robot.name == "tianji-taccap" and not self.recovery_available:
+            text = "⚪ Controller error recovery requires an executing runtime service."
         elif not self.recovery_available:
             text = "⚪ Recovery requires an executing Tianji runtime service."
         elif "emergency stop" in self.last_rollout_error.lower():
@@ -579,8 +636,10 @@ class PolicyViewer:
             )
         elif self.last_rollout_error:
             text = "🟡 **Rollout interrupted** · drag A / B / AB or Return Home when ready."
-        else:
+        elif {"drag", "home"} & self.recovery_actions:
             text = "⚪ Drag A / B / AB with UMI, or Return Home directly."
+        else:
+            text = "⚪ Clear controller error resets latched A/B faults without enabling motion."
         self.recovery_status.content = text
         if hasattr(self, "recovery_details"):
             detail = error or self.last_rollout_error
@@ -592,6 +651,12 @@ class PolicyViewer:
             return
         recovery = metadata.get("recovery") or {}
         self.recovery_available = bool(recovery.get("available", False))
+        actions = recovery.get("actions")
+        self.recovery_actions = (
+            {str(action) for action in actions}
+            if actions is not None
+            else ({"drag", "home"} if self.recovery_available else set())
+        )
         self.recovery_busy = bool(recovery.get("busy", False))
         self.recovery_state = str(recovery.get("state", "idle"))
         if recovery.get("ack") == self.recovery_request_id:
@@ -630,8 +695,8 @@ class PolicyViewer:
     def _idle_status(self, last_error: str) -> None:
         if self._recovery_pending():
             self.status.content = "🟡 **Manual recovery · rollout controls locked**"
-        elif "emergency stop" in last_error.lower():
-            self.status.content = "🔴 **Emergency stop · manual recovery available**"
+        elif "emergency stop" in last_error.lower() or "controller fault" in last_error.lower():
+            self.status.content = "🔴 **Controller fault · clear error is available**"
         elif last_error:
             self.status.content = "🔴 **Rollout interrupted · service idle**"
         elif self.evaluation_saved:
@@ -703,7 +768,9 @@ class PolicyViewer:
         self.start_btn.label = "Resume rollout" if self.rollout_started else "Start rollout"
         self.start_btn.disabled = not allowed or not self.paused
         self.pause_btn.disabled = not allowed or self.paused
-        self.home_btn.disabled = not allowed or not self.paused
+        self.home_btn.disabled = (
+            not allowed or not self.paused or self.robot.name == "tianji-taccap"
+        )
         self.finish_btn.disabled = not allowed
         if hasattr(self, "finish_no_home_btn"):
             self.finish_no_home_btn.disabled = not allowed

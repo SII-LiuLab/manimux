@@ -17,6 +17,7 @@ from manimux.viewer.communication import PolicyPlan, RobotSnapshot, RuntimeEvent
 from manimux.viewer.dashboard import (
     PolicyViewer,
     _camera_panel_html,
+    _configure_gui,
     _demo_sample,
     _instruction_markdown,
     _prefill_task,
@@ -47,6 +48,29 @@ def _camera_config(camera_mode="policy", **options):
 
 def _tianji_view():
     return load_robot_view(load_viewer_config())
+
+
+def test_gui_uses_explicit_right_dock_when_supported() -> None:
+    calls = []
+    gui = SimpleNamespace(
+        configure_theme=lambda **kwargs: calls.append(("theme", kwargs)),
+        main_panel=SimpleNamespace(dock_right=lambda: calls.append(("dock_right", None))),
+    )
+
+    _configure_gui(gui)
+
+    assert calls[0][0] == "theme"
+    assert calls[0][1]["control_layout"] == "floating"
+    assert calls[1] == ("dock_right", None)
+
+
+def test_gui_falls_back_to_fixed_layout_for_older_viser() -> None:
+    calls = []
+    gui = SimpleNamespace(configure_theme=lambda **kwargs: calls.append(kwargs))
+
+    _configure_gui(gui)
+
+    assert calls[0]["control_layout"] == "fixed"
 
 
 @pytest.mark.parametrize("experiment_mode", [False, True])
@@ -129,6 +153,7 @@ def test_camera_panel_is_screen_fixed_and_targets_stable_image_handles() -> None
     assert "overflow-y: auto" in html
     assert "scrollbar-width: thin" in html
     assert "manimux-camera-anchor" in html
+    assert ":has(.mantine-Paper-root .manimux-left-overlay-root)" in html
     assert "data:image/jpeg;base64" not in html
     assert "--manimux-camera-width: clamp(300px, 26vw, 460px)" in html
     assert "--manimux-camera-top: 16px" in html
@@ -313,16 +338,32 @@ def test_tianji_wrist_views_keep_spatial_slots_without_agent_view(
     assert "<strong>top</strong>" not in panel.panel.content
     np.testing.assert_allclose(panel.images[0].image[0, 0], (210, 30, 40), atol=3)
     np.testing.assert_allclose(panel.images[1].image[0, 0], (40, 210, 60), atol=3)
-    assert panel.extra_folder.visible is include_history
+    assert not panel.extra_folder.visible
     if include_history:
-        assert len(panel.images) == 4
-        assert all(handle.image.max() == 0 for handle in panel.images[2:])
+        assert len(panel.images) == 2
+        assert "cam_left_wrist_prev" in panel.details.content
+        assert "cam_right_wrist_prev" in panel.details.content
+        assert panel.details.content.count("时序输入 · 复用物理相机") == 2
         viewer._update_state(_camera_state(camera_map, frames, robot="tianji"))
         assert overlay == []
-        for handle in panel.images[2:]:
-            source = "left_wrist_prev" if "left" in handle.label else "right_wrist_prev"
-            assert source in handle.label
-            np.testing.assert_allclose(handle.image, frames[source], atol=3)
+        assert len(panel.images) == 2
+
+
+def test_camera_diagnostics_can_be_deferred_to_match_main_panel_order():
+    panel = CameraPanel(
+        _CameraGui(),
+        _camera_config(),
+        lambda source: source,
+        lambda _image: None,
+        defer_diagnostics=True,
+    )
+
+    assert panel.details is None
+    assert panel.extra_folder is None
+    panel.add_diagnostics(expand_by_default=True)
+    assert panel.diagnostics_folder.label == "Images"
+    assert panel.details is not None
+    assert panel.extra_folder is not None
 
 
 @pytest.mark.parametrize(
@@ -1023,6 +1064,64 @@ def test_runtime_heartbeat_loss_fails_closed_without_deleting_episode_state() ->
     assert stages[-1] == "waiting"
     assert "Runtime unavailable" in viewer.status.content
     assert viewer.camera_view.updates == [(None, {"reset": True})]
+
+
+def test_tianji_clear_error_request_uses_recovery_ack_without_enabling_motion() -> None:
+    viewer = PolicyViewer.__new__(PolicyViewer)
+    viewer.lock = threading.RLock()
+    viewer.robot = SimpleNamespace(name="tianji-taccap")
+    viewer.service_ready = True
+    viewer.episode_active = False
+    viewer.preparing_rollout = False
+    viewer.launch_mode = "serve"
+    viewer.observe_only = False
+    viewer.finish_btn = SimpleNamespace(disabled=True)
+    viewer.home_btn = SimpleNamespace(disabled=True)
+    viewer.drag_arm = SimpleNamespace(disabled=True)
+    viewer.drag_btn = SimpleNamespace(disabled=True, label="Start drag")
+    viewer.stop_drag_btn = SimpleNamespace(disabled=True, label="Exit drag")
+    viewer.clear_error_btn = SimpleNamespace(disabled=True)
+    viewer.recovery_status = SimpleNamespace(content="")
+    viewer.recovery_details_folder = SimpleNamespace(visible=False)
+    viewer.recovery_details = SimpleNamespace(content="")
+    viewer._update_prepare_enabled = lambda: None  # type: ignore[method-assign]
+    viewer._clear_recovery()
+    viewer.last_rollout_error = "RuntimeError: left: controller fault 13, state 100"
+
+    viewer._update_recovery(
+        {
+            "recovery": {
+                "available": True,
+                "actions": ["clear_error"],
+                "busy": False,
+                "state": "idle",
+            }
+        }
+    )
+
+    assert not viewer.clear_error_btn.disabled
+    assert viewer.drag_btn.disabled
+    assert viewer.home_btn.disabled
+    viewer._request_recovery("clear_error")
+    request_id = viewer.recovery_request_id
+    assert viewer.recovery_request == "clear_error"
+    assert not viewer.recovery_lease
+    assert viewer.clear_error_btn.disabled
+
+    viewer._update_recovery(
+        {
+            "recovery": {
+                "available": True,
+                "actions": ["clear_error"],
+                "busy": False,
+                "state": "cleared",
+                "ack": request_id,
+                "arm": "AB",
+            }
+        }
+    )
+    assert viewer.recovery_request == ""
+    assert "no enable or motion command" in viewer.recovery_status.content
 
 
 def test_protocol_is_not_tied_to_yam_dimensions() -> None:

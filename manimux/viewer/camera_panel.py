@@ -37,7 +37,11 @@ def _camera_panel_html(
     --manimux-camera-small-width: clamp(136px, calc(13vw - 14px), 216px);
     --manimux-camera-height: clamp(262px, calc(21.9375vw + 8.875px), 397px);
   }
-  .mantine-Paper-root:has(.manimux-left-overlay-root):not([style*="position: absolute"]) {
+  /* Select only the innermost Paper that owns the camera folder. Viser 1.1
+     wraps it in a dock Paper; matching that ancestor moves the main panel left. */
+  .mantine-Paper-root:has(.manimux-left-overlay-root):not(
+    :has(.mantine-Paper-root .manimux-left-overlay-root)
+  ):not([style*="position: absolute"]) {
     position: fixed; left: 16px; top: var(--manimux-camera-top); bottom: 16px;
     width: calc(var(--manimux-camera-width) + 8px); z-index: 4;
     box-sizing: border-box; margin: 0; padding: 0 8px 0 0;
@@ -45,23 +49,33 @@ def _camera_panel_html(
     overflow-x: hidden; overflow-y: auto; scrollbar-width: thin;
     scrollbar-color: rgba(135,148,167,.72) rgba(18,23,32,.38);
   }
-  .mantine-Paper-root:has(.manimux-left-overlay-root):not([style*="position: absolute"])
+  .mantine-Paper-root:has(.manimux-left-overlay-root):not(
+    :has(.mantine-Paper-root .manimux-left-overlay-root)
+  ):not([style*="position: absolute"])
     > .mantine-Paper-root:first-child { display: none; }
-  .mantine-Paper-root:has(.manimux-left-overlay-root):not([style*="position: absolute"])
+  .mantine-Paper-root:has(.manimux-left-overlay-root):not(
+    :has(.mantine-Paper-root .manimux-left-overlay-root)
+  ):not([style*="position: absolute"])
     > div:not(:first-child) > div > div { padding-top: 0 !important; }
   .mantine-Paper-root:has(
     .manimux-left-overlay-root
-  ):not([style*="position: absolute"])::-webkit-scrollbar {
+  ):not(:has(
+    .mantine-Paper-root .manimux-left-overlay-root
+  )):not([style*="position: absolute"])::-webkit-scrollbar {
     width: 6px;
   }
   .mantine-Paper-root:has(
     .manimux-left-overlay-root
-  ):not([style*="position: absolute"])::-webkit-scrollbar-thumb {
+  ):not(:has(
+    .mantine-Paper-root .manimux-left-overlay-root
+  )):not([style*="position: absolute"])::-webkit-scrollbar-thumb {
     border-radius: 999px; background: rgba(135,148,167,.72);
   }
   .mantine-Paper-root:has(
     .manimux-left-overlay-root
-  ):not([style*="position: absolute"])::-webkit-scrollbar-track {
+  ):not(:has(
+    .mantine-Paper-root .manimux-left-overlay-root
+  )):not([style*="position: absolute"])::-webkit-scrollbar-track {
     background: rgba(18,23,32,.38);
   }
   div:has(> .manimux-camera-anchor) {
@@ -124,7 +138,9 @@ def _camera_panel_html(
     object-fit: cover; display: block;
   }
   @media (max-width: 900px) {
-    .mantine-Paper-root:has(.manimux-left-overlay-root):not([style*="position: absolute"]) {
+    .mantine-Paper-root:has(.manimux-left-overlay-root):not(
+      :has(.mantine-Paper-root .manimux-left-overlay-root)
+    ):not([style*="position: absolute"]) {
       position: static; width: auto; height: auto; margin: 8px 0; padding: 0;
       overflow: visible;
     }
@@ -203,12 +219,15 @@ class CameraPanel:
         config: dict,
         normalize: Callable[[str], str],
         on_main_image: Callable[[np.ndarray | None], None],
+        *,
+        defer_diagnostics: bool = False,
     ) -> None:
         self._gui = gui
         self._config = config
         self._normalize = normalize
         self._on_main_image = on_main_image
         self._policy_map: dict[str, str] = {}
+        self._temporal_views: list[tuple[str, str]] = []
         self._invalid_map = False
         cameras = config.get("cameras", [])
         self._slots = tuple(
@@ -231,12 +250,28 @@ class CameraPanel:
         with self.display_container:
             self.panel = gui.add_html(_camera_panel_html(slots=self._slots))
             self.images = [self._add_image() for _ in self._slots]
-        self.details = gui.add_html("")
-        self.extra_folder = gui.add_folder("更多输入相机", visible=False)
-        with self.extra_folder:
-            while len(self.images) < len(self._views):
-                self.images.append(self._add_image())
-        self.extra_folder.visible = len(self._views) > len(self._slots)
+        self.diagnostics_folder = None
+        self.details = None
+        self.extra_folder = None
+        if not defer_diagnostics:
+            self.add_diagnostics()
+        self._render()
+
+    def add_diagnostics(self, *, expand_by_default: bool = True) -> None:
+        """Add routing diagnostics at the caller-selected point in the GUI."""
+
+        if self.diagnostics_folder is not None:
+            return
+        self.diagnostics_folder = self._gui.add_folder(
+            "Images", expand_by_default=expand_by_default
+        )
+        with self.diagnostics_folder:
+            self.details = self._gui.add_html("")
+            self.extra_folder = self._gui.add_folder("更多输入相机", visible=False)
+            with self.extra_folder:
+                while len(self.images) < len(self._views):
+                    self.images.append(self._add_image())
+            self.extra_folder.visible = len(self._views) > len(self._slots)
         self._render()
 
     def _add_image(self) -> Any:
@@ -266,8 +301,9 @@ class CameraPanel:
                 else:
                     extra.append((name, source))
             elif source.endswith("_prev"):
-                # Temporal model inputs are not additional physical viewpoints.
-                extra.append((name, source))
+                # Temporal model inputs reuse a physical camera; report their
+                # routing without manufacturing duplicate black previews.
+                continue
             else:
                 unassigned.append((name, source))
         # Preserve config order for sources without a known spatial role, after
@@ -296,16 +332,20 @@ class CameraPanel:
         ):
             return
         self._policy_map = policy_map
+        self._temporal_views = [
+            (name, source) for name, source in policy_map.items() if source.endswith("_prev")
+        ]
         self._invalid_map = invalid
         self._views = (
             self._policy_views(policy_map)
             if self._config.get("camera_mode", "policy") == "policy" and policy_map
             else list(self._configured)
         )
-        with self.extra_folder:
-            while len(self.images) < len(self._views):
-                self.images.append(self._add_image())
-        self.extra_folder.visible = len(self._views) > len(self._slots)
+        if self.extra_folder is not None:
+            with self.extra_folder:
+                while len(self.images) < len(self._views):
+                    self.images.append(self._add_image())
+            self.extra_folder.visible = len(self._views) > len(self._slots)
         self._sources.clear()
         for index, handle in enumerate(self.images):
             handle.visible = index < len(self._views)
@@ -331,6 +371,9 @@ class CameraPanel:
                         resolved[source] = selected
         for index, view in enumerate(self._views):
             if view is None:
+                continue
+            if index >= len(self.images):
+                # Deferred diagnostics allocate extra preview handles later.
                 continue
             name, source = view
             selected = source if follow_policy else resolved.get(source, source)
@@ -381,8 +424,13 @@ class CameraPanel:
                 f"<tr><td>{html.escape(name)}</td><td>{html.escape(source)}</td>"
                 f"<td>{status}</td></tr>"
             )
-            if index >= len(self._slots):
+            if len(self._slots) <= index < len(self.images):
                 self.images[index].label = f"{name} ← {source} · {status}"
+        rows.extend(
+            f"<tr><td>{html.escape(name)}</td><td>{html.escape(source)}</td>"
+            "<td>时序输入 · 复用物理相机</td></tr>"
+            for name, source in self._temporal_views
+        )
         details = (
             f"<strong>{title}</strong><table><thead><tr>"
             "<th>输入 / 预览位</th><th>相机来源</th><th>状态</th>"
@@ -394,5 +442,5 @@ class CameraPanel:
                 for name, source in self._policy_map.items()
             )
             details += f"<p>模型输入：{inputs or '尚未获取配置'}</p>"
-        if self.details.content != details:
+        if self.details is not None and self.details.content != details:
             self.details.content = details

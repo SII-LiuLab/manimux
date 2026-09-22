@@ -17,7 +17,7 @@ environment with the selected hardware dependencies installed.
 | Robot | Station template | Dependencies and deployment |
 | --- | --- | --- |
 | YAM with integrated grippers | [yam.example.yaml](yam.example.yaml) | [YAM component](../../embodiments/arm/yam/README.md), [RealSense](../../embodiments/sensor/realsense/README.md), [Pi05 runbook](../../../docs/pi05-yam-runbook.md) |
-| Tianji–TacCap | [tianji_taccap.example.yaml](tianji_taccap.example.yaml) | [Tianji–TacCap runbook](../../../docs/umi-dp-tianji-taccap-runbook.md) |
+| Tianji–TacCap | [tianji_taccap.example.yaml](tianji_taccap.example.yaml) | [UMI-DP runbook](../../../docs/umi-dp-tianji-taccap-runbook.md) · [Xiaomi XR-1 runbook](../../../docs/xiaomi-xr1-tianji-taccap-runbook.md) |
 
 Hardware and model environments are separate; see [Python environments](../../../envs/README.md).
 A clone does not install private SDKs, create CAN interfaces or download checkpoints.
@@ -55,6 +55,9 @@ configuration directory.
 | Camera clients/server | `services.camera` | Request, subscription and bind addresses, as below |
 | Pi05 checkpoint root | `paths.checkpoints` | Local root containing the checkpoint/stat subpaths selected by the experiment |
 | UMI_DP artifact | `paths.checkpoint` | Local checkpoint directory used by the UMI_DP artifact binding |
+| XR-1 artifact | `paths.checkpoint` | Local checkpoint file or directory containing `mp_rank_00_model_states.pt` |
+| XR-1 normalization | `paths.norm_stats` | Optional explicit `training_metadata/normalize.json` path |
+| XR-1 processor | `paths.vlm_processor` | Optional local Qwen processor directory; otherwise use the recipe's repository ID |
 | Run output override | `paths.output_dir` | Optional local directory for experiment output |
 
 Only fill in fields the selected component actually uses. YAM's integrated gripper shares
@@ -110,7 +113,9 @@ keeps the relative `model_path` and `norm_stats_path`; the loader resolves both 
 root and uses the resolved paths in the runtime's expected backend identity. Switching
 experiments still selects that experiment's checkpoint, instead of reusing one globally
 overridden artifact. UMI_DP retains `paths.checkpoint` for its explicit artifact binding.
-Neither field changes training configuration, normalization convention or action semantics.
+The XR-1 Tianji recipe uses the same key for its checkpoint and additionally accepts
+`paths.norm_stats` and `paths.vlm_processor`. These fields do not change training
+configuration, normalization convention or action semantics.
 
 ## 4. Inspect the resolved configuration without connecting devices
 
@@ -165,6 +170,7 @@ runtime:        python -m manimux serve --config <experiment.yaml>
 camera server:  python -m manimux.servers.camera.server --experiment <experiment.yaml>
 Pi05 server:    python -m manimux.servers.pi05 --experiment <experiment.yaml>
 UMI_DP server:  python -m manimux.servers.umi_dp --experiment <experiment.yaml>
+XR-1 Tianji:    python manimux/servers/xiaomi_xr1_tianji_server.py --experiment <experiment.yaml>
 ```
 
 Select the appropriate model server, using its own Python environment. Append
@@ -184,6 +190,7 @@ Binding a station does not switch these experiment settings.
 | Camera `--experiment` | Uses the experiment's named camera components and the same station serials/listen addresses |
 | Pi05 `--experiment` or `--config` | Uses the selected station's policy service and checkpoint root |
 | UMI_DP `--experiment` | Uses the same policy service and checkpoint binding |
+| XR-1 Tianji launcher | Uses the selected station's policy service, checkpoint, normalization and optional processor bindings |
 | Camera / UMI_DP standalone `--config` | Reads that standalone server configuration; use `--experiment` for shared station bindings |
 | Viewer process | Still uses its own launch options for network addresses and the web port |
 | YAM collection | Still uses its own collection station file, including leader-device settings |

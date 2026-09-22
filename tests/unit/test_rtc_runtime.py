@@ -19,7 +19,6 @@ from manimux.runtime import build_runtime
 from manimux.runtime.edge import EdgeRuntime
 from manimux.runtime.rtc import (
     RtcInferenceRequest,
-    RtcRuntime,
     inpainting_condition,
     soft_mask,
 )
@@ -102,7 +101,7 @@ def test_sapolicy_rtc_profiles_build_with_process_decoding_without_hardware(tmp_
     config["sensors"] = []
     config["viewer"]["enabled"] = False
     runtime = build_runtime(config, tmp_path)
-    assert isinstance(runtime, RtcRuntime)
+    assert type(runtime) is EdgeRuntime
     assert runtime._decoder is not None
     assert not runtime._decoder._started
     assert runtime._strategy.required_sampling_modes == {"rtc"}
@@ -202,16 +201,16 @@ def test_default_runtime_is_unchanged() -> None:
         assert type(build_runtime(config, Path("/tmp"))) is EdgeRuntime, path
 
 
-def test_rtc_runtime_is_selected_by_config(tmp_path: Path) -> None:
+def test_rtc_strategy_is_selected_by_config(tmp_path: Path) -> None:
     config = load_config("tests/fixtures/runtime.yaml")
     config["inference"]["algorithm"] = "rtc"
     runtime = build_runtime(config, tmp_path)
 
-    assert isinstance(runtime, RtcRuntime)
+    assert type(runtime) is EdgeRuntime
     # Execution stays the default runtime's: same timeline, same executor.
     assert runtime._executor is not None
     assert type(runtime._timeline).__name__ == "ActionTimeline"
-    assert RtcRuntime.run is EdgeRuntime.run
+    assert runtime._strategy.required_sampling_modes == {"rtc"}
 
 
 def test_rtc_capability_is_checked_before_robot_connection(tmp_path: Path) -> None:
@@ -342,14 +341,14 @@ def test_execution_horizon_respects_the_feasibility_window(tmp_path: Path) -> No
     runtime = build_runtime(config, tmp_path)
 
     for delay in range(0, 13):
-        s = runtime._execution_horizon(30, delay)
+        s = runtime._strategy.execution_horizon(30, delay)
         assert delay <= s <= 30 - delay, (delay, s)
     # A large forecast squeezes s down rather than violating s <= H - d.
-    assert runtime._execution_horizon(30, 14) == 15
+    assert runtime._strategy.execution_horizon(30, 14) == 15
 
     # Beyond d > H/2 the window d <= s <= H-d is empty; the runtime must refuse
     # to submit rather than build a mask that violates the paper's constraint.
-    assert runtime._execution_horizon(30, 16) < 16
+    assert runtime._strategy.execution_horizon(30, 16) < 16
 
 
 def _run_mock(runtime_kind: str, tmp_path: Path, max_steps: int = 120):

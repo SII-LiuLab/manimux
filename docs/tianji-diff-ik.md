@@ -26,19 +26,20 @@ Use the same checkpoint binder as the analytic path:
 
 ```bash
 envs/umi_dp/.venv/bin/python manimux/servers/umi_dp.py \
+  --experiment manimux/configs/experiments/pass_ball/tianji_taccap_umi_dp_diff.yaml \
   --checkpoint /path/to/trusted/pass_ball.ckpt \
-  --ik-backend diff \
-  --diff-ik-config manimux/configs/embodiment/arm/tianji_diff_ik.yaml \
   --bind-runtime-config data/experiments/pass-ball-diff.yaml
 ```
 
-Add `--runtime-template manimux/configs/experiments/pass_ball/tianji_umi_dp_rtc.yaml` for RTC.
-The model, checkpoint identity and RTC sampler stay the same. IK selection is
-an embodiment setting. The binder writes these effective runtime options:
+The checked-in experiment contains the reviewed differential-IK settings. To adapt another
+Tianji experiment, pass `--ik-backend diff --diff-ik-config
+manimux/configs/embodiment/arm/tianji_diff_ik.yaml` while binding it. Select RTC with an
+RTC experiment entry. The model, checkpoint identity and RTC sampler stay the same. IK
+selection is an embodiment setting. The binder writes these effective runtime options:
 
 ```yaml
 policy:
-  options:
+  adapter:
     ik_backend: diff
     ik_validation_dt_s: 0.004
     diff_ik:
@@ -121,11 +122,12 @@ makes the new chunk independent of that hidden solver history.
 ## Timing and validation
 
 IK runs while **decoding a predicted chunk**, with SE(3) segments divided into
-at-most-`ik_validation_dt_s` steps (also respecting the QP dt cap). Each step gets
-its actual subdivision duration. The first knot uses its remaining target time
-with the existing minimum validation interval; later knots use checkpoint dt.
-Only final joint knots are retained. The shared executor then interpolates those
-joint knots and sends commands on control ticks. CalibWrist samples TCP at the
+at-most-`ik_validation_dt_s` steps (also respecting the QP dt cap). Each source knot uses
+the fixed policy action interval, and each QP substep gets its actual subdivision duration.
+The adapter retains every decoded source knot. At commit time, the shared timeline removes
+expired rows and starts from the first row at or after the execution boundary. Only final
+joint knots are retained. The shared executor then interpolates those joint knots and sends
+commands on control ticks. CalibWrist samples TCP at the
 control rate, solves each sample seeded from the preceding command, and retains
 all those dense joint commands; it can precompute an entire chunk, and its async
 path has a separate sender thread. The difference is which samples are retained
@@ -160,17 +162,33 @@ post-step flange Jacobian reused as the next step's start. A chained step droppe
 from ~205 us to ~95 us (OSQP itself ~7–8 us); decoding took ~28 ms for H16 and
 ~112 ms for H64. Against the previous code, verdicts were unchanged and joint
 differences stayed below 3e-13 rad over 7,684 recorded steps and 12 chunk decodes.
-This aggregate chunk work blocks the control thread, including executor smoothing;
-it exceeds a 250 Hz tick's 4 ms budget. These are different measurements from the
-duration of one IK solve. The new backend is offline integrated, with no claim
-that the current whole control chain meets 250 Hz deadlines. Process decoding
-with measured history and RTC still requires a separate runtime design review.
+On 2026-09-21 the same treatment was applied to the composed layer, where the
+assembled TCP kinematics had reintroduced per-substep work around the unchanged
+solver: `kinematics.base.rigid_transform` now writes out the allclose/isclose
+route it has always used (24 us to 3 us for identical verdicts over 7,909 cases,
+including reflections and perturbations at each tolerance), `ik` validates the
+target once instead of again inside `flange_target`, and the inverse mount/tool
+offset is kept for one tool state. IK remains arm-only; the tool contributes the
+constant TCP-to-flange change of frame, not a solve. A substep dropped from
+~190 us to ~127 us and a two-arm H16 decode from ~55 ms to ~37 ms. Replaying six
+frozen chunks (16 knots x 9 substeps, both arms) reproduced the previous joint
+trajectories bit for bit, and the full unit suite's failure set was unchanged.
+This aggregate chunk work must not block the control thread. The Tianji UMI
+profile therefore decodes the complete chunk in two isolated per-arm processes,
+then merges both results atomically. Both processes use the request observation
+state as their IK seed.
+The adapter converts every source knot with the fixed policy action interval;
+the shared timeline alone removes rows that have expired at the actual commit
+time, selecting the first source row at or after execution starts. Hardware-free
+process/RTC tests verify that the control loop continues ticking during decode
+and that either arm's failure rejects the whole chunk.
 
-Twenty-three differential/adapter tests plus twelve existing UMI tests passed,
+Before this main-layout adaptation, the refactor branch recorded twenty-three
+differential/adapter tests plus twelve existing UMI tests passing,
 including finite-difference Jacobians, velocity and dt caps, invalid inputs,
 empty boxes, J6/J7 conflicts/post-checks, lag guards, reset, profile conflicts,
 real H16/H64 chunk decoding and atomic rejection on the final right-arm action.
-The final combined viewer/session/config/executor/Tianji/camera/UMI/diff-IK and
+Its final combined viewer/session/config/executor/Tianji/camera/UMI/diff-IK and
 mock-runtime regression suite passed 218 tests in 13.02 seconds. Ruff passed
 on the changed source, scripts and tests. A real H16 checkpoint was bound with
 `--ik-backend diff --diff-ik-config manimux/configs/embodiment/arm/tianji_diff_ik.yaml` in the

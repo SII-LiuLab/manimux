@@ -1,1 +1,1 @@
-"""XR1YamAdapter observation and action conversion."""
+"""Xiaomi XR-1 observation and action adapters."""

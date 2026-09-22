@@ -1,7 +1,8 @@
-# 实验入口：选择本体、policy 与运行方式。用 --local 指定工位，不自动连接设备。
+# UMI_DP + Tianji-TacCap differential-IK experiment entry.
+# Keep execution and Viewer disabled until a bound checkpoint and station are reviewed.
 run:
   task: pass the ball between the two grippers
-  output_dir: ./data/experiments/umi-dp-tianji
+  output_dir: ./data/experiments/umi-dp-tianji-diff
   max_steps: 2400
 robot:
   type: tianji_taccap
@@ -14,7 +15,7 @@ robot:
     execute: false
     end_effector_control: false
     hardware:
-      stale_timeout_s: 0.1  # 保留原传球实验的反馈超时；本体默认仍为 0.2 s。
+      stale_timeout_s: 0.1
 sensors:
 - name: tianji_wrist_history
   driver: manimux.embodiments.sensor.camera_server.timestamped:build_sensor
@@ -31,11 +32,10 @@ sensors:
 viewer:
   enabled: false
   robot: tianji-taccap
-  policy_label: UMI DP Tianji
+  policy_label: UMI DP Tianji DiffIK
 recording:
   enabled: true
 policy:
-# UMI_DP 的 Tianji–TacCap 观察/动作约定。服务地址来自 local。
   worker: xpolicylab_ws
   action_decoding: process
   adapter:
@@ -59,7 +59,22 @@ policy:
     state_tolerance_s: 0.02
     camera_skew_s: 0.04
     ik_validation_dt_s: 0.004
-    ik_backend: analytic
+    ik_backend: diff
+    diff_ik:
+      # These bounds must match executor.motion_limits.arm.
+      max_velocity_rad_s: 0.9047786842338605
+      dt_max_s: 0.016
+      w_pos: 1.0
+      w_rot: 1.0
+      lam: 0.001
+      check_j67: true
+      mu_nullspace: 1000.0
+      nullspace_activation_deg: 25.0
+      limit_margin_deg: null
+      j67_margin_deg: null
+      max_lag_mm: 5.0
+      max_lag_deg: null
+      lag_policy: report
   horizon_steps: 16
   timeout_s: 30.0
   startup_timeout_s: 120.0
@@ -84,7 +99,6 @@ camera_server:
     right_wrist:
       component: right_wrist_camera
       type: taccap
-# 推理算法决定请求与 chunk 交接；执行器独立负责命令平滑和限幅。
 inference:
   algorithm: manimux
   config: ../../inference/tianji_taccap_manimux.yaml

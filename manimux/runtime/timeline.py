@@ -18,6 +18,7 @@ class CommitResult:
     accepted: bool
     reason: str
     trimmed_steps: int = 0
+    timeline_latency_ns: int = 0
 
 
 @dataclass(slots=True)
@@ -42,8 +43,23 @@ class _ActivePlan:
         return self.start_time_ns + intervals * self.dt_ns
 
 
+def _sample_plan(plan: _ActivePlan, time_ns: int) -> GroupVector | None:
+    if not plan.start_time_ns <= time_ns <= plan.end_time_ns:
+        return None
+    if plan.hold_last_step and time_ns >= plan.end_time_ns:
+        return None
+    position = (time_ns - plan.start_time_ns) / plan.dt_ns
+    lower = min(int(np.floor(position)), plan.horizon_steps - 1)
+    upper = min(lower + 1, plan.horizon_steps - 1)
+    alpha = min(position - lower, 1.0)
+    return {
+        name: (1.0 - alpha) * values[lower] + alpha * values[upper]
+        for name, values in plan.groups.items()
+    }
+
+
 class ActionTimeline:
-    """Single-plan, time-indexed, atomically replaced action reference."""
+    """Time-indexed action reference; a commit_lead window still plays the outgoing plan."""
 
     def __init__(
         self,
@@ -58,6 +74,8 @@ class ActionTimeline:
         self._start_on_commit = start_on_commit
         self._group_dims = dict(group_dims)
         self._active: _ActivePlan | None = None
+        # Kept only to cover the commit_lead window before _active starts.
+        self._outgoing: _ActivePlan | None = None
         self._accepted_request_seq = -1
 
     @property
@@ -104,6 +122,7 @@ class ActionTimeline:
         current_command: GroupVector,
         blend_steps: int,
     ) -> CommitResult:
+        """Validate, time-align, trim, and activate a new action chunk."""
         if chunk.request_seq <= self._accepted_request_seq:
             return CommitResult(False, "stale_request_seq")
         if now_ns - chunk.observation_time_ns > max_plan_age_ns:
@@ -118,9 +137,19 @@ class ActionTimeline:
             if chunk.groups[name].shape[1] != dim or current_command[name].shape != (dim,):
                 return CommitResult(False, f"dimension_mismatch:{name}")
 
+        # Wall-clock time at which the committed plan starts executing.
         start_time_ns = now_ns + commit_lead_ns
+        # Elapsed source-trajectory time when execution starts.
         age_at_commit_ns = max(0, start_time_ns - chunk.observation_time_ns)
-        source_cursor = int(age_at_commit_ns // chunk.dt_ns)
+        # First source row whose timestamp is not earlier than start_time_ns.
+        # An exact row boundary keeps that row; a start between rows discards
+        # the earlier row instead of retiming an already-expired target.
+        source_cursor = int(
+            (age_at_commit_ns + chunk.dt_ns - 1) // chunk.dt_ns
+            if age_at_commit_ns
+            else 0
+        )
+        # Rows to remove from this chunk, excluding rows already removed upstream.
         trimmed_steps = (
             0 if self._start_on_commit else max(0, source_cursor - chunk.source_offset_steps)
         )
@@ -156,24 +185,29 @@ class ActionTimeline:
             observation_time_ns=chunk.observation_time_ns,
             hold_last_step=self._start_on_commit,
         )
+        self._outgoing = self._active
         self._active = new_plan
         self._accepted_request_seq = chunk.request_seq
-        return CommitResult(True, "accepted", trimmed_steps)
+        return CommitResult(
+            True,
+            "accepted",
+            trimmed_steps=trimmed_steps,
+            timeline_latency_ns=age_at_commit_ns,
+        )
+
+    def _plan_at(self, time_ns: int) -> _ActivePlan | None:
+        """The plan that owns ``time_ns``: the outgoing one until _active starts."""
+        active = self._active
+        if active is not None and time_ns < active.start_time_ns:
+            # With commit_lead > 0 a committed plan starts slightly in the future.
+            # Keep executing the outgoing plan across that window; dropping to a
+            # measured-state hold would yank the command back by the tracking error.
+            return self._outgoing
+        return active
 
     def sample(self, time_ns: int) -> GroupVector | None:
-        active = self._active
-        if active is None or time_ns < active.start_time_ns or time_ns > active.end_time_ns:
-            return None
-        if active.hold_last_step and time_ns >= active.end_time_ns:
-            return None
-        position = (time_ns - active.start_time_ns) / active.dt_ns
-        lower = min(int(np.floor(position)), active.horizon_steps - 1)
-        upper = min(lower + 1, active.horizon_steps - 1)
-        alpha = min(position - lower, 1.0)
-        return {
-            name: (1.0 - alpha) * values[lower] + alpha * values[upper]
-            for name, values in active.groups.items()
-        }
+        plan = self._plan_at(time_ns)
+        return None if plan is None else _sample_plan(plan, time_ns)
 
     def reference_horizon(
         self,
@@ -182,7 +216,9 @@ class ActionTimeline:
         dt_ns: int,
         horizon_steps: int,
     ) -> ActionHorizon | None:
-        active = self._active
+        # Report the plan that owns now_ns: across a commit_lead window the
+        # executor is still tracking the outgoing plan, not the committed one.
+        active = self._plan_at(now_ns)
         if active is None:
             return None
         samples: dict[str, list[np.ndarray]] = {name: [] for name in self._group_dims}
@@ -213,7 +249,7 @@ class ActionTimeline:
         )
 
     def _tracking_sample(self, now_ns: int) -> GroupVector | None:
-        active = self._active
+        active = self._plan_at(now_ns)
         if active is None or active.unblended_groups is None:
             return None
         position = np.clip(

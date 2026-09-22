@@ -56,9 +56,10 @@ def main():
         previous = RobotState(
             {key: value.copy() for key, value in state.groups.items()}, 900000000, 0
         )
+        camera_names = tuple(dict.fromkeys(config["policy"]["adapter"]["camera_map"].values()))
         frames = {
             name: SensorFrame(name, np.zeros((8, 8, 3), np.uint8), state.monotonic_ns, 1)
-            for name in ("left_wrist", "right_wrist", "left_wrist_prev", "right_wrist_prev")
+            for name in camera_names
         }
         window = WindowSnapshot(state, frames, ObservationSnapshot(previous, frames))
         actions = []
@@ -75,7 +76,13 @@ def main():
             adapter.prepare_request(InferenceRequest("bench", repeat, 1000000000, 10**12, window))
             begin = time.perf_counter()
             chunk = adapter.decode_action(
-                {"actions": actions}, ActionContext(repeat, 1000000000, 1000000000)
+                {"actions": actions},
+                ActionContext(
+                    repeat,
+                    state.monotonic_ns,
+                    state.monotonic_ns,
+                    measured_state=state,
+                ),
             )
             timings.append((time.perf_counter() - begin) * 1000)
         assert chunk.horizon_steps == horizon

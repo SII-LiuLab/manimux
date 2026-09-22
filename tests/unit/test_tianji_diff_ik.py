@@ -217,7 +217,7 @@ def test_real_diff_adapter_chunk_timing_and_atomic_rejection(horizon, offset):
     config = load_config(ROOT / "manimux/configs/experiments/pass_ball/tianji_umi_dp_default.yaml")
     config["robot"]["type"] = "mock"
     config["policy"]["horizon_steps"] = horizon
-    config["policy"]["options"].update(ik_backend="diff", first_action_offset_s=offset)
+    config["policy"]["adapter"].update(ik_backend="diff", first_action_offset_s=offset)
     bind_diff_ik_profile(config)
     adapter = UmiDpTianjiAdapter(config["robot"], config["policy"])
     state = RobotState({side + "_arm": np.r_[START, 0.8] for side in ("left", "right")}, 10**9, 1)
@@ -237,7 +237,9 @@ def test_real_diff_adapter_chunk_timing_and_atomic_rejection(horizon, offset):
             action[side + "_ee_joint_state"] = np.array([0.8])
         actions.append(action)
     adapter.prepare_request(InferenceRequest("test", 1, 10**9, 2 * 10**9, window))
-    chunk = adapter.decode_action({"actions": actions}, ActionContext(1, 10**9, 10**9))
+    chunk = adapter.decode_action(
+        {"actions": actions}, ActionContext(1, 10**9, 10**9, measured_state=state)
+    )
     assert chunk.horizon_steps == horizon
     assert chunk.observation_time_ns == 10**9 + round(offset * 1e9)
     assert chunk.metadata["ik_backend"] == "diff"
@@ -253,13 +255,16 @@ def test_real_diff_adapter_chunk_timing_and_atomic_rejection(horizon, offset):
     adapter.prepare_request(InferenceRequest("test", 2, 10**9, 2 * 10**9, window))
     actions[-1]["right_ee_pose"][0] += 0.3
     with pytest.raises(ValueError, match="tracking_lag; rejecting the entire chunk"):
-        adapter.decode_action({"actions": actions}, ActionContext(2, 10**9, 10**9))
-    assert 2 not in adapter.anchors
+        adapter.decode_action(
+            {"actions": actions}, ActionContext(2, 10**9, 10**9, measured_state=state)
+        )
     # The report policy keeps that bounded, lagging chunk and records the lag.
     config["policy"]["adapter"]["diff_ik"]["lag_policy"] = "report"
     reporting = UmiDpTianjiAdapter(config["robot"], config["policy"])
     reporting.prepare_request(InferenceRequest("test", 3, 10**9, 2 * 10**9, window))
-    chunk = reporting.decode_action({"actions": actions}, ActionContext(3, 10**9, 10**9))
+    chunk = reporting.decode_action(
+        {"actions": actions}, ActionContext(3, 10**9, 10**9, measured_state=state)
+    )
     lag = chunk.metadata["diff_ik_lag"]
     assert lag["right"]["lag_exceedances"] > 0
     assert lag["right"]["worst_lag_mm"] > reporting.diff_solvers["right"].config.max_lag_mm

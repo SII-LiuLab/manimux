@@ -102,9 +102,9 @@ class ActionContext:
     # adapters may use this to discard source waypoints that are already in the
     # past before doing expensive or failure-prone embodiment conversion (IK).
     execution_time_ns: int | None = None
-    # Latest measured state at response handling time.  This is intentionally
-    # separate from the observation embedded in the policy request: the latter
-    # defines the trajectory clock, while the former is the safest IK seed.
+    # Robot state selected by the runtime as the embodiment-conversion seed.
+    # Most adapters receive the response-time state/reference; adapters whose
+    # full trajectory starts at row 0 may request the request-observation state.
     measured_state: RobotState | None = None
     max_source_steps: int | None = None
     decode_budget_ms: float | None = None
@@ -113,19 +113,16 @@ class ActionContext:
 
 @dataclass(slots=True)
 class ActionChunk:
-    plan_id: str
-    request_seq: int
-    observation_time_ns: int
-    created_time_ns: int
-    action_space: str
-    dt_ns: int
-    groups: GroupTrajectory
-    # Number of leading policy-source rows already removed by the adapter.
-    # Keeping this separate preserves observation_time_ns for plan-age checks.
-    source_offset_steps: int = 0
-    metadata: dict[str, object] = field(default_factory=dict)
-    # First invalid row per group, relative to this chunk (before timeline trim).
-    hold_from_step: dict[str, int] = field(default_factory=dict)
+    plan_id: str  # Unique identifier for this action plan.
+    request_seq: int  # Inference request sequence number.
+    observation_time_ns: int  # Monotonic anchor for source step 0, usually observation time.
+    created_time_ns: int  # Monotonic time when policy inference finished.
+    action_space: str  # Coordinate or command representation of the actions.
+    dt_ns: int  # Nanoseconds between consecutive trajectory rows.
+    groups: GroupTrajectory  # Per-group arrays shaped (horizon, dimension).
+    source_offset_steps: int = 0  # Leading source rows already removed by the adapter.
+    metadata: dict[str, object] = field(default_factory=dict)  # Adapter-specific plan details.
+    hold_from_step: dict[str, int] = field(default_factory=dict)  # First invalid row by group.
 
     def __post_init__(self) -> None:
         if self.dt_ns <= 0:

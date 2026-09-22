@@ -32,6 +32,9 @@ from manimux.types import (
 
 ROOT = Path(__file__).resolve().parents[2]
 ASSEMBLY = ROOT / "manimux/configs/embodiment/robot/tianji_taccap.yaml"
+DIFF_EXPERIMENT = (
+    ROOT / "manimux/configs/experiments/pass_ball/tianji_taccap_umi_dp_diff.yaml"
+)
 Q = np.radians([21.8, -41, -4.74, -63.67, 10.15, 14.72, 7.68])
 
 
@@ -233,13 +236,35 @@ def test_new_recipe_keeps_original_timing_and_control_envelopes():
         new["policy"]["adapter"]["first_action_offset_s"]
         == old["policy"]["adapter"]["first_action_offset_s"]
     )
-    assert new["inference"] == old["inference"]
+    forecast_keys = {"expected_decode_s", "decode_forecast_size", "decode_forecast_mode"}
+    assert {key: value for key, value in new["inference"].items() if key not in forecast_keys} == {
+        key: value for key, value in old["inference"].items() if key not in forecast_keys
+    }
+    assert new["inference"]["expected_decode_s"] == 0.06
+    assert new["inference"]["decode_forecast_size"] == 10
+    assert new["inference"]["decode_forecast_mode"] == "max"
     assert new["executor"] == old["executor"]
     assert not new["robot"]["options"]["execute"]
     assert not new["robot"]["options"]["end_effector_control"]
     robot = build_robot(new["robot"], SystemClock())
     assert robot.controller._robot is None
     robot.close()
+
+
+def test_diff_ik_experiment_is_complete_and_matches_motion_profile():
+    from manimux.policy_adapter.umi_dp.history import HistoryStrategy
+    from manimux.policy_adapter.umi_dp.ik_config import bind_diff_ik_profile
+
+    config = load_config(DIFF_EXPERIMENT)
+    options = config["policy"]["adapter"]
+    motion = config["executor"]["motion_limits"]["arm"]
+    assert options["ik_backend"] == "diff"
+    assert options["diff_ik"]["max_velocity_rad_s"] == motion["max_velocity"]
+    assert options["diff_ik"]["dt_max_s"] == motion["max_step_dt_s"]
+    assert options["diff_ik"]["check_j67"]
+    assert config["policy"]["action_decoding"] == "process"
+    bind_diff_ik_profile(config)
+    HistoryStrategy(config)
 
 
 def test_renaming_camera_frames_preserves_pixels_time_and_sequence(monkeypatch):

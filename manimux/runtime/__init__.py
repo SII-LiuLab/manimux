@@ -9,6 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from manimux.runtime.decode_forecast import FORECAST_MODES
 from manimux.runtime.inference import build_inference_strategy
 
 if TYPE_CHECKING:
@@ -34,13 +35,7 @@ def build_runtime(
     from manimux.runtime.edge import EdgeRuntime
 
     strategy = build_inference_strategy(config)
-    # A history plugin can delegate to RTC while retaining its observation and
-    # condition alignment hooks. Only the literal built-in uses RtcRuntime.
-    if config["inference"]["algorithm"] != "rtc" or config["inference"].get("strategy"):
-        return EdgeRuntime(config, run_dir, strategy=strategy, launch_mode=launch_mode)
-    from manimux.runtime.rtc import RtcRuntime
-
-    return RtcRuntime(config, run_dir, strategy=strategy, launch_mode=launch_mode)
+    return EdgeRuntime(config, run_dir, strategy=strategy, launch_mode=launch_mode)
 
 
 __all__ = ["EdgeRuntime", "RunResult", "build_runtime"]
@@ -111,6 +106,8 @@ def inference_parameters(*, executor: dict, **options) -> dict:
         "independent_group_decoding": False,
         "decode_budget_ms": 40.0,
         "expected_decode_s": 0.0,
+        "decode_forecast_size": 0,
+        "decode_forecast_mode": "max",
         "rtc": {},
         "temporal_ensemble": {},
         "aac": {},
@@ -173,6 +170,15 @@ def validate_runtime_parameters(config: dict) -> None:
         and config["policy"]["action_decoding"] != "process"
     ):
         raise ValueError("inference.expected_decode_s requires process action decoding")
+    # A positive expected_decode_s already implies process decoding, checked above.
+    if (
+        config["inference"]["decode_forecast_size"]
+        and not config["inference"]["expected_decode_s"]
+    ):
+        raise ValueError(
+            "inference.decode_forecast_size requires a positive expected_decode_s "
+            "to use as its initial estimate and lower bound"
+        )
     if (
         config["inference"]["max_chunk_steps"] is not None
         and config["inference"]["max_chunk_steps"] > config["policy"]["horizon_steps"]
@@ -219,6 +225,8 @@ def validate_runtime_parameters(config: dict) -> None:
 
 def validate_inference_parameters(values: dict, executor: dict, *, provided=frozenset()) -> None:
     """检查调度和执行方式的组合；provided 仅用于识别 YAML 中明确给出的字段。"""
+    if values["decode_forecast_mode"] not in FORECAST_MODES:
+        raise ValueError(f"inference.decode_forecast_mode must be one of {FORECAST_MODES}")
     if values["inference_schedule"] == "serial":
         if values["algorithm"] != "manimux":
             raise ValueError("serial scheduling requires inference.algorithm=manimux")

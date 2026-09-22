@@ -72,6 +72,9 @@ tests/
 
 !/tests/unit/test_tianji_policy_assembly.py
 !/tests/unit/test_local_config.py
+!/tests/unit/test_xr1_tianji_taccap.py
+!/tests/unit/test_decode_forecast.py
+!/tests/unit/test_abort_detail.py
 
 # Private embodiment SDKs and robot assets stay on the local installation.
 /manimux/embodiments/**/sdk/
@@ -100,3 +103,6 @@ tests/
 # Test-source inclusion above must not include generated Python bytecode.
 **/__pycache__/
 *.py[cod]
+
+# Local backup of the pre-refactor package tree; the active package is /manimux.
+/src/
