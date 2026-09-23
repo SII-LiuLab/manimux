@@ -68,7 +68,6 @@ camera_server:
 inference:
   algorithm: manimux
   config: ../../inference/tianji_taccap_manimux.yaml
-  expected_decode_s: 0.0
 executor:
   type: smooth
   config: ../../executor/tianji_taccap_smooth.yaml

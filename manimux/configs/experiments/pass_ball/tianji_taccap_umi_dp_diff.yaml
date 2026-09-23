@@ -101,7 +101,7 @@ camera_server:
       type: taccap
 inference:
   algorithm: manimux
-  config: ../../inference/tianji_taccap_manimux.yaml
+  config: ../../inference/tianji_taccap_umi_dp.yaml
 executor:
   type: smooth
   config: ../../executor/tianji_taccap_smooth.yaml
