@@ -9,6 +9,7 @@ from manimux.policy_adapter.umi_dp import tianji as policy_plugin
 from scipy.spatial.transform import Rotation
 
 from manimux.cli import load_config
+from manimux.policies.base import action_interval
 from manimux.policy_adapter.umi_dp.history import (
     HistoryStrategy,
     MeasuredHistory,
@@ -421,3 +422,48 @@ def test_pause_submits_and_commits_nothing_only_when_the_strategy_asks(
     assert edge.RuntimeState.RUNNING in submitted_while
     # Only the opt-in strategy stops inference during the pause; the default is unchanged.
     assert (edge.RuntimeState.PAUSED in submitted_while) is not discard
+
+
+def _bound_umi_config():
+    config = load_config(ROOT / "manimux/configs/experiments/pass_ball/tianji_umi_dp_rtc.yaml")
+    identity = config["policy"]["expected_backend"]["model"]
+    identity.update(
+        checkpoint_sha256="offline-test",
+        training_config_sha256="offline-test",
+        checkpoint_path="offline-test",
+        weight_key="ema",
+        rgb_normalize=True,
+        action_horizon=config["policy"]["horizon_steps"],
+        action_dt_s=action_interval(config["policy"]),
+        first_action_offset_s=config["policy"]["adapter"]["first_action_offset_s"],
+        observation_period_s=config["policy"]["adapter"]["observation_period_s"],
+    )
+    config["policy"]["adapter"]["deployment_bound"] = True
+    return config
+
+
+def test_execution_phase_is_independent_of_the_trained_offset():
+    # The identity entry records what the checkpoint was trained with; the
+    # adapter entry is the phase this station executes at. A station may run
+    # rows at their observation time without re-binding the checkpoint.
+    config = _bound_umi_config()
+    config["policy"]["adapter"]["first_action_offset_s"] = 0.0
+    adapter = policy_plugin.UmiDpTianjiAdapter(config["robot"], config["policy"])
+    assert adapter.offset_ns == 0
+    assert config["policy"]["expected_backend"]["model"]["first_action_offset_s"] != 0.0
+
+
+@pytest.mark.parametrize("offset", [-0.001, float("nan")])
+def test_execution_phase_must_be_finite_and_non_negative(offset):
+    config = _bound_umi_config()
+    config["policy"]["adapter"]["first_action_offset_s"] = offset
+    with pytest.raises(ValueError, match="finite and non-negative"):
+        policy_plugin.UmiDpTianjiAdapter(config["robot"], config["policy"])
+
+
+@pytest.mark.parametrize("key", ["action_horizon", "action_dt_s", "observation_period_s"])
+def test_the_remaining_checkpoint_identity_keys_still_pin_the_runtime(key):
+    config = _bound_umi_config()
+    config["policy"]["expected_backend"]["model"][key] = 0.123
+    with pytest.raises(ValueError, match=f"Runtime {key} differs"):
+        policy_plugin.UmiDpTianjiAdapter(config["robot"], config["policy"])

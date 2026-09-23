@@ -110,9 +110,19 @@ class UmiDpTianjiAdapter(PolicyAdapter):
         if list(robot["group_dims"].items()) != [("left_arm", 8), ("right_arm", 8)]:
             raise ValueError("UMI Tianji requires left_arm/right_arm with 7+1 values")
         options = policy["adapter"]
-        for key in ("first_action_offset_s", "observation_period_s"):
-            if not np.isfinite(options.get(key, np.nan)) or options[key] <= 0:
-                raise ValueError(f"Bind the checkpoint {key} before constructing the adapter")
+        if not np.isfinite(options.get("observation_period_s", np.nan)) or (
+            options["observation_period_s"] <= 0
+        ):
+            raise ValueError(
+                "Bind the checkpoint observation_period_s before constructing the adapter"
+            )
+        # The offset places row 0 on the wall clock, so zero is a meaningful
+        # deployment choice: execute each row at the observation time it was
+        # predicted for rather than one source frame later.
+        if not np.isfinite(options.get("first_action_offset_s", np.nan)) or (
+            options["first_action_offset_s"] < 0
+        ):
+            raise ValueError("adapter.first_action_offset_s must be finite and non-negative")
         identity = {} if policy["expected_backend"] is None else policy["expected_backend"]["model"]
         if identity.get("action_semantics") != SEMANTICS:
             raise ValueError(
@@ -132,10 +142,13 @@ class UmiDpTianjiAdapter(PolicyAdapter):
             )
             if not options.get("deployment_bound") or any(key not in identity for key in required):
                 raise ValueError("Bind UMI checkpoint identity before using the Tianji driver")
+            # first_action_offset_s is deliberately absent: the identity entry
+            # records what the checkpoint was trained with, while the adapter
+            # entry is the phase this station executes at. The remaining three
+            # still pin the runtime to the bound checkpoint.
             for key, value in (
                 ("action_horizon", policy["horizon_steps"]),
                 ("action_dt_s", action_interval(policy)),
-                ("first_action_offset_s", options["first_action_offset_s"]),
                 ("observation_period_s", options["observation_period_s"]),
             ):
                 if identity[key] != value:
