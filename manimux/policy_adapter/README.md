@@ -17,7 +17,7 @@ policy:
       cam_left_wrist: left_camera
       cam_right_wrist: right_camera
   action_dt_s: 0.03333333333333333
-  horizon_steps: 50
+  horizon_policy_steps: 50
   options:
     server: ws://127.0.0.1:8500
 ```

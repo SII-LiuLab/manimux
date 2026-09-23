@@ -21,13 +21,15 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--repeats", type=int, default=3)
     args = parser.parse_args()
-    cfg = load_config("manimux/configs/experiments/put_bottles/yam_sapolicy_manimux_direct_async.yaml")
+    cfg = load_config(
+        "manimux/configs/experiments/put_bottles/yam_sapolicy_manimux_direct_async.yaml"
+    )
     source = args.recorded_diagnostics
     predictions = np.load(source / "offline-ik-profile.npz")
     signals = np.load(source / "signals.npz")
     profile = json.loads((source / "offline-ik-profile.json").read_text())
     # Historical fixtures can have a shorter horizon than the live deployment.
-    cfg["policy"]["horizon_steps"] = int(predictions["1_wire"].shape[0])
+    cfg["policy"]["horizon_policy_steps"] = int(predictions["1_wire"].shape[0])
     adapter = SAPolicyYamAdapter(cfg["robot"], cfg["policy"])
     decoder = ActionDecoderClient(cfg["robot"], cfg["policy"], adapter)
     adapter.warmup_decode(None)

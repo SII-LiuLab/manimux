@@ -180,8 +180,9 @@ config 或 norm stats 都会返回 `status: blocked`，且不会加载 GPU 模�
 检查器同时读取 `manimux/configs/experiments/pick_red_object/yam_lingbot_vla2_manimux.yaml`，要求：
 
 - `policy.action_dt_s == 1 / native_hz`；
-- `policy.horizon_steps == action_horizon`；
-- relative checkpoint 必须使用 `policy.adapter: lingbot_vla2_yam`；
+- `policy.horizon_policy_steps == action_horizon`；
+- relative checkpoint 必须使用
+  `policy.adapter.type: manimux.policy_adapter.lingbot_vla2.yam:LingBotVLA2YamAdapter`；
 - baseline `inference.algorithm == manimux`。
 
 所以训练产物与执行时序不一致时会在模型加载前失败，而不是在真机循环中静默
@@ -196,7 +197,7 @@ envs/yam/.venv/bin/python scripts/validation/check_lingbot_vla2_yam.py \
 ```
 
 除相同的 Hz/dt/horizon 契约外，它还验证 sampler capability、`beta > 0`、delay
-buffer，以及 `delay <= min_execute_steps <= horizon - delay`。
+buffer，以及 `delay <= min_execute_policy_steps <= horizon - delay`。
 
 审计现有 foundation checkpoint 的 55 维投影：
 
@@ -419,5 +420,5 @@ ManiMux RtcRuntime
 
 当前 step-15000 post-training checkpoint/stats 已接入 sampler RTC，静态配置与 CPU
 guidance 测试已经通过；尚缺真实 GPU conditioned RTC forward 与真机实测。
-`initial_delay_steps: 12` 和 `min_execute_steps: 20` 只满足静态约束，不代表已经完成
+`initial_delay_policy_steps: 12` 和 `min_execute_policy_steps: 20` 只满足静态约束，不代表已经完成
 RTC 延迟参数标定。

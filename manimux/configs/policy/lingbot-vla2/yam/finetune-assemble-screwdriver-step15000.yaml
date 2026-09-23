@@ -26,3 +26,10 @@ use_bf16: true
 use_fp32: false
 use_compile: false
 default_prompt: Assemble the screwdriver.
+
+# ManiMux derives the client handshake identity from this recipe.
+backend_identity:
+  fields: [action_horizon, checkpoint_variant, model_root, native_hz, norm_stats_path, task_name]
+  model:
+    policy_family: lingbot_vla2
+    action_semantics: anchor_relative_arm_absolute_gripper

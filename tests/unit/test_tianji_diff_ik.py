@@ -216,7 +216,7 @@ def test_real_diff_adapter_chunk_timing_and_atomic_rejection(horizon, offset):
 
     config = load_config(ROOT / "manimux/configs/experiments/pass_ball/tianji_umi_dp_default.yaml")
     config["robot"]["type"] = "mock"
-    config["policy"]["horizon_steps"] = horizon
+    config["policy"]["horizon_policy_steps"] = horizon
     config["policy"]["adapter"].update(ik_backend="diff", first_action_offset_s=offset)
     bind_diff_ik_profile(config)
     adapter = UmiDpTianjiAdapter(config["robot"], config["policy"])

@@ -31,6 +31,7 @@ def main():
     args = parser.parse_args()
     for path in (REPO, REPO / "XPolicyLab"):
         sys.path.insert(0, str(path))
+    from manimux.cli import read_experiment
     from XPolicyLab.policy.OpenWAM.model import validate_deployment
 
     config = yaml.safe_load(args.config.read_text())
@@ -49,8 +50,9 @@ def main():
         server_output = output.with_name(output.stem + "-server.yaml")
         if output.exists() or server_output.exists():
             raise FileExistsError("Refusing to overwrite bound deployment configs")
-        runtime = yaml.safe_load(
-            (REPO / "manimux/configs/experiments/put_bottles/yam_openwam_manimux.yaml").read_text()
+        runtime = read_experiment(
+            REPO / "manimux/configs/experiments/put_bottles/yam_openwam_manimux.yaml",
+            bind_local=False,
         )
         identity_keys = (
             "checkpoint_path",
@@ -64,7 +66,7 @@ def main():
         identity = {key: report[key] for key in identity_keys}
         runtime["policy"]["expected_backend"]["model"].update(identity)
         runtime["policy"]["adapter"]["deployment_bound"] = True
-        runtime["policy"]["horizon_steps"] = report["action_horizon"]
+        runtime["policy"]["horizon_policy_steps"] = report["action_horizon"]
         host = config.get("host", "127.0.0.1")
         if host in {"0.0.0.0", "::"}:
             host = "127.0.0.1"

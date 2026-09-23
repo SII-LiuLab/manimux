@@ -65,8 +65,8 @@ def test_infra_must_match_server_timing(monkeypatch: pytest.MonkeyPatch) -> None
     infra = {
         "robot": {"control_hz": 30.0},
         "policy": {
-            "adapter": {'type': 'manimux.policy_adapter.joint:JointAdapter'},
-            "horizon_steps": 50,
+            "adapter": {"type": "manimux.policy_adapter.joint:JointAdapter"},
+            "horizon_policy_steps": 50,
             "action_dt_s": 1 / 30,
         },
         'inference': {'algorithm': "manimux"}, 'executor': {},
@@ -96,13 +96,13 @@ def test_structurally_feasible_rtc_config_is_accepted(
     infra = {
         "robot": {"control_hz": 30.0},
         "policy": {
-            "adapter": {'type': 'manimux.policy_adapter.joint:JointAdapter'},
-            "horizon_steps": 50,
+            "adapter": {"type": "manimux.policy_adapter.joint:JointAdapter"},
+            "horizon_policy_steps": 50,
             "action_dt_s": 1 / 30,
         },
         'inference': {'algorithm': "rtc", 'rtc': {
-                "initial_delay_steps": 12,
-                "min_execute_steps": 20,
+                "initial_delay_policy_steps": 12,
+                "min_execute_policy_steps": 20,
                 "delay_buffer_size": 10,
                 "beta": 5.0,
             }}, 'executor': {},
@@ -136,8 +136,8 @@ def test_base_variant_is_reported_without_claiming_inference(
     infra = {
         "robot": {"control_hz": 30.0},
         "policy": {
-            "adapter": {'type': 'manimux.policy_adapter.joint:JointAdapter'},
-            "horizon_steps": 50,
+            "adapter": {"type": "manimux.policy_adapter.joint:JointAdapter"},
+            "horizon_policy_steps": 50,
             "action_dt_s": 1 / 30,
         },
         'inference': {'algorithm': "manimux"}, 'executor': {},

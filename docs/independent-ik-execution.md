@@ -2,7 +2,7 @@
 
 The SAPolicy braking profile enables `inference.independent_group_decoding` for
 independent bottle manipulation. Coupled tasks retain the default atomic decode
-failure behavior. The model still predicts 50 source rows; `max_chunk_steps: 25`
+failure behavior. The model still predicts 50 source rows; `max_chunk_policy_steps: 25`
 is now passed into decode, so the SA adapter skips expired rows and rows 25–49
 before IK. `source_offset_steps` prevents a second latency trim. All 50 absolute
 EEF wire predictions remain in `raw_model_eef` for diagnosis.

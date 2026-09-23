@@ -167,7 +167,7 @@ class DefaultChunkStrategy:
         del response, last_command
         return CommitSettings(
             current_command=copy_group_vector(measured),
-            blend_steps=self._config["inference"]["blend_steps"],
+            blend_steps=self._config["inference"]["blend_policy_steps"],
             anchor_source="measured_state",
         )
 

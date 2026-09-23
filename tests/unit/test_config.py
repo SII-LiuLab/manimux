@@ -7,13 +7,21 @@ from pathlib import Path
 import pytest
 import yaml
 
-from manimux.cli import load_config, prepare_experiment
+from manimux.cli import load_config, prepare_experiment, read_experiment
 from manimux.plugins import PluginError
 from manimux.policies.base import action_interval
 from manimux.runtime import build_runtime
 from manimux.runtime.executors.limits import arm_motion_parameters
 from manimux.runtime.executors.smooth import gripper_hysteresis_parameters
 from manimux.runtime.safety import command_safety_parameters
+
+
+def _collection_recipe() -> dict:
+    raw = yaml.safe_load(Path("manimux/configs/collection/yam/control.yaml").read_text())
+    raw["robot"]["config"] = str(
+        Path("manimux/configs/embodiment/robot/yam_dual.yaml").resolve()
+    )
+    return raw
 
 
 @pytest.mark.parametrize("action_variant", ["joint", "joint-ee"])
@@ -88,7 +96,10 @@ def test_control_profile_rejects_local_conflicts(tmp_path, field, value):
     target[parts[-1]] = value
     path = tmp_path / "local.yaml"
     path.write_text(yaml.safe_dump(raw))
-    with pytest.raises(ValueError, match="conflicts with control_profile"):
+    with pytest.raises(
+        ValueError,
+        match="conflicts with (control_profile|embodiment action_contract)",
+    ):
         load_config(path)
 
 
@@ -102,7 +113,7 @@ def test_control_profile_relative_path_and_safety_contract(tmp_path):
     }
     profile["command_safety"] = envelope
     (tmp_path / "shared.yaml").write_text(yaml.safe_dump(profile))
-    raw = yaml.safe_load(Path("manimux/configs/collection/yam/control.yaml").read_text())
+    raw = _collection_recipe()
     raw["control_profile"] = "shared.yaml"
     path = tmp_path / "local.yaml"
     path.write_text(yaml.safe_dump(raw))
@@ -134,7 +145,7 @@ def test_control_profile_rejects_recursive_inheritance(tmp_path):
     profile = yaml.safe_load(Path("manimux/configs/embodiment/robot/yam_control.yaml").read_text())
     profile["control_profile"] = "shared.yaml"
     (tmp_path / "shared.yaml").write_text(yaml.safe_dump(profile))
-    raw = yaml.safe_load(Path("manimux/configs/collection/yam/control.yaml").read_text())
+    raw = _collection_recipe()
     raw["control_profile"] = "shared.yaml"
     path = tmp_path / "local.yaml"
     path.write_text(yaml.safe_dump(raw))
@@ -147,7 +158,7 @@ def test_shared_finite_motion_limits_are_resolved_for_smooth_and_direct(tmp_path
     profile["motion_limits"]["arm"] = {"max_velocity": 0.5, "max_acceleration": 2.0}
     profile["motion_limits"]["gripper"].update(max_velocity=2.0, max_acceleration=10.0)
     (tmp_path / "shared.yaml").write_text(yaml.safe_dump(profile))
-    raw = yaml.safe_load(Path("manimux/configs/collection/yam/control.yaml").read_text())
+    raw = _collection_recipe()
     raw["control_profile"] = "shared.yaml"
     path = tmp_path / "local.yaml"
     for executor in ("direct", "smooth"):
@@ -178,7 +189,7 @@ def test_motion_mode_defaults_and_explicit_selection(tmp_path):
     assert arm_motion_parameters()["mode"] == "per_joint"
     with pytest.raises(ValueError):
         arm_motion_parameters(mode="unknown")
-    raw = yaml.safe_load(Path("manimux/configs/collection/yam/control.yaml").read_text())
+    raw = _collection_recipe()
     profile = yaml.safe_load(Path("manimux/configs/embodiment/robot/yam_control.yaml").read_text())
     profile["motion_limits"]["arm"].update(mode="isotropic", max_step_dt_s=0.016)
     (tmp_path / "shared.yaml").write_text(yaml.safe_dump(profile))
@@ -299,6 +310,58 @@ def test_expected_backend_requires_a_stable_identity_field() -> None:
         prepare_experiment(**payload)
 
 
+def test_policy_recipe_generates_backend_identity() -> None:
+    path = Path("manimux/configs/experiments/assemble_screwdriver/yam_pi05_manimux_step15000.yaml")
+    raw = read_experiment(path, bind_local=False)
+    server = raw["policy_server"]
+    identity = raw["policy"]["expected_backend"]["model"]
+
+    assert "backend_identity" not in server
+    assert identity["checkpoint_variant"] == server["checkpoint_variant"]
+    assert identity["model_root"] == server["model_path"]
+
+
+def test_explicit_step_units_are_the_runtime_contract(tmp_path) -> None:
+    raw = yaml.safe_load(Path("tests/fixtures/runtime.yaml").read_text())
+    path = tmp_path / "runtime.yaml"
+    path.write_text(yaml.safe_dump(raw))
+
+    config = load_config(path)
+    assert config["run"]["max_control_steps"] == 120
+    assert config["policy"]["horizon_policy_steps"] == 20
+    assert config["inference"]["blend_policy_steps"] == 2
+
+
+@pytest.mark.parametrize(
+    "path,field",
+    [
+        (("run",), "max_steps"),
+        (("policy",), "horizon_steps"),
+        (("executor", "mpc"), "horizon_steps"),
+        (("inference",), "blend_steps"),
+        (("inference",), "chunk_steps"),
+        (("inference",), "max_chunk_steps"),
+        (("inference", "rtc"), "initial_delay_steps"),
+        (("inference", "rtc"), "min_execute_steps"),
+        (("inference", "temporal_ensemble"), "query_interval_steps"),
+        (("inference", "paint"), "execution_steps"),
+        (("inference", "paint"), "initial_delay_steps"),
+        (("inference", "dvac"), "tail_steps"),
+        (("inference", "dvac"), "min_execution_steps"),
+        (("inference", "dvac"), "max_execution_steps"),
+    ],
+)
+def test_removed_step_fields_are_rejected(path: tuple[str, ...], field: str) -> None:
+    config = load_config("tests/fixtures/runtime.yaml")
+    target = config
+    for section in path:
+        target = target[section]
+    target[field] = 1
+
+    with pytest.raises(ValueError, match="unsupported"):
+        prepare_experiment(**config)
+
+
 def test_all_infra_configs_load() -> None:
     for path in sorted(Path("configs").glob("*/yam/infra/*.yaml")):
         load_config(path)
@@ -358,11 +421,11 @@ def test_unknown_inference_strategy_fails_before_runtime_construction(tmp_path: 
 
 def test_execution_prefix_rejects_incompatible_runtime_and_oversized_horizon():
     cfg = deepcopy(load_config("tests/fixtures/runtime.yaml"))
-    cfg["inference"]["max_chunk_steps"] = 25
+    cfg["inference"]["max_chunk_policy_steps"] = 25
     with pytest.raises(ValueError, match="must not exceed"):
         prepare_experiment(**cfg)
-    cfg["policy"]["horizon_steps"] = 50
-    assert prepare_experiment(**cfg)["inference"]["max_chunk_steps"] == 25
+    cfg["policy"]["horizon_policy_steps"] = 50
+    assert prepare_experiment(**cfg)["inference"]["max_chunk_policy_steps"] == 25
     cfg["inference"]["algorithm"] = "rtc"
     with pytest.raises(ValueError, match="ordinary ManiMux"):
         prepare_experiment(**cfg)

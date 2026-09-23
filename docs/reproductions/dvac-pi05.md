@@ -144,7 +144,7 @@ sampling:
 6. request again after exhaustion.
 
 This is not RTC or PAINT. Inference is not overlapped with execution, so a physical robot can hold
-after a short selected prefix while the next request runs. `blend_steps` is fixed to zero so Timeline
+after a short selected prefix while the next request runs. `blend_policy_steps` is fixed to zero so Timeline
 does not rewrite the paper-selected prefix.
 
 ## 5. Configuration
@@ -253,7 +253,7 @@ command during the next model request; this is expected behavior, not a missing 
 - [ ] Strict crossing is `V_s(k) > tau_s`, not `>=`.
 - [ ] XPolicy returns a full chunk; ManiMux alone truncates it.
 - [ ] Protocol reset clears the rolling buffer.
-- [ ] `blend_steps=0`; no RTC, AAC, PAINT or AutoHorizon mode is composed implicitly.
+- [ ] `blend_policy_steps=0`; no RTC, AAC, PAINT or AutoHorizon mode is composed implicitly.
 - [ ] Synchronous inference holds are reported rather than mislabeled as missing chunks.
 - [ ] Unit, GPU, WebSocket and hardware evidence remain separate.
 

@@ -42,8 +42,8 @@ class PaintInferenceStrategy:
         self._config = config
         paint = config["inference"]["paint"]
         self._group_order = tuple(config["robot"]["group_dims"])
-        self._execution_steps = int(paint["execution_steps"])
-        self._initial_delay_steps = int(paint["initial_delay_steps"])
+        self._execution_steps = int(paint["execution_policy_steps"])
+        self._initial_delay_steps = int(paint["initial_delay_policy_steps"])
         self._delay_buffer_size = int(paint["delay_buffer_size"])
         self._active_rows: np.ndarray | None
         self._active_offset: int
@@ -289,9 +289,12 @@ class PaintInferenceStrategy:
 def paint_parameters(**options) -> dict:
     """保留 PAINT 执行前缀与延迟估计的默认步数。"""
 
+    unsupported = {"execution_steps", "initial_delay_steps"}.intersection(options)
+    if unsupported:
+        raise ValueError(f"unsupported PAINT fields: {sorted(unsupported)}")
     values = {
-        "execution_steps": 10,
-        "initial_delay_steps": 4,
+        "execution_policy_steps": 10,
+        "initial_delay_policy_steps": 4,
         "delay_buffer_size": 10,
         **options,
     }

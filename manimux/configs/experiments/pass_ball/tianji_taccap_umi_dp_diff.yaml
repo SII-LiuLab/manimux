@@ -3,14 +3,11 @@
 run:
   task: pass the ball between the two grippers
   output_dir: ./data/experiments/umi-dp-tianji-diff
-  max_steps: 2400
+  max_control_steps: 2400
 robot:
   type: tianji_taccap
   config: ../../embodiment/robot/tianji_taccap.yaml
   control_hz: 100.0
-  group_dims:
-    left_arm: 8
-    right_arm: 8
   options:
     execute: false
     end_effector_control: false
@@ -37,17 +34,11 @@ recording:
   enabled: true
 policy:
   worker: xpolicylab_ws
+  service: policy
   action_decoding: process
   adapter:
     type: manimux.policy_adapter.umi_dp.tianji:UmiDpTianjiAdapter
     deployment_bound: false
-    group_order:
-    - left_arm
-    - right_arm
-    group_prefixes:
-      left_arm: left
-      right_arm: right
-    gripper_dofs: 1
     camera_map:
       cam_left_wrist: left_wrist_camera
       cam_right_wrist: right_wrist_camera
@@ -75,15 +66,9 @@ policy:
       max_lag_mm: 5.0
       max_lag_deg: null
       lag_policy: report
-  horizon_steps: 16
+  horizon_policy_steps: 16
   timeout_s: 30.0
   startup_timeout_s: 120.0
-  expected_backend:
-    server: xpolicylab_policy_server
-    model:
-      policy_family: umi_dp
-      observation_profile: tianji_umi_relative2
-      action_semantics: absolute_per_arm_base_xyz_wxyz
   options:
     connect_timeout_s: 30.0
     request_timeout_s: 30.0

@@ -35,11 +35,11 @@ def test_process_decoding_keeps_control_ticking_and_checks_actual_expiry(tmp_pat
     config = load_config("tests/fixtures/runtime.yaml")
     config["policy"]["adapter"]["type"] = f"{__name__}:build_slow_adapter"
     config["policy"]["action_decoding"] = "process"
-    config["policy"]["horizon_steps"] = 6 if expired else 20
+    config["policy"]["horizon_policy_steps"] = 6 if expired else 20
     config["policy"]["inference_delay_s"] = 0.01
     config["executor"]["type"] = "direct"
     config["inference"]["inference_schedule"] = "single_inflight"
-    config["run"]["max_steps"] = 100
+    config["run"]["max_control_steps"] = 100
     runtime = EdgeRuntime(config, tmp_path)
     result = runtime.run()
     events = [json.loads(s) for s in (result.episode_dir / "events.jsonl").read_text().splitlines()]
@@ -105,7 +105,7 @@ def test_pause_discards_pending_decode_and_resume_needs_fresh_observation(tmp_pa
     config["policy"]["action_decoding"] = "process"
     config["policy"]["inference_delay_s"] = 0.01
     config["inference"]["inference_schedule"] = "single_inflight"
-    config["run"]["max_steps"] = 120
+    config["run"]["max_control_steps"] = 120
     runtime = EdgeRuntime(config, tmp_path)
     runtime._viewer = PauseDuringDecode(runtime, home=home)
     result = runtime.run()
@@ -123,7 +123,7 @@ def test_decode_deadline_failure_closes_robot_and_children(tmp_path):
     config["policy"]["inference_delay_s"] = 0.001
     config["policy"]["timeout_s"] = 0.12
     config["inference"]["inference_schedule"] = "single_inflight"
-    config["run"]["max_steps"] = 100
+    config["run"]["max_control_steps"] = 100
     runtime = EdgeRuntime(config, tmp_path)
     with pytest.raises(TimeoutError, match="decoder exceeded"):
         runtime.run()
@@ -297,8 +297,8 @@ def test_independent_runtime_executes_left_while_right_worker_times_out(tmp_path
     config["robot"]["group_dims"] = {"left_arm": 2, "right_arm": 2}
     config["policy"]["adapter"]["type"] = f"{__name__}:build_partition_adapter"
     config["policy"]["action_decoding"] = "process"
-    config["policy"]["horizon_steps"] = 25
-    config["inference"]["max_chunk_steps"] = 25
+    config["policy"]["horizon_policy_steps"] = 25
+    config["inference"]["max_chunk_policy_steps"] = 25
     config["inference"]["independent_group_decoding"] = True
     config["inference"]["decode_budget_ms"] = 40
     config["inference"]["inference_schedule"] = "single_inflight"
@@ -311,7 +311,7 @@ def test_independent_runtime_executes_left_while_right_worker_times_out(tmp_path
         max_velocity=1,
         max_acceleration=12,
     )
-    config["run"]["max_steps"] = 110
+    config["run"]["max_control_steps"] = 110
     runtime = EdgeRuntime(config, tmp_path)
     result = runtime.run()
     assert result.accepted_plans >= 2

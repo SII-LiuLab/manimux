@@ -110,7 +110,7 @@ delay_steps: d
 - let `ActionTimeline.commit` trim the generated prefix that elapsed during inference;
 - reject a response when actual trimming exceeds the prefix length used during generation.
 
-PAINT configs require `blend_steps: 0`. Otherwise Timeline would rewrite the old chunk at commit,
+PAINT configs require `blend_policy_steps: 0`. Otherwise Timeline would rewrite the old chunk at commit,
 while the next PAINT request still conditions on its pre-blend values. Smooth/MPC execution limits and
 Safety remain explicit outer hardware layers; their effect must be reported separately from PAINT's
 chunk-space prefix consistency.

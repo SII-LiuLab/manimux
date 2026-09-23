@@ -5,29 +5,21 @@
 run:
   task: put the plastic bottles in the bin
   output_dir: ./data/abc/official_bottles_75k
-  max_steps: 5400
+  max_control_steps: 5400
 robot:
   config: ../../embodiment/robot/yam_dual.yaml
   control_hz: 30.0
-  group_dims:
-    left_arm: 7
-    right_arm: 7
   options:
     move_to_start_on_connect: false
     home_duration_s: 5.0
     home_on_close: true
     execute: true
-    component_hardware:
-      left_yam:
-        channel: can_left
-      right_yam:
-        channel: can_right
   type: yam
 sensors:
 - name: yam_cameras
   driver: camera_server
+  service: camera
   options:
-    endpoint: tcp://127.0.0.1:5555
     request_timeout_ms: 500
     max_frame_age_sec: 0.5
     camera_names:
@@ -36,20 +28,17 @@ sensors:
     - right_camera
 policy:
   worker: abc_http
+  service: policy_abc
   adapter:
     type: manimux.policy_adapter.abc_yam:AbcYamAdapter
-    group_order:
-    - left_arm
-    - right_arm
     camera_map:
       left_cam: left_camera
       top_cam: front_camera
       right_cam: right_camera
   action_dt_s: 0.03333333333333333
   timeout_s: 1.0
-  horizon_steps: 30
+  horizon_policy_steps: 30
   options:
-    server: http://127.0.0.1:8300
     diffusion_steps: 10
 viewer:
   enabled: true
@@ -60,11 +49,10 @@ recording:
   video_fps: 30.0
 inference:
   algorithm: manimux
-  inference_schedule: single_inflight
+  config: ../../inference/yam_manimux_single.yaml
   refill_threshold_s: 0.3
-  commit_lead_s: 0.0
   max_plan_age_s: 1.0
-  blend_steps: 0
-  max_chunk_steps: 15
+  blend_policy_steps: 0
+  max_chunk_policy_steps: 15
 executor:
   type: direct

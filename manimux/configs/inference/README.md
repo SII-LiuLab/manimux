@@ -11,6 +11,6 @@ file; references are relative to the experiment and expanded once.
 assemble measured observation history around the chosen `algorithm`; the algorithm
 is no longer hidden in `policy.options.history_strategy`.
 
-`chunk_steps` retains each algorithm's original meaning, such as RTC's minimum
+`chunk_policy_steps` retains each algorithm's original meaning, such as RTC's minimum
 execution prefix or PAINT's execution window. It does not change policy action
 interval, model horizon, robot control rate or executor smoothing.

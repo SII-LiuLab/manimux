@@ -104,7 +104,10 @@ def main() -> int:
 
         contract_checks = {
             "shape_matches_config": rows.shape
-            == (policy_config["horizon_steps"], sum(robot_config["group_dims"].values())),
+            == (
+                policy_config["horizon_policy_steps"],
+                sum(robot_config["group_dims"].values()),
+            ),
             "finite": bool(np.isfinite(rows).all()),
             "grippers_in_0_1": bool(np.all((grippers >= 0.0) & (grippers <= 1.0))),
             "absolute_position_limit": bool(np.all(np.abs(rows[:, arm_indices]) <= 3.14)),
@@ -126,7 +129,10 @@ def main() -> int:
                 1,
                 math.ceil(steady_latency_s / action_interval(policy_config)),
             )
-            executed_steps = max(config["inference"]["rtc"]["min_execute_steps"] or 1, delay_steps)
+            executed_steps = max(
+                config["inference"]["rtc"]["min_execute_policy_steps"] or 1,
+                delay_steps,
+            )
             if not delay_steps <= executed_steps <= len(rows) - delay_steps:
                 raise RuntimeError(
                     "steady inference latency is not RTC-feasible: "

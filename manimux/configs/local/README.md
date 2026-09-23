@@ -52,7 +52,9 @@ configuration directory.
 | TacCap gripper | `robot.components.<component>.serial` | Gripper serial number |
 | Component using a serial port | `robot.components.<component>.port` | The component's `/dev/tty…` or stable device path |
 | Policy client | `services.policy.endpoint` | Reachable server address, such as `ws://127.0.0.1:8500` |
+| Additional policy clients | `services.policy_secondary`, `policy_sapolicy`, `policy_molmoact`, `policy_abc` | Endpoints selected by an experiment's `policy.service` |
 | Camera clients/server | `services.camera` | Request, subscription and bind addresses, as below |
+| Additional camera client | `services.external_camera.endpoint` | Endpoint selected by a sensor's `service` field |
 | Pi05 checkpoint root | `paths.checkpoints` | Local root containing the checkpoint/stat subpaths selected by the experiment |
 | UMI_DP artifact | `paths.checkpoint` | Local checkpoint directory used by the UMI_DP artifact binding |
 | XR-1 artifact | `paths.checkpoint` | Local checkpoint file or directory containing `mp_rank_00_model_states.pt` |
@@ -92,6 +94,8 @@ requires configuration changes, not edits to SDK code or `self.channel`.
 Use `127.0.0.1` when the client and server run on the same computer. If Pi05 runs on another
 GPU computer, the policy endpoint must use that computer's reachable IP. A server can use
 `bind_host: 0.0.0.0` to listen on its network interfaces; a client uses the actual destination IP.
+Experiments select a named station service and no longer copy endpoint URLs. Keep the service
+name stable while changing its endpoint for another machine.
 
 The current camera templates use different transport modes:
 

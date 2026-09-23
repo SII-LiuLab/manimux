@@ -77,7 +77,7 @@ Normal rollouts do not require scoring; experiment rollouts require human labels
 starting the next rollout. See the [Viewer tutorial](viewer-tutorial.html) for controls.
 
 The current recipe uses **`robot.control_hz: 30.0`**. Its model horizon is 50, action-point
-spacing is `1/30 s`, and RTC `chunk_steps` is 12. Twelve is the execution threshold for
+spacing is `1/30 s`, and RTC `chunk_policy_steps` is 12. Twelve is the execution threshold for
 requesting another chunk, not a truncation of the model's entire output; the old chunk
 continues while inference finishes. This recipe does not interpolate 30 Hz model points
 into a 100 Hz command stream.

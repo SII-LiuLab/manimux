@@ -275,7 +275,7 @@ def test_new_recipe_preserves_joint_policy_and_execution_contract(fake_sdk):
 
     assert new["robot"]["control_hz"] == read_yaml(EXPERIMENT)["robot"]["control_hz"]
     assert new["policy"]["action_dt_s"] == old["policy"]["action_dt_s"]
-    assert new["policy"]["horizon_steps"] == old["policy"]["horizon_steps"]
+    assert new["policy"]["horizon_policy_steps"] == old["policy"]["horizon_policy_steps"]
     robot = build_robot(new["robot"], SystemClock())
     assert not fake_sdk[0]
     adapter = build_policy_adapter(new["robot"], new["policy"], kinematics=robot.kinematics)
@@ -287,7 +287,7 @@ def test_new_recipe_preserves_joint_policy_and_execution_contract(fake_sdk):
             "right_arm_joint_state": START[:6] + 0.01,
             "right_ee_joint_state": [0.7],
         }
-        for _ in range(new["policy"]["horizon_steps"])
+        for _ in range(new["policy"]["horizon_policy_steps"])
     ]
     chunk = adapter.decode_action(
         steps,

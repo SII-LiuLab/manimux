@@ -15,7 +15,7 @@ def test_same_policy_can_select_distinct_action_formats(tmp_path):
     """A service's wire contract, not its model name, determines the adapter."""
     fixture = yaml.safe_load(Path("tests/fixtures/runtime.yaml").read_text())
     fixture["robot"]["group_dims"] = {"arm": 3}
-    fixture["policy"].update(horizon_steps=3, action_dt_s=0.1)
+    fixture["policy"].update(horizon_policy_steps=3, action_dt_s=0.1)
     rows = np.array([[0.1, 0.2, 0.3], [0.2, 0.3, 0.4], [0.3, 0.4, 0.5]])
     structured = [{"arm_joint_state": row[:2], "ee_joint_state": row[2:]} for row in rows]
     context = ActionContext(request_seq=7, observation_time_ns=100, created_time_ns=200)
@@ -50,7 +50,9 @@ def test_same_policy_can_select_distinct_action_formats(tmp_path):
 
 def test_algorithm_and_executor_presets_are_independent_and_relative(tmp_path, monkeypatch):
     recipe = yaml.safe_load(Path("tests/fixtures/runtime.yaml").read_text())
-    (tmp_path / "inference.yaml").write_text("commit_lead_s: 0.01\nrtc:\n  min_execute_steps: 8\n")
+    (tmp_path / "inference.yaml").write_text(
+        "commit_lead_s: 0.01\nrtc:\n  min_execute_policy_steps: 8\n"
+    )
     (tmp_path / "executor.yaml").write_text("smooth:\n  cutoff_hz: 6.0\n")
     recipe["inference"] = {"algorithm": "rtc", "config": "inference.yaml"}
     recipe["executor"] = {"type": "smooth", "config": "executor.yaml"}
@@ -63,7 +65,7 @@ def test_algorithm_and_executor_presets_are_independent_and_relative(tmp_path, m
     path.write_text(yaml.safe_dump(recipe))
     ordinary = load_config(path)
 
-    assert rtc["inference"]["rtc"]["min_execute_steps"] == 8
+    assert rtc["inference"]["rtc"]["min_execute_policy_steps"] == 8
     assert rtc["inference"]["commit_lead_s"] == 0.01
     assert rtc["executor"]["smooth"]["cutoff_hz"] == 6.0
     assert ordinary["executor"] == rtc["executor"]

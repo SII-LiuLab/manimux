@@ -96,7 +96,9 @@ def test_rtc_request_passes_the_core_worker_contract() -> None:
 
 @pytest.mark.parametrize("view", ["top", "gemini305", "gemini335"])
 def test_sapolicy_rtc_profiles_build_with_process_decoding_without_hardware(tmp_path, view):
-    config = load_config(f"manimux/configs/experiments/put_bottles/yam_sapolicy_mv51_{view}_rtc.yaml")
+    config = load_config(
+        f"manimux/configs/experiments/put_bottles/yam_sapolicy_mv51_{view}_rtc.yaml"
+    )
     config["robot"]["type"] = "tests.support.robot:build_robot"
     config["sensors"] = []
     config["viewer"]["enabled"] = False
@@ -105,7 +107,7 @@ def test_sapolicy_rtc_profiles_build_with_process_decoding_without_hardware(tmp_
     assert runtime._decoder is not None
     assert not runtime._decoder._started
     assert runtime._strategy.required_sampling_modes == {"rtc"}
-    assert runtime._config["inference"]["max_chunk_steps"] is None
+    assert runtime._config["inference"]["max_chunk_policy_steps"] is None
 
 
 def test_policy_plugins_only_send_a_condition_when_one_is_present() -> None:
@@ -337,7 +339,7 @@ def test_runtime_package_binds_to_factories_not_to_a_policy_or_a_body() -> None:
 def test_execution_horizon_respects_the_feasibility_window(tmp_path: Path) -> None:
     config = load_config("tests/fixtures/runtime.yaml")
     config["inference"]["algorithm"] = "rtc"
-    config["inference"]["rtc"]["min_execute_steps"] = 15
+    config["inference"]["rtc"]["min_execute_policy_steps"] = 15
     runtime = build_runtime(config, tmp_path)
 
     for delay in range(0, 13):
@@ -356,12 +358,12 @@ def _run_mock(runtime_kind: str, tmp_path: Path, max_steps: int = 120):
     import json
 
     config = load_config("tests/fixtures/runtime.yaml")
-    config["run"]["max_steps"] = max_steps
+    config["run"]["max_control_steps"] = max_steps
     config["inference"]["algorithm"] = runtime_kind  # type: ignore[assignment]
     config["viewer"]["enabled"] = False
     if runtime_kind == "rtc":
-        config["inference"]["rtc"]["min_execute_steps"] = 8
-        config["inference"]["rtc"]["initial_delay_steps"] = 2
+        config["inference"]["rtc"]["min_execute_policy_steps"] = 8
+        config["inference"]["rtc"]["initial_delay_policy_steps"] = 2
     result = build_runtime(config, tmp_path).run()
     events = [
         json.loads(line)
@@ -385,12 +387,12 @@ def test_rtc_executes_chunks_exactly_like_the_default_runtime(tmp_path: Path) ->
 
     def run(kind: str) -> tuple[object, np.ndarray]:
         config = load_config("tests/fixtures/runtime.yaml")
-        config["run"]["max_steps"] = 200
+        config["run"]["max_control_steps"] = 200
         config["inference"]["algorithm"] = kind  # type: ignore[assignment]
         config["viewer"]["enabled"] = False
         if kind == "rtc":
-            config["inference"]["rtc"]["min_execute_steps"] = 8
-            config["inference"]["rtc"]["initial_delay_steps"] = 2
+            config["inference"]["rtc"]["min_execute_policy_steps"] = 8
+            config["inference"]["rtc"]["initial_delay_policy_steps"] = 2
         result = build_runtime(config, tmp_path / kind).run()
         ticks = zarr.open(str(Path(result.episode_dir) / "data.zarr"), mode="r")["ticks"]
         names = sorted(ticks["command"].array_keys())
@@ -441,12 +443,12 @@ def test_replanning_does_not_yank_the_command_back_to_the_measurement(
 
     def profile(kind: str) -> tuple[int, float]:
         config = load_config("tests/fixtures/runtime.yaml")
-        config["run"]["max_steps"] = 400
+        config["run"]["max_control_steps"] = 400
         config["inference"]["algorithm"] = kind  # type: ignore[assignment]
         config["viewer"]["enabled"] = False
         if kind == "rtc":
-            config["inference"]["rtc"]["min_execute_steps"] = 8
-            config["inference"]["rtc"]["initial_delay_steps"] = 2
+            config["inference"]["rtc"]["min_execute_policy_steps"] = 8
+            config["inference"]["rtc"]["initial_delay_policy_steps"] = 2
         result = build_runtime(config, tmp_path / kind).run()
         ticks = zarr.open(str(Path(result.episode_dir) / "data.zarr"), mode="r")["ticks"]
         names = sorted(ticks["command"].array_keys())
@@ -477,13 +479,13 @@ def _run_slow_policy(tmp_path: Path, inference_delay_s: float = 0.4) -> list[dic
     import json
 
     config = load_config("tests/fixtures/runtime.yaml")
-    config["run"]["max_steps"] = 300
+    config["run"]["max_control_steps"] = 300
     config["inference"]["algorithm"] = "rtc"
     config["viewer"]["enabled"] = False
     config["policy"]["inference_delay_s"] = inference_delay_s
     config["policy"]["timeout_s"] = 2.0
-    config["inference"]["rtc"]["min_execute_steps"] = 8
-    config["inference"]["rtc"]["initial_delay_steps"] = 2
+    config["inference"]["rtc"]["min_execute_policy_steps"] = 8
+    config["inference"]["rtc"]["initial_delay_policy_steps"] = 2
     result = build_runtime(config, tmp_path).run()
     return [
         json.loads(line)
@@ -508,7 +510,7 @@ def test_the_condition_indexes_the_model_chunk_not_the_trimmed_plan(tmp_path: Pa
     assert conditioned, "guidance never engaged once inference cost a third of a chunk"
     assert not _of(events, "rtc_delay_infeasible"), "the window must not collapse here"
 
-    horizon = load_config("tests/fixtures/runtime.yaml")["policy"]["horizon_steps"]
+    horizon = load_config("tests/fixtures/runtime.yaml")["policy"]["horizon_policy_steps"]
     for event in conditioned:
         delay, executed = event["forecast_delay"], event["executed_steps"]
         assert delay <= executed <= horizon - delay, (delay, executed, horizon)
@@ -523,14 +525,14 @@ def test_a_conditioned_chunk_commits_without_a_blend(tmp_path: Path) -> None:
     An unconditioned chunk keeps it: nothing guarantees that one lines up.
     """
     config = load_config("tests/fixtures/runtime.yaml")
-    config["run"]["max_steps"] = 300
+    config["run"]["max_control_steps"] = 300
     config["inference"]["algorithm"] = "rtc"
     config["viewer"]["enabled"] = False
     config["policy"]["inference_delay_s"] = 0.4
     config["policy"]["timeout_s"] = 2.0
-    config["inference"]["blend_steps"] = 6
-    config["inference"]["rtc"]["min_execute_steps"] = 8
-    config["inference"]["rtc"]["initial_delay_steps"] = 2
+    config["inference"]["blend_policy_steps"] = 6
+    config["inference"]["rtc"]["min_execute_policy_steps"] = 8
+    config["inference"]["rtc"]["initial_delay_policy_steps"] = 2
     runtime = build_runtime(config, tmp_path)
 
     seen: list[int] = []
@@ -544,5 +546,5 @@ def test_a_conditioned_chunk_commits_without_a_blend(tmp_path: Path) -> None:
     runtime.run()
 
     assert seen, "no chunk was ever committed"
-    assert seen[0] == config["inference"]["blend_steps"], "the first chunk is unconditioned"
+    assert seen[0] == config["inference"]["blend_policy_steps"], "the first chunk is unconditioned"
     assert 0 in seen[1:], "a conditioned chunk still went through the blend"

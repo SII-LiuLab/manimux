@@ -7,14 +7,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from manimux.embodiments.sensor.camera_server import CameraServerSensorDriver
 from manimux.cli import load_config
 from manimux.clock import SystemClock
 from manimux.embodiments.robot import build_robot
 from manimux.embodiments.robot.yam import YamRobot
 from manimux.embodiments.sensor import build_sensor
-from manimux.policies.abc import AbcHttpPolicyModel
+from manimux.embodiments.sensor.camera_server import CameraServerSensorDriver
 from manimux.policies import build_policy_model
+from manimux.policies.abc import AbcHttpPolicyModel
 from manimux.policies.base import action_interval
 from manimux.policy_adapter import build_policy_adapter
 from manimux.policy_adapter.abc_yam import AbcYamAdapter
@@ -30,7 +30,9 @@ from manimux.types import (
 def test_abc_run_config_swaps_only_the_policy_layer() -> None:
     """The point of the plugin split: ABC reuses YAM, the cameras and the viewer."""
     abc = load_config(Path("manimux/configs/experiments/put_bottles/yam_abc_manimux.yaml"))
-    molmoact = load_config(Path("manimux/configs/experiments/pick_red_object/yam_molmoact2_manimux.yaml"))
+    molmoact = load_config(
+        Path("manimux/configs/experiments/pick_red_object/yam_molmoact2_manimux.yaml")
+    )
 
     assert isinstance(build_robot(abc["robot"], SystemClock()), YamRobot)
     assert isinstance(build_sensor(abc["sensors"][0], SystemClock()), CameraServerSensorDriver)
@@ -80,10 +82,10 @@ def test_abc_live_config_matches_the_checkpoint_timing() -> None:
 
     # ABC-DiT was trained at 30 Hz with a fixed chunk_length of 30.
     assert config["run"]["task"] == "put the plastic bottles in the bin"
-    assert config["policy"]["horizon_steps"] == 30
+    assert config["policy"]["horizon_policy_steps"] == 30
     assert action_interval(config["policy"]) == pytest.approx(1.0 / 30.0, abs=1e-4)
     assert config["executor"]["type"] == "direct"
-    assert config["inference"]["blend_steps"] == 0
+    assert config["inference"]["blend_policy_steps"] == 0
     assert config["robot"]["options"]["home_on_close"] is True
 
 

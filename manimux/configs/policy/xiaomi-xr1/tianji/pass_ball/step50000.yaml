@@ -35,3 +35,6 @@ ego_view_mode: black
 # null means: synthesize the black image at the left-wrist input resolution.
 black_ego_shape: null
 default_prompt: Pass the ball between the two grippers.
+
+backend_identity:
+  fields: [policy_name, task_name, checkpoint_variant, checkpoint_source, norm_stats_source, train_config_name, observation_profile, action_horizon, num_steps, action_type, output_format, ego_view_mode, action_semantics]

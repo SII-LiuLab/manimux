@@ -85,7 +85,7 @@ pilot 方差、置信区间或 sequential comparison 再决定。
 
 ### 4.1 YAM pilot v1 setting
 
-第一轮 YAM pilot 使用下面的统一设置。时间是协议单位；`max_steps` 只是由控制频率换算出的实现值。
+第一轮 YAM pilot 使用下面的统一设置。时间是协议单位；`max_control_steps` 只是由控制频率换算出的实现值。
 
 | 项目 | 冻结值 | 说明 |
 |---|---:|---|
@@ -101,7 +101,7 @@ pilot 方差、置信区间或 sequential comparison 再决定。
 数采和执行可能使用不同频率，不能直接比较裸 `step`。例如当前 YAM 数采是 `30 Hz`：若同样采用
 `60 s` 上限，对应最多 `1800` 帧；只有数采本身也是 `100 Hz` 时，`5000 steps` 才表示 `50 s`。
 训练数据保存实际完成长度，评测 config 统一保存 `timeout_s`、`control_hz` 和换算后的
-`max_steps`。
+`max_control_steps`。
 
 ## 5. Task 设计
 

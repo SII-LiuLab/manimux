@@ -54,7 +54,7 @@ class UmiDpTianjiAdapter(PolicyAdapter):
     def __init__(self, robot, policy, *, kinematics=None):
         self.validate(robot, policy)
         self.policy = policy
-        self.horizon = policy["horizon_steps"]
+        self.horizon = policy["horizon_policy_steps"]
         self.dt_ns = round(action_interval(policy) * 1e9)
         self.offset_ns = round(float(policy["adapter"]["first_action_offset_s"]) * 1e9)
         validation_dt = float(policy["adapter"].get("ik_validation_dt_s", 0.004))
@@ -133,7 +133,7 @@ class UmiDpTianjiAdapter(PolicyAdapter):
             if not options.get("deployment_bound") or any(key not in identity for key in required):
                 raise ValueError("Bind UMI checkpoint identity before using the Tianji driver")
             for key, value in (
-                ("action_horizon", policy["horizon_steps"]),
+                ("action_horizon", policy["horizon_policy_steps"]),
                 ("action_dt_s", action_interval(policy)),
                 ("first_action_offset_s", options["first_action_offset_s"]),
                 ("observation_period_s", options["observation_period_s"]),

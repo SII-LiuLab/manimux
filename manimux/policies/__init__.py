@@ -13,7 +13,7 @@ PolicyModelFactory = Callable[[dict], PolicyModel]
 def _fake_model_factory(config: dict) -> PolicyModel:
     return FakePolicyModel(
         action_dt_ns=int(action_interval(config) * 1_000_000_000),
-        horizon_steps=config["horizon_steps"],
+        horizon_steps=config["horizon_policy_steps"],
         delay_s=config["inference_delay_s"],
     )
 

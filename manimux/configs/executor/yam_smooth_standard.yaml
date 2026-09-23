@@ -6,9 +6,6 @@ smooth:
   position_limit_abs: 3.14
   gripper:
     mode: continuous
-    group_indices:
-      left_arm: 6
-      right_arm: 6
     max_velocity: 1.0
     max_acceleration: 12.0
     closed_value: 0.0

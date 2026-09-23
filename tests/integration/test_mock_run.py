@@ -8,8 +8,8 @@ import pytest
 import zarr
 
 from manimux.cli import load_config
-from manimux.policies.fake import FakePolicyAdapter
 from manimux.policies.capabilities import PolicyCapabilities
+from manimux.policies.fake import FakePolicyAdapter
 from manimux.runtime import inference_parameters
 from manimux.runtime.edge import EdgeRuntime
 from manimux.runtime.executors.smooth import (
@@ -31,7 +31,7 @@ from manimux.viewer import ViewerControl
 def test_mock_run_records_async_episode(tmp_path: Path) -> None:
     config = load_config("tests/fixtures/runtime.yaml")
     config["run"]["output_dir"] = tmp_path
-    config["run"]["max_steps"] = 80
+    config["run"]["max_control_steps"] = 80
     config["policy"]["inference_delay_s"] = 0.02
     run_dir = tmp_path / "run-test"
     run_dir.mkdir()
@@ -68,7 +68,7 @@ def test_mock_run_records_async_episode(tmp_path: Path) -> None:
 def test_single_inflight_schedule_refills_after_each_response(tmp_path: Path) -> None:
     config = load_config("tests/fixtures/runtime.yaml")
     config["run"]["output_dir"] = tmp_path
-    config["run"]["max_steps"] = 120
+    config["run"]["max_control_steps"] = 120
     config["policy"]["inference_delay_s"] = 0.01
     config["inference"]["inference_schedule"] = "single_inflight"
     run_dir = tmp_path / "run-single-inflight"
@@ -151,16 +151,16 @@ def test_serial_full_chunks_hold_during_inference_and_discard_paused_results(
             return ViewerControl(paused=paused)
 
     config = load_config("tests/fixtures/runtime.yaml")
-    config["policy"]["horizon_steps"] = 50
+    config["policy"]["horizon_policy_steps"] = 50
     config["policy"]["action_dt_s"] = 1 / 30
-    config["run"]["max_steps"] = 500
+    config["run"]["max_control_steps"] = 500
     config["sensors"] = []
     config["inference"] = inference_parameters(
         executor=config["executor"],
         inference_schedule="serial",
-        chunk_steps=50,
+        chunk_policy_steps=50,
         commit_lead_s=0,
-        blend_steps=0,
+        blend_policy_steps=0,
     )
     runtime = EdgeRuntime(config, tmp_path, clock=clock)
     robot = Robot(config["robot"]["group_dims"], clock)
@@ -332,7 +332,7 @@ class _FingerprintWorker(_HomeTestWorker):
 
 def test_policy_backend_fingerprint_is_written_after_worker_start(tmp_path: Path) -> None:
     config = load_config("tests/fixtures/runtime.yaml")
-    config["run"]["max_steps"] = 1
+    config["run"]["max_control_steps"] = 1
     run_dir = tmp_path / "run-policy-fingerprint"
     run_dir.mkdir()
     runtime = EdgeRuntime(config, run_dir)
@@ -348,10 +348,10 @@ def test_policy_backend_fingerprint_is_written_after_worker_start(tmp_path: Path
     assert metadata["policy_backend"]["model"]["model_root"].endswith("pi05-step-1000")
 
 
-def test_max_steps_automatically_homes_and_exits(tmp_path: Path) -> None:
+def test_max_control_steps_automatically_homes_and_exits(tmp_path: Path) -> None:
     config = load_config("tests/fixtures/runtime.yaml")
     config["viewer"]["enabled"] = True
-    config["run"]["max_steps"] = 2
+    config["run"]["max_control_steps"] = 2
     config["robot"]["options"]["home_on_close"] = True
     run_dir = tmp_path / "run-max-steps-home"
     run_dir.mkdir()
@@ -492,7 +492,7 @@ def test_decode_latency_is_included_in_commit_expiry(tmp_path: Path) -> None:
     import time
 
     config = load_config("tests/fixtures/runtime.yaml")
-    config["run"]["max_steps"] = 3
+    config["run"]["max_control_steps"] = 3
     config["inference"]["max_plan_age_s"] = 2
     runtime = EdgeRuntime(config, tmp_path)
     runtime._robot = _HomeTestRobot(config["robot"]["group_dims"])
@@ -581,12 +581,12 @@ def test_close_latch_runtime_preserves_squeeze_through_inference_gaps(tmp_path, 
             )
 
     config = load_config("tests/fixtures/runtime.yaml")
-    config["run"]["max_steps"] = 400
+    config["run"]["max_control_steps"] = 400
     config["sensors"] = []
     config["robot"]["group_dims"] = {"left_arm": 2, "right_arm": 2}
-    execution = dict(commit_lead_s=0, blend_steps=0)
+    execution = dict(commit_lead_s=0, blend_policy_steps=0)
     if schedule == "rtc":
-        execution.update(algorithm="rtc", rtc={"min_execute_steps": 13})
+        execution.update(algorithm="rtc", rtc={"min_execute_policy_steps": 13})
     else:
         execution["inference_schedule"] = schedule
     if schedule == "single_inflight":
@@ -639,14 +639,14 @@ def test_close_latch_runtime_preserves_squeeze_through_inference_gaps(tmp_path, 
 
 def test_braking_runtime_keeps_50_predictions_and_executes_25_step_prefix(tmp_path: Path):
     config = load_config("tests/fixtures/runtime.yaml")
-    config["run"]["max_steps"] = 180
-    config["policy"]["horizon_steps"] = 50
+    config["run"]["max_control_steps"] = 180
+    config["policy"]["horizon_policy_steps"] = 50
     config["policy"]["action_dt_s"] = 1 / 30
     config["policy"]["inference_delay_s"] = 0.08
     config["executor"]["smooth"]["tracking_mode"] = "braking"
     config["executor"]["smooth"]["max_velocity"] = 0.8
     config["executor"]["smooth"]["max_acceleration"] = 3.0
-    config["inference"]["max_chunk_steps"] = 25
+    config["inference"]["max_chunk_policy_steps"] = 25
     config["inference"]["inference_schedule"] = "single_inflight"
     config["inference"]["commit_lead_s"] = 0
     # Force a gap after a moving plan so braking through missing inference is exercised.
@@ -698,7 +698,7 @@ def test_release_guard_diagnostics_survive_runtime_json_recording(tmp_path):
             return response
 
     config = load_config("tests/fixtures/runtime.yaml")
-    config["run"]["max_steps"] = 25
+    config["run"]["max_control_steps"] = 25
     config["sensors"] = []
     config["robot"]["group_dims"] = {"left_arm": 7, "right_arm": 7}
     config["executor"]["smooth"]["tracking_mode"] = "braking"
@@ -735,7 +735,7 @@ def test_latched_release_completes_through_timeline_gap_with_recorded_phases(tmp
             return response
 
     config = load_config("tests/fixtures/runtime.yaml")
-    config["run"]["max_steps"] = 180
+    config["run"]["max_control_steps"] = 180
     config["sensors"] = []
     config["robot"]["group_dims"] = {"left_arm": 7, "right_arm": 7}
     config["policy"]["timeout_s"] = 5
@@ -779,7 +779,7 @@ def test_grasp_guard_completes_before_lift_through_inference_gap(tmp_path):
             return response
 
     config = load_config("tests/fixtures/runtime.yaml")
-    config["run"]["max_steps"] = 240
+    config["run"]["max_control_steps"] = 240
     config["sensors"] = []
     config["robot"]["group_dims"] = {"left_arm": 7, "right_arm": 7}
     config["policy"]["timeout_s"] = 5

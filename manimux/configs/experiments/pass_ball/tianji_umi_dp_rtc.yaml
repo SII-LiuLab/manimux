@@ -2,7 +2,7 @@ control_profile: ../../embodiment/robot/tianji_control.yaml
 run:
   task: pass the ball between the two grippers
   output_dir: ./data/experiments/umi-dp-tianji
-  max_steps: 2400 # 24 s at control_hz
+  max_control_steps: 2400 # 24 s at control_hz
 robot:
   config: ../../embodiment/robot/tianji_taccap.yaml
   options:
@@ -22,16 +22,10 @@ sensors:
 policy:
   action_dt_s: 0.03333333333333333  # Model action spacing, independent of command frequency.
   worker: xpolicylab_ws
+  service: policy
   adapter:
     type: manimux.policy_adapter.umi_dp.tianji:UmiDpTianjiAdapter
     deployment_bound: false
-    group_order:
-    - left_arm
-    - right_arm
-    group_prefixes:
-      left_arm: left
-      right_arm: right
-    gripper_dofs: 1
     camera_map:
       cam_left_wrist: left_wrist
       cam_right_wrist: right_wrist
@@ -45,15 +39,9 @@ policy:
     ik_validation_dt_s: 0.004
     ik_backend: analytic
   action_decoding: process
-  horizon_steps: 16
+  horizon_policy_steps: 16
   timeout_s: 30.0
   startup_timeout_s: 120.0
-  expected_backend:
-    server: xpolicylab_policy_server
-    model:
-      policy_family: umi_dp
-      observation_profile: tianji_umi_relative2
-      action_semantics: absolute_per_arm_base_xyz_wxyz
   options:
     connect_timeout_s: 30.0
     request_timeout_s: 30.0
@@ -77,20 +65,14 @@ recording:
 # Inference schedules requests and chunks; the executor handles smoothing and limits.
 inference:
   algorithm: rtc
-  commit_lead_s: 0.0
+  config: ../../inference/yam_rtc_base.yaml
   max_plan_age_s: 2.0
-  blend_steps: 2
+  blend_policy_steps: 2
   rtc:
-    initial_delay_steps: 4  # action steps; remeasure the full model+decode latency
-    min_execute_steps:
+    initial_delay_policy_steps: 4
+    min_execute_policy_steps: null
     beta: 5.0
   strategy: manimux.policy_adapter.umi_dp.history:build_strategy
 executor:
   type: smooth
-  smooth:
-    cutoff_hz: 8.0
-    gripper:
-      mode: close_latch
-      close_threshold: 0.6
-      open_threshold: 0.75
-      closed_value: 0.2
+  config: ../../executor/tianji_smooth_control_profile.yaml

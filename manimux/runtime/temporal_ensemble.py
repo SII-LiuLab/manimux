@@ -2,7 +2,7 @@
 
 The aggregation formula follows the official ACT implementation at commit
 742c753c0d4a5d87076c8f69e5628c79a8cc5488. ManiMux only parameterizes how
-often a new chunk is requested; ``query_interval_steps=1`` is ACT's original
+often a new chunk is requested; ``query_interval_policy_steps=1`` is ACT's original
 temporal-aggregation cadence.
 """
 
@@ -118,9 +118,11 @@ class ACTTemporalEnsembleStrategy:
     def __init__(self, config: dict) -> None:
         self._config = config
         settings = config["inference"]["temporal_ensemble"]
-        self._query_interval_steps = settings["query_interval_steps"]
+        self._query_interval_steps = settings["query_interval_policy_steps"]
         self._query_interval_ns = int(
-            action_interval(config["policy"]) * settings["query_interval_steps"] * 1_000_000_000
+            action_interval(config["policy"])
+            * settings["query_interval_policy_steps"]
+            * 1_000_000_000
         )
         self._ensembler = ACTTemporalEnsembler(settings["coefficient"])
         self._next_query_ns: int | None = None
@@ -231,9 +233,11 @@ class ACTTemporalEnsembleStrategy:
 def temporal_ensemble_parameters(**options) -> dict:
     """保留 ACT 时间融合的权重系数与查询步数。"""
 
+    if "query_interval_steps" in options:
+        raise ValueError("unsupported temporal ensemble field: query_interval_steps")
     values = {
         "coefficient": 0.01,
-        "query_interval_steps": 1,
+        "query_interval_policy_steps": 1,
         **options,
     }
     return values

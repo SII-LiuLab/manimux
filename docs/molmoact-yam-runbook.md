@@ -77,7 +77,7 @@ envs/yam/.venv/bin/manimux run --config manimux/configs/experiments/pick_red_obj
 ## 停止
 
 启动 runtime 后会自动推理和执行，不需要在 Viewer 中点击 Start。达到
-`run.max_steps` 后，机械臂自动回 Home，然后 runtime 退出。
+`run.max_control_steps` 后，机械臂自动回 Home，然后 runtime 退出。
 
 正常运行时在 runtime 终端按一次 `Ctrl-C`，等待机械臂回零并退出；随后再停止
 相机、模型服务和 Viewer。

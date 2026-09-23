@@ -41,7 +41,7 @@ def test_screwdriver_algorithms_share_model_and_executor(method: str) -> None:
     assert config["sensors"] == baseline["sensors"]
     assert config["recording"] == baseline["recording"]
     assert config["run"]["task"] == baseline["run"]["task"]
-    assert config["run"]["max_steps"] == baseline["run"]["max_steps"]
+    assert config["run"]["max_control_steps"] == baseline["run"]["max_control_steps"]
     assert config["run"]["output_dir"] == baseline["run"]["output_dir"].parent / method
     assert config["executor"]["type"] == "smooth"
     assert config["executor"]["smooth"] == baseline["executor"]["smooth"]
@@ -54,17 +54,23 @@ def test_screwdriver_algorithms_share_model_and_executor(method: str) -> None:
     assert gripper["max_acceleration"] == 12.0
 
     # Cold-start timeouts may differ; checkpoint, stats and action semantics may not.
-    for key in ("worker", "adapter", "action_dt_s", "horizon_steps", "expected_backend"):
+    for key in (
+        "worker",
+        "adapter",
+        "action_dt_s",
+        "horizon_policy_steps",
+        "expected_backend",
+    ):
         assert config["policy"][key] == baseline["policy"][key]
     options = {k: v for k, v in config["policy"]["options"].items() if k != "request_timeout_s"}
     base_options = {
         k: v for k, v in baseline["policy"]["options"].items() if k != "request_timeout_s"
     }
     assert options == base_options
-    assert config["policy"]["horizon_steps"] == 50
+    assert config["policy"]["horizon_policy_steps"] == 50
     assert action_interval(config["policy"]) == pytest.approx(1 / 30)
     if method not in {"manimux", "rtc"}:
-        assert config["inference"]["blend_steps"] == 0
+        assert config["inference"]["blend_policy_steps"] == 0
         # Keep algorithm defaults except the screwdriver ACT query interval.
         previous = load_config(
             EXPERIMENTS
@@ -73,7 +79,7 @@ def test_screwdriver_algorithms_share_model_and_executor(method: str) -> None:
         for key in ("paint", "aac", "dvac", "temporal_ensemble"):
             expected = previous["inference"][key]
             if method == "act-temporal-ensemble" and key == "temporal_ensemble":
-                expected = {**expected, "query_interval_steps": 20}
+                expected = {**expected, "query_interval_policy_steps": 20}
             assert config["inference"][key] == expected
         assert config["policy"]["timeout_s"] == previous["policy"]["timeout_s"]
         assert (
@@ -100,7 +106,7 @@ def test_screwdriver_backend_identity_matches_shared_server() -> None:
     ):
         assert identity[key] == server[key]
     assert identity["model_root"] == server["model_path"]
-    assert config["policy"]["options"]["server"] == f"ws://{server['host']}:{server['port']}"
+    assert config["policy"]["service"] == "policy"
 
 
 def test_screwdriver_aac_scoring_stats_are_present_and_separate() -> None:

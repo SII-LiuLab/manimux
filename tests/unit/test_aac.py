@@ -77,7 +77,7 @@ def _candidate_chunks(samples: int = 3, horizon: int = 4) -> list[list[dict[str,
 
 
 def _aac_config() -> dict:
-    return load_config("manimux/configs/experiments/pick_box/yam_groot_aac.yaml")
+    return load_config("manimux/configs/experiments/pick_red_object/yam_pi05_aac.yaml")
 
 
 def test_aac_elbow_and_motion_floor_match_official_indexing() -> None:
@@ -272,8 +272,8 @@ def test_aac_config_rejects_runtime_blending() -> None:
     payload = deepcopy(_aac_config())
     payload["inference"].pop("inference_schedule")
     payload["inference"].pop("refill_threshold_s")
-    payload["inference"]["blend_steps"] = 1
-    with pytest.raises(ValueError, match="blend_steps=0"):
+    payload["inference"]["blend_policy_steps"] = 1
+    with pytest.raises(ValueError, match="blend_policy_steps=0"):
         prepare_experiment(**payload)
 
 

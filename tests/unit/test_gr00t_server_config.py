@@ -67,7 +67,7 @@ def test_gr00t_manimux_config_preserves_native_contract() -> None:
 
     assert config["policy"]["worker"] == "xpolicylab_ws"
     assert config["policy"]["adapter"]["type"] == "manimux.policy_adapter.joint:JointAdapter"
-    assert config["policy"]["horizon_steps"] == 16
+    assert config["policy"]["horizon_policy_steps"] == 16
     assert action_interval(config["policy"]) == pytest.approx(1.0 / 30.0)
     assert config["robot"]["group_dims"] == {"left_arm": 7, "right_arm": 7}
     assert config["inference"]["algorithm"] == "manimux"

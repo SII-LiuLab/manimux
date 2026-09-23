@@ -49,3 +49,7 @@ components:
 groups:
   left_arm: {arm: left_arm, end_effector: left_end_effector}
   right_arm: {arm: right_arm, end_effector: right_end_effector}
+action_contract:
+  group_dims: {left_arm: 8, right_arm: 8}
+  group_prefixes: {left_arm: left, right_arm: right}
+  gripper_dofs: 1

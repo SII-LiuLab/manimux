@@ -15,6 +15,16 @@ services:
     bind_request_endpoint: tcp://0.0.0.0:5555
   policy:
     endpoint: ws://127.0.0.1:8500
+  policy_secondary:
+    endpoint: ws://127.0.0.1:8501
+  policy_sapolicy:
+    endpoint: ws://127.0.0.1:8510
+  policy_molmoact:
+    endpoint: http://127.0.0.1:8202
+  policy_abc:
+    endpoint: http://127.0.0.1:8300
+  external_camera:
+    endpoint: tcp://127.0.0.1:5575
 paths:
   # Recipes select paths inside this root. Relative roots are based on station.yaml.
   checkpoints: ../../../checkpoints

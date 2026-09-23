@@ -59,7 +59,7 @@ class XR1TianjiTacCapAdapter(PolicyAdapter):
         self._group_order = tuple(policy["adapter"].get("group_order", GROUP_DIMS))
         self._camera_map = dict(policy["adapter"].get("camera_map", {}))
         self._required_cameras = tuple(self._camera_map.values())
-        self._horizon_steps = int(policy["horizon_steps"])
+        self._horizon_steps = int(policy["horizon_policy_steps"])
         self._action_dt_s = action_interval(policy)
         self._action_dt_ns = round(self._action_dt_s * 1e9)
         self._anchors: OrderedDict[int, dict[str, np.ndarray]] = OrderedDict()

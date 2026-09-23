@@ -27,7 +27,7 @@ camera server requires clock alignment, not just an edited endpoint.
 Read the selected experiment, its `policy_server` recipe and its `control_profile`.
 Match task, checkpoint, action representation, normalization and backend identity.
 A mismatch usually means the wrong server/config pair; do not remove `expected_backend`.
-Model horizon, action interval, execution frequency, `chunk_steps` and chunk truncation
+Model horizon, action interval, execution frequency, `chunk_policy_steps` and chunk truncation
 are different settings. Read the chosen strategy before promising how many actions execute.
 RTC/PAINT selection also requires the corresponding model sampler support.
 

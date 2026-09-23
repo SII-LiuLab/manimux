@@ -2,4 +2,4 @@
 inference_schedule: single_inflight
 refill_threshold_s: 0.25
 max_plan_age_s: 2.0
-blend_steps: 2
+blend_policy_steps: 2

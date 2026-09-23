@@ -207,7 +207,7 @@ envs/yam/.venv/bin/manimux run --config manimux/configs/experiments/put_bottles/
 | 模型服务端口 | 8202 | 8300 |
 | `policy.worker` / `adapter` | `molmoact_http` / `molmoact_yam` | `abc_http` / `abc_yam` |
 | `policy.action_dt_s` | 0.05 | 0.033333（ABC 训练数据是 30 Hz） |
-| `policy.horizon_steps` | 30 | 30（ABC-DiT 的 chunk_length 固定值） |
+| `policy.horizon_policy_steps` | 30 | 30（ABC-DiT 的 chunk_length 固定值） |
 | 采样步数 | `num_steps: 10` | `diffusion_steps: 10`（低延迟可降到 5） |
 
 机器人、相机、Viewer 三层用的是同一套插件，一行代码都没改。

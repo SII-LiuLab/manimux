@@ -14,3 +14,9 @@ source_fps: 30
 observation_tolerance_s: 0.04
 rtc_guidance: pigdm
 expected_artifacts: null
+
+backend_identity:
+  model:
+    policy_family: umi_dp
+    observation_profile: tianji_umi_relative2
+    action_semantics: absolute_per_arm_base_xyz_wxyz

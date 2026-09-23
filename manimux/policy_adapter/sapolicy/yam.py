@@ -137,7 +137,7 @@ class SAPolicyYamAdapter(PolicyAdapter):
         from manimux.kinematics import build_kinematics
 
         self._group_order = tuple(policy["adapter"].get("group_order", DEFAULT_GROUP_ORDER))
-        self._horizon_steps = policy["horizon_steps"]
+        self._horizon_steps = policy["horizon_policy_steps"]
         self.action_space = policy["adapter"].get("action_space", "joint_position")
         if self.action_space != "joint_position":
             raise ValueError("SAPolicy adapter outputs joint_position; EEF targets require IK")

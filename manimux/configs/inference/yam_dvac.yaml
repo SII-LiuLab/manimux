@@ -1,0 +1,9 @@
+commit_lead_s: 0.0
+max_plan_age_s: 30.0
+blend_policy_steps: 0
+dvac:
+  alpha: 2.0
+  min_execution_policy_steps: 1
+  max_execution_policy_steps: 50
+  rolling_window_size: 5
+  tail_policy_steps: 5
