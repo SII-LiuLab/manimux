@@ -31,11 +31,19 @@ envs/umi_dp/.venv/bin/python manimux/servers/umi_dp.py \
   --bind-runtime-config data/experiments/pass-ball-diff.yaml
 ```
 
-The checked-in experiment contains the reviewed differential-IK settings. To adapt another
-Tianji experiment, pass `--ik-backend diff --diff-ik-config
-manimux/configs/embodiment/arm/tianji_diff_ik.yaml` while binding it. Select RTC with an
-RTC experiment entry. The model, checkpoint identity and RTC sampler stay the same. IK
-selection is an embodiment setting. The binder writes these effective runtime options:
+The checked-in differential-IK experiment references the shared embodiment profile:
+
+```yaml
+policy:
+  adapter:
+    ik_backend: diff
+    diff_ik:
+      config: ../../embodiment/arm/tianji_diff_ik.yaml
+```
+
+Use the same reference from another Tianji experiment. The model, checkpoint identity and
+RTC sampler stay the same. IK selection is an embodiment setting. The config loader expands
+the profile, and the checkpoint binder writes these effective runtime options:
 
 ```yaml
 policy:
@@ -43,18 +51,20 @@ policy:
     ik_backend: diff
     ik_validation_dt_s: 0.004
     diff_ik:
-      # max_velocity_rad_s and dt_max_s are inserted from executor.motion_limits.arm.
       w_pos: 1.0
       w_rot: 1.0
       lam: 0.001
-      check_j67: true
-      mu_nullspace: 1000.0
-      nullspace_activation_deg: 25.0
       limit_margin_deg: null
       j67_margin_deg: null
+      mu_nullspace: 1000.0
+      nullspace_activation_deg: 25.0
+      nullspace_weights: null
       max_lag_mm: 5.0
       max_lag_deg: null
       lag_policy: report
+      # Inserted from executor.motion_limits.arm by the binder:
+      max_velocity_rad_s: 0.9047786842338605
+      dt_max_s: 0.016
 ```
 
 `max_velocity_rad_s` comes from `motion_limits.arm.max_velocity`; `dt_max_s`
@@ -70,8 +80,9 @@ They may further alter the predicted joint trajectory.
 
 Null joint-margin settings inherit this arm's configured kinematic margin
 (5 degrees by default); the diff solver cannot lower that margin. The right
-arm's J6 override remains ±58 degrees before the margin. `check_j67: false` is
-rejected by the UMI adapter. Positive `j67_margin_deg` can override the QP buffer.
+arm's J6 override remains ±58 degrees before the margin. The J6/J7 interference
+constraint is mandatory and is not configurable. Positive `j67_margin_deg` can
+override the QP buffer.
 Optional `nullspace_weights` must contain seven finite nonnegative weights;
 `nullspace_activation_deg: null` selects the original global quadratic cost.
 Weights, regularization, activation, lag and margin settings are strictly validated.
@@ -106,9 +117,9 @@ therefore defaults to CalibWrist's 5 mm guard. This residual is measured at the
 `max_lag_deg` uses the reference maximum wrapped XYZ Euler-coordinate residual,
 not a geodesic rotation angle. It defaults to null, as in CalibWrist.
 `lag_policy` decides what a residual over these thresholds means. `abort` (the
-library default) turns it into a `tracking_lag` failure. `report`, the default of
-CalibWrist's `real_run` and of `manimux/configs/embodiment/arm/tianji_diff_ik.yaml`, keeps the
-bounded step and only counts it; the adapter records each arm's worst residual
+library default) turns it into a `tracking_lag` failure. `report`, selected by
+the pass-ball experiment and the reusable Tianji override, keeps the bounded
+step and only counts it; the adapter records each arm's worst residual
 and exceedance count in the chunk metadata as `diff_ik_lag`. Failed or empty QPs,
 nonfinite solutions, joint margins and J6/J7 interference reject under both
 policies, and any such failure rejects the entire predicted chunk.
@@ -122,7 +133,8 @@ makes the new chunk independent of that hidden solver history.
 ## Timing and validation
 
 IK runs while **decoding a predicted chunk**, with SE(3) segments divided into
-at-most-`ik_validation_dt_s` steps (also respecting the QP dt cap). Each source knot uses
+at-most-4ms steps by default (also respecting the QP dt cap). The optional
+`ik_validation_dt_s` adapter override changes that internal subdivision. Each source knot uses
 the fixed policy action interval, and each QP substep gets its actual subdivision duration.
 The adapter retains every decoded source knot. At commit time, the shared timeline removes
 expired rows and starts from the first row at or after the execution boundary. Only final
@@ -191,7 +203,7 @@ real H16/H64 chunk decoding and atomic rejection on the final right-arm action.
 Its final combined viewer/session/config/executor/Tianji/camera/UMI/diff-IK and
 mock-runtime regression suite passed 218 tests in 13.02 seconds. Ruff passed
 on the changed source, scripts and tests. A real H16 checkpoint was bound with
-`--ik-backend diff --diff-ik-config manimux/configs/embodiment/arm/tianji_diff_ik.yaml` in the
-model environment; the runtime environment loaded the paired config, validated
+an explicit differential-IK profile in the model environment; the runtime
+environment loaded the paired config, validated
 the shared profile, and constructed both QP solvers with no torch or SDK loaded.
 No hardware motion, real closed-loop policy rollout or task success was tested.

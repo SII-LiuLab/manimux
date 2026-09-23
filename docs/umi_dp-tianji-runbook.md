@@ -272,7 +272,7 @@ Both pass-ball templates run `robot.control_hz: 100` (10ms ticks);
 `max_control_steps: 2400` keeps the previous 24s rollout cap. The earlier 250Hz setting
 sent a fresh position target every 4ms, and on 2026-09-14 the loop did not hold
 it (median tick 4.8–4.9ms, 6–7% of ticks above 6ms). The IK path does not depend
-on the control rate: substeps stay at `ik_validation_dt_s` (4ms) and the diff-IK
+on the control rate: substeps stay at the adapter's 4ms default and the diff-IK
 dt cap comes from `motion_limits.arm.max_step_dt_s`, so decode compute is
 unchanged. The rate only sets how often the loop polls finished decodes. Over
 the 47 process-decoded H64 diff commits recorded at 250Hz with

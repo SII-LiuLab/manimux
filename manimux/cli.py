@@ -80,7 +80,7 @@ def load_local(path: str | Path) -> dict:
 def read_experiment(
     path: str | Path, *, local: str | Path | None = None, bind_local: bool = True
 ) -> dict:
-    """Expand policy/inference/executor/server references and explicit station bindings.
+    """Expand component references and explicit station bindings.
 
     Each section references at most one base YAML, without recursive inheritance.
     robot.config remains the assembly path; reading does not construct RobotModel.
@@ -98,6 +98,11 @@ def read_experiment(
             raw[name] = _merge(read_yaml(reference), section)
         if name == "policy_server" and isinstance(raw.get(name), dict):
             backend_identity = raw[name].pop("backend_identity", None)
+    adapter = raw.get("policy", {}).get("adapter", {})
+    diff_ik = adapter.get("diff_ik", {})
+    if isinstance(diff_ik, dict) and "config" in diff_ik:
+        reference = (source.parent / diff_ik.pop("config")).resolve()
+        adapter["diff_ik"] = _merge(read_yaml(reference), diff_ik)
     robot = raw.setdefault("robot", {})
     if robot.get("config") is not None:
         robot["config"] = str((source.parent / robot["config"]).resolve())

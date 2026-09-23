@@ -54,9 +54,10 @@ class UmiDpTianjiAdapter(PolicyAdapter):
     def __init__(self, robot, policy, *, kinematics=None):
         self.validate(robot, policy)
         self.policy = policy
+        identity = policy["expected_backend"]["model"]
         self.horizon = policy["horizon_policy_steps"]
         self.dt_ns = round(action_interval(policy) * 1e9)
-        self.offset_ns = round(float(policy["adapter"]["first_action_offset_s"]) * 1e9)
+        self.offset_ns = round(float(identity["first_action_offset_s"]) * 1e9)
         validation_dt = float(policy["adapter"].get("ik_validation_dt_s", 0.004))
         if not math.isfinite(validation_dt) or validation_dt <= 0:
             raise ValueError("ik_validation_dt_s must be positive")
@@ -67,9 +68,11 @@ class UmiDpTianjiAdapter(PolicyAdapter):
         # In-process decoding receives the robot's exact models. A spawned
         # action decoder loads geometry only, from the same assembly config.
         self.robot_kinematics = kinematics
-        if robot["type"] == "tianji_taccap" and self.robot_kinematics is None:
+        if self.robot_kinematics is None and robot["type"] == "tianji_taccap":
             from manimux.embodiments.robot import RobotModel
 
+            if robot.get("config") is None:
+                raise ValueError("UMI Tianji requires robot.config or assembled kinematics")
             self.robot_kinematics = RobotModel.from_config(robot["config"]).kinematics
         self.kin = {}
         self.ik_backend = policy["adapter"].get("ik_backend", "analytic")
@@ -79,17 +82,14 @@ class UmiDpTianjiAdapter(PolicyAdapter):
             raise ValueError("diff_ik settings apply only to ik_backend: diff")
         self.diff_solvers = {}
         for side in ("left", "right"):
-            if self.robot_kinematics is not None:
+            if self.robot_kinematics is None:
+                # Non-hardware runtime fixtures use the fixed offline Tianji model.
+                # Adapter configuration cannot replace or modify its geometry.
+                self.kin[side] = build_kinematics("tianji", arm=side)
+                arm_solver = self.kin[side]
+            else:
                 self.kin[side] = self.robot_kinematics.models[f"{side}_arm"]
                 arm_solver = self.kin[side].arm
-            else:
-                # Compatibility for experiments not yet migrated to robot.type/config.
-                options = dict(policy["adapter"].get("kinematics_options", {}))
-                options.update(policy["adapter"].get(f"{side}_kinematics_options", {}))
-                self.kin[side] = build_kinematics(
-                    policy["adapter"].get("kinematics", "tianji"), arm=side, **options
-                )
-                arm_solver = self.kin[side]
             if self.ik_backend == "diff":
                 from manimux.embodiments.arm.tianji.kinematics import TianjiArmKinematics
                 from manimux.kinematics.tianji_diff import (
@@ -100,8 +100,6 @@ class UmiDpTianjiAdapter(PolicyAdapter):
                 if not isinstance(arm_solver, TianjiArmKinematics):
                     raise ValueError("UMI differential IK requires Tianji kinematics")
                 config = DifferentialIKConfig.model_validate(policy["adapter"].get("diff_ik", {}))
-                if not config.check_j67:
-                    raise ValueError("UMI differential IK requires the J6/J7 constraint")
                 self.diff_solvers[side] = TianjiDifferentialIK(arm_solver, config)
 
     def validate(self, robot, policy):
@@ -109,37 +107,33 @@ class UmiDpTianjiAdapter(PolicyAdapter):
             raise ValueError("UMI_DP must use xpolicylab_ws")
         if list(robot["group_dims"].items()) != [("left_arm", 8), ("right_arm", 8)]:
             raise ValueError("UMI Tianji requires left_arm/right_arm with 7+1 values")
-        options = policy["adapter"]
-        for key in ("first_action_offset_s", "observation_period_s"):
-            if not np.isfinite(options.get(key, np.nan)) or options[key] <= 0:
-                raise ValueError(f"Bind the checkpoint {key} before constructing the adapter")
         identity = {} if policy["expected_backend"] is None else policy["expected_backend"]["model"]
         if identity.get("action_semantics") != SEMANTICS:
             raise ValueError(
                 "UMI server identity must declare absolute per-arm base pose semantics"
             )
-        if robot["type"] == "tianji_taccap":
-            required = (
-                "checkpoint_sha256",
-                "training_config_sha256",
-                "checkpoint_path",
-                "weight_key",
-                "rgb_normalize",
-                "action_horizon",
-                "action_dt_s",
-                "first_action_offset_s",
-                "observation_period_s",
-            )
-            if not options.get("deployment_bound") or any(key not in identity for key in required):
-                raise ValueError("Bind UMI checkpoint identity before using the Tianji driver")
-            for key, value in (
-                ("action_horizon", policy["horizon_policy_steps"]),
-                ("action_dt_s", action_interval(policy)),
-                ("first_action_offset_s", options["first_action_offset_s"]),
-                ("observation_period_s", options["observation_period_s"]),
-            ):
-                if identity[key] != value:
-                    raise ValueError(f"Runtime {key} differs from the bound checkpoint")
+        required = (
+            "checkpoint_sha256",
+            "training_config_sha256",
+            "checkpoint_path",
+            "weight_key",
+            "rgb_normalize",
+            "action_horizon",
+            "action_dt_s",
+            "first_action_offset_s",
+            "observation_period_s",
+        )
+        if any(key not in identity for key in required):
+            raise ValueError("Bind UMI checkpoint identity before constructing the adapter")
+        for key in ("first_action_offset_s", "observation_period_s"):
+            if not np.isfinite(identity[key]) or identity[key] <= 0:
+                raise ValueError(f"Bound checkpoint {key} must be positive")
+        for key, value in (
+            ("action_horizon", policy["horizon_policy_steps"]),
+            ("action_dt_s", action_interval(policy)),
+        ):
+            if identity[key] != value:
+                raise ValueError(f"Runtime {key} differs from the bound checkpoint")
 
     def build_observation(self, snapshot):
         if not isinstance(snapshot, WindowSnapshot) or snapshot.previous is None:

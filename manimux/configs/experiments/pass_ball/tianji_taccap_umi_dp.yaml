@@ -38,18 +38,11 @@ policy:
   action_decoding: process
   adapter:
     type: manimux.policy_adapter.umi_dp.tianji:UmiDpTianjiAdapter
-    deployment_bound: false
     camera_map:
       cam_left_wrist: left_wrist_camera
       cam_right_wrist: right_wrist_camera
       cam_left_wrist_prev: left_wrist_camera_prev
       cam_right_wrist_prev: right_wrist_camera_prev
-    observation_period_s: 0.1
-    observation_tolerance_s: 0.04
-    first_action_offset_s: 0.03333333333333333
-    state_tolerance_s: 0.02
-    camera_skew_s: 0.04
-    ik_validation_dt_s: 0.004
     ik_backend: analytic
   horizon_policy_steps: 16
   timeout_s: 30.0

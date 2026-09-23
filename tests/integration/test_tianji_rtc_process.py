@@ -27,6 +27,17 @@ def test_real_tianji_parallel_ik_matches_serial_and_rejects_whole_chunk(backend,
     config["robot"]["type"] = "tests.support.robot:build_robot"
     config["policy"]["horizon_policy_steps"] = horizon
     config["policy"]["adapter"]["ik_backend"] = backend
+    config["policy"]["expected_backend"]["model"].update(
+        checkpoint_sha256="offline-test",
+        training_config_sha256="offline-test",
+        checkpoint_path="offline-test",
+        weight_key="ema",
+        rgb_normalize=True,
+        action_horizon=horizon,
+        action_dt_s=action_interval(config["policy"]),
+        first_action_offset_s=1 / 30,
+        observation_period_s=0.1,
+    )
     bind_diff_ik_profile(config)
     adapter = UmiDpTianjiAdapter(config["robot"], config["policy"])
     joints = np.radians([50, -40, -30, -100, -65, 0, 40])

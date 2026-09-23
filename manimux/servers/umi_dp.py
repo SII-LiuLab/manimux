@@ -89,13 +89,6 @@ def main():
             policy["adapter"]["diff_ik"] = yaml.safe_load(args.diff_ik_config.read_text())
         policy["expected_backend"]["model"].update(report)
         policy["horizon_policy_steps"] = report["action_horizon"]
-        policy["adapter"].update(
-            {
-                "deployment_bound": True,
-                "observation_period_s": report["observation_period_s"],
-                "first_action_offset_s": report["first_action_offset_s"],
-            }
-        )
         host = config.get("host", "127.0.0.1")
         if host in {"0.0.0.0", "::"}:
             host = "127.0.0.1"

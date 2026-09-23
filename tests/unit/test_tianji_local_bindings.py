@@ -135,6 +135,10 @@ def test_umi_export_reuses_automatically_selected_station(tmp_path, monkeypatch,
     written = yaml.safe_load(output.read_text())
     assert written["run"]["max_control_steps"] == 2400
     assert written["policy"]["horizon_policy_steps"] == report["action_horizon"]
+    assert written["policy"]["expected_backend"]["model"]["first_action_offset_s"] == 1 / 30
+    assert written["policy"]["expected_backend"]["model"]["observation_period_s"] == 0.1
+    assert "first_action_offset_s" not in written["policy"]["adapter"]
+    assert "observation_period_s" not in written["policy"]["adapter"]
     assert "max_steps" not in written["run"]
     assert "horizon_steps" not in written["policy"]
     assert written["local"] == str(station)

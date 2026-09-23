@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from manimux.cli import load_config
+from manimux.policies.base import action_interval
 from manimux.policy_adapter.umi_dp.history import HistoryStrategy, align_rtc_condition
 from manimux.runtime import build_runtime
 from manimux.runtime.inference import RequestState
@@ -14,9 +15,25 @@ from manimux.runtime.timeline import ActionTimeline
 from manimux.types import ActionChunk, InferenceResponse, ObservationSnapshot, RobotState
 
 
+def bind_test_identity(config, *, offset=1 / 30):
+    config["policy"]["expected_backend"]["model"].update(
+        checkpoint_sha256="offline-test",
+        training_config_sha256="offline-test",
+        checkpoint_path="offline-test",
+        weight_key="ema",
+        rgb_normalize=True,
+        action_horizon=config["policy"]["horizon_policy_steps"],
+        action_dt_s=action_interval(config["policy"]),
+        first_action_offset_s=offset,
+        observation_period_s=0.1,
+    )
+    return config
+
+
 def setup_plan(commit_lead_s=0.0):
     config = load_config("manimux/configs/experiments/pass_ball/tianji_umi_dp_rtc.yaml")
     config["policy"]["action_dt_s"] = 0.1
+    bind_test_identity(config)
     config["inference"]["commit_lead_s"] = commit_lead_s
     strategy = HistoryStrategy(config).delegate
     dt = 100_000_000
@@ -139,6 +156,7 @@ def test_rtc_rejects_independent_arm_holds():
 
 def test_runtime_factory_retains_tianji_history_wrapper_with_process_decoding(tmp_path):
     config = load_config("manimux/configs/experiments/pass_ball/tianji_umi_dp_rtc.yaml")
+    bind_test_identity(config)
     config["robot"]["type"] = "tests.support.robot:build_robot"
     config["sensors"] = []
     runtime = build_runtime(config, tmp_path)
@@ -150,7 +168,7 @@ def test_runtime_factory_retains_tianji_history_wrapper_with_process_decoding(tm
 def test_empty_aligned_overlap_restores_unconditioned_commit(monkeypatch):
     config, strategy, timeline, chunk, response, result, now = setup_plan()
     strategy.on_plan_accepted(chunk=chunk, result=result, response=response, now_ns=now)
-    config["policy"]["adapter"]["first_action_offset_s"] = 1.0
+    config["policy"]["expected_backend"]["model"]["first_action_offset_s"] = 1.0
     wrapper = HistoryStrategy(config)
     wrapper.delegate = strategy
     now += 2 * chunk.dt_ns

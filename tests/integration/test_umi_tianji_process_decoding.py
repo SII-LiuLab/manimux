@@ -13,6 +13,7 @@ import pytest
 import zarr
 
 from manimux.cli import load_config, prepare_experiment
+from manimux.policies.base import action_interval
 from manimux.policies.fake import FakePolicyAdapter
 from manimux.runtime import build_runtime
 from manimux.runtime.edge import EdgeRuntime
@@ -340,6 +341,17 @@ def test_umi_tianji_per_arm_processes_match_inline_diff_decode():
     config["robot"]["type"] = "mock"
     config["policy"]["horizon_policy_steps"] = 64
     config["policy"]["adapter"]["ik_backend"] = "diff"
+    config["policy"]["expected_backend"]["model"].update(
+        checkpoint_sha256="offline-test",
+        training_config_sha256="offline-test",
+        checkpoint_path="offline-test",
+        weight_key="ema",
+        rgb_normalize=True,
+        action_horizon=64,
+        action_dt_s=action_interval(config["policy"]),
+        first_action_offset_s=1 / 30,
+        observation_period_s=0.1,
+    )
     bind_diff_ik_profile(config)
     adapter = UmiDpTianjiAdapter(config["robot"], config["policy"])
     actions = []

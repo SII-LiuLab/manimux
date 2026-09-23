@@ -19,6 +19,21 @@ ROOT = Path(__file__).resolve().parents[2]
 START = np.radians([50, -40, -30, -100, -65, 0, 40])
 
 
+def bind_test_identity(config, *, offset=1 / 30):
+    config["policy"]["expected_backend"]["model"].update(
+        checkpoint_sha256="offline-test",
+        training_config_sha256="offline-test",
+        checkpoint_path="offline-test",
+        weight_key="ema",
+        rgb_normalize=True,
+        action_horizon=config["policy"]["horizon_policy_steps"],
+        action_dt_s=action_interval(config["policy"]),
+        first_action_offset_s=offset,
+        observation_period_s=0.1,
+    )
+    return config
+
+
 @pytest.fixture
 def solver():
     kin = TianjiKinematics(end_effector="umi_follower")
@@ -175,6 +190,7 @@ def test_nullspace_objective_pushes_joint_toward_interior(solver):
 def test_diff_rate_profile_binding_and_runtime_stale_rejection():
     config = load_config(ROOT / "manimux/configs/experiments/pass_ball/tianji_umi_dp_default.yaml")
     config["policy"]["adapter"]["ik_backend"] = "diff"
+    bind_test_identity(config)
     with pytest.raises(ValueError, match="max_velocity_rad_s"):
         HistoryStrategy(config)
     config["executor"]["motion_limits"]["arm"]["max_velocity"] = 0.37
@@ -187,19 +203,10 @@ def test_diff_rate_profile_binding_and_runtime_stale_rejection():
         HistoryStrategy(config)
 
 
-def test_cannot_relax_embodiment_margin_or_disable_umi_interference(solver):
+def test_cannot_relax_embodiment_margin(solver):
     config = solver.config.model_copy(update={"limit_margin_deg": 3.0})
     with pytest.raises(ValueError, match="cannot reduce"):
         TianjiDifferentialIK(solver.kinematics, config)
-    from manimux.policy_adapter.umi_dp.tianji import UmiDpTianjiAdapter
-
-    runtime = load_config(ROOT / "manimux/configs/experiments/pass_ball/tianji_umi_dp_default.yaml")
-    runtime["robot"]["type"] = "mock"
-    runtime["policy"]["adapter"]["ik_backend"] = "diff"
-    bind_diff_ik_profile(runtime)
-    runtime["policy"]["adapter"]["diff_ik"]["check_j67"] = False
-    with pytest.raises(ValueError, match="requires the J6/J7 constraint"):
-        UmiDpTianjiAdapter(runtime["robot"], runtime["policy"])
 
 
 @pytest.mark.parametrize("horizon,offset", [(16, 1 / 30), (64, 0.1)])
@@ -217,7 +224,8 @@ def test_real_diff_adapter_chunk_timing_and_atomic_rejection(horizon, offset):
     config = load_config(ROOT / "manimux/configs/experiments/pass_ball/tianji_umi_dp_default.yaml")
     config["robot"]["type"] = "mock"
     config["policy"]["horizon_policy_steps"] = horizon
-    config["policy"]["adapter"].update(ik_backend="diff", first_action_offset_s=offset)
+    config["policy"]["adapter"]["ik_backend"] = "diff"
+    bind_test_identity(config, offset=offset)
     bind_diff_ik_profile(config)
     adapter = UmiDpTianjiAdapter(config["robot"], config["policy"])
     state = RobotState({side + "_arm": np.r_[START, 0.8] for side in ("left", "right")}, 10**9, 1)

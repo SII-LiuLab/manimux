@@ -150,6 +150,12 @@ class HistoryStrategy:
 
         validate_diff_ik_profile(config)
         options = config["policy"]["adapter"]
+        expected = config["policy"].get("expected_backend")
+        identity = {} if expected is None else expected.get("model", {})
+        for key in ("observation_period_s", "first_action_offset_s"):
+            if not np.isfinite(identity.get(key, np.nan)) or identity[key] <= 0:
+                raise ValueError(f"Bind UMI checkpoint {key} before constructing history")
+        history = config["inference"]["history"]
         delegate_name = config["inference"]["algorithm"]
         if delegate_name not in {"manimux", "rtc"}:
             raise ValueError("UMI history supports the existing manimux and rtc strategies")
@@ -163,12 +169,12 @@ class HistoryStrategy:
         names = [value for key, value in camera_map.items() if not key.endswith("_prev")]
         self.history = MeasuredHistory(
             camera_names=names,
-            period_s=float(options["observation_period_s"]),
-            tolerance_s=float(options.get("observation_tolerance_s", 0.04)),
-            state_tolerance_s=float(options.get("state_tolerance_s", 0.02)),
-            camera_skew_s=float(options.get("camera_skew_s", 0.04)),
+            period_s=float(identity["observation_period_s"]),
+            tolerance_s=float(history["period_tolerance_s"]),
+            state_tolerance_s=float(history["state_tolerance_s"]),
+            camera_skew_s=float(history["camera_skew_s"]),
         )
-        self.offset_ns = round(float(options["first_action_offset_s"]) * 1e9)
+        self.offset_ns = round(float(identity["first_action_offset_s"]) * 1e9)
         self.dt_ns = round(action_interval(config["policy"]) * 1e9)
         self.group_order = tuple(config["robot"]["group_dims"])
         self.horizon = config["policy"]["horizon_policy_steps"]

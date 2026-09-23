@@ -33,7 +33,6 @@ class DifferentialIKConfig(BaseModel):
     w_rot: float = Field(default=1.0, gt=0)
     lam: float = Field(default=0.001, ge=0)
     limit_margin_deg: float | None = Field(default=None, gt=0)
-    check_j67: bool = True
     j67_margin_deg: float | None = Field(default=None, gt=0)
     mu_nullspace: float = Field(default=1000.0, ge=0)
     nullspace_activation_deg: float | None = Field(default=25.0, gt=0)
@@ -317,23 +316,17 @@ class TianjiDifferentialIK:
         if bad.size:
             # OSQP update(l>u) otherwise silently retains the previous problem.
             return failure("qp_infeasible", joint=int(bad[0]), note="empty qdot box")
-        if self.config.check_j67:
-            c6, c7, bound = _interference_row(joints, self.j67_margin, dt)
-            self._a_data[self._a_c6], self._a_data[self._a_c7] = c6, c7
-            full_lower, full_upper = np.empty(8), np.empty(8)
-            full_lower[:7], full_lower[7] = lower, -np.inf
-            full_upper[:7], full_upper[7] = upper, bound
-        else:
-            full_lower, full_upper = lower, upper
+        c6, c7, bound = _interference_row(joints, self.j67_margin, dt)
+        self._a_data[self._a_c6], self._a_data[self._a_c7] = c6, c7
+        full_lower, full_upper = np.empty(8), np.empty(8)
+        full_lower[:7], full_lower[7] = lower, -np.inf
+        full_upper[:7], full_upper[7] = upper, bound
         if self._problem is None:
             self._problem = self._osqp.OSQP()
-            constraints = (
-                _constraint_matrix(c6, c7) if self.config.check_j67 else sparse.eye(7, format="csc")
-            )
             self._problem.setup(
                 P=_upper_csc(quadratic),
                 q=linear,
-                A=constraints,
+                A=_constraint_matrix(c6, c7),
                 l=full_lower,
                 u=full_upper,
                 verbose=False,
@@ -341,13 +334,12 @@ class TianjiDifferentialIK:
                 warm_starting=True,
             )
         else:
-            updates = {"Ax": self._a_data} if self.config.check_j67 else {}
             self._problem.update(
                 Px=quadratic[self._p_rows, self._p_cols],
                 q=linear,
                 l=full_lower,
                 u=full_upper,
-                **updates,
+                Ax=self._a_data,
             )
         self._problem.warm_start(x=self._previous_velocity)
         solved = self._problem.solve(raise_error=False)
@@ -374,7 +366,7 @@ class TianjiDifferentialIK:
         reason = "ok"
         if margin < self.margin:
             reason = "joint_limit"
-        elif self.config.check_j67 and not j67_ok(next_deg):
+        elif not j67_ok(next_deg):
             reason = "j67_interference"
         elif lag_exceeded and self.config.lag_policy == "abort":
             reason = "tracking_lag"

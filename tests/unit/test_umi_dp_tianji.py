@@ -8,6 +8,7 @@ import pytest
 from scipy.spatial.transform import Rotation
 
 from manimux.cli import load_config
+from manimux.policies.base import action_interval
 from manimux.policy_adapter.umi_dp import tianji as policy_plugin
 from manimux.policy_adapter.umi_dp.history import (
     HistoryStrategy,
@@ -59,13 +60,50 @@ class FakeKin:
         ]
 
 
+class FakeGroupKinematics:
+    def __init__(self, arm):
+        self.arm = arm
+
+    def fk(self, values):
+        return self.arm.fk(values[:7], values[-1])
+
+    def ik(self, target, seed, *, fixed_coordinates):
+        aperture = fixed_coordinates["gripper"]
+        converged, joints = self.arm.ik(target, seed[:7], aperture)
+        return SimpleNamespace(converged=converged, joints=np.r_[joints, aperture])
+
+
+def bind_test_identity(config, *, offset=1 / 30):
+    config["policy"]["expected_backend"]["model"].update(
+        checkpoint_sha256="offline-test",
+        training_config_sha256="offline-test",
+        checkpoint_path="offline-test",
+        weight_key="ema",
+        rgb_normalize=True,
+        action_horizon=config["policy"]["horizon_policy_steps"],
+        action_dt_s=action_interval(config["policy"]),
+        first_action_offset_s=offset,
+        observation_period_s=0.1,
+    )
+    return config
+
+
 @pytest.fixture
-def adapter(monkeypatch):
+def adapter():
     kin = FakeKin()
-    monkeypatch.setattr(policy_plugin, "build_kinematics", lambda *a, **k: kin)
     config = load_config(ROOT / "manimux/configs/experiments/pass_ball/tianji_umi_dp_default.yaml")
     config["robot"]["type"] = "mock"
-    return policy_plugin.UmiDpTianjiAdapter(config["robot"], config["policy"]), kin, config
+    bind_test_identity(config)
+    assembled = SimpleNamespace(
+        models={side + "_arm": FakeGroupKinematics(kin) for side in ("left", "right")}
+    )
+    return (
+        policy_plugin.UmiDpTianjiAdapter(
+            config["robot"], config["policy"], kinematics=assembled
+        ),
+        kin,
+        config,
+    )
 
 
 def request_for(adapter, *, timestamp=1000000000):
@@ -125,6 +163,7 @@ def test_history_delegates_and_validates_rtc_constraints():
         config = load_config(
             ROOT / f"manimux/configs/experiments/pass_ball/tianji_umi_dp_{name}.yaml"
         )
+        bind_test_identity(config)
         strategy = HistoryStrategy(config)
         assert strategy.name == ("manimux" if name == "default" else "rtc")
         assert strategy.required_sampling_modes == frozenset(
