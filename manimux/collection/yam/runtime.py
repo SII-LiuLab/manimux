@@ -26,12 +26,11 @@ def build_arm_units(cfg: StationConfig, followers_only=False) -> list[ArmUnit]:
     if followers_only:
         raise RuntimeError("Use manimux serve for policy deployment")
     config = load_backend_config(cfg)
-    if abs(config["policy"]["action_dt_s"] * cfg.control_hz - 1.0) > 1e-6:
-        raise ValueError("station control_hz must match runtime policy.action_dt_s")
     backend = CollectionBackend(
         config,
         config_path=cfg.manimux_config,
         execution_mode=cfg.execution_mode,
+        collection_hz=cfg.collection_hz,
     )
     units = []
     leaders = []
@@ -71,7 +70,7 @@ def build_arm_units(cfg: StationConfig, followers_only=False) -> list[ArmUnit]:
                 follower,
                 bilateral_kp=0.0 if passive else cfg.robot.bilateral_kp,
                 gripper_mode=cfg.robot.leader_gripper_mode,
-                control_hz=cfg.control_hz,
+                control_hz=cfg.collection_hz,
                 gripper_close_duration_s=cfg.robot.gripper_close_duration_s,
             )
             units.append(ArmUnit(side, follower, policy))

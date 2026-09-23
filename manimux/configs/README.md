@@ -49,6 +49,11 @@ Each experiment explicitly declares `policy.action_dt_s`, `policy.horizon_steps`
   per second. This is a separate experiment choice, not the current RTC 30k recipe.
 - `executor.smooth.cutoff_hz` is a filter cutoff, not an interpolation or command rate.
 
+YAM collection separately requires `collection_hz` in its station entry point. Synchronous
+collection requires it to match `robot.control_hz`; threaded collection may submit leader
+targets at one rate and execute robot commands at another. Collection timing is never derived
+from `policy.action_dt_s`.
+
 Shared YAML is packaged with the code. References resolve relative to the referring YAML.
 Run output paths remain relative to the process's working directory unless the station
 supplies an output override; records are not implicitly written into the package.

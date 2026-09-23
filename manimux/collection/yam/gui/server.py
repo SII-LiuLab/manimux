@@ -132,7 +132,7 @@ def create_app(
         s = session.status()
         s["manimux"] = {
             "runtime_config": session.cfg.manimux_config,
-            "leader_hz": session.cfg.control_hz,
+            "leader_hz": session.cfg.collection_hz,
             "execution": session.units[0].robot.backend.metadata() if session.units else None,
         }
         s["jobs"] = [j.summary() for j in jobs.list()]
@@ -173,7 +173,8 @@ def create_app(
                 {"name": cm.name, "role": cm.role, "type": cm.type, "serial": cm.serial}
                 for cm in c.cameras
             ],
-            "control_hz": c.control_hz,
+            # Keep the response key stable until the compatibility-field migration.
+            "control_hz": c.collection_hz,
             "task_name": c.task_name,
             "data_format": c.data_format,
             "save_root": c.save_root,

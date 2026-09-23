@@ -33,6 +33,7 @@ class CollectionBackend:
         lock_dir=None,
         config_path=None,
         execution_mode="synchronous",
+        collection_hz,
     ):
         if execution_mode not in {"synchronous", "threaded"}:
             raise ValueError("execution_mode must be synchronous or threaded")
@@ -40,6 +41,13 @@ class CollectionBackend:
         self.config = config
         self.clock = SystemClock()
         self.dt = 1.0 / config["robot"]["control_hz"]
+        if (
+            isinstance(collection_hz, bool)
+            or not math.isfinite(collection_hz)
+            or collection_hz <= 0
+        ):
+            raise ValueError("collection_hz must be finite and positive")
+        self._target_interval_s = 1.0 / float(collection_hz)
         execution = config["executor"]
         if execution["type"] == "direct":
             self.executor = DirectExecutor(execution["motion_limits"], self.dt)
@@ -82,7 +90,6 @@ class CollectionBackend:
         self._batch = None
         self._target = None
         self._target_ns = 0
-        self._target_interval_s = config["policy"]["action_dt_s"]
         self._sequence = 0
         self._last_command = None
         self._command_unix_ns = 0
@@ -120,10 +127,8 @@ class CollectionBackend:
     def leader_timeout_s(self) -> float:
         """Allow one scheduled target period plus margin, with the configured timeout as a floor."""
 
-        action_dt_s = self.config["policy"]["action_dt_s"]
         return max(
             self.config["policy"]["timeout_s"],
-            2 * action_dt_s,
             2 * self._target_interval_s,
         )
 
@@ -131,10 +136,10 @@ class CollectionBackend:
         return now_ns - self._target_ns > int(self.leader_timeout_s * 1e9)
 
     def set_control_hz(self, hz: float) -> None:
-        """Update a synchronous leader loop without resetting or commanding hardware."""
+        """Update robot execution timing without changing collection timing."""
 
         if isinstance(hz, bool) or not math.isfinite(hz) or hz <= 0:
-            raise ValueError("collection_hz must be finite and positive")
+            raise ValueError("robot control_hz must be finite and positive")
         with self._mutex:
             self._check()
             if (
@@ -154,8 +159,17 @@ class CollectionBackend:
             self.safety.set_control_period(dt)
             self.dt = dt
             self.config["robot"]["control_hz"] = hz
-            self.config["policy"]["action_dt_s"] = dt
-            self.config["policy"]["trajectory_duration_s"] = None
+
+    def set_collection_hz(self, hz: float) -> None:
+        """Update collection target timing without changing robot execution timing."""
+
+        if isinstance(hz, bool) or not math.isfinite(hz) or hz <= 0:
+            raise ValueError("collection_hz must be finite and positive")
+        with self._mutex:
+            self._check()
+            if self._batch is not None or self._trace is not None:
+                raise RuntimeError("cannot change collection frequency during a batch or recording")
+            self._target_interval_s = 1.0 / hz
 
     @contextmanager
     def target_batch(self):
@@ -190,7 +204,6 @@ class CollectionBackend:
             self.safety.reset(self._state)
         self._target = copy_group_vector(command.groups)
         self._target_ns = command.monotonic_ns
-        self._target_interval_s = self.config["policy"]["action_dt_s"]
         self._sequence += 1
         self._enabled = True
         if self.execution_mode == "synchronous":
@@ -408,13 +421,13 @@ def load_backend_config(station):
         duration = 0.0 if closing_velocity is None else 1.0 / closing_velocity
         if abs(station.robot.gripper_close_duration_s - duration) > 1e-9:
             raise ValueError("station gripper_close_duration_s conflicts with control_profile")
-    if abs(config["policy"]["action_dt_s"] * station.control_hz - 1.0) > 1e-6:
-        raise ValueError("station control_hz must match runtime policy.action_dt_s")
     if (
         station.execution_mode == "synchronous"
-        and abs(config["robot"]["control_hz"] - station.control_hz) > 1e-6
+        and abs(config["robot"]["control_hz"] - station.collection_hz) > 1e-6
     ):
-        raise ValueError("synchronous execution requires matching robot and station control_hz")
+        raise ValueError(
+            "synchronous execution requires matching collection_hz and robot.control_hz"
+        )
     if config["robot"]["type"] != "yam":
         raise ValueError("collection runtime must select the YAM assembly")
     if station.robot.num_arm_joints != 6:

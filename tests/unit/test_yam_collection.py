@@ -31,6 +31,37 @@ def station(tmp_path):
     return cfg
 
 
+@pytest.mark.parametrize(
+    ("filename", "execution_mode", "robot_hz"),
+    [
+        ("station.yaml", "synchronous", 30.0),
+        ("station-threaded.yaml", "threaded", 100.0),
+    ],
+)
+def test_shipped_station_explicitly_owns_collection_clock(
+    filename, execution_mode, robot_hz
+):
+    import yaml
+
+    path = Path("manimux/configs/collection/yam") / filename
+    raw = yaml.safe_load(path.read_text())
+    assert raw["collection_hz"] == 30.0
+    assert raw["independent_camera_recording"] is False
+
+    cfg = build_station_config(path)
+    runtime = load_backend_config(cfg)
+    assert cfg.execution_mode == execution_mode
+    assert cfg.collection_hz == 30.0
+    assert runtime["robot"]["control_hz"] == robot_hz
+
+
+def test_station_requires_explicit_collection_clock(tmp_path):
+    path = tmp_path / "station.yaml"
+    path.write_text("collector: yam\n")
+    with pytest.raises(ValueError, match="explicitly declare collection_hz"):
+        build_station_config(path)
+
+
 def test_camera_timeout_reports_capture_error():
     from manimux.collection.yam.camera.interface import CameraMode
     from manimux.collection.yam.camera.mock_camera import MockCamera
@@ -80,7 +111,12 @@ def test_camera_start_failure_closes_all_drivers(tmp_path, monkeypatch):
 @pytest.fixture
 def backend(tmp_path):
     config = load_backend_config(station(tmp_path))
-    instance = CollectionBackend(config, lock_dir=tmp_path, execution_mode="threaded")
+    instance = CollectionBackend(
+        config,
+        lock_dir=tmp_path,
+        execution_mode="threaded",
+        collection_hz=30.0,
+    )
     instance.connect(start_thread=False)
     try:
         yield instance
@@ -136,7 +172,12 @@ def test_shared_lease_is_acquired_before_driver_connect(tmp_path):
         from tests.support.robot import RobotDouble
 
         driver = RobotDouble(config["robot"]["group_dims"], SystemClock())
-        instance = CollectionBackend(config, driver=driver, lock_dir=tmp_path)
+        instance = CollectionBackend(
+            config,
+            driver=driver,
+            lock_dir=tmp_path,
+            collection_hz=30.0,
+        )
         with pytest.raises(RuntimeLockError):
             instance.connect()
         assert not driver._connected
@@ -145,7 +186,12 @@ def test_shared_lease_is_acquired_before_driver_connect(tmp_path):
 def test_smooth_executor_is_shared(tmp_path):
     config = load_backend_config(station(tmp_path))
     config["executor"]["type"] = "smooth"
-    instance = CollectionBackend(config, lock_dir=tmp_path, execution_mode="threaded")
+    instance = CollectionBackend(
+        config,
+        lock_dir=tmp_path,
+        execution_mode="threaded",
+        collection_hz=30.0,
+    )
     instance.connect(start_thread=False)
     try:
         assert isinstance(instance.executor, SmoothExecutor)
@@ -159,6 +205,7 @@ def test_smooth_executor_is_shared(tmp_path):
 def test_recorder_preserves_source_and_executor_trace(backend, tmp_path):
     cfg = station(tmp_path)
     recorder = EpisodeRecorder(cfg.save_root, cfg, [], ["left", "right"], backend=backend)
+    assert not recorder.independent_cameras
     recorder.start("bottles")
     target = np.full(7, 0.1)
     backend.set_target("left_arm", target)
@@ -243,7 +290,7 @@ def test_gui_uses_mock_backend_and_pause(tmp_path, monkeypatch, execution_mode):
 
 def test_synchronous_sends_once_per_target_without_thread(tmp_path, monkeypatch):
     config = load_backend_config(station(tmp_path))
-    instance = CollectionBackend(config, lock_dir=tmp_path)
+    instance = CollectionBackend(config, lock_dir=tmp_path, collection_hz=30.0)
     commands = []
     send = instance.driver.send_command
 
@@ -275,7 +322,12 @@ def test_synchronous_sends_once_per_target_without_thread(tmp_path, monkeypatch)
 def test_threaded_frequency_is_configured(tmp_path, frequency):
     config = load_backend_config(station(tmp_path))
     config["robot"]["control_hz"] = frequency
-    instance = CollectionBackend(config, lock_dir=tmp_path, execution_mode="threaded")
+    instance = CollectionBackend(
+        config,
+        lock_dir=tmp_path,
+        execution_mode="threaded",
+        collection_hz=30.0,
+    )
     instance.connect()
     try:
         assert instance._thread.is_alive()
@@ -291,7 +343,7 @@ def test_threaded_frequency_is_configured(tmp_path, frequency):
 
 def test_synchronous_rejects_stale_resume(tmp_path):
     config = load_backend_config(station(tmp_path))
-    instance = CollectionBackend(config, lock_dir=tmp_path)
+    instance = CollectionBackend(config, lock_dir=tmp_path, collection_hz=30.0)
     instance.connect()
     try:
         instance.set_target("left_arm", np.zeros(7))
@@ -306,7 +358,7 @@ def test_synchronous_rejects_stale_resume(tmp_path):
 
 def test_synchronous_send_failure_stops_driver(tmp_path, monkeypatch):
     config = load_backend_config(station(tmp_path))
-    instance = CollectionBackend(config, lock_dir=tmp_path)
+    instance = CollectionBackend(config, lock_dir=tmp_path, collection_hz=30.0)
     instance.connect()
     try:
 
@@ -325,13 +377,49 @@ def test_synchronous_send_failure_stops_driver(tmp_path, monkeypatch):
 def test_synchronous_requires_matching_frequencies(tmp_path):
     cfg = station(tmp_path)
     cfg.manimux_config = "manimux/configs/collection/yam/control-threaded.yaml"
-    with pytest.raises(ValueError, match="matching robot and station"):
+    with pytest.raises(ValueError, match="matching collection_hz and robot.control_hz"):
         load_backend_config(cfg)
     cfg.execution_mode = "threaded"
     assert load_backend_config(cfg)["robot"]["control_hz"] == 100
     cfg.execution_mode = "typo"
     with pytest.raises(ValueError, match="execution_mode"):
         load_backend_config(cfg)
+
+
+def test_threaded_collection_rate_is_independent_from_policy_spacing(tmp_path):
+    cfg = station(tmp_path)
+    cfg.manimux_config = "manimux/configs/collection/yam/control-threaded.yaml"
+    cfg.execution_mode = "threaded"
+    cfg.collection_hz = 60.0
+
+    config = load_backend_config(cfg)
+
+    assert cfg.collection_hz == 60.0
+    assert config["robot"]["control_hz"] == 100.0
+    assert config["policy"]["action_dt_s"] == pytest.approx(1 / 30)
+
+
+def test_backend_clock_setters_do_not_cross_clock_owners(tmp_path):
+    cfg = station(tmp_path)
+    config = load_backend_config(cfg)
+    action_dt_s = config["policy"]["action_dt_s"]
+    instance = CollectionBackend(
+        config,
+        lock_dir=tmp_path,
+        collection_hz=cfg.collection_hz,
+    )
+    instance.connect()
+    try:
+        instance.set_control_hz(60.0)
+        assert instance._target_interval_s == pytest.approx(1 / 30)
+        assert config["robot"]["control_hz"] == 60.0
+        assert config["policy"]["action_dt_s"] == action_dt_s
+        instance.set_collection_hz(50.0)
+        assert instance._target_interval_s == pytest.approx(1 / 50)
+        assert config["robot"]["control_hz"] == 60.0
+        assert config["policy"]["action_dt_s"] == action_dt_s
+    finally:
+        instance.close()
 
 
 def test_collection_cli_dispatches_configured_embodiment(tmp_path, monkeypatch):
@@ -412,7 +500,7 @@ def test_shared_command_limits_apply_to_both_executors(tmp_path, executor):
         max_velocity={group: [0.001] * 7 for group in config["robot"]["group_dims"]},
         max_acceleration={group: [0.001] * 7 for group in config["robot"]["group_dims"]},
     )
-    instance = CollectionBackend(config, lock_dir=tmp_path)
+    instance = CollectionBackend(config, lock_dir=tmp_path, collection_hz=30.0)
     instance.connect()
     try:
         with pytest.raises(ValueError, match="velocity"):
@@ -442,7 +530,7 @@ def test_collection_profile_applies_shared_station_defaults(tmp_path):
     assert cfg.robot.ee_mass == 0.8
     assert cfg.robot.gripper_force_limit == 50
     assert cfg.robot.gripper_close_duration_s == 1.0
-    assert cfg.control_hz == 30
+    assert cfg.collection_hz == 30
     hardware = load_backend_config(cfg)["robot"]["options"]["component_hardware"]["left_yam"]
     assert hardware["ee_mass"] == 0.8
     raw["robot"]["ee_mass"] = 1.0
@@ -466,11 +554,11 @@ def test_toggle_gripper_matches_original_curve_without_double_slowdown(tmp_path)
         None,
         follower,
         gripper_mode="toggle",
-        control_hz=cfg.control_hz,
+        control_hz=cfg.collection_hz,
         gripper_close_duration_s=cfg.robot.gripper_close_duration_s,
     )
     executor = DirectExecutor(
-        runtime["executor"]["motion_limits"], control_dt_s=1 / cfg.control_hz
+        runtime["executor"]["motion_limits"], control_dt_s=1 / cfg.collection_hz
     )
     state = RobotState(
         groups={group: follower.get_joint_pos() for group in runtime["robot"]["group_dims"]},
