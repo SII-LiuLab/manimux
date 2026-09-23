@@ -19,14 +19,18 @@ checkpoint_source: local_deepspeed_zero2_model_state
 norm_stats_source: pass_ball_training_normalize_sha256_23665c2a1e87
 train_config_name: posttrain_pass_ball_50k_8gpu
 observation_profile: tianji_taccap_two_wrist_black_ego
-action_semantics: anchor_relative_ee_delta
+# Wire semantics: XPolicyLab restores the checkpoint's anchor-relative deltas
+# to absolute per-arm base TCP poses and encodes RTC conditions back.
+action_semantics: absolute_per_arm_base_xyz_wxyz
 action_horizon: 30
 num_steps: 5
 
 checkpoint_path: null
 norm_stats_path: null
 vlm_processor_path: Qwen/Qwen3-VL-4B-Instruct
-output_format: packed_ee_delta
+output_format: xpolicylab
+# Tianji TCP FK already defines the checkpoint's EE frame.
+eef_reframe_matrix: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
 action_length: 30
 
 image_factor: 32

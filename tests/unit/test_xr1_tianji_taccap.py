@@ -13,11 +13,9 @@ from manimux.kinematics.base import IKResult
 from manimux.kinematics.robot import RobotKinematics
 from manimux.kinematics.tianji_diff import rotation_matrix, rotation_vector
 from manimux.policies.decoder import ActionDecoderClient
-from manimux.policy_adapter.xr1.tianji import (
-    ACTION_DIM,
-    ARM_SLICES,
-    XR1TianjiTacCapAdapter,
-)
+from manimux.policies.xpolicylab.codec import matrix_pose
+from manimux.policy_adapter.xr1.tianji import XR1TianjiRequest, XR1TianjiTacCapAdapter
+from manimux.runtime.rtc.request import RtcInferenceRequest
 from manimux.types import (
     ActionContext,
     InferenceRequest,
@@ -90,6 +88,36 @@ def _request(adapter, request_seq=4):
     return request, context
 
 
+def _steps(poses, grippers, horizon=30):
+    """Build standard XPolicyLab EE action dictionaries from 4x4 poses."""
+
+    steps = []
+    for index in range(horizon):
+        step = {}
+        for side in ("left", "right"):
+            pose = poses[side]
+            pose = pose[index] if np.ndim(pose) == 3 else pose
+            gripper = np.broadcast_to(np.asarray(grippers[side], dtype=float), (horizon,))
+            step[f"{side}_ee_pose"] = matrix_pose(pose).astype(np.float32)
+            step[f"{side}_ee_joint_state"] = np.array([gripper[index]], dtype=np.float32)
+        steps.append(step)
+    return steps
+
+
+def _pose(position=(0.0, 0.0, 0.0), rotation=(0.0, 0.0, 0.0)):
+    pose = np.eye(4)
+    pose[:3, 3] = position
+    pose[:3, :3] = rotation_matrix(np.asarray(rotation, dtype=float))
+    return pose
+
+
+def _identity_steps(grippers=None):
+    return _steps(
+        {"left": _pose(), "right": _pose()},
+        grippers or {"left": 0.4, "right": 0.6},
+    )
+
+
 def test_config_requires_only_two_physical_cameras_and_black_ego_identity():
     config, adapter = _adapter()
     assert set(adapter._camera_map) == {"cam_left_wrist", "cam_right_wrist"}
@@ -97,6 +125,11 @@ def test_config_requires_only_two_physical_cameras_and_black_ego_identity():
     identity = config["policy"]["expected_backend"]["model"]
     assert identity["ego_view_mode"] == "black"
     assert identity["observation_profile"] == "tianji_taccap_two_wrist_black_ego"
+    assert identity["output_format"] == "xpolicylab"
+    assert identity["action_semantics"] == "absolute_per_arm_base_xyz_wxyz"
+    server = config["policy_server"]
+    assert server["output_format"] == "xpolicylab"
+    np.testing.assert_array_equal(server["eef_reframe_matrix"], np.eye(3))
     assert config["policy"]["action_decoding"] == "process"
     assert config["policy"]["adapter"]["ik_backend"] == "diff"
     assert adapter.supports_context_only_decode
@@ -115,65 +148,140 @@ def test_config_requires_only_two_physical_cameras_and_black_ego_identity():
     assert config["robot"]["options"]["execute"] is False
 
 
-def test_anchor_relative_delta_decodes_to_tianji_joint_chunk():
+def test_prepare_request_sends_observed_tcp_poses():
     _, adapter = _adapter()
-    request, context = _request(adapter)
-    adapter.prepare_request(request)
-    actions = np.zeros((30, ACTION_DIM), dtype=np.float32)
-    actions[:, 0] = 0.01
-    actions[:, 5] = 0.02
-    actions[:, 6] = 0.1
-    actions[:, 9] = -0.02
-    actions[:, 14] = -0.1
-    actions[:, 16:20] = 9.0  # Waist/base slots are unsupported and ignored explicitly.
+    request, _ = _request(adapter)
+    request.observation.state.groups["left_arm"][:3] = (0.1, 0.2, 0.3)
 
-    chunk = adapter.decode_action(actions, context)
+    prepared = adapter.prepare_request(request)
+
+    assert isinstance(prepared, XR1TianjiRequest)
+    assert prepared.action_condition is None and prepared.condition_weights is None
+    np.testing.assert_allclose(
+        prepared.xpolicylab_state["left_ee_pose"], [0.1, 0.2, 0.3, 1.0, 0.0, 0.0, 0.0]
+    )
+    np.testing.assert_allclose(
+        prepared.xpolicylab_state["right_ee_pose"], [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]
+    )
+
+
+def test_absolute_ee_actions_decode_to_tianji_joint_chunk():
+    _, adapter = _adapter()
+    _, context = _request(adapter)
+    steps = _steps(
+        {"left": _pose((0.01, 0.0, 0.0), (0.0, 0.0, 0.02)), "right": _pose((0.0, -0.02, 0.0))},
+        {"left": 0.5, "right": 0.5},
+    )
+
+    chunk = adapter.decode_action(steps, context)
 
     assert chunk.action_space == "joint_position"
     assert chunk.dt_ns == round(1e9 / 30)
-    np.testing.assert_allclose(chunk.groups["left_arm"][:, 0], 0.01)
-    np.testing.assert_allclose(chunk.groups["left_arm"][:, 5], 0.02)
+    np.testing.assert_allclose(chunk.groups["left_arm"][:, 0], 0.01, atol=1e-7)
+    np.testing.assert_allclose(chunk.groups["left_arm"][:, 5], 0.02, atol=1e-6)
     np.testing.assert_allclose(chunk.groups["left_arm"][:, -1], 0.5)
-    np.testing.assert_allclose(chunk.groups["right_arm"][:, 1], -0.02)
+    np.testing.assert_allclose(chunk.groups["right_arm"][:, 1], -0.02, atol=1e-7)
     np.testing.assert_allclose(chunk.groups["right_arm"][:, -1], 0.5)
-    assert chunk.metadata["ignored_waist_base_max_abs"] == 9.0
+    assert chunk.metadata["source_action_semantics"] == "absolute_per_arm_base_xyz_wxyz"
+    assert chunk.metadata["native_action_semantics"] == "anchor_relative_ee_delta"
     assert chunk.metadata["gripper_clip_max_abs"] == 0.0
     assert chunk.metadata["ik_seed_source"] == "observation_state"
     assert chunk.metadata["ik_seed_time_ns"] == context.observation_time_ns
+    # A mapping wrapper is accepted as well as the bare action list.
+    wrapped = adapter.decode_action({"actions": steps}, context)
+    np.testing.assert_allclose(wrapped.groups["left_arm"], chunk.groups["left_arm"])
+
+
+def _rtc_request(request, condition, weights):
+    return RtcInferenceRequest(
+        session_id=request.session_id,
+        request_seq=request.request_seq,
+        observation_time_ns=request.observation_time_ns,
+        deadline_ns=request.deadline_ns,
+        observation=request.observation,
+        instruction="pass the ball",
+        action_condition=condition,
+        condition_weights=weights,
+        rtc_beta=4.0,
+    )
+
+
+def test_rtc_joint_condition_round_trips_through_absolute_ee_rows():
+    _, adapter = _adapter()
+    request, context = _request(adapter)
+    anchor = np.concatenate(
+        [request.observation.state.groups[name] for name in ("left_arm", "right_arm")]
+    )
+    condition = np.tile(anchor, (30, 1))
+    condition[:, 0] += np.linspace(0.0, 0.02, 30)
+    condition[:, 3] += np.linspace(0.0, 0.03, 30)
+    condition[:, 9] -= np.linspace(0.0, 0.02, 30)
+    condition[:, 7] = np.linspace(0.4, 0.7, 30)
+    condition[:, 15] = np.linspace(0.6, 0.3, 30)
+    weights = np.ones(30)
+    weights[-5:] = 0.0
+
+    prepared = adapter.prepare_request(_rtc_request(request, condition, weights))
+
+    assert isinstance(prepared, XR1TianjiRequest)
+    assert prepared.rtc_beta == 4.0
+    assert prepared.action_condition.shape == (30, 16)
+    np.testing.assert_array_equal(prepared.condition_weights, weights)
+    np.testing.assert_array_equal(prepared.action_condition[-5:], 0.0)
+    assert set(prepared.xpolicylab_state) == {"left_ee_pose", "right_ee_pose"}
+    live = prepared.action_condition[:25]
+    np.testing.assert_allclose(live[:, 7], condition[:25, 7])
+    np.testing.assert_allclose(live[:, 15], condition[:25, 15])
+    steps = [
+        {
+            "left_ee_pose": row[0:7],
+            "left_ee_joint_state": row[7:8],
+            "right_ee_pose": row[8:15],
+            "right_ee_joint_state": row[15:16],
+        }
+        for row in live
+    ]
+    steps += _steps({"left": _pose(), "right": _pose()}, {"left": 0.4, "right": 0.6})[25:]
+    chunk = adapter.decode_action(steps, context)
+    np.testing.assert_allclose(chunk.groups["left_arm"][:25], condition[:25, :8], atol=1e-7)
+    np.testing.assert_allclose(chunk.groups["right_arm"][:25], condition[:25, 8:], atol=1e-7)
+
+
+def test_rtc_condition_shape_must_match_the_horizon():
+    _, adapter = _adapter()
+    request, _ = _request(adapter)
+    with pytest.raises(ValueError, match="RTC condition must have shape"):
+        adapter.prepare_request(_rtc_request(request, np.zeros((29, 16)), np.ones(29)))
 
 
 def test_small_gripper_boundary_overshoot_is_clipped():
     _, adapter = _adapter()
-    request, context = _request(adapter)
-    adapter.prepare_request(request)
-    actions = np.zeros((30, ACTION_DIM), dtype=np.float32)
-    actions[:, 6] = 0.65  # Left anchor 0.4 -> raw 1.05 -> clipped 1.0.
-    actions[:, 14] = -0.65  # Right anchor 0.6 -> raw -0.05 -> clipped 0.0.
+    _, context = _request(adapter)
+    steps = _identity_steps({"left": 1.05, "right": -0.05})
 
-    chunk = adapter.decode_action(actions, context)
+    chunk = adapter.decode_action(steps, context)
 
     np.testing.assert_allclose(chunk.groups["left_arm"][:, -1], 1.0)
     np.testing.assert_allclose(chunk.groups["right_arm"][:, -1], 0.0)
     assert chunk.metadata["gripper_clip_tolerance"] == 0.1
-    assert chunk.metadata["gripper_clip_max_abs"] == pytest.approx(0.05)
+    assert chunk.metadata["gripper_clip_max_abs"] == pytest.approx(0.05, abs=1e-6)
 
 
 def test_left_and_right_partition_decode_matches_full_chunk():
-    actions = np.zeros((30, ACTION_DIM), dtype=np.float32)
-    actions[:, 0] = 0.01
-    actions[:, 6] = 0.65  # Global clip metadata must match in both partitions.
-    actions[:, 9] = -0.02
-    actions[:, 14] = -0.61
-    actions[:, 16:20] = 3.0
+    # Global clip metadata must match in both partitions.
+    steps = _steps(
+        {"left": _pose((0.01, 0.0, 0.0)), "right": _pose((0.0, -0.02, 0.0))},
+        {"left": 1.05, "right": -0.01},
+    )
 
     chunks = {}
     for partition in (None, "left_arm", "right_arm"):
         _, adapter = _adapter()
         _, context = _request(adapter, request_seq=8)
         chunks[partition] = (
-            adapter.decode_action(actions, context)
+            adapter.decode_action(steps, context)
             if partition is None
-            else adapter.decode_action_partition(actions, context, partition)
+            else adapter.decode_action_partition(steps, context, partition)
         )
 
     full = chunks[None]
@@ -186,12 +294,12 @@ def test_left_and_right_partition_decode_matches_full_chunk():
 
     _, adapter = _adapter()
     with pytest.raises(ValueError, match="unknown XR-1 Tianji decode partition"):
-        adapter.decode_action_partition(actions, ActionContext(9, 0, 0), "waist")
+        adapter.decode_action_partition(steps, ActionContext(9, 0, 0), "waist")
 
 
 def test_decode_requires_the_request_observation_state():
     _, adapter = _adapter()
-    actions = np.zeros((30, ACTION_DIM))
+    actions = _identity_steps()
     with pytest.raises(ValueError, match="no observation state"):
         adapter.decode_action(actions, ActionContext(9, 10, 11))
 
@@ -210,27 +318,24 @@ def test_decode_requires_the_request_observation_state():
         )
 
 
-def test_bad_action_shape_and_gripper_range_are_rejected():
+def test_bad_action_horizon_and_gripper_range_are_rejected():
     _, adapter = _adapter()
-    request, context = _request(adapter)
-    adapter.prepare_request(request)
-    with pytest.raises(ValueError, match="shape"):
-        adapter.decode_action(np.zeros((29, ACTION_DIM)), context)
+    _, context = _request(adapter)
+    with pytest.raises(ValueError, match="standard EE action dictionaries"):
+        adapter.decode_action(_identity_steps()[:29], context)
+    with pytest.raises(ValueError, match="standard EE action dictionaries"):
+        adapter.decode_action(np.zeros((30, 60)), context)
 
-    request, context = _request(adapter, request_seq=5)
-    adapter.prepare_request(request)
-    actions = np.zeros((30, ACTION_DIM))
-    actions[:, 6] = 0.71  # Left anchor 0.4 -> 1.11, beyond tolerance.
+    _, context = _request(adapter, request_seq=5)
     with pytest.raises(ValueError, match="more than tolerance"):
-        adapter.decode_action(actions, context)
+        adapter.decode_action(_identity_steps({"left": 1.11, "right": 0.6}), context)
 
 
 def test_any_ik_failure_rejects_the_whole_chunk():
     _, adapter = _adapter(fail=True)
-    request, context = _request(adapter)
-    adapter.prepare_request(request)
+    _, context = _request(adapter)
     with pytest.raises(ValueError, match="offline_test_failure"):
-        adapter.decode_action(np.zeros((30, ACTION_DIM)), context)
+        adapter.decode_action(_identity_steps(), context)
 
 
 def _wait_for_decode(decoder: ActionDecoderClient):
@@ -243,21 +348,17 @@ def _wait_for_decode(decoder: ActionDecoderClient):
     raise AssertionError("Xiaomi action decoder did not return a result")
 
 
-def _diff_actions(adapter: XR1TianjiTacCapAdapter, observation: RobotState) -> np.ndarray:
-    actions = np.zeros((30, ACTION_DIM), dtype=np.float64)
-    for group, joint in (("left_arm", 0), ("right_arm", 1)):
+def _diff_actions(adapter: XR1TianjiTacCapAdapter) -> list[dict]:
+    poses = {}
+    for group, side, joint in (("left_arm", "left", 0), ("right_arm", "right", 1)):
         model = adapter.kinematics.models[group]
-        anchor = model.fk(observation.groups[group])
-        columns = ARM_SLICES[group]
+        targets = []
         for index in range(30):
             target_joints = START.copy()
             target_joints[joint] += np.radians(0.02 * (index + 1))
-            target = model.fk(np.r_[target_joints, 0.8])
-            actions[index, columns["position"]] = anchor[:3, :3].T @ (target[:3, 3] - anchor[:3, 3])
-            actions[index, columns["axis_angle"]] = rotation_vector(
-                anchor[:3, :3].T @ target[:3, :3]
-            )
-    return actions
+            targets.append(model.fk(np.r_[target_joints, 0.8]))
+        poses[side] = np.stack(targets)
+    return _steps(poses, {"left": 0.8, "right": 0.8})
 
 
 def test_diff_ik_uses_two_processes_and_matches_direct_decode():
@@ -271,7 +372,7 @@ def test_diff_ik_uses_two_processes_and_matches_direct_decode():
         now,
         1,
     )
-    actions = _diff_actions(adapter, observation)
+    actions = _diff_actions(adapter)
 
     def submit(seq: int, seed: RobotState):
         context = ActionContext(

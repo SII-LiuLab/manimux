@@ -71,9 +71,9 @@ policy:
       action_horizon: 30
       num_steps: 5
       action_type: ee
-      output_format: packed_ee_delta
+      output_format: xpolicylab
       ego_view_mode: black
-      action_semantics: anchor_relative_ee_delta
+      action_semantics: absolute_per_arm_base_xyz_wxyz
   options:
     connect_timeout_s: 60.0
     request_timeout_s: 120.0

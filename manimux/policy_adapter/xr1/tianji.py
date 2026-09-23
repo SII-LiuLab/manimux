@@ -1,36 +1,41 @@
-"""Decode Xiaomi Robotics 1 Cartesian deltas for Tianji–TacCap.
+"""Tianji FK/IK boundary for Xiaomi Robotics 1's standard absolute EE actions.
 
-The checkpoint emits a ``(30, 60)`` packed action.  Both arm poses and
-grippers are anchor-relative: every row is reconstructed from the observation
-that initiated the request, then solved to the 7-joint Tianji groups.  Waist,
-base, and reserved columns have no Tianji counterpart and are deliberately
-ignored.
+The checkpoint natively emits ``(30, 60)`` anchor-relative deltas.  XPolicyLab
+owns that transform: this adapter sends the observed per-arm base TCP poses,
+receives absolute ``[xyz, quat_wxyz]`` targets and gripper apertures, and
+solves them to the 7-joint Tianji groups.  RTC conditions travel in the same
+absolute layout and are made anchor-relative by the model server.
 """
 
 from __future__ import annotations
 
 import math
 import uuid
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 
 import numpy as np
 
 from manimux.kinematics.robot import RobotKinematics
 from manimux.kinematics.tianji_diff import rotation_matrix, rotation_vector
 from manimux.policies.base import action_interval
+from manimux.policies.xpolicylab.codec import matrix_pose, pose_matrix
 from manimux.policy_adapter.base import PolicyAdapter
+from manimux.runtime.rtc.request import RtcInferenceRequest
 from manimux.types import ActionChunk, ActionContext, InferenceRequest, ObservationSnapshot
 
-ACTION_DIM = 60
-ACTION_SEMANTICS = "anchor_relative_ee_delta"
+ACTION_SEMANTICS = "absolute_per_arm_base_xyz_wxyz"
+NATIVE_ACTION_SEMANTICS = "anchor_relative_ee_delta"
 OBSERVATION_PROFILE = "tianji_taccap_two_wrist_black_ego"
 GROUP_DIMS = {"left_arm": 8, "right_arm": 8}
+GROUP_SIDES = {"left_arm": "left", "right_arm": "right"}
 # A bent, in-limit pose used only to initialize decoder-process IK state.
 WARMUP_JOINTS = np.radians([50.0, -40.0, -30.0, -100.0, -65.0, 0.0, 40.0])
-ARM_SLICES = {
-    "left_arm": {"position": slice(0, 3), "axis_angle": slice(3, 6), "gripper": 6},
-    "right_arm": {"position": slice(8, 11), "axis_angle": slice(11, 14), "gripper": 14},
-}
+
+
+@dataclass(slots=True)
+class XR1TianjiRequest(RtcInferenceRequest):
+    xpolicylab_state: dict | None = None
 
 
 def _state_vector(value: object, *, label: str) -> np.ndarray:
@@ -42,18 +47,18 @@ def _state_vector(value: object, *, label: str) -> np.ndarray:
     return np.ascontiguousarray(state)
 
 
-def _axis_angle_to_rotation(axis_angle: np.ndarray) -> np.ndarray:
-    value = np.asarray(axis_angle, dtype=np.float64)
-    if value.shape != (3,) or not np.isfinite(value).all():
-        raise ValueError("XR-1 axis-angle delta must be a finite 3-vector")
-    return rotation_matrix(value)
+def _pose_row(model, state: np.ndarray) -> np.ndarray:
+    """Return one absolute ``[xyz, quat_wxyz, gripper]`` row from Tianji FK."""
+
+    return np.r_[matrix_pose(model.fk(state)), state[-1]]
 
 
 class XR1TianjiTacCapAdapter(PolicyAdapter):
     """Convert native XR-1 actions to safe, continuous Tianji joint chunks."""
 
     supports_context_only_decode = True
-    # XR-1 deltas and the first IK seed share the request observation anchor.
+    # XR-1 targets are restored against the request observation, which also
+    # seeds IK.
     # Timeline owns stale-row trimming after the full source trajectory is decoded.
     decode_seed_source = "observation_state"
     # Each arm can be solved in its own process, but the decoder client commits
@@ -125,7 +130,7 @@ class XR1TianjiTacCapAdapter(PolicyAdapter):
         required = {
             "policy_name": "Xiaomi_Robotics_1",
             "observation_profile": OBSERVATION_PROFILE,
-            "output_format": "packed_ee_delta",
+            "output_format": "xpolicylab",
             "ego_view_mode": "black",
             "action_semantics": ACTION_SEMANTICS,
         }
@@ -143,10 +148,65 @@ class XR1TianjiTacCapAdapter(PolicyAdapter):
             raise ValueError(f"XR-1 Tianji adapter is missing cameras: {missing}")
         return snapshot
 
-    def prepare_request(self, request: InferenceRequest) -> InferenceRequest:
-        if getattr(request, "action_condition", None) is not None:
-            raise ValueError("XR-1 Tianji RTC conditioning is not implemented")
-        return request
+    def prepare_request(self, request: InferenceRequest) -> XR1TianjiRequest:
+        groups = request.observation.state.groups
+        extra = {}
+        for name in self._group_order:
+            state = _state_vector(groups[name], label=f"observation {name}")
+            extra[f"{GROUP_SIDES[name]}_ee_pose"] = matrix_pose(
+                self.kinematics.models[name].fk(state)
+            )
+        condition = getattr(request, "action_condition", None)
+        weights = getattr(request, "condition_weights", None)
+        if condition is not None:
+            condition, weights = self._absolute_condition(condition, weights)
+        return XR1TianjiRequest(
+            session_id=request.session_id,
+            request_seq=request.request_seq,
+            observation_time_ns=request.observation_time_ns,
+            deadline_ns=request.deadline_ns,
+            observation=request.observation,
+            instruction=request.instruction,
+            action_condition=condition,
+            condition_weights=weights,
+            rtc_beta=getattr(request, "rtc_beta", 5.0),
+            xpolicylab_state=extra,
+        )
+
+    def _absolute_condition(
+        self, condition: object, weights: object
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Encode Tianji joint waypoints as absolute dual TCP/gripper rows."""
+
+        condition = np.asarray(condition, dtype=np.float64)
+        weights = np.asarray(weights, dtype=np.float64)
+        width = sum(GROUP_DIMS.values())
+        if condition.shape != (self._horizon_steps, width) or weights.shape != (
+            self._horizon_steps,
+        ):
+            raise ValueError(
+                f"XR-1 Tianji RTC condition must have shape ({self._horizon_steps}, {width}) "
+                f"with ({self._horizon_steps},) weights, got {condition.shape} and "
+                f"{weights.shape}"
+            )
+        if not np.isfinite(condition).all() or not np.isfinite(weights).all():
+            raise ValueError("XR-1 Tianji RTC condition must be finite")
+        poses = np.zeros_like(condition)
+        for row, weight in enumerate(weights):
+            # Zero-weight rows carry no guidance; the model leaves them at zero delta.
+            if weight == 0:
+                continue
+            offset = 0
+            for name in self._group_order:
+                state = _state_vector(
+                    condition[row, offset : offset + GROUP_DIMS[name]],
+                    label=f"condition target {name}",
+                )
+                poses[row, offset : offset + GROUP_DIMS[name]] = _pose_row(
+                    self.kinematics.models[name], state
+                )
+                offset += GROUP_DIMS[name]
+        return poses, weights
 
     def _solve_knot(self, model, current, target, gripper, *, diff_solver=None, lag=None):
         current = _state_vector(current, label="IK seed").copy()
@@ -218,18 +278,18 @@ class XR1TianjiTacCapAdapter(PolicyAdapter):
                 )
                 solver.reset()
 
-    def _actions_and_anchor(
-        self, raw: object, context: ActionContext
-    ) -> tuple[np.ndarray, dict[str, np.ndarray]]:
-        payload = raw.get("actions") if isinstance(raw, Mapping) else raw
-        actions = np.asarray(payload, dtype=np.float64)
-        if actions.shape != (self._horizon_steps, ACTION_DIM):
+    def _steps(self, raw: object, context: ActionContext) -> Sequence[Mapping]:
+        # The WebSocket client unwraps a plain response to its action list.
+        steps = raw.get("actions") if isinstance(raw, Mapping) else raw
+        if (
+            not isinstance(steps, Sequence)
+            or isinstance(steps, str | bytes)
+            or len(steps) != self._horizon_steps
+            or not all(isinstance(step, Mapping) for step in steps)
+        ):
             raise ValueError(
-                f"XR-1 actions must have shape ({self._horizon_steps}, {ACTION_DIM}), "
-                f"got {actions.shape}"
+                f"XR-1 Tianji expects {self._horizon_steps} standard EE action dictionaries"
             )
-        if not np.isfinite(actions).all():
-            raise ValueError("XR-1 actions must be finite")
         observation = context.measured_state
         if observation is None:
             raise ValueError(
@@ -240,20 +300,20 @@ class XR1TianjiTacCapAdapter(PolicyAdapter):
                 "XR-1 Tianji observation state time must equal the request observation time "
                 f"({observation.monotonic_ns} != {context.observation_time_ns})"
             )
-        anchor = {
-            name: _state_vector(observation.groups[name], label=f"observation {name}").copy()
-            for name in self._group_order
-        }
-        return actions, anchor
+        return steps
 
-    def _gripper_targets(
-        self, actions: np.ndarray, anchor: dict[str, np.ndarray]
-    ) -> tuple[dict[str, np.ndarray], float]:
+    def _gripper_targets(self, steps: Sequence[Mapping]) -> tuple[dict[str, np.ndarray], float]:
         targets = {}
         clip_max_abs = 0.0
         tolerance = self._gripper_clip_tolerance
         for name in self._group_order:
-            raw = anchor[name][-1] + actions[:, ARM_SLICES[name]["gripper"]]
+            key = f"{GROUP_SIDES[name]}_ee_joint_state"
+            values = [np.asarray(step[key], dtype=np.float64) for step in steps]
+            if any(value.shape != (1,) for value in values):
+                raise ValueError(f"XR-1 {key} must contain one gripper value")
+            raw = np.concatenate(values)
+            if not np.isfinite(raw).all():
+                raise ValueError(f"XR-1 {key} must be finite")
             invalid = np.flatnonzero((raw < -tolerance) | (raw > 1.0 + tolerance))
             if invalid.size:
                 value = float(raw[int(invalid[0])])
@@ -279,18 +339,17 @@ class XR1TianjiTacCapAdapter(PolicyAdapter):
     def _decode(
         self, raw: object, context: ActionContext, groups_to_decode: tuple[str, ...]
     ) -> ActionChunk:
-        actions, anchor = self._actions_and_anchor(raw, context)
-        gripper_targets, gripper_clip_max_abs = self._gripper_targets(actions, anchor)
+        steps = self._steps(raw, context)
+        # Clip metadata covers both arms so partitioned decodes agree.
+        gripper_targets, gripper_clip_max_abs = self._gripper_targets(steps)
 
         groups: dict[str, np.ndarray] = {}
         lag_stats: dict[str, dict[str, float | int]] = {}
         for name in groups_to_decode:
             model = self.kinematics.models[name]
-            anchor_state = _state_vector(anchor[name], label=f"anchor {name}")
-            anchor_pose = model.fk(anchor_state)
-            anchor_rotation = anchor_pose[:3, :3]
-            anchor_position = anchor_pose[:3, 3]
-            current = anchor_state.copy()
+            current = _state_vector(
+                context.measured_state.groups[name], label=f"observation {name}"
+            ).copy()
             solver = self.diff_solvers.get(name)
             lag = None
             if solver is not None:
@@ -300,20 +359,14 @@ class XR1TianjiTacCapAdapter(PolicyAdapter):
                     "worst_lag_deg": 0.0,
                     "lag_exceedances": 0,
                 }
-            columns = ARM_SLICES[name]
+            key = f"{GROUP_SIDES[name]}_ee_pose"
             rows: list[np.ndarray] = []
-            for index, row in enumerate(actions):
-                gripper = float(gripper_targets[name][index])
-                target = np.eye(4, dtype=np.float64)
-                target[:3, 3] = anchor_position + anchor_rotation @ row[columns["position"]]
-                target[:3, :3] = anchor_rotation @ _axis_angle_to_rotation(
-                    row[columns["axis_angle"]]
-                )
+            for index, step in enumerate(steps):
                 current = self._solve_knot(
                     model,
                     current,
-                    target,
-                    gripper,
+                    pose_matrix(step[key]),
+                    float(gripper_targets[name][index]),
                     diff_solver=solver,
                     lag=lag,
                 )
@@ -322,7 +375,6 @@ class XR1TianjiTacCapAdapter(PolicyAdapter):
             if lag is not None:
                 lag_stats[name] = lag
 
-        ignored = actions[:, 16:20]
         return ActionChunk(
             plan_id=f"xr1-tianji-{context.request_seq}-{uuid.uuid4().hex[:8]}",
             request_seq=context.request_seq,
@@ -334,7 +386,7 @@ class XR1TianjiTacCapAdapter(PolicyAdapter):
             source_offset_steps=0,
             metadata={
                 "source_action_semantics": ACTION_SEMANTICS,
-                "ignored_waist_base_max_abs": float(np.max(np.abs(ignored))),
+                "native_action_semantics": NATIVE_ACTION_SEMANTICS,
                 "gripper_clip_tolerance": self._gripper_clip_tolerance,
                 "gripper_clip_max_abs": gripper_clip_max_abs,
                 "ik_backend": self.ik_backend,

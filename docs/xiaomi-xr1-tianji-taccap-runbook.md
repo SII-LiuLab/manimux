@@ -12,15 +12,21 @@ DeepSpeed 模型文件，并通过共享 `xpolicylab_ws` worker 服务 ManiMux�
   `mean/std=(30,60)`、`q01/q99=(1,60)`。
 - observation：Tianji 左/右各 7 个关节与 1 个 `[0,1]` TacCap 开合量；两路腕部 RGB；
   第三路按左腕分辨率生成纯黑图，然后进入 XR-1 的公共 resize。
-- action：30×60 anchor-relative EE delta。每一行都相对于发起请求时的 TCP pose，
-  不是逐行累加；adapter 再用 Tianji 装配后的 TCP FK/IK 转为两组 30×8 joint position。
+- action：checkpoint 原生输出 30×60 anchor-relative EE delta。每一行都相对于发起请求时的
+  TCP pose，不是逐行累加。与 UMI-DP 相同，相对化由 XPolicyLab 完成：adapter 用 Tianji
+  TCP FK 发送观测时的 `left/right_ee_pose`（per-arm base 系 `xyz + wxyz`），server 以
+  `output_format: xpolicylab` 返回绝对 TCP pose 和开合量，adapter 再用 IK 转为两组
+  30×8 joint position。Tianji FK 即 checkpoint 的 EE 坐标系，因此 `eef_reframe_matrix`
+  固定为单位阵。
 - TacCap 保持 checkpoint 的连续 `[0,1]` 开合量，不启用 close-latch 语义替换。gripper
-  delta 解码后若越界不超过配置的 `gripper_clip_tolerance: 0.1`，会饱和到物理范围；
+  还原后若越界不超过配置的 `gripper_clip_tolerance: 0.1`，会饱和到物理范围；
   更大的越界仍拒绝整个 action chunk。
-- `[16:20]` 的腰部/底盘槽位在 Tianji 上无对应执行器，明确丢弃并记录最大绝对值。
+- `[16:20]` 的腰部/底盘槽位在 Tianji 上无对应执行器，由 XPolicyLab 的标准 EE 输出丢弃。
 - Diff-IK 在两个独立 spawn 进程中按左右臂并行解码，两个结果都成功后才原子提交；
   控制线程不再同步执行整段 IK。Diff-IK 的速度和步长上限与共享 motion profile 一致。
-- 仍只启用普通 ManiMux single-inflight；Tianji 的 XR-1 RTC condition codec 尚未实现。
+- RTC condition 以同样的绝对布局发送：adapter 把关节 waypoint 经 FK 转成 30×16 的
+  `[xyz, wxyz, 开合量]` 双臂行（weight 为 0 的行不做 FK、保持为 0），XPolicyLab 再相对
+  观测 pose 编码成 60 维原生 delta。当前实验模板仍只启用普通 ManiMux single-inflight。
 
 ## 文件
 
@@ -72,7 +78,7 @@ conda run -n mibot --no-capture-output python \
   --checkpoint /path/to/posttrain_pass_ball_50k_8gpu_epoch0_step50000_checkpoint
 ```
 
-服务启动后会发布 checkpoint、normalization、`packed_ee_delta`、black ego profile 和
+服务启动后会发布 checkpoint、normalization、`xpolicylab` 输出格式、black ego profile 和
 action semantics 身份；ManiMux 在开始 rollout 前逐项核对，避免连到 UMI-DP 或错误 XR-1
 checkpoint。
 
