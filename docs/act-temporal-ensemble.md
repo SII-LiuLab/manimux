@@ -25,13 +25,13 @@ w_i = exp(-0.01 * i) / sum_j exp(-0.01 * j)
 ```yaml
 inference:
   algorithm: act_temporal_ensemble
-  blend_steps: 0
+  blend_policy_steps: 0
   temporal_ensemble:
     coefficient: 0.01
-    query_interval_steps: 1
+    query_interval_policy_steps: 1
 ```
 
-`query_interval_steps` 的单位是 policy 轨迹点，不是机器人 control tick。Pi05 的
+`query_interval_policy_steps` 的单位是 policy 轨迹点，不是机器人 control tick。Pi05 的
 `action_dt_s` 是约 `33.3 ms`，示例配置使用 `4`，所以目标查询间隔约 `133 ms`。这与
 官方默认频率不同，因此准确名称是 **ACT Temporal Ensembling + ManiMux asynchronous
 scheduling**，不是未经改动的官方 rollout loop。
@@ -40,7 +40,7 @@ scheduling**，不是未经改动的官方 rollout loop。
 `100 ms`，更容易被单次推理占满；`4` 留有少量余量。若模型能够稳定在一个 action step
 内返回，可将其改回 `1`，恢复官方查询频率。除此之外不需要修改服务端。
 
-`blend_steps` 必须为 `0`，否则 Timeline 的线性 seam blend 会在 ACT 聚合之后再次改写
+`blend_policy_steps` 必须为 `0`，否则 Timeline 的线性 seam blend 会在 ACT 聚合之后再次改写
 轨迹。Smooth/MPC Executor 和安全限制仍照常位于 ACT 之后，它们属于统一真机执行层，
 不是 ACT 算法的一部分。
 

@@ -4,7 +4,6 @@ import argparse
 import hashlib
 import json
 import logging
-import math
 import multiprocessing as mp
 import signal
 import subprocess
@@ -88,14 +87,23 @@ def read_experiment(
     """
     source = Path(path).expanduser().resolve()
     raw = read_yaml(source)
+    from manimux.embodiments.robot import apply_action_contract
+    from manimux.policies.base import backend_identity_from_recipe
+
+    backend_identity = None
     for name in ("policy", "inference", "executor", "policy_server"):
         section = raw.get(name, {})
         if "config" in section:
             reference = (source.parent / section.pop("config")).resolve()
             raw[name] = _merge(read_yaml(reference), section)
+        if name == "policy_server" and isinstance(raw.get(name), dict):
+            backend_identity = raw[name].pop("backend_identity", None)
     robot = raw.setdefault("robot", {})
     if robot.get("config") is not None:
         robot["config"] = str((source.parent / robot["config"]).resolve())
+        contract = read_yaml(robot["config"]).get("action_contract")
+        if contract is not None:
+            apply_action_contract(raw, contract)
     if raw.get("control_profile") is not None:
         raw["control_profile"] = str((source.parent / raw["control_profile"]).resolve())
 
@@ -106,9 +114,16 @@ def read_experiment(
     if selected is not None:
         raw["local"] = str(selected)
     # Exported experiments retain their station reference instead of copying devices.
-    if not bind_local:
-        return raw
-    return bind_station(raw, selected) if selected is not None else raw
+    if bind_local and selected is not None:
+        raw = bind_station(raw, selected)
+    if backend_identity is not None:
+        generated = backend_identity_from_recipe(raw["policy_server"], backend_identity)
+        policy = raw.setdefault("policy", {})
+        configured = policy.get("expected_backend")
+        if configured is not None and configured != generated:
+            raise ValueError("policy.expected_backend conflicts with policy_server recipe")
+        policy["expected_backend"] = generated
+    return raw
 
 
 def bind_station(config: dict, local: str | Path) -> dict:
@@ -138,9 +153,11 @@ def bind_station(config: dict, local: str | Path) -> dict:
         service = sensor.get("service")
         if service in services:
             sensor.setdefault("options", {})["endpoint"] = services[service]["endpoint"]
-    if "policy" in services:
-        service = services["policy"]
-        raw.setdefault("policy", {}).setdefault("options", {})["server"] = service["endpoint"]
+    policy = raw.setdefault("policy", {})
+    policy_service = policy.get("service", "policy")
+    if policy_service in services:
+        service = services[policy_service]
+        policy.setdefault("options", {})["server"] = service["endpoint"]
         if "policy_server" in raw:
             address = urlsplit(service["endpoint"])
             # Clients use reachable addresses; servers may bind to a different host.
@@ -155,6 +172,9 @@ def bind_station(config: dict, local: str | Path) -> dict:
         )
     server = raw.get("policy_server")
     if server is not None:
+        # Recipe-only metadata configures ManiMux's handshake check and is not
+        # part of the model deployment arguments.
+        server.pop("backend_identity", None)
         # Provider field names differ; station paths do not change the selected
         # checkpoint variant, normalization identity, horizon or action contract.
         pi05 = server.get("policy_name") == "Pi_05"
@@ -332,11 +352,13 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def run_parameters(**options) -> dict:
-    """补齐实验记录目录和步数；保持旧入口的路径含义。"""
+    """补齐实验记录目录和控制步数。"""
 
+    if "max_steps" in options:
+        raise ValueError("unsupported run field: max_steps")
     values = {
         "output_dir": Path("data"),
-        "max_steps": 500,
+        "max_control_steps": 500,
         "experiment_mode": False,
         "layout_id": "",
         **options,
@@ -413,18 +435,31 @@ def prepare_experiment(**options) -> dict:
 
 def load_config(path: str | Path, *, local: str | Path | None = None) -> dict:
     """主入口使用的完整加载流程；保留共享控制参数原有的合并规则。"""
-    from manimux.embodiments.robot import shared_robot_parameters
+    from manimux.embodiments.robot import (
+        action_contract_group_indices,
+        shared_robot_parameters,
+    )
     from manimux.runtime.executors.limits import motion_limits_parameters
     from manimux.runtime.safety import command_safety_parameters
 
     config_path = Path(path)
     raw = read_experiment(config_path, local=local)
+    gripper_indices = action_contract_group_indices(raw)
     # read_experiment 已解析文件引用；这里只组合共享控制参数和实验参数。
     robot = raw["robot"] = shared_robot_parameters(**raw.get("robot", {}))
     profile = None
     if raw.get("control_profile") is not None:
         profile_path = Path(raw["control_profile"])
-        profile = control_profile_parameters(**read_yaml(profile_path))
+        profile_raw = read_yaml(profile_path)
+        if gripper_indices is not None and profile_raw.get("motion_limits") is not None:
+            profile_gripper = profile_raw["motion_limits"].setdefault("gripper", {})
+            _set_shared_value(
+                profile_gripper,
+                "group_indices",
+                deepcopy(gripper_indices),
+                "control_profile.motion_limits.gripper.group_indices",
+            )
+        profile = control_profile_parameters(**profile_raw)
         raw["control_profile"] = profile_path
         robot = raw.setdefault("robot", {})
         _set_shared_value(robot, "type", profile["robot"]["type"], "robot.type")

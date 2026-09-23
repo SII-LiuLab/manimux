@@ -2,14 +2,11 @@
 run:
   task: put the plastic bottles in the bin
   output_dir: ./data/sapolicy/direct_async_ik
-  max_steps: 6000
+  max_control_steps: 6000
   experiment_mode: false
 robot:
   config: ../../embodiment/robot/yam_dual.yaml
   control_hz: 100.0
-  group_dims:
-    left_arm: 7
-    right_arm: 7
   options:
     move_to_start_on_connect: false
     start_joints:
@@ -33,17 +30,12 @@ robot:
     home_duration_s: 5.0
     home_on_close: false
     execute: true
-    component_hardware:
-      left_yam:
-        channel: can_left
-      right_yam:
-        channel: can_right
   type: yam
 sensors:
 - name: yam_cameras
   driver: camera_server
+  service: camera
   options:
-    endpoint: tcp://127.0.0.1:5555
     request_timeout_ms: 500
     max_frame_age_sec: 0.15
     camera_names:
@@ -52,15 +44,9 @@ sensors:
     - right_camera
 policy:
   worker: xpolicylab_ws
+  service: policy
   adapter:
     type: manimux.policy_adapter.sapolicy.yam:SAPolicyYamAdapter
-    group_order:
-    - left_arm
-    - right_arm
-    group_prefixes:
-      left_arm: left
-      right_arm: right
-    gripper_dofs: 1
     wire_image_hw:
     - 168
     - 224
@@ -145,11 +131,10 @@ policy:
     action_space: joint_position
   action_dt_s: 0.03333333333333333
   timeout_s: 5.0
-  horizon_steps: 50
+  horizon_policy_steps: 50
   inference_delay_s: 0.0
   startup_timeout_s: 180.0
   options:
-    server: ws://127.0.0.1:8500
     connect_timeout_s: 5.0
     request_timeout_s: 5.0
   action_decoding: process
@@ -163,10 +148,9 @@ recording:
 # 推理算法决定请求与 chunk 交接；执行器独立负责命令平滑和限幅。
 inference:
   algorithm: manimux
-  inference_schedule: single_inflight
+  config: ../../inference/yam_manimux_single.yaml
   refill_threshold_s: 0.2
-  commit_lead_s: 0.0
   max_plan_age_s: 2.0
-  blend_steps: 0
+  blend_policy_steps: 0
 executor:
   type: direct

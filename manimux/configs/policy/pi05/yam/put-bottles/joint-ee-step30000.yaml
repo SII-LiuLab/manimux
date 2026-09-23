@@ -20,3 +20,8 @@ use_delta_joint_actions: true
 
 action_horizon: 50
 num_steps: 10
+
+backend_identity:
+  fields: [task_name, checkpoint_variant, checkpoint_source, norm_stats_path, norm_stats_source, train_config_name, action_horizon, num_steps]
+  aliases: {model_root: model_path}
+  model: {policy_family: pi05}

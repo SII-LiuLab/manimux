@@ -24,7 +24,9 @@ def collection_hardware(monkeypatch, tmp_path):
 
     def build_units(config, followers_only=False):
         control = backend.CollectionBackend(
-            backend.load_backend_config(config), execution_mode=config.execution_mode
+            backend.load_backend_config(config),
+            execution_mode=config.execution_mode,
+            collection_hz=config.collection_hz,
         )
         control.connect()
         units = []

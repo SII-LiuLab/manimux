@@ -1,14 +1,11 @@
 run:
   task: Pick the red ball up.
   output_dir: ./data
-  max_steps: 1600
+  max_control_steps: 1600
 
 robot:
   config: ../../embodiment/robot/yam_dual.yaml
   control_hz: 30.0
-  group_dims:
-    left_arm: 7
-    right_arm: 7
   options:
     move_to_start_on_connect: true
     start_duration_s: 8.0
@@ -32,30 +29,21 @@ robot:
       - 0.4129472800793472
       - 0.994773647405226
     execute: true
-    component_hardware:
-      left_yam:
-        channel: can_left
-      right_yam:
-        channel: can_right
   type: yam
 sensors:
 - name: yam_cameras
   driver: camera_server
+  service: camera
   options:
-    endpoint: tcp://127.0.0.1:5555
     request_timeout_ms: 500
     max_frame_age_sec: 0.5
     camera_names: [left_camera, front_camera, right_camera]
 
 policy:
   worker: xpolicylab_ws
+  service: policy
   adapter:
     type: manimux.policy_adapter.joint:JointAdapter
-    group_order: [left_arm, right_arm]
-    group_prefixes:
-      left_arm: left
-      right_arm: right
-    gripper_dofs: 1
     camera_map:
       cam_head: front_camera
       cam_left_wrist: left_camera
@@ -63,11 +51,10 @@ policy:
 
   action_dt_s: 0.03333333333333333
   timeout_s: 2.0
-  horizon_steps: 50
+  horizon_policy_steps: 50
   inference_delay_s: 0.0
   startup_timeout_s: 30.0
   options:
-    server: ws://127.0.0.1:8500
     request_timeout_s: 10.0
 viewer:
   enabled: true
@@ -79,26 +66,17 @@ recording:
 # 推理算法决定请求与 chunk 交接；执行器独立负责命令平滑和限幅。
 inference:
   algorithm: rtc
+  config: ../../inference/yam_rtc_base.yaml
   rtc:
-    min_execute_steps: 20
-    initial_delay_steps: 12
-    delay_buffer_size: 10
+    min_execute_policy_steps: 20
+    initial_delay_policy_steps: 12
     beta: 4.25
-  commit_lead_s: 0.0
   max_plan_age_s: 2.0
-  blend_steps: 8
+  blend_policy_steps: 8
 executor:
   type: smooth
+  config: ../../executor/yam_smooth_arm_standard.yaml
   smooth:
     cutoff_hz: 6.0
-    max_velocity: 0.20
-    max_acceleration: 0.40
-    position_limit_abs: 3.14
-  mpc:
-    horizon_steps: 15
-    dynamics_a: 0.85
-    tracking_weight: 10.0
-    command_delta_weight: 1.0
-    max_velocity: 0.20
-    max_acceleration: 0.40
-    position_limit_abs: 3.14
+    max_velocity: 0.2
+    max_acceleration: 0.4

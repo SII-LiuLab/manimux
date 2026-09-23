@@ -39,7 +39,7 @@ Moving directories alone does not migrate every historical deployment entry poin
 
 ## Action spacing and command frequency
 
-Each experiment explicitly declares `policy.action_dt_s`, `policy.horizon_steps`,
+Each experiment explicitly declares `policy.action_dt_s`, `policy.horizon_policy_steps`,
 `robot.control_hz`, `inference.algorithm` and `executor.type`.
 
 - `policy.action_dt_s: 0.03333333333333333`: predicted action points are 1/30 second apart.
@@ -48,6 +48,11 @@ Each experiment explicitly declares `policy.action_dt_s`, `policy.horizon_steps`
   interpolation. It does not change the model's action spacing or request 100 inferences
   per second. This is a separate experiment choice, not the current RTC 30k recipe.
 - `executor.smooth.cutoff_hz` is a filter cutoff, not an interpolation or command rate.
+
+YAM collection separately requires `collection_hz` in its station entry point. Synchronous
+collection requires it to match `robot.control_hz`; threaded collection may submit leader
+targets at one rate and execute robot commands at another. Collection timing is never derived
+from `policy.action_dt_s`.
 
 Shared YAML is packaged with the code. References resolve relative to the referring YAML.
 Run output paths remain relative to the process's working directory unless the station
@@ -70,7 +75,7 @@ policy:
       cam_left_wrist: left_camera
       cam_right_wrist: right_camera
   action_dt_s: 0.03333333333333333
-  horizon_steps: 50
+  horizon_policy_steps: 50
 policy_server:
   config: ../../policy/pi05/yam/put-bottles/joint-step30000.yaml
 inference:
@@ -173,7 +178,7 @@ not conflict. See [Tianji motion-limit provenance](../../docs/tianji-motion-limi
 | --- | --- |
 | `run.task` | Task instruction sent to the policy and recorded for the Viewer/Recorder. |
 | `run.output_dir` | Parent directory for `session-<timestamp>-<id>/` and rollout records. |
-| `run.max_steps` | Maximum control ticks; for example, 120 ticks at 100 Hz are about 1.2 s. |
+| `run.max_control_steps` | Maximum control ticks; for example, 120 ticks at 100 Hz are about 1.2 s. |
 | `run.experiment_mode` | Default Viewer experiment mode; normally false and selectable before Prepare. |
 | `run.layout_id` | Optional initial-layout or experimental-condition identifier. |
 | `robot.type` | Assembly implementation, such as `yam` or `tianji_taccap`. |
@@ -198,10 +203,10 @@ service; the runtime does not set their physical acquisition rate.
 | `policy.adapter` | Python `type` plus observation/action mapping parameters. |
 | `policy.device` | Device hint for the selected model plugin. |
 | `policy.action_dt_s` | Time between adjacent model action points. |
-| `policy.horizon_steps` | Points per action chunk; H points span `(H-1) × action_dt_s` between first and last. |
+| `policy.horizon_policy_steps` | Points per action chunk; H points span `(H-1) × action_dt_s` between first and last. |
 | `policy.timeout_s` | Inference request deadline; late responses are discarded. |
 | `policy.startup_timeout_s` | Worker initialization timeout, default 30 s. |
-| `policy.trajectory_duration_s` | If set, overrides spacing with `duration / (horizon_steps-1)`. |
+| `policy.trajectory_duration_s` | If set, overrides spacing with `duration / (horizon_policy_steps-1)`. |
 | `policy.inference_delay_s` | Simulated latency for the fake model used in tests. |
 | `policy.options` | Client connection settings; observation/action mappings belong in the adapter. |
 | `policy.expected_backend` | Expected server/model metadata, matched before the robot connects. |
@@ -220,7 +225,7 @@ additional server fields are allowed.
 | `inference.inference_schedule` | Default strategy: `deadline` or `single_inflight`. |
 | `inference.commit_lead_s` | Time added to now before a newly accepted chunk takes effect. |
 | `inference.max_plan_age_s` | Maximum age measured from the chunk's observation time. |
-| `inference.blend_steps` | Number of leading accepted points blended from the measured command; zero disables it. |
+| `inference.blend_policy_steps` | Number of leading accepted policy points blended from the measured command; zero disables it. |
 
 Strategies have different scheduling contracts. RTC uses its horizon/execution/delay
 contract; ACT temporal ensembling uses query intervals; AAC waits for its selected short
@@ -230,32 +235,32 @@ where they do not apply. Strategies share the robot, timeline and executor infra
 | Algorithm section | Main fields |
 | --- | --- |
 | `rtc` | Initial delay, delay history, guidance and chunk execution threshold; see [RTC](../../docs/xpolicylab-runbook.md#rtc-规则). |
-| `temporal_ensemble` | `coefficient: 0.01`; `query_interval_steps: 1` measured in policy action steps. |
+| `temporal_ensemble` | `coefficient: 0.01`; `query_interval_policy_steps: 1`. |
 | `aac` | `num_samples: 20`, `motion_threshold`, required `ee_stats_path`, `chunk_id_selector`, `backward_beta: 0.99`. |
-| `paint` | `execution_steps: 10`, `initial_delay_steps: 4`, `delay_buffer_size: 10`. |
-| `dvac` | `tail_steps: 5`, `alpha: 2.0`, `rolling_window_size: 5`, `min_execution_steps: 1`, `max_execution_steps` defaulting to horizon. |
+| `paint` | `execution_policy_steps: 10`, `initial_delay_policy_steps: 4`, `delay_buffer_size: 10`. |
+| `dvac` | `tail_policy_steps: 5`, `alpha: 2.0`, `rolling_window_size: 5`, `min_execution_policy_steps: 1`, `max_execution_policy_steps` defaulting to horizon. |
 
 ACT uses official exponential weights `w_i ∝ exp(-coefficient × i)` from commit `742c753`.
-Its queries are asynchronous; `blend_steps: 0` prevents an extra seam blend after aggregation.
+Its queries are asynchronous; `blend_policy_steps: 0` prevents an extra seam blend after aggregation.
 See [ACT temporal ensembling](../../docs/act-temporal-ensemble.md).
 
-AAC requires short-horizon support and `blend_steps: 0`. The YAM recipes adapt its scoring
+AAC requires short-horizon support and `blend_policy_steps: 0`. The YAM recipes adapt its scoring
 to 14D absolute joints: shared FK produces per-arm EE increments, matched fixed statistics
 normalize those increments, and the arm scores are averaged. The selected joint chunk
 remains the executed representation. These are YAM adaptations, not official Pi05/YAM
 recipes. See [AAC](../../docs/reproductions/aac.md) and [Pi05 AAC](../../docs/reproductions/aac-pi05.md).
 
-PAINT requires `d <= s <= H-d` and `blend_steps: 0`. ManiMux submits the old chunk's
+PAINT requires `d <= s <= H-d` and `blend_policy_steps: 0`. ManiMux submits the old chunk's
 `A[s:s+d]` prefix; the model sampler implements the repaint sequence. Responses are rejected
 when delay would discard more than the anchored prefix. See [PAINT](../../docs/reproductions/paint-pi05.md).
 
 AutoHorizon has no configurable method parameters: the Pi05 sampler selects an execution
 prefix from the action expert's third denoising-step self-attention. It requires
-`blend_steps: 0` and synchronous prefix execution. The JAX port uses upstream commit
+`blend_policy_steps: 0` and synchronous prefix execution. The JAX port uses upstream commit
 `c7504f1`; numerical parity with the upstream PyTorch implementation remains a separate
 validation boundary. See [AutoHorizon](../../docs/reproductions/autohorizon-pi05.md).
 
-DVAC synchronously executes the server's stable prefix, with `blend_steps: 0`.
+DVAC synchronously executes the server's stable prefix, with `blend_policy_steps: 0`.
 The Pi05/YAM implementation initializes the rolling buffer from the first request and
 scores the 14 effective normalized action dimensions, excluding OpenPI padding.
 See the [DVAC audit](../../docs/reproductions/dvac-pi05.md) for the paper/implementation boundary.
@@ -269,7 +274,7 @@ See the [DVAC audit](../../docs/reproductions/dvac-pi05.md) for the paper/implem
 | `executor.smooth.max_velocity` | Per-scalar velocity limit, typically rad/s for joint positions. |
 | `executor.smooth.max_acceleration` | Per-scalar acceleration limit, typically rad/s² for joints. |
 | `executor.smooth.position_limit_abs` | Generic symmetric position envelope, not the robot's precise per-joint limits. |
-| `executor.mpc.horizon_steps` | Optimization horizon per control tick. |
+| `executor.mpc.horizon_control_steps` | Optimization horizon in control ticks. |
 | `executor.mpc.dynamics_a` | Simplified state retention coefficient in `(0,1)`. |
 | `executor.mpc.tracking_weight` | Cost of deviation from the policy reference. |
 | `executor.mpc.command_delta_weight` | Cost of command changes between ticks. |

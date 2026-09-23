@@ -1,0 +1,10 @@
+# AAC sampling and chunk selection for the YAM EE action contract.
+commit_lead_s: 0.0
+max_plan_age_s: 5.0
+blend_policy_steps: 0
+aac:
+  backward_beta: 0.99
+  chunk_id_selector: "0"
+  ee_stats_path: manimux/policies/xpolicylab/norm_stats/yam_60ep_ee_increment.json
+  motion_threshold: 0.2
+  num_samples: 20

@@ -303,7 +303,11 @@ def run_trials(data, station, config, *, method, save_root, prepare_s, prompt=No
     from .data.recorder import EpisodeRecorder
     from .runtime import build_cameras_from_config
 
-    backend = ReplayBackend(config, config_path=station.manimux_config)
+    backend = ReplayBackend(
+        config,
+        config_path=station.manimux_config,
+        collection_hz=station.collection_hz,
+    )
     with ExitStack() as stack:
         # SDK imports / USB pipeline startup can block Python. Warm cameras
         # before starting timing-sensitive motor threads, as the collection GUI does.
@@ -436,7 +440,7 @@ def main(argv=None):
     ):
         raise ValueError("Physical replay requires complete finite trajectories for both arms")
     station = build_station_config(args.config, args.cameras)
-    station.collection_hz = station.control_hz = 60.0
+    station.collection_hz = 60.0
     station.execution_mode = "synchronous"
     station.data_format = "default"
     station.cameras = [c for c in station.cameras if c.name == args.camera]

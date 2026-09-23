@@ -1,0 +1,6 @@
+# Serial scheduling waits for each chunk and executes a 12-policy-step prefix.
+inference_schedule: serial
+commit_lead_s: 0.0
+max_plan_age_s: 2.0
+blend_policy_steps: 0
+chunk_policy_steps: 12

@@ -53,7 +53,7 @@ def configured():
         checkpoint_path="offline-test",
         weight_key="ema",
         rgb_normalize=True,
-        action_horizon=cfg["policy"]["horizon_steps"],
+        action_horizon=cfg["policy"]["horizon_policy_steps"],
         action_dt_s=action_interval(cfg["policy"]),
         first_action_offset_s=cfg["policy"]["adapter"]["first_action_offset_s"],
         observation_period_s=cfg["policy"]["adapter"]["observation_period_s"],
@@ -137,11 +137,11 @@ def test_observation_and_action_stay_in_each_arm_base():
             prepared.xpolicylab_state[f"{side}_ee_pose"], matrix_pose(expected)
         )
     result = adapter.decode_action(
-        actions(robot.kinematics, cfg["policy"]["horizon_steps"]), context(now)
+        actions(robot.kinematics, cfg["policy"]["horizon_policy_steps"]), context(now)
     )
     assert result.action_space == "joint_position"
     for values in result.groups.values():
-        assert values.shape == (cfg["policy"]["horizon_steps"], 8)
+        assert values.shape == (cfg["policy"]["horizon_policy_steps"], 8)
         np.testing.assert_allclose(values[:, -1], 0.8)
 
 
@@ -154,7 +154,7 @@ def test_spawned_action_decode_matches_inline(backend):
 
         bind_diff_ik_profile(cfg)
     adapter = build_policy_adapter(cfg["robot"], cfg["policy"])
-    steps = actions(adapter.robot_kinematics, cfg["policy"]["horizon_steps"])
+    steps = actions(adapter.robot_kinematics, cfg["policy"]["horizon_policy_steps"])
     decoder = ActionDecoderClient(cfg["robot"], cfg["policy"], adapter)
     try:
         decoder.start()
@@ -210,7 +210,8 @@ def test_decoded_actions_reach_shared_controller_only_when_enabled(monkeypatch, 
     try:
         robot.connect()
         chunk = adapter.decode_action(
-            actions(robot.kinematics, cfg["policy"]["horizon_steps"]), context(clock.now_ns())
+            actions(robot.kinematics, cfg["policy"]["horizon_policy_steps"]),
+            context(clock.now_ns()),
         )
         robot.send_command(
             RobotCommand({n: q[0] for n, q in chunk.groups.items()}, clock.now_ns(), None)

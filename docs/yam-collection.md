@@ -47,8 +47,11 @@ Original GUI / teaching-handle buttons
 ```
 
 - `manimux/configs/collection/yam/station.yaml`: leader/follower mapping, leader calibration,
-  bilateral feedback, analog/toggle trigger, toggle closing duration, task and output directory.
-  Follower hardware settings and the sample rate come from the control profile.
+  bilateral feedback, analog/toggle trigger, required `collection_hz`, task and output directory.
+  The collection rate belongs to this station entry point. It is not inferred from
+  `policy.action_dt_s` in the referenced runtime config.
+  `independent_camera_recording` separately selects schema-v2 camera timelines; declaring
+  a collection rate alone does not change the recording format.
 - `manimux/configs/collection/yam/cameras.yaml`: independent copy of the original camera
   roster, including optional Orbbec views. GUI camera edits write this copy only.
 - `manimux/configs/collection/yam/control.yaml`: standard ManiMux execution/robot config.
@@ -61,7 +64,8 @@ Original GUI / teaching-handle buttons
 - `manimux/configs/collection/yam/station-threaded.yaml` selects `execution_mode: threaded`
   and `control-threaded.yaml`: 30 Hz target updates, 100 Hz execution. These rates
   are configurable, not hard-coded. Threaded execution can also run at 30 Hz.
-  Synchronous execution requires station and robot control frequencies to match.
+  Synchronous execution requires `collection_hz` and `robot.control_hz` to match;
+  threaded execution permits them to differ.
 - To collect with inference-time smoothing, select `executor.type: smooth`
   and the same filter settings. Motion limits come from the shared profile for both
   executors. Existing inference configs without a profile are not changed automatically.

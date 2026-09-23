@@ -152,7 +152,7 @@ def test_paint_strategy_sends_exact_old_chunk_prefix() -> None:
         now_ns=0,
     )
 
-    now_ns = config["inference"]["paint"]["execution_steps"] * dt_ns
+    now_ns = config["inference"]["paint"]["execution_policy_steps"] * dt_ns
     submission = strategy.build_submission(
         session_id="session",
         request_seq=2,
@@ -196,7 +196,7 @@ def test_paint_config_requires_feasible_s_and_d() -> None:
     payload = deepcopy(_config())
     payload["inference"].pop("inference_schedule")
     payload["inference"].pop("refill_threshold_s")
-    payload["inference"]["paint"]["execution_steps"] = 45
+    payload["inference"]["paint"]["execution_policy_steps"] = 45
 
     with pytest.raises(ValueError, match="PAINT requires"):
         prepare_experiment(**payload)
@@ -206,9 +206,9 @@ def test_paint_config_rejects_external_seam_blending() -> None:
     payload = deepcopy(_config())
     payload["inference"].pop("inference_schedule")
     payload["inference"].pop("refill_threshold_s")
-    payload["inference"]["blend_steps"] = 1
+    payload["inference"]["blend_policy_steps"] = 1
 
-    with pytest.raises(ValueError, match="blend_steps=0"):
+    with pytest.raises(ValueError, match="blend_policy_steps=0"):
         prepare_experiment(**payload)
 
 

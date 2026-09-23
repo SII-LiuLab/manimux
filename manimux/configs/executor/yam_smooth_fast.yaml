@@ -1,0 +1,6 @@
+# Faster YAM arm smoothing used by the 50 ms and protocol smoke experiments.
+smooth:
+  cutoff_hz: 8.0
+  max_velocity: 2.0
+  max_acceleration: 8.0
+  position_limit_abs: 3.14

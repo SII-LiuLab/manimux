@@ -21,3 +21,7 @@ groups:
   # null 仅表示没有额外挂接的末端，YAM 自带夹爪始终属于组件的第七维。
   left_arm: {arm: left_yam, end_effector: null}
   right_arm: {arm: right_yam, end_effector: null}
+action_contract:
+  group_dims: {left_arm: 7, right_arm: 7}
+  group_prefixes: {left_arm: left, right_arm: right}
+  gripper_dofs: 1

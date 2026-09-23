@@ -249,14 +249,14 @@ Current experiment-critical values:
 ```yaml
 policy:
   action_dt_s: 0.03333333333333333
-  horizon_steps: 16
+  horizon_policy_steps: 16
   options:
     allow_short_horizon: true
     aac_kinematics: yam
 
 inference:
   algorithm: aac
-  blend_steps: 0
+  blend_policy_steps: 0
   aac:
     num_samples: 20
     motion_threshold: 0.2
@@ -265,7 +265,7 @@ inference:
     backward_beta: 0.99
 ```
 
-- `blend_steps=0` prevents Timeline seam blending from rewriting the selected official prefix.
+- `blend_policy_steps=0` prevents Timeline seam blending from rewriting the selected official prefix.
 - `allow_short_horizon=true` permits the bridge to return `2..16` actions.
 - selector `"0"` is the official default and removes backward-history behavior from the first test.
 - SmoothExecutor and Safety remain active outer hardware layers; they are not claimed as AAC logic.
@@ -407,6 +407,6 @@ repeated large oscillation or any mismatch between viewer and physical achieved 
 - [ ] Entropy/selector use fixed min-max; motion uses unnormalized increments.
 - [ ] Backward selector retains the full candidate batch.
 - [ ] Selected native joint chunk is not replaced by IK output.
-- [ ] `blend_steps=0` and short horizon are both enforced.
+- [ ] `blend_policy_steps=0` and short horizon are both enforced.
 - [ ] Offline, GPU, simulator and hardware evidence are reported separately.
 - [ ] Hardware conclusions include recorder paths and observed failures, not only “ran successfully.”

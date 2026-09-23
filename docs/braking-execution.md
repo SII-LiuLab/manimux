@@ -20,7 +20,7 @@ and completes opening. Explicit Pause, Finish and Home retain their existing beh
 The fixed control period is used for command differences, as in the existing
 executor; controller overruns and motor tracking must still be monitored.
 
-`inference.max_chunk_steps: 25` limits the ordinary joint timeline to original
+`inference.max_chunk_policy_steps: 25` limits the ordinary joint timeline to original
 source indices 0 through 24 **before** latency trimming. Model inference and
 recorded raw model chunks remain 50 rows; the decoder solves only the usable prefix.
 A three-row trim therefore commits

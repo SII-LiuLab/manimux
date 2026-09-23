@@ -262,7 +262,7 @@ class EdgeRuntime:
     def _build_timeline(self) -> ActionTimeline:
         return ActionTimeline(
             self._config["robot"]["group_dims"],
-            max_source_steps=self._config["inference"]["max_chunk_steps"],
+            max_source_steps=self._config["inference"]["max_chunk_policy_steps"],
             start_on_commit=self._config["inference"]["inference_schedule"] == "serial",
         )
 
@@ -343,9 +343,9 @@ class EdgeRuntime:
                 "view_profile": self._config["policy"]["adapter"].get("view_profile"),
                 "camera_map": self._config["policy"]["adapter"].get("camera_map", {}),
                 "action_dt_s": action_interval(self._config["policy"]),
-                "horizon_steps": self._config["policy"]["horizon_steps"],
-                "max_chunk_steps": self._config["inference"]["max_chunk_steps"],
-                "blend_steps": self._config["inference"]["blend_steps"],
+                "horizon_steps": self._config["policy"]["horizon_policy_steps"],
+                "max_chunk_steps": self._config["inference"]["max_chunk_policy_steps"],
+                "blend_steps": self._config["inference"]["blend_policy_steps"],
                 "experiment_mode": self._config["run"]["experiment_mode"],
                 "layout_id": self._config["run"]["layout_id"],
                 "launch_mode": self._launch_mode,
@@ -411,7 +411,7 @@ class EdgeRuntime:
                 "episode_dir": str(recorder.final_dir.resolve()),
                 "run_dir": str(self._run_dir.resolve()),
                 "instruction": self._config["run"]["task"],
-                "max_steps": self._config["run"]["max_steps"],
+                "max_steps": self._config["run"]["max_control_steps"],
                 "control_mode": self._strategy.control_mode,
                 "runtime": self._strategy.name,
                 "executor": self._config["executor"]["type"],
@@ -430,7 +430,7 @@ class EdgeRuntime:
             )
             next_tick_ns = self._clock.now_ns()
 
-            while steps < self._config["run"]["max_steps"]:
+            while steps < self._config["run"]["max_control_steps"]:
                 loop_start_ns = self._clock.now_ns()
                 now_ns = loop_start_ns
                 state = self._robot.get_state()
@@ -540,7 +540,7 @@ class EdgeRuntime:
                                         execution_time_ns=start_ns,
                                         measured_state=seed,
                                         max_source_steps=self._config["inference"][
-                                            "max_chunk_steps"
+                                            "max_chunk_policy_steps"
                                         ],
                                         independent_groups=self._config["inference"][
                                             "independent_group_decoding"
@@ -635,7 +635,7 @@ class EdgeRuntime:
                                             else state
                                         ),
                                         max_source_steps=self._config["inference"][
-                                            "max_chunk_steps"
+                                            "max_chunk_policy_steps"
                                         ],
                                     ),
                                 )
@@ -939,7 +939,7 @@ class EdgeRuntime:
                         active_chunk_index = self._timeline.cursor(now_ns)
                         visual_fields: dict[str, object] = {
                             "runtime": self._strategy.name,
-                            "horizon_steps": self._config["policy"]["horizon_steps"],
+                            "horizon_steps": self._config["policy"]["horizon_policy_steps"],
                             "active_chunk_id": active_chunk_id,
                             "active_chunk_index": active_chunk_index,
                             "active_horizon_steps": (
@@ -950,7 +950,7 @@ class EdgeRuntime:
                         if bool(submission.event_fields.get("conditioned", False)):
                             executed_steps = int(submission.event_fields.get("executed_steps", 0))
                             visual_fields["conditioned_overlap_steps"] = max(
-                                0, self._config["policy"]["horizon_steps"] - executed_steps
+                                0, self._config["policy"]["horizon_policy_steps"] - executed_steps
                             )
                             visual_fields["frozen_steps"] = int(
                                 submission.event_fields.get("forecast_delay", 0)
@@ -1084,7 +1084,7 @@ class EdgeRuntime:
                     state,
                     frames,
                     step=steps,
-                    max_steps=self._config["run"]["max_steps"],
+                    max_steps=self._config["run"]["max_control_steps"],
                     chunk_index=self._timeline.cursor(now_ns),
                     active_chunk_id=(
                         None

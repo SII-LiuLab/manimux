@@ -21,7 +21,7 @@ policy:
   adapter:
     type: manimux.policies.fake:FakePolicyAdapter
   timeout_s: 0.5
-  horizon_steps: 2
+  horizon_policy_steps: 2
   options: {}
 viewer:
   enabled: false

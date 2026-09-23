@@ -4,14 +4,11 @@
 run:
   task: Put the bottles into the bin.
   output_dir: ./data/experiments/pi05-put-bottles-joint-step30000/rtc
-  max_steps: 12000
+  max_control_steps: 12000
 robot:
   type: yam
   config: ../../embodiment/robot/yam_dual.yaml
   control_hz: 100.0
-  group_dims:
-    left_arm: 7
-    right_arm: 7
   options:
     execute: false
     move_to_start_on_connect: true
@@ -50,33 +47,16 @@ policy:
 # 匹配原 put-bottles joint step-30000 服务；更换 checkpoint 时成对调整身份。
 # 模型输入保持 30 Hz、50 步、左右各六关节加一个归一化夹爪。
   worker: xpolicylab_ws
+  service: policy
   adapter:
     type: manimux.policy_adapter.joint:JointAdapter
-    group_order:
-    - left_arm
-    - right_arm
-    group_prefixes:
-      left_arm: left
-      right_arm: right
-    gripper_dofs: 1
     camera_map:
       cam_head: front_camera
       cam_left_wrist: left_camera
       cam_right_wrist: right_camera
   timeout_s: 2.0
-  horizon_steps: 50
+  horizon_policy_steps: 50
   inference_delay_s: 0.0
-  expected_backend:
-    server: xpolicylab_policy_server
-    model:
-      policy_family: pi05
-      task_name: put_bottles_into_the_bin
-      checkpoint_variant: pi05_yam_put_bottles_joint_step_30000
-      checkpoint_source: qz_hdd3_put-bottles-joint-v1-s0-30k_step30000
-      norm_stats_source: checkpoint_matched_yam_put_bottles_into_the_bin_20260905_joint_ee_v1
-      train_config_name: pi05_yam
-      action_horizon: 50
-      num_steps: 10
   startup_timeout_s: 30.0
   options:
     request_timeout_s: 10.0

@@ -5,10 +5,10 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-from manimux.policy_adapter.umi_dp import tianji as policy_plugin
 from scipy.spatial.transform import Rotation
 
 from manimux.cli import load_config
+from manimux.policy_adapter.umi_dp import tianji as policy_plugin
 from manimux.policy_adapter.umi_dp.history import (
     HistoryStrategy,
     MeasuredHistory,
@@ -122,13 +122,15 @@ def test_history_rejects_fake_request_history_stale_and_skewed():
 
 def test_history_delegates_and_validates_rtc_constraints():
     for name in ("default", "rtc"):
-        config = load_config(ROOT / f"manimux/configs/experiments/pass_ball/tianji_umi_dp_{name}.yaml")
+        config = load_config(
+            ROOT / f"manimux/configs/experiments/pass_ball/tianji_umi_dp_{name}.yaml"
+        )
         strategy = HistoryStrategy(config)
         assert strategy.name == ("manimux" if name == "default" else "rtc")
         assert strategy.required_sampling_modes == frozenset(
             {"default" if name == "default" else "rtc"}
         )
-    config["inference"]["rtc"]["initial_delay_steps"] = 9
+    config["inference"]["rtc"]["initial_delay_policy_steps"] = 9
     with pytest.raises(ValueError, match="initial_delay"):
         HistoryStrategy(config)
 
@@ -408,7 +410,7 @@ def test_pause_submits_and_commits_nothing_only_when_the_strategy_asks(
     monkeypatch.setattr(edge, "PolicyWorkerClient", lambda *_: InstantPolicy())
     config = load_config(ROOT / "tests/fixtures/runtime.yaml")
     config["sensors"] = []
-    config["run"]["max_steps"] = 10_000
+    config["run"]["max_control_steps"] = 10_000
     runtime = edge.EdgeRuntime(config, tmp_path, clock=clock, strategy=Strategy(config))
     holder["runtime"] = runtime
     controls = iter(

@@ -1,0 +1,9 @@
+# UMI-DP uses measured observation history and process-decode latency forecasting.
+inference_schedule: single_inflight
+refill_threshold_s: 0.25
+expected_decode_s: 0.06
+decode_forecast_size: 10
+decode_forecast_mode: max
+max_plan_age_s: 2.0
+blend_policy_steps: 2
+strategy: manimux.policy_adapter.umi_dp.history:build_strategy

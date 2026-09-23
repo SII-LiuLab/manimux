@@ -17,22 +17,21 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "XPolicyLab"))
 
-from XPolicyLab.policy.OpenWAM.model import (
-    Model,
-    _configure_deploy_runtime,
-    validate_deployment,
-)
-from XPolicyLab.policy.OpenWAM.training import build_command
-
-from manimux.policies.xpolicylab.client import XPolicyLabWsPolicyModel
-from manimux.policy_adapter.openwam.yam import SEMANTICS, OpenWAMYamAdapter
-from manimux.types import (
+from manimux.policies.xpolicylab.client import XPolicyLabWsPolicyModel  # noqa: E402
+from manimux.policy_adapter.openwam.yam import SEMANTICS, OpenWAMYamAdapter  # noqa: E402
+from manimux.types import (  # noqa: E402
     ActionContext,
     InferenceRequest,
     ObservationSnapshot,
     RobotState,
     SensorFrame,
 )
+from XPolicyLab.policy.OpenWAM.model import (  # noqa: E402
+    Model,
+    _configure_deploy_runtime,
+    validate_deployment,
+)
+from XPolicyLab.policy.OpenWAM.training import build_command  # noqa: E402
 
 
 class Kinematics:
@@ -303,30 +302,21 @@ def test_training_arguments(tmp_path):
 
 
 def test_checked_in_put_bottles_deployment_is_bound():
-    config = load_config(ROOT / "manimux/configs/experiments/put_bottles/yam_openwam_manimux_step30000.yaml")
+    config = load_config(
+        ROOT
+        / "manimux/configs/experiments/put_bottles/yam_openwam_manimux_step30000.yaml"
+    )
     identity = config["policy"]["expected_backend"]["model"]
     assert config["robot"]["control_hz"] == 100.0
-    assert config["robot"]["options"]["start_joints"] == [
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        1.0,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        1.0,
-    ]
+    assert config["robot"]["options"]["start_joints"] == {
+        "left_arm": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+        "right_arm": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+    }
     assert action_interval(config["policy"]) == pytest.approx(1.0 / 30.0)
-    assert config["policy"]["horizon_steps"] == 32
+    assert config["policy"]["horizon_policy_steps"] == 32
     assert config["policy"]["adapter"]["deployment_bound"] is True
     assert config["inference"]["inference_schedule"] == "serial"
-    assert config["inference"]["chunk_steps"] == 12
+    assert config["inference"]["chunk_policy_steps"] == 12
     assert identity["checkpoint_file"] == "checkpoint_step_30000.safetensors"
     assert identity["action_horizon"] == 32
     assert config["executor"]["smooth"]["gripper"]["max_velocity"] == 1.0

@@ -76,7 +76,7 @@ class EpisodeRecorder:
         # Guards start/tick/stop/abort: the control-loop thread calls tick()
         # concurrently with the GUI thread calling start()/stop().
         self._lock = threading.Lock()
-        self.independent_cameras = station.collection_hz is not None
+        self.independent_cameras = station.independent_camera_recording
         self._camera_workers = list(cameras)
         self._camera_error: str | None = None
         self._start_ns = 0
@@ -333,7 +333,7 @@ class EpisodeRecorder:
                 from .timing import describe_timing
 
                 extra["timing"] = describe_timing(
-                    out, self.arms, self.cameras, self.station.control_hz,
+                    out, self.arms, self.cameras, self.station.collection_hz,
                 )
                 if self._camera_error:
                     extra["timing"]["camera_error"] = self._camera_error
@@ -374,7 +374,7 @@ class EpisodeRecorder:
                 task_name=task_name or "",
                 arm_names=self.arms,
                 num_arm_joints=self.n,
-                control_hz=self.station.control_hz,
+                control_hz=self.station.collection_hz,
                 cameras=self._camera_metas(out),
                 num_frames=frame_count,
                 extra=extra,
@@ -425,7 +425,7 @@ class EpisodeRecorder:
                     image_keys=keys,
                     width=int(w),
                     height=int(h),
-                    fps=(c.fps if c else max(1, int(round(self.station.control_hz)))),
+                    fps=(c.fps if c else max(1, int(round(self.station.collection_hz)))),
                 )
             )
         return metas

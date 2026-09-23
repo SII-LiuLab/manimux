@@ -60,8 +60,8 @@ def test_dvac_rejects_invalid_metadata_and_double_blending() -> None:
     payload = deepcopy(config)
     payload["inference"].pop("inference_schedule")
     payload["inference"].pop("refill_threshold_s")
-    payload["inference"]["blend_steps"] = 2
-    with pytest.raises(ValueError, match="blend_steps=0"):
+    payload["inference"]["blend_policy_steps"] = 2
+    with pytest.raises(ValueError, match="blend_policy_steps=0"):
         prepare_experiment(**payload)
 
 
@@ -69,10 +69,10 @@ def test_dvac_config_preserves_paper_defaults_and_pi05_contract() -> None:
     config = load_config("manimux/configs/experiments/pick_red_object/yam_pi05_dvac_step1000.yaml")
 
     assert config["inference"]["algorithm"] == "dvac"
-    assert config["inference"]["dvac"]["tail_steps"] == 5
+    assert config["inference"]["dvac"]["tail_policy_steps"] == 5
     assert config["inference"]["dvac"]["alpha"] == pytest.approx(2.0)
     assert config["inference"]["dvac"]["rolling_window_size"] == 5
-    assert config["inference"]["dvac"]["min_execution_steps"] == 1
-    assert config["inference"]["dvac"]["max_execution_steps"] == 50
-    assert config["policy"]["horizon_steps"] == 50
-    assert config["inference"]["blend_steps"] == 0
+    assert config["inference"]["dvac"]["min_execution_policy_steps"] == 1
+    assert config["inference"]["dvac"]["max_execution_policy_steps"] == 50
+    assert config["policy"]["horizon_policy_steps"] == 50
+    assert config["inference"]["blend_policy_steps"] == 0

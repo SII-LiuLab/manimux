@@ -90,7 +90,7 @@ selects two distinct measured snapshots around the checkpoint interval, within
 missing history defer submissions. There is no inference-request-based history,
 extra hardware polling thread, or change to control_hz/the main loop.
 
-Serial scheduling and max_chunk_steps remain restricted to the built-in
+Serial scheduling and max_chunk_policy_steps remain restricted to the built-in
 `manimux` runtime name, so this history plugin does not use them. Process action
 decoding checks the constructed strategy instead, which this wrapper delegates:
 either its `manimux` or `rtc` delegate may use `policy.action_decoding: process`.
@@ -168,8 +168,8 @@ rejects these unused fields. Preserve the selected profile, IK limits, gripper
 semantics and executor settings. Rebind the copied template to produce a new
 paired configuration; do not change artifact identities by hand.
 
-`inference.rtc.initial_delay_steps` is an initial estimate in **model action
-steps**, not control ticks. The template uses 4, `min_execute_steps: null` (half
+`inference.rtc.initial_delay_policy_steps` is an initial estimate in **model action
+steps**, not control ticks. The template uses 4, `min_execute_policy_steps: null` (half
 the source horizon, bounded by feasibility) and PiGDM `beta: 5.0`. Runtime
 forecasting takes the maximum of the recent delay buffer and rounds fractional
 steps upward. It includes observation age, request preparation, transport,
@@ -269,7 +269,7 @@ for the RTC template, which also uses process decoding. These measurements do
 not justify relaxing IK checks.
 
 Both pass-ball templates run `robot.control_hz: 100` (10ms ticks);
-`max_steps: 2400` keeps the previous 24s rollout cap. The earlier 250Hz setting
+`max_control_steps: 2400` keeps the previous 24s rollout cap. The earlier 250Hz setting
 sent a fresh position target every 4ms, and on 2026-09-14 the loop did not hold
 it (median tick 4.8–4.9ms, 6–7% of ticks above 6ms). The IK path does not depend
 on the control rate: substeps stay at `ik_validation_dt_s` (4ms) and the diff-IK

@@ -1,0 +1,3 @@
+# Common single-inflight ManiMux request scheduling.
+inference_schedule: single_inflight
+commit_lead_s: 0.0

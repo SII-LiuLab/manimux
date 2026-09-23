@@ -128,7 +128,7 @@ autohorizon:
 - execute that prefix through the configured Executor and RobotBase;
 - query again only after the prefix ends.
 
-There is no asynchronous prefetch, temporal ensemble or seam blend. `blend_steps` must be zero.
+There is no asynchronous prefetch, temporal ensemble or seam blend. `blend_policy_steps` must be zero.
 Smooth/MPC limits and Safety remain explicit outer real-robot layers and are not part of the paper.
 
 ## 5. Configuration
@@ -221,5 +221,5 @@ envs/yam/.venv/bin/manimux run \
 - [ ] `hold_thr=0.3`, `max_entropy_q=0.9`, `run_len=1` and the bidirectional pointer remain unchanged.
 - [ ] XPolicy returns a full chunk; ManiMux alone truncates it for execution.
 - [ ] Runtime remains synchronous and does not prefetch from a stale observation.
-- [ ] `blend_steps=0` and no other inference method is composed implicitly.
+- [ ] `blend_policy_steps=0` and no other inference method is composed implicitly.
 - [ ] GPU and hardware claims remain separate from unit-contract claims.

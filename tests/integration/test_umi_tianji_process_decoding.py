@@ -78,9 +78,9 @@ def events_of(result):
 @pytest.mark.parametrize("expired", [False, True])
 def test_delegating_plugin_keeps_control_ticking_during_process_decode(tmp_path, expired):
     config = plugin_config()
-    config["policy"]["horizon_steps"] = 6 if expired else 20
+    config["policy"]["horizon_policy_steps"] = 6 if expired else 20
     config["executor"]["type"] = "direct"
-    config["run"]["max_steps"] = 100
+    config["run"]["max_control_steps"] = 100
     runtime = build_runtime(config, tmp_path)
     assert isinstance(runtime._strategy, DelegatingStrategy)
     result = runtime.run()
@@ -134,7 +134,7 @@ class PauseDuringDecode:
 @pytest.mark.parametrize("home", [False, True])
 def test_delegating_plugin_pause_discards_pending_decode(tmp_path, home):
     config = plugin_config()
-    config["run"]["max_steps"] = 120
+    config["run"]["max_control_steps"] = 120
     runtime = build_runtime(config, tmp_path)
     runtime._viewer = PauseDuringDecode(runtime, home=home)
     result = runtime.run()
@@ -246,7 +246,7 @@ def test_observation_anchored_adapter_uses_the_request_state_for_process_decode(
     with pytest.raises(ValueError, match="observation state is unavailable"):
         runtime._decode_seed(response_state, 3 * 10**9)
 
-    config["run"]["max_steps"] = 100
+    config["run"]["max_control_steps"] = 100
     result = runtime.run()
     submitted = [e for e in events_of(result) if e["kind"] == "decode_submitted"]
     assert submitted
@@ -289,7 +289,7 @@ def test_runtime_forecasts_the_next_decode_from_the_previous_one(tmp_path):
     config = plugin_config()
     config["inference"]["expected_decode_s"] = 0.05
     config["inference"]["decode_forecast_size"] = 5
-    config["run"]["max_steps"] = 250
+    config["run"]["max_control_steps"] = 250
     result = build_runtime(config, tmp_path).run()
     sent = [e for e in events_of(result) if e["kind"] == "decode_submitted"]
     assert len(sent) >= 2
@@ -301,7 +301,7 @@ def test_runtime_forecasts_the_next_decode_from_the_previous_one(tmp_path):
 def test_runtime_seeds_later_decodes_from_the_active_reference(tmp_path):
     config = plugin_config()
     config["inference"]["expected_decode_s"] = 0.05
-    config["run"]["max_steps"] = 250
+    config["run"]["max_control_steps"] = 250
     result = build_runtime(config, tmp_path).run()
     sent = [e for e in events_of(result) if e["kind"] == "decode_submitted"]
     assert len(sent) >= 2
@@ -338,7 +338,7 @@ def test_umi_tianji_per_arm_processes_match_inline_diff_decode():
 
     config = load_config(ROOT / "manimux/configs/experiments/pass_ball/tianji_umi_dp_default.yaml")
     config["robot"]["type"] = "mock"
-    config["policy"]["horizon_steps"] = 64
+    config["policy"]["horizon_policy_steps"] = 64
     config["policy"]["adapter"]["ik_backend"] = "diff"
     bind_diff_ik_profile(config)
     adapter = UmiDpTianjiAdapter(config["robot"], config["policy"])

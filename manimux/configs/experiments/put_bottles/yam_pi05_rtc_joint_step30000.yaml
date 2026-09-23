@@ -2,7 +2,7 @@ control_profile: ../../embodiment/robot/yam_control.yaml
 run:
   task: Put the bottles into the bin.
   output_dir: ./data/experiments/pi05-put-bottles-joint-step30000/rtc
-  max_steps: 12000
+  max_control_steps: 12000
 
 robot:
   config: ../../embodiment/robot/yam_dual.yaml
@@ -43,36 +43,17 @@ sensors:
 policy:
   action_dt_s: 0.03333333333333333  # 相邻模型动作点的间隔（秒）；不决定下发频率。
   worker: xpolicylab_ws
+  service: policy
   adapter:
     type: manimux.policy_adapter.joint:JointAdapter
-    group_order: [left_arm, right_arm]
-    group_prefixes:
-      left_arm: left
-      right_arm: right
-    gripper_dofs: 1
     camera_map:
       cam_head: front_camera
       cam_left_wrist: left_camera
       cam_right_wrist: right_camera
 
   timeout_s: 2.0
-  horizon_steps: 50
+  horizon_policy_steps: 50
   inference_delay_s: 0.0
-  expected_backend:
-    server: xpolicylab_policy_server
-    model:
-      policy_family: pi05
-      task_name: put_bottles_into_the_bin
-      checkpoint_variant: pi05_yam_put_bottles_joint_step_30000
-      checkpoint_source: qz_hdd3_put-bottles-joint-v1-s0-30k_step30000
-      norm_stats_source: checkpoint_matched_yam_put_bottles_into_the_bin_20260905_joint_ee_v1
-      train_config_name: pi05_yam
-      model_root:
-        finetuned/ziyang/pi05-yam-put-bottles-joint-step30000
-      norm_stats_path:
-        finetuned/ziyang/pi05-yam-put-bottles-joint-step30000/assets/yam_put_bottles_into_the_bin_20260905_joint_ee_v1
-      action_horizon: 50
-      num_steps: 10
   startup_timeout_s: 30.0
   options:
     request_timeout_s: 10.0
@@ -87,24 +68,10 @@ recording:
 # 推理算法决定请求与 chunk 交接；执行器独立负责命令平滑和限幅。
 inference:
   algorithm: rtc
-  chunk_steps: 12
-  rtc:
-    initial_delay_steps: 4
-    delay_buffer_size: 10
-    beta: 9.1
-  commit_lead_s: 0.0
-  max_plan_age_s: 2.0
-  blend_steps: 4
+  config: ../../inference/yam_rtc.yaml
 executor:
   type: smooth
-  smooth:
-    cutoff_hz: 8.0
-    position_limit_abs: 3.14
-    gripper:
-      mode: continuous
-      closed_value: 0.0
-      open_value: 1.0
-
+  config: ../../executor/yam_smooth_control_profile.yaml
 policy_server:
   config: ../../policy/pi05/yam/put-bottles/joint-step30000.yaml
 

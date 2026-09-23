@@ -47,7 +47,7 @@ def main():
     config["robot"]["type"] = "mock"
     report = {}
     for horizon in args.horizons:
-        config["policy"]["horizon_steps"] = horizon
+        config["policy"]["horizon_policy_steps"] = horizon
         adapter = UmiDpTianjiAdapter(config["robot"], config["policy"])
         start = np.radians([50, -40, -30, -100, -65, 0, 40])
         state = RobotState(

@@ -133,6 +133,10 @@ def test_umi_export_reuses_automatically_selected_station(tmp_path, monkeypatch,
     umi_dp.main()
 
     written = yaml.safe_load(output.read_text())
+    assert written["run"]["max_control_steps"] == 2400
+    assert written["policy"]["horizon_policy_steps"] == report["action_horizon"]
+    assert "max_steps" not in written["run"]
+    assert "horizon_steps" not in written["policy"]
     assert written["local"] == str(station)
     assert "component_hardware" not in written["robot"]["options"]
     assert "ip" not in written["robot"]["options"].get("hardware", {})

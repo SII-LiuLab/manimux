@@ -40,9 +40,6 @@ motion_limits:
     max_step_dt_s: 0.016
     max_acceleration: null
   gripper:
-    group_indices:
-      left_arm: 7
-      right_arm: 7
     max_velocity: 3.0
     max_acceleration: 12.0
     max_closing_velocity: 1.0

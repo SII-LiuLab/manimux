@@ -248,13 +248,13 @@ class CollectSession:
         """Build the teleop loop and recorder over the already-built units and the
         already-connected cameras, and wire the button callbacks."""
         # Pass the running workers so the loop shares them (doesn't reopen devices).
-        self.loop = ControlLoop(self.units, self.workers, cfg.control_hz)
+        self.loop = ControlLoop(self.units, self.workers, cfg.collection_hz)
         self.loop.timings.configure_output(
             Path(cfg.save_root) / ".diagnostics" / "teleop",
             {
                 "task_name": cfg.task_name,
                 "execution_mode": cfg.execution_mode,
-                "configured_hz_at_start": cfg.control_hz,
+                "configured_hz_at_start": cfg.collection_hz,
             },
         )
         self.recorder = EpisodeRecorder(
@@ -414,6 +414,7 @@ class CollectSession:
                     raise RuntimeError("This leader does not support online Hz changes")
                 backend = self.units[0].robot.backend
                 backend.set_control_hz(hz)
+                backend.set_collection_hz(hz)
                 for setter in setters:
                     setter(hz)
             else:
@@ -421,7 +422,7 @@ class CollectSession:
                 if config["executor"]["type"] not in {"direct", "smooth"}:
                     raise RuntimeError("Online Hz changes support Direct and Smooth executors")
             self.cfg.collection_hz = hz
-            self.cfg.control_hz = float(hz)
+            self.cfg.independent_camera_recording = True
             self.collection_hz_override = float(hz)
             if rec is not None:
                 rec.station = self.cfg
@@ -747,7 +748,7 @@ class CollectSession:
                         "type": (c.type if c else "mock"),
                         "width": (c.width if c else 0),
                         "height": (c.height if c else 0),
-                        "fps": (c.fps if c else max(1, int(round(self.cfg.control_hz)))),
+                        "fps": (c.fps if c else max(1, int(round(self.cfg.collection_hz)))),
                     }
                 )
         return out
@@ -769,7 +770,7 @@ class CollectSession:
             "recording": bool(rec and rec.is_recording),
             "saving_episode": bool(rec and rec.is_saving),
             "record_eepose": self.record_eepose,
-            "collection_hz": self.cfg.control_hz,
+            "collection_hz": self.cfg.collection_hz,
             "collection_timing_error": self.collection_timing_error(),
             # A fresh leader target must reach both SDKs successfully to count.
             # Threaded executor repeats do not inflate this rate.

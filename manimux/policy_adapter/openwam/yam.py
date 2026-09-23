@@ -28,7 +28,7 @@ class OpenWAMYamAdapter(PolicyAdapter):
         self.cameras = policy["adapter"].get("camera_map", DEFAULT_CAMERA_MAP)
         if set(self.cameras) != set(DEFAULT_CAMERA_MAP):
             raise ValueError("OpenWAM requires the three standard XPolicy cameras")
-        self.horizon = policy["horizon_steps"]
+        self.horizon = policy["horizon_policy_steps"]
         self.dt = int(action_interval(policy) * 1e9)
         self.kin = build_kinematics(
             policy["adapter"].get("kinematics", "yam"),
@@ -58,7 +58,7 @@ class OpenWAMYamAdapter(PolicyAdapter):
                 not identity.get(k) for k in required
             ):
                 raise ValueError("Bind OpenWAM deployment identity before using the YAM driver")
-            if identity.get("action_horizon") != policy["horizon_steps"]:
+            if identity.get("action_horizon") != policy["horizon_policy_steps"]:
                 raise ValueError("Bound OpenWAM horizon does not match runtime horizon")
 
     def build_observation(self, snapshot):

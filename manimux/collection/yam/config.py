@@ -268,10 +268,10 @@ class StationConfig:
     manimux_config: str = "manimux/configs/collection/yam/control.yaml"
     robot: RobotConfig = field(default_factory=RobotConfig)
     cameras: list[CameraConfig] = field(default_factory=list)
-    control_hz: float = 30.0
-    # Optional collection-only timing override. Also enables independent camera
-    # recording (schema v2); shared deployment/model timing stays unchanged.
-    collection_hz: float | None = None
+    # Leader sampling/recording frequency. Robot execution frequency remains in
+    # the referenced ManiMux config under robot.control_hz.
+    collection_hz: float = 30.0
+    independent_camera_recording: bool = False
     save_root: str = "data/episodes"
     task_name: str = "pick_and_place"
     data_format: str = "default"  # default on-disk format for new episodes
@@ -287,16 +287,15 @@ class StationConfig:
             raise ValueError("YAM station requires collector: yam")
         if self.execution_mode not in {"synchronous", "threaded"}:
             raise ValueError("execution_mode must be synchronous or threaded")
-        if not math.isfinite(self.control_hz) or self.control_hz <= 0:
-            raise ValueError("control_hz must be finite and positive")
-        if self.collection_hz is not None:
-            if (
-                isinstance(self.collection_hz, bool)
-                or not math.isfinite(self.collection_hz)
-                or self.collection_hz <= 0
-            ):
-                raise ValueError("collection_hz must be finite and positive")
-            self.control_hz = float(self.collection_hz)
+        if (
+            isinstance(self.collection_hz, bool)
+            or not math.isfinite(self.collection_hz)
+            or self.collection_hz <= 0
+        ):
+            raise ValueError("collection_hz must be finite and positive")
+        self.collection_hz = float(self.collection_hz)
+        if not isinstance(self.independent_camera_recording, bool):
+            raise ValueError("independent_camera_recording must be boolean")
 
 
 def load_yaml(path: str | Path) -> dict[str, Any]:
@@ -310,6 +309,8 @@ def build_station_config(
 ) -> StationConfig:
     """Load a station YAML (and optional cameras YAML) into a StationConfig."""
     raw = load_yaml(station_path)
+    if "collection_hz" not in raw:
+        raise ValueError("YAM station must explicitly declare collection_hz")
 
     raw_robot = raw.get("robot", {})
     robot = _from_dict(RobotConfig, raw_robot)
@@ -345,19 +346,10 @@ def build_station_config(
 
 def _apply_control_profile(station: StationConfig, raw: dict) -> None:
     from manimux.cli import load_config
-    from manimux.policies.base import action_interval
 
     runtime = load_config(station.manimux_config)
     if runtime["control_profile"] is None:
         return
-    frequency = 1.0 / action_interval(runtime["policy"])
-    if (
-        station.collection_hz is None
-        and "control_hz" in raw
-        and not math.isclose(station.control_hz, frequency, rel_tol=1e-9)
-    ):
-        raise ValueError("station control_hz conflicts with control_profile")
-    station.control_hz = station.collection_hz or frequency
     raw_robot = raw.get("robot", {})
     shared = runtime["robot"]["options"]
     if runtime["executor"]["motion_limits"] is not None:
@@ -405,7 +397,7 @@ def _mode_for_camera(cam_type: str) -> str:
 def apply_station_form(base: StationConfig, form: dict[str, Any]) -> StationConfig:
     """Overlay the operator-editable fields from the GUI Station rail onto a base
     config, preserving station calibration (joint signs/offsets, arm_type,
-    num_arm_joints, control_hz, camera serials/resolution) that the rail doesn't expose.
+    num_arm_joints, collection_hz, camera serials/resolution) that the rail doesn't expose.
 
     Editable: robots (type + gripper), controllers (type + controlled robot),
     camera list (name/role/type), output format, save_root, task name.

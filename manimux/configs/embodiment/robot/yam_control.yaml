@@ -10,9 +10,6 @@ motion_limits:
     max_velocity: null
     max_acceleration: null
   gripper:
-    group_indices:
-      left_arm: 6
-      right_arm: 6
     max_velocity: null
     max_acceleration: null
     max_closing_velocity: 1.0

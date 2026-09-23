@@ -69,7 +69,7 @@ class XPolicyLabWsPolicyModel:
         self._group_order = tuple(adapter.get("group_order", DEFAULT_GROUP_ORDER))
         self._group_prefixes = dict(adapter.get("group_prefixes", DEFAULT_GROUP_PREFIXES))
         self._gripper_dofs = _positive_int_option(adapter, "gripper_dofs", DEFAULT_GRIPPER_DOFS)
-        self._horizon_steps = config["horizon_steps"]
+        self._horizon_steps = config["horizon_policy_steps"]
         self._aac_kinematics_name = options.get("aac_kinematics", "yam")
         self._aac_kinematics: ArmKinematics | None = None
         self._aac_ee_stats: EeActionStats | None = None

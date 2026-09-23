@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from copy import deepcopy
 from pathlib import Path
 
 from manimux.clock import Clock
@@ -10,6 +11,57 @@ from manimux.embodiments.robot.base import RobotBase, RobotModel
 from manimux.plugins import load_plugin
 
 RobotFactory = Callable[[dict, Clock], RobotBase]
+
+
+def _set_contract_value(target: dict, name: str, value: object, label: str) -> None:
+    if name in target and target[name] != value:
+        raise ValueError(f"{label} conflicts with embodiment action_contract")
+    target[name] = deepcopy(value)
+
+
+def action_contract_group_indices(config: dict) -> dict[str, int] | None:
+    """Return each group's gripper coordinate from its resolved action contract."""
+
+    group_dims = config.get("robot", {}).get("group_dims")
+    gripper_dofs = config.get("policy", {}).get("adapter", {}).get("gripper_dofs")
+    if not group_dims or gripper_dofs is None:
+        return None
+    return {name: dimension - gripper_dofs for name, dimension in group_dims.items()}
+
+
+def apply_action_contract(config: dict, contract: dict) -> dict[str, int]:
+    """Apply one embodiment-owned action layout to policy and execution sections."""
+
+    group_dims = contract["group_dims"]
+    robot = config.setdefault("robot", {})
+    adapter = config.setdefault("policy", {}).setdefault("adapter", {})
+    _set_contract_value(robot, "group_dims", group_dims, "robot.group_dims")
+    for name, value in {
+        "group_order": list(group_dims),
+        "group_prefixes": contract["group_prefixes"],
+        "gripper_dofs": contract["gripper_dofs"],
+    }.items():
+        _set_contract_value(adapter, name, value, f"policy.adapter.{name}")
+    indices = action_contract_group_indices(config)
+    assert indices is not None
+    execution = config.setdefault("executor", {})
+    motion = execution.get("motion_limits")
+    if isinstance(motion, dict):
+        _set_contract_value(
+            motion.setdefault("gripper", {}),
+            "group_indices",
+            indices,
+            "executor.motion_limits.gripper.group_indices",
+        )
+    smooth = execution.get("smooth")
+    if isinstance(smooth, dict) and isinstance(smooth.get("gripper"), dict):
+        _set_contract_value(
+            smooth["gripper"],
+            "group_indices",
+            indices,
+            "executor.smooth.gripper.group_indices",
+        )
+    return indices
 
 
 def _tianji_taccap(config: dict, clock: Clock) -> RobotBase:
@@ -42,7 +94,14 @@ def build_robot(config: dict, clock: Clock) -> RobotBase:
     return factory(config, clock)
 
 
-__all__ = ["RobotBase", "RobotModel", "RobotFactory", "build_robot"]
+__all__ = [
+    "RobotBase",
+    "RobotModel",
+    "RobotFactory",
+    "action_contract_group_indices",
+    "apply_action_contract",
+    "build_robot",
+]
 
 
 def robot_parameters(**options) -> dict:

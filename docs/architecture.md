@@ -232,7 +232,7 @@ V1 使用一个严格校验的 YAML，不使用服务注册中心或 artifact ma
 run:
   task: fold_cloth
   output_dir: ./data
-  max_steps: 500
+  max_control_steps: 500
 
 robot:
   type: yam
@@ -274,7 +274,7 @@ executor:
     max_velocity: ['...']
     max_acceleration: ['...']
   mpc:
-    horizon_steps: 15
+    horizon_control_steps: 15
     control_dt_s: 0.01
     max_velocity: ['...']
     max_acceleration: ['...']

@@ -36,8 +36,8 @@ class RtcInferenceStrategy:
         rtc = config["inference"]["rtc"]
         self._group_order = tuple(config["robot"]["group_dims"])
         self._rtc_beta = float(rtc["beta"])
-        self._min_execute_steps = rtc["min_execute_steps"]
-        self._initial_delay_steps = int(rtc["initial_delay_steps"])
+        self._min_execute_steps = rtc["min_execute_policy_steps"]
+        self._initial_delay_steps = int(rtc["initial_delay_policy_steps"])
         self._delay_buffer_size = int(rtc["delay_buffer_size"])
         self._delay_forecast: deque[int]
         self._active_rows: np.ndarray | None
@@ -157,7 +157,7 @@ class RtcInferenceStrategy:
         last_command: GroupVector,
     ) -> CommitSettings:
         conditioned = response.request_seq in self._conditioned_requests
-        blend_steps = 0 if conditioned else self._config["inference"]["blend_steps"]
+        blend_steps = 0 if conditioned else self._config["inference"]["blend_policy_steps"]
         logger.info(
             "rtc_commit_settings seq=%d conditioned=%s blend_steps=%d",
             response.request_seq,
@@ -184,7 +184,7 @@ class RtcInferenceStrategy:
     ) -> ActionChunk:
         del response, now_ns
         source_horizon = chunk.source_offset_steps + chunk.horizon_steps
-        if source_horizon != self._config["policy"]["horizon_steps"]:
+        if source_horizon != self._config["policy"]["horizon_policy_steps"]:
             raise ValueError("RTC decoded suffix must retain the configured source horizon")
         if chunk.hold_from_step:
             raise ValueError("RTC requires a complete joint plan for both arms")
@@ -284,9 +284,12 @@ class RtcInferenceStrategy:
 def rtc_parameters(**options) -> dict:
     """RTC 只改变推理与分块时序；执行器限位仍由公共 runtime 管理。"""
 
+    unsupported = {"min_execute_steps", "initial_delay_steps"}.intersection(options)
+    if unsupported:
+        raise ValueError(f"unsupported RTC fields: {sorted(unsupported)}")
     values = {
-        "min_execute_steps": None,
-        "initial_delay_steps": 4,
+        "min_execute_policy_steps": None,
+        "initial_delay_policy_steps": 4,
         "delay_buffer_size": 10,
         "beta": 5.0,
         **options,

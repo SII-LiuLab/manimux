@@ -1,6 +1,8 @@
 collector: yam
 execution_mode: synchronous
 manimux_config: manimux/configs/collection/yam/control.yaml
+collection_hz: 30.0
+independent_camera_recording: false
 robot:
   type: yam
   num_arm_joints: 6

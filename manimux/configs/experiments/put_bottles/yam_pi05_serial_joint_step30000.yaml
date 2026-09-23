@@ -2,14 +2,11 @@
 run:
   task: Put the bottles into the bin.
   output_dir: ./data/experiments/pi05-put-bottles-joint-step30000/serial
-  max_steps: 12000
+  max_control_steps: 12000
 
 robot:
   config: ../../embodiment/robot/yam_dual.yaml
   control_hz: 100.0
-  group_dims:
-    left_arm: 7
-    right_arm: 7
   options:
     move_to_start_on_connect: true
     start_joints:
@@ -33,30 +30,21 @@ robot:
     home_duration_s: 2.0
     home_on_close: true
     execute: true
-    component_hardware:
-      left_yam:
-        channel: can_left
-      right_yam:
-        channel: can_right
   type: yam
 sensors:
 - name: yam_cameras
   driver: camera_server
+  service: camera
   options:
-    endpoint: tcp://127.0.0.1:5555
     request_timeout_ms: 500
     max_frame_age_sec: 0.5
     camera_names: [left_camera, front_camera, right_camera]
 
 policy:
   worker: xpolicylab_ws
+  service: policy
   adapter:
     type: manimux.policy_adapter.joint:JointAdapter
-    group_order: [left_arm, right_arm]
-    group_prefixes:
-      left_arm: left
-      right_arm: right
-    gripper_dofs: 1
     camera_map:
       cam_head: front_camera
       cam_left_wrist: left_camera
@@ -64,26 +52,10 @@ policy:
 
   action_dt_s: 0.03333333333333333
   timeout_s: 2.0
-  horizon_steps: 50
+  horizon_policy_steps: 50
   inference_delay_s: 0.0
-  expected_backend:
-    server: xpolicylab_policy_server
-    model:
-      policy_family: pi05
-      task_name: put_bottles_into_the_bin
-      checkpoint_variant: pi05_yam_put_bottles_joint_step_30000
-      checkpoint_source: qz_hdd3_put-bottles-joint-v1-s0-30k_step30000
-      norm_stats_source: checkpoint_matched_yam_put_bottles_into_the_bin_20260905_joint_ee_v1
-      train_config_name: pi05_yam
-      model_root:
-        finetuned/ziyang/pi05-yam-put-bottles-joint-step30000
-      norm_stats_path:
-        finetuned/ziyang/pi05-yam-put-bottles-joint-step30000/assets/yam_put_bottles_into_the_bin_20260905_joint_ee_v1
-      action_horizon: 50
-      num_steps: 10
   startup_timeout_s: 30.0
   options:
-    server: ws://127.0.0.1:8500
     request_timeout_s: 10.0
 viewer:
   enabled: true
@@ -96,27 +68,10 @@ recording:
 # 推理算法决定请求与 chunk 交接；执行器独立负责命令平滑和限幅。
 inference:
   algorithm: manimux
-  chunk_steps: 12
-  inference_schedule: serial
-  commit_lead_s: 0.0
-  max_plan_age_s: 2.0
-  blend_steps: 0
+  config: ../../inference/yam_serial_chunk12.yaml
 executor:
   type: smooth
-  smooth:
-    cutoff_hz: 8.0
-    max_velocity: 0.25
-    max_acceleration: 0.5
-    position_limit_abs: 3.14
-    gripper:
-      mode: continuous
-      group_indices:
-        left_arm: 6
-        right_arm: 6
-      max_velocity: 1.0
-      max_acceleration: 12.0
-      closed_value: 0.0
-      open_value: 1.0
+  config: ../../executor/yam_smooth_standard.yaml
 
 policy_server:
   config: ../../policy/pi05/yam/put-bottles/joint-step30000.yaml

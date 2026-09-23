@@ -29,3 +29,6 @@ num_steps: 5
 image_factor: 32
 image_max_pixels: 160000
 default_prompt: Assemble the screwdriver.
+
+backend_identity:
+  fields: [policy_name, task_name, checkpoint_variant, checkpoint_source, norm_stats_source, train_config_name, observation_profile, repo_id, model_path, norm_stats_path, action_horizon, num_steps, action_type]

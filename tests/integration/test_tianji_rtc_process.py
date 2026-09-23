@@ -25,7 +25,7 @@ from manimux.viewer import ViewerControl
 def test_real_tianji_parallel_ik_matches_serial_and_rejects_whole_chunk(backend, horizon):
     config = load_config("manimux/configs/experiments/pass_ball/tianji_umi_dp_rtc.yaml")
     config["robot"]["type"] = "tests.support.robot:build_robot"
-    config["policy"]["horizon_steps"] = horizon
+    config["policy"]["horizon_policy_steps"] = horizon
     config["policy"]["adapter"]["ik_backend"] = backend
     bind_diff_ik_profile(config)
     adapter = UmiDpTianjiAdapter(config["robot"], config["policy"])
@@ -112,12 +112,12 @@ def rtc_config():
     data["policy"].update(
         action_decoding="process",
         action_dt_s=1 / 30,
-        horizon_steps=64,
+        horizon_policy_steps=64,
         timeout_s=3,
         inference_delay_s=0.02,
     )
     data["sensors"] = []
-    data["run"]["max_steps"] = 1400
+    data["run"]["max_control_steps"] = 1400
     return prepare_experiment(**data)
 
 

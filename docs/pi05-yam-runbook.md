@@ -16,7 +16,7 @@ server 和 infra 配置。以下命令从仓库根目录执行，要求已安装
 → `infra/put-bottles/rtc-joint-step30000.yaml` runtime。
 
 该配对使用 `pi05-yam-put-bottles-joint-step30000` 权重，模型 horizon 为 50，轨迹点间隔
-为 `1/30 s`，RTC 的 `chunk_steps` 为 12。这不是将模型输出裁成 12 步：
+为 `1/30 s`，RTC 的 `chunk_policy_steps` 为 12。这不是将模型输出裁成 12 步：
 RTC 发起下一次推理后，仍会在等待响应时继续执行旧 chunk。
 
 ### 切换为 joint+EE
@@ -119,7 +119,7 @@ envs/yam/.venv/bin/manimux run \
 `0.25 rad/s`、加速度上限 `0.5 rad/s²`、绝对位置上限 `3.14 rad`；左右夹爪均为
 连续 `0–1`，速度上限 `1.0 /s`、加速度上限 `12.0 /s²`。
 这些设置和原有螺丝刀 ManiMux / RTC 一致。ACT、AAC、PAINT、AutoHorizon、DVAC 按各自
-契约保留 `blend_steps: 0`；blend 属于 Timeline 拼接，不是底层 SmoothExecutor 参数。
+契约保留 `blend_policy_steps: 0`；blend 属于 Timeline 拼接，不是底层 SmoothExecutor 参数。
 
 AAC 继续使用现有 `yam_60ep_ee_increment.json` 作为**候选评分用** EE 增量统计；
 它不是螺丝刀任务专门重新估计的统计，也不替换 checkpoint 的动作归一化文件。
@@ -345,7 +345,7 @@ envs/yam/.venv/bin/manimux serve \
 
 它与 step-1000 Default config 使用相同的 `50 x 14` checkpoint contract、100Hz robot loop、
 30Hz policy points、`0.25 rad/s`、`0.50 rad/s²` 和 3 秒 start/home。RTC pilot 使用
-`min_execute_steps: 20`、`initial_delay_steps: 4`、`beta: 9.1`；运行时会根据真实 round trip
+`min_execute_policy_steps: 20`、`initial_delay_policy_steps: 4`、`beta: 9.1`；运行时会根据真实 round trip
 更新 delay forecast。只有 RTC scheduling 和 Pi-guided denoise condition 发生变化。
 
 每次运行创建：

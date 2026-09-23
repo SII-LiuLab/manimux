@@ -38,10 +38,10 @@ def _act_config(*, query_interval_steps: int = 4) -> dict:
     payload["inference"].pop("inference_schedule")
     payload["inference"].pop("refill_threshold_s")
     payload["inference"]["algorithm"] = "act_temporal_ensemble"
-    payload["inference"]["blend_steps"] = 0
+    payload["inference"]["blend_policy_steps"] = 0
     payload["inference"]["temporal_ensemble"] = {
         "coefficient": 0.01,
-        "query_interval_steps": query_interval_steps,
+        "query_interval_policy_steps": query_interval_steps,
     }
     return prepare_experiment(**payload)
 
@@ -105,27 +105,29 @@ def test_temporal_ensemble_rejects_double_blending_and_nonoverlap() -> None:
     payload = deepcopy(_act_config())
     payload["inference"].pop("inference_schedule")
     payload["inference"].pop("refill_threshold_s")
-    payload["inference"]["blend_steps"] = 2
-    with pytest.raises(ValueError, match="blend_steps=0"):
+    payload["inference"]["blend_policy_steps"] = 2
+    with pytest.raises(ValueError, match="blend_policy_steps=0"):
         prepare_experiment(**payload)
 
     payload = deepcopy(_act_config())
     payload["inference"].pop("inference_schedule")
     payload["inference"].pop("refill_threshold_s")
-    payload["inference"]["temporal_ensemble"]["query_interval_steps"] = payload["policy"][
-        "horizon_steps"
+    payload["inference"]["temporal_ensemble"]["query_interval_policy_steps"] = payload["policy"][
+        "horizon_policy_steps"
     ]
     with pytest.raises(ValueError, match="consecutive chunks overlap"):
         prepare_experiment(**payload)
 
 
 def test_pi05_temporal_ensemble_config_loads_with_four_step_queries() -> None:
-    config = load_config("manimux/configs/experiments/pick_red_object/yam_pi05_act_temporal_ensemble.yaml")
+    config = load_config(
+        "manimux/configs/experiments/pick_red_object/yam_pi05_act_temporal_ensemble.yaml"
+    )
 
     assert config["inference"]["algorithm"] == "act_temporal_ensemble"
     assert config["inference"]["temporal_ensemble"]["coefficient"] == pytest.approx(0.01)
-    assert config["inference"]["temporal_ensemble"]["query_interval_steps"] == 4
-    assert config["inference"]["blend_steps"] == 0
+    assert config["inference"]["temporal_ensemble"]["query_interval_policy_steps"] == 4
+    assert config["inference"]["blend_policy_steps"] == 0
     assert action_interval(config["policy"]) * 4 == pytest.approx(0.13333333333333333)
 
 
@@ -135,7 +137,7 @@ def test_pi05_step1000_temporal_ensemble_preserves_checkpoint_contract() -> None
     )
 
     assert config["inference"]["algorithm"] == "act_temporal_ensemble"
-    assert config["inference"]["temporal_ensemble"]["query_interval_steps"] == 4
-    assert config["policy"]["horizon_steps"] == 50
+    assert config["inference"]["temporal_ensemble"]["query_interval_policy_steps"] == 4
+    assert config["policy"]["horizon_policy_steps"] == 50
     assert config["robot"]["control_hz"] == pytest.approx(100.0)
     assert config["run"]["task"] == "Pick the red ball up and place it into the box."

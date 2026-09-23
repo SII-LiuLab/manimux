@@ -23,7 +23,7 @@ class FakePolicyAdapter(PolicyAdapter):
     def validate(self, robot: dict, policy: dict) -> None:
         if not robot["group_dims"]:
             raise ValueError("fake policy requires robot groups")
-        if policy["horizon_steps"] < 2:
+        if policy["horizon_policy_steps"] < 2:
             raise ValueError("fake policy requires at least two horizon steps")
 
 

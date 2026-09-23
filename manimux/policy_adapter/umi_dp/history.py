@@ -171,7 +171,7 @@ class HistoryStrategy:
         self.offset_ns = round(float(options["first_action_offset_s"]) * 1e9)
         self.dt_ns = round(action_interval(config["policy"]) * 1e9)
         self.group_order = tuple(config["robot"]["group_dims"])
-        self.horizon = config["policy"]["horizon_steps"]
+        self.horizon = config["policy"]["horizon_policy_steps"]
 
     def __getattr__(self, name):
         return getattr(self.delegate, name)

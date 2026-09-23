@@ -1,9 +1,9 @@
 # 推理调度参数；algorithm 在实验入口显式选择。动作间隔由 policy.action_dt_s 指定。
-chunk_steps: 12
+chunk_policy_steps: 12
 rtc:
-  initial_delay_steps: 4
+  initial_delay_policy_steps: 4
   delay_buffer_size: 10
   beta: 9.1
 commit_lead_s: 0.0
 max_plan_age_s: 2.0
-blend_steps: 4
+blend_policy_steps: 4

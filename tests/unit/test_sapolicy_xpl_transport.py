@@ -42,7 +42,7 @@ def test_sapolicy_xpl_infra_uses_ws_transport() -> None:
         config["policy"]["adapter"]["type"]
         == "manimux.policy_adapter.sapolicy.yam:SAPolicyYamAdapter"
     )
-    assert config["policy"]["horizon_steps"] == 16
+    assert config["policy"]["horizon_policy_steps"] == 16
 
 
 def test_sapolicy_adapter_prepares_xpolicylab_additional_info() -> None:
@@ -135,8 +135,9 @@ def test_mv51_smoothing_and_rtc_profiles_keep_rate_caps_disabled(view, suffix):
     from manimux.runtime.executors.smooth import SmoothExecutor
     from manimux.runtime.rtc.strategy import RtcInferenceStrategy
 
+    suffix = suffix.replace("-", "_")
     config = load_config(
-        f"manimux/configs/experiments/put_bottles/yam_sapolicy_mv51_{view}{suffix.replace(chr(45), chr(95))}.yaml"
+        f"manimux/configs/experiments/put_bottles/yam_sapolicy_mv51_{view}{suffix}.yaml"
     )
     smooth = config["executor"]["smooth"]
     executor = SmoothExecutor(smooth, 1 / config["robot"]["control_hz"])
@@ -152,9 +153,9 @@ def test_mv51_smoothing_and_rtc_profiles_keep_rate_caps_disabled(view, suffix):
     assert config["policy"]["expected_backend"]["model"]["action_horizon"] == 50
     if suffix:
         assert config["inference"]["algorithm"] == "rtc"
-        assert config["inference"]["max_chunk_steps"] is None
+        assert config["inference"]["max_chunk_policy_steps"] is None
         strategy = RtcInferenceStrategy(config)
         assert strategy.execution_horizon(50, 4) == 25
         assert strategy.required_sampling_modes == {"rtc"}
     else:
-        assert config["inference"]["max_chunk_steps"] == 25
+        assert config["inference"]["max_chunk_policy_steps"] == 25

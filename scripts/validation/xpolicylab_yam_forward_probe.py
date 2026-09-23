@@ -156,10 +156,10 @@ def main() -> int:
     if config["inference"]["algorithm"] == "rtc":
         from manimux.runtime.rtc.strategy import RtcInferenceStrategy
 
-        horizon = config["policy"]["horizon_steps"]
+        horizon = config["policy"]["horizon_policy_steps"]
         rtc = config["inference"]["rtc"]
         executed = RtcInferenceStrategy(config).execution_horizon(
-            horizon, rtc["initial_delay_steps"]
+            horizon, rtc["initial_delay_policy_steps"]
         )
         packed_state = np.concatenate(
             [snapshot.state.groups[name] for name in config["policy"]["adapter"]["group_order"]]
@@ -167,7 +167,7 @@ def main() -> int:
         condition, weights = inpainting_condition(
             np.tile(packed_state, (horizon, 1)),
             executed_steps=executed,
-            delay_steps=rtc["initial_delay_steps"],
+            delay_steps=rtc["initial_delay_policy_steps"],
         )
         request = RtcInferenceRequest(
             **request_fields,
@@ -191,14 +191,14 @@ def main() -> int:
         packed_state = np.concatenate([snapshot.state.groups[name] for name in group_order])
         prefix = np.repeat(
             packed_state[None, :],
-            paint["initial_delay_steps"],
+            paint["initial_delay_policy_steps"],
             axis=0,
         )
         request = PaintInferenceRequest(
             **request_fields,
             paint_action_prefix=prefix,
-            paint_delay_steps=paint["initial_delay_steps"],
-            paint_execution_steps=paint["execution_steps"],
+            paint_delay_steps=paint["initial_delay_policy_steps"],
+            paint_execution_steps=paint["execution_policy_steps"],
         )
     elif config["inference"]["algorithm"] == "autohorizon":
         request = AutoHorizonInferenceRequest(**request_fields)
@@ -206,12 +206,13 @@ def main() -> int:
         dvac = config["inference"]["dvac"]
         request = DvacInferenceRequest(
             **request_fields,
-            dvac_tail_steps=dvac["tail_steps"],
+            dvac_tail_steps=dvac["tail_policy_steps"],
             dvac_alpha=dvac["alpha"],
             dvac_rolling_window_size=dvac["rolling_window_size"],
-            dvac_min_execution_steps=dvac["min_execution_steps"],
+            dvac_min_execution_steps=dvac["min_execution_policy_steps"],
             dvac_max_execution_steps=(
-                dvac["max_execution_steps"] or config["policy"]["horizon_steps"]
+                dvac["max_execution_policy_steps"]
+                or config["policy"]["horizon_policy_steps"]
             ),
         )
     else:
@@ -251,13 +252,13 @@ def main() -> int:
             raise ValueError(
                 f"expected an AAC chunk with width {expected_width}, got {packed.shape}"
             )
-        if not 2 <= packed.shape[0] <= config["policy"]["horizon_steps"]:
+        if not 2 <= packed.shape[0] <= config["policy"]["horizon_policy_steps"]:
             raise ValueError(
                 "expected AAC selected horizon in "
-                f"[2, {config['policy']['horizon_steps']}], got {packed.shape[0]}"
+                f"[2, {config['policy']['horizon_policy_steps']}], got {packed.shape[0]}"
             )
     else:
-        expected_shape = (config["policy"]["horizon_steps"], expected_width)
+        expected_shape = (config["policy"]["horizon_policy_steps"], expected_width)
         if packed.shape != expected_shape:
             raise ValueError(f"expected a {expected_shape} chunk, got {packed.shape}")
     if not np.isfinite(packed).all():

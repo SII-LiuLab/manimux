@@ -7,13 +7,13 @@ import numpy as np
 import pytest
 
 from manimux.cli import load_config
+from manimux.kinematics.base import IKResult
 from manimux.kinematics.robot import RobotKinematics
 from manimux.kinematics.tianji_diff import rotation_matrix, rotation_vector
 from manimux.policy_adapter.xr1.tianji import (
     ACTION_DIM,
     XR1TianjiTacCapAdapter,
 )
-from manimux.kinematics.base import IKResult
 from manimux.types import (
     ActionContext,
     InferenceRequest,
@@ -90,6 +90,10 @@ def test_config_requires_only_two_physical_cameras_and_black_ego_identity():
     identity = config["policy"]["expected_backend"]["model"]
     assert identity["ego_view_mode"] == "black"
     assert identity["observation_profile"] == "tianji_taccap_two_wrist_black_ego"
+    assert config["policy"]["action_decoding"] == "inline"
+    assert config["inference"]["strategy"] is None
+    assert config["inference"]["expected_decode_s"] == 0.0
+    assert config["inference"]["decode_forecast_size"] == 0
     assert config["executor"]["smooth"]["gripper"]["mode"] == "continuous"
     assert config["robot"]["options"]["execute"] is False
 

@@ -1,14 +1,11 @@
 run:
   task: put the plastic bottles in the bin
   output_dir: ./data/sapolicy/teleopMV51/gemini305
-  max_steps: 18000
+  max_control_steps: 18000
   experiment_mode: false
 robot:
   config: ../../embodiment/robot/yam_dual.yaml
   control_hz: 100.0
-  group_dims:
-    left_arm: 7
-    right_arm: 7
   options:
     move_to_start_on_connect: false
     start_joints:
@@ -32,17 +29,12 @@ robot:
     home_duration_s: 5.0
     home_on_close: true
     execute: true
-    component_hardware:
-      left_yam:
-        channel: can_left
-      right_yam:
-        channel: can_right
   type: yam
 sensors:
 - name: yam_cameras
   driver: camera_server
+  service: camera
   options:
-    endpoint: tcp://127.0.0.1:5555
     request_timeout_ms: 500
     max_frame_age_sec: 0.15
     camera_names:
@@ -50,23 +42,17 @@ sensors:
     - right_camera
 - name: external_camera
   driver: camera_server
+  service: external_camera
   options:
-    endpoint: tcp://127.0.0.1:5575
     request_timeout_ms: 500
     max_frame_age_sec: 0.15
     camera_names:
     - gemini305
 policy:
   worker: xpolicylab_ws
+  service: policy_sapolicy
   adapter:
     type: manimux.policy_adapter.sapolicy.yam:SAPolicyYamAdapter
-    group_order:
-    - left_arm
-    - right_arm
-    group_prefixes:
-      left_arm: left
-      right_arm: right
-    gripper_dofs: 1
     wire_image_hw:
     - 168
     - 224
@@ -154,11 +140,10 @@ policy:
     view_profile: gemini305
   action_dt_s: 0.03333333333333333
   timeout_s: 5.0
-  horizon_steps: 50
+  horizon_policy_steps: 50
   inference_delay_s: 0.0
   startup_timeout_s: 180.0
   options:
-    server: ws://127.0.0.1:8510
     connect_timeout_s: 5.0
     request_timeout_s: 5.0
   action_decoding: process
@@ -178,28 +163,11 @@ recording:
 # 推理算法决定请求与 chunk 交接；执行器独立负责命令平滑和限幅。
 inference:
   algorithm: manimux
-  inference_schedule: single_inflight
+  config: ../../inference/yam_manimux_single.yaml
   refill_threshold_s: 0.2
-  commit_lead_s: 0.0
   max_plan_age_s: 2.0
-  blend_steps: 4
-  max_chunk_steps: 25
+  blend_policy_steps: 4
+  max_chunk_policy_steps: 25
 executor:
   type: smooth
-  smooth:
-    cutoff_hz: 8.0
-    tracking_mode: legacy
-    # Explicit null keeps software rate caps disabled.
-    max_velocity:
-    max_acceleration:
-    position_limit_abs: 3.14
-    gripper:
-      mode: continuous
-      group_indices:
-        left_arm: 6
-        right_arm: 6
-      max_velocity:
-      max_acceleration:
-      max_closing_velocity:
-      closed_value: 0.0
-      open_value: 1.0
+  config: ../../executor/yam_smooth_unbounded.yaml
