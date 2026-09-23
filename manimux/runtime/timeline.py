@@ -137,11 +137,11 @@ class ActionTimeline:
             if chunk.groups[name].shape[1] != dim or current_command[name].shape != (dim,):
                 return CommitResult(False, f"dimension_mismatch:{name}")
 
-        # Wall-clock time at which the committed plan starts executing.
-        start_time_ns = now_ns + commit_lead_ns
+        # Earliest wall-clock time at which the committed plan may start.
+        earliest_ns = now_ns + commit_lead_ns
         # Elapsed source-trajectory time when execution starts.
-        age_at_commit_ns = max(0, start_time_ns - chunk.observation_time_ns)
-        # First source row whose timestamp is not earlier than start_time_ns.
+        age_at_commit_ns = max(0, earliest_ns - chunk.observation_time_ns)
+        # First source row whose timestamp is not earlier than earliest_ns.
         # An exact row boundary keeps that row; a start between rows discards
         # the earlier row instead of retiming an already-expired target.
         source_cursor = int(
@@ -158,6 +158,19 @@ class ActionTimeline:
             end = min(end, self._max_source_steps - chunk.source_offset_steps)
         if trimmed_steps >= end:
             return CommitResult(False, "no_future_horizon")
+
+        # Anchor row 0 at its own source timestamp. earliest_ns is wherever the
+        # decode happened to finish, so re-pinning row 0 to it shifts the whole
+        # plan off the source grid by up to one dt -- a phase error the executor
+        # cannot distinguish from the policy changing its mind. Anchoring here
+        # delays the start by less than one dt, which _outgoing covers. Serial
+        # scheduling means "start on commit", so it keeps the wall-clock anchor.
+        first_source_step = chunk.source_offset_steps + trimmed_steps
+        start_time_ns = (
+            earliest_ns
+            if self._start_on_commit
+            else chunk.observation_time_ns + first_source_step * chunk.dt_ns
+        )
 
         groups = {name: values[trimmed_steps:end].copy() for name, values in chunk.groups.items()}
         unblended_groups = {name: values.copy() for name, values in groups.items()}

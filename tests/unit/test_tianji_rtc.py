@@ -73,7 +73,10 @@ def test_rtc_keeps_source_horizon_across_both_trims_and_conditions_committed_clo
     assert event["rtc_source_horizon"] == 16
     assert event["rtc_executed_steps_at_commit"] == 7
     assert submit(strategy, config, timeline, now) is None
-    now += chunk.dt_ns
+    # Advance one action step into the committed plan. The plan is anchored on
+    # its own source row, not on the commit instant, so executed_steps counts
+    # whole source rows: one step past the anchor is source row 8.
+    now = timeline.active_horizon().start_time_ns + chunk.dt_ns
     submission = submit(strategy, config, timeline, now)
     assert submission.event_fields["executed_steps"] == 8
     request = submission.request

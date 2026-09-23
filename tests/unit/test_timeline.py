@@ -220,7 +220,10 @@ def test_reference_preserves_observation_time_for_release_completion_barrier():
     chunk = ActionChunk('p',1,100,110,'joint_position',100,{'arm':np.zeros((25,2))})
     assert timeline.commit(chunk,now_ns=220,commit_lead_ns=0,max_plan_age_ns=1000,
                            current_command={'arm':np.zeros(2)},blend_steps=4).accepted
-    ref = timeline.reference_horizon(now_ns=230,dt_ns=10,horizon_steps=2)
+    # Source rows sit at 100, 200, 300...; committing at 220 keeps row 2, which
+    # belongs at 300, so nothing covers [220, 300) on a first commit.
+    assert timeline.reference_horizon(now_ns=230,dt_ns=10,horizon_steps=2) is None
+    ref = timeline.reference_horizon(now_ns=310,dt_ns=10,horizon_steps=2)
     assert ref.observation_time_ns == 100
     assert timeline.active_horizon().observation_time_ns == 100
 
@@ -291,3 +294,25 @@ def test_the_first_plan_has_no_outgoing_plan_to_fall_back_on() -> None:
     assert _commit(timeline, _chunk(1), now_ns=0, commit_lead_ns=20).accepted
     assert timeline.sample(10) is None
     np.testing.assert_allclose(timeline.sample(20)["left_arm"], [4.0, 5.0])
+
+
+def test_the_committed_plan_keeps_its_own_source_phase() -> None:
+    timeline = ActionTimeline({"left_arm": 2, "right_arm": 2})
+    assert _commit(timeline, _chunk(1), now_ns=0, commit_lead_ns=0).accepted
+    # Source rows of plan-2 sit at 15, 25, 35...; a lead that is not a multiple
+    # of dt used to re-pin row 1 to 23, playing the whole plan 2ns early.
+    assert _commit(timeline, _later_chunk(2, 15), now_ns=18, commit_lead_ns=5).accepted
+    # 23 and 24 are still covered by plan-1, which runs to 40.
+    np.testing.assert_allclose(timeline.sample(23)["left_arm"], [4.6, 5.6])
+    # Row 1 answers from its own source timestamp, not from 23.
+    np.testing.assert_allclose(timeline.sample(25)["left_arm"], [102.0, 103.0])
+    np.testing.assert_allclose(timeline.sample(35)["left_arm"], [104.0, 105.0])
+
+
+def test_serial_scheduling_still_anchors_on_the_commit() -> None:
+    timeline = ActionTimeline({"left_arm": 2, "right_arm": 2}, start_on_commit=True)
+    # start_on_commit forbids a trimmed chunk, so the plan has to start on the
+    # wall clock rather than on a source row that is already in the past.
+    assert _commit(timeline, _chunk(1, observation_time_ns=0), now_ns=18, commit_lead_ns=5).accepted
+    assert timeline.sample(22) is None
+    np.testing.assert_allclose(timeline.sample(23)["left_arm"], [0.0, 1.0])
