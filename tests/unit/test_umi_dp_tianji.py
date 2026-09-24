@@ -5,11 +5,11 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-from manimux.policy_adapter.umi_dp import tianji as policy_plugin
 from scipy.spatial.transform import Rotation
 
 from manimux.cli import load_config
 from manimux.policies.base import action_interval
+from manimux.policy_adapter.umi_dp import tianji as policy_plugin
 from manimux.policy_adapter.umi_dp.history import (
     HistoryStrategy,
     MeasuredHistory,
@@ -123,7 +123,9 @@ def test_history_rejects_fake_request_history_stale_and_skewed():
 
 def test_history_delegates_and_validates_rtc_constraints():
     for name in ("default", "rtc"):
-        config = load_config(ROOT / f"manimux/configs/experiments/pass_ball/tianji_umi_dp_{name}.yaml")
+        config = load_config(
+            ROOT / f"manimux/configs/experiments/pass_ball/tianji_umi_dp_{name}.yaml"
+        )
         strategy = HistoryStrategy(config)
         assert strategy.name == ("manimux" if name == "default" else "rtc")
         assert strategy.required_sampling_modes == frozenset(
@@ -203,6 +205,7 @@ def test_adapter_output_clock_observation_seed_and_ik_failure(adapter):
     assert chunk.observation_time_ns == 10**9 + model.offset_ns
     assert chunk.source_offset_steps == 0
     assert chunk.horizon_steps == model.horizon
+    assert chunk.runtime_trajectory is None
     assert chunk.metadata["ik_seed_source"] == "observation_state"
     assert chunk.metadata["ik_seed_time_ns"] == context.observation_time_ns
     np.testing.assert_allclose(
@@ -223,6 +226,17 @@ def test_adapter_output_clock_observation_seed_and_ik_failure(adapter):
     kin.fail = True
     with pytest.raises(ValueError, match="IK failed"):
         model.decode_action(raw, context)
+
+
+def test_dense_diff_ik_execution_option_rejects_non_diff_backends(adapter):
+    _, _, config = adapter
+    config["policy"]["adapter"]["execute_diff_ik_substeps"] = True
+    with pytest.raises(ValueError, match="requires ik_backend: diff"):
+        policy_plugin.UmiDpTianjiAdapter(config["robot"], config["policy"])
+
+    config["policy"]["adapter"]["execute_diff_ik_substeps"] = "true"
+    with pytest.raises(ValueError, match="must be boolean"):
+        policy_plugin.UmiDpTianjiAdapter(config["robot"], config["policy"])
 
 
 def test_timeline_alone_trims_expired_umi_rows(adapter):

@@ -259,6 +259,7 @@ def test_diff_ik_experiment_is_complete_and_matches_motion_profile():
     options = config["policy"]["adapter"]
     motion = config["executor"]["motion_limits"]["arm"]
     assert options["ik_backend"] == "diff"
+    assert options["execute_diff_ik_substeps"] is True
     assert options["diff_ik"]["max_velocity_rad_s"] == motion["max_velocity"]
     assert options["diff_ik"]["dt_max_s"] == motion["max_step_dt_s"]
     assert options["diff_ik"]["check_j67"]

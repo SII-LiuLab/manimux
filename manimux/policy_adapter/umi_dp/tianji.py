@@ -16,7 +16,7 @@ from manimux.policies.xpolicylab.codec import matrix_pose, pose_matrix
 from manimux.policy_adapter.base import PolicyAdapter
 from manimux.policy_adapter.umi_dp.history import WindowSnapshot
 from manimux.runtime.rtc.request import RtcInferenceRequest
-from manimux.types import ActionChunk
+from manimux.types import ActionChunk, RuntimeTrajectory
 
 SEMANTICS = "absolute_per_arm_base_xyz_wxyz"
 CAMERA_MAP = {
@@ -57,6 +57,9 @@ class UmiDpTianjiAdapter(PolicyAdapter):
         self.horizon = policy["horizon_steps"]
         self.dt_ns = round(action_interval(policy) * 1e9)
         self.offset_ns = round(float(policy["adapter"]["first_action_offset_s"]) * 1e9)
+        self.execute_diff_ik_substeps = policy["adapter"].get(
+            "execute_diff_ik_substeps", False
+        )
         validation_dt = float(policy["adapter"].get("ik_validation_dt_s", 0.004))
         if not math.isfinite(validation_dt) or validation_dt <= 0:
             raise ValueError("ik_validation_dt_s must be positive")
@@ -110,6 +113,11 @@ class UmiDpTianjiAdapter(PolicyAdapter):
         if list(robot["group_dims"].items()) != [("left_arm", 8), ("right_arm", 8)]:
             raise ValueError("UMI Tianji requires left_arm/right_arm with 7+1 values")
         options = policy["adapter"]
+        execute_substeps = options.get("execute_diff_ik_substeps", False)
+        if not isinstance(execute_substeps, bool):
+            raise ValueError("execute_diff_ik_substeps must be boolean")
+        if execute_substeps and options.get("ik_backend", "analytic") != "diff":
+            raise ValueError("execute_diff_ik_substeps requires ik_backend: diff")
         if not np.isfinite(options.get("observation_period_s", np.nan)) or (
             options["observation_period_s"] <= 0
         ):
@@ -239,7 +247,16 @@ class UmiDpTianjiAdapter(PolicyAdapter):
         return target
 
     def _solve_knot(
-        self, kin, current, target, aperture, duration_s, *, diff_solver=None, lag=None
+        self,
+        kin,
+        current,
+        target,
+        aperture,
+        duration_s,
+        *,
+        diff_solver=None,
+        lag=None,
+        substep_joints=None,
     ):
         start = self._fk(kin, current, aperture)
         rotation = rotation_vector(start[:3, :3].T @ target[:3, :3])
@@ -276,6 +293,8 @@ class UmiDpTianjiAdapter(PolicyAdapter):
             if not ok or solved.shape != (7,) or not np.isfinite(solved).all():
                 raise ValueError("Tianji IK failed; rejecting the entire chunk")
             current = solved.copy()
+            if substep_joints is not None:
+                substep_joints.append(current.copy())
         return current
 
     def warmup_decode(self, partition):
@@ -310,18 +329,23 @@ class UmiDpTianjiAdapter(PolicyAdapter):
         return self._decode(raw, context, (partition.removesuffix("_arm"),))
 
     def _decode_side(self, side, steps, seed_state):
-        current = state_vector(seed_state)[:7].copy()
+        seed = state_vector(seed_state)
+        current = seed[:7].copy()
+        previous_grip = float(seed[-1])
         diff_solver = self.diff_solvers.get(side)
         lag = None
         if diff_solver is not None:
             diff_solver.reset()
             lag = {"worst_lag_mm": 0.0, "worst_lag_deg": 0.0, "lag_exceedances": 0}
         rows = []
+        runtime_rows = [] if self.execute_diff_ik_substeps else None
+        samples_per_action = None
         for step in steps:
             target = pose_matrix(step[f"{side}_ee_pose"])
             grip = np.asarray(step[f"{side}_ee_joint_state"], dtype=float)
             if grip.shape != (1,) or not np.isfinite(grip).all() or not 0 <= grip[0] <= 1:
                 raise ValueError("UMI gripper action must lie in [0, 1]")
+            substep_joints = [] if runtime_rows is not None else None
             current = self._solve_knot(
                 self.kin[side],
                 current,
@@ -330,9 +354,25 @@ class UmiDpTianjiAdapter(PolicyAdapter):
                 self.dt_ns / 1e9,
                 diff_solver=diff_solver,
                 lag=lag,
+                substep_joints=substep_joints,
             )
             rows.append(np.r_[current, grip])
-        return np.asarray(rows), lag
+            if runtime_rows is not None:
+                count = len(substep_joints)
+                if not count or (samples_per_action is not None and count != samples_per_action):
+                    raise ValueError("diffIK substep count changed within one action chunk")
+                samples_per_action = count
+                for index, joints in enumerate(substep_joints, start=1):
+                    alpha = index / count
+                    dense_grip = (1.0 - alpha) * previous_grip + alpha * float(grip[0])
+                    runtime_rows.append(np.r_[joints, dense_grip])
+            previous_grip = float(grip[0])
+        return (
+            np.asarray(rows),
+            None if runtime_rows is None else np.asarray(runtime_rows),
+            samples_per_action,
+            lag,
+        )
 
     def _decode(self, raw, context, sides):
         # The WebSocket client unwraps a plain response to its action list.
@@ -348,16 +388,37 @@ class UmiDpTianjiAdapter(PolicyAdapter):
             )
         action_origin = context.observation_time_ns + self.offset_ns
         groups = {}
+        runtime_groups = {}
+        samples_per_action = None
         lag_stats = {}
         for side in sides:
             group = f"{side}_arm"
-            groups[group], lag = self._decode_side(
+            groups[group], runtime_rows, side_samples, lag = self._decode_side(
                 side,
                 steps,
                 context.measured_state.groups[group],
             )
+            if runtime_rows is not None:
+                if samples_per_action is not None and side_samples != samples_per_action:
+                    raise ValueError("diffIK substep count differs between arms")
+                samples_per_action = side_samples
+                runtime_groups[group] = runtime_rows
             if lag is not None:
                 lag_stats[side] = lag
+        runtime_trajectory = None
+        runtime_dt_ns = None
+        if runtime_groups:
+            if samples_per_action is None:
+                raise ValueError("diffIK runtime trajectory has no samples")
+            runtime_dt_ns = self.dt_ns // samples_per_action
+            if runtime_dt_ns <= 0:
+                raise ValueError("diffIK runtime trajectory interval rounded to zero")
+            runtime_trajectory = RuntimeTrajectory(
+                # The first dense row is the first substep leading to source row 0.
+                start_time_ns=action_origin - self.dt_ns + runtime_dt_ns,
+                dt_ns=runtime_dt_ns,
+                groups=runtime_groups,
+            )
         return ActionChunk(
             plan_id=f"umi-dp-{uuid.uuid4().hex}",
             request_seq=context.request_seq,
@@ -367,6 +428,7 @@ class UmiDpTianjiAdapter(PolicyAdapter):
             dt_ns=self.dt_ns,
             groups=groups,
             source_offset_steps=0,
+            runtime_trajectory=runtime_trajectory,
             metadata={
                 "native_action_semantics": SEMANTICS,
                 "measured_observation_time_ns": context.observation_time_ns,
@@ -374,6 +436,15 @@ class UmiDpTianjiAdapter(PolicyAdapter):
                 "ik_backend": self.ik_backend,
                 "ik_seed_source": self.decode_seed_source,
                 "ik_seed_time_ns": context.measured_state.monotonic_ns,
+                **(
+                    {
+                        "execute_diff_ik_substeps": True,
+                        "diff_ik_substeps_per_action": samples_per_action,
+                        "runtime_trajectory_dt_ns": runtime_dt_ns,
+                    }
+                    if runtime_trajectory is not None
+                    else {}
+                ),
                 # Per-arm target residual of the diff QP; lag over max_lag_* is only
                 # recorded under lag_policy report.
                 **({"diff_ik_lag": lag_stats} if lag_stats else {}),

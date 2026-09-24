@@ -60,6 +60,9 @@ policy:
     camera_skew_s: 0.04
     ik_validation_dt_s: 0.004
     ik_backend: diff
+    # Execute the joint samples already produced by differential IK instead of
+    # reconstructing each 30 Hz model segment with joint-space interpolation.
+    execute_diff_ik_substeps: true
     diff_ik:
       # These bounds must match executor.motion_limits.arm.
       max_velocity_rad_s: 0.9047786842338605

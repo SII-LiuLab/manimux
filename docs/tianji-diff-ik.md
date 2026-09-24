@@ -42,6 +42,7 @@ policy:
   adapter:
     ik_backend: diff
     ik_validation_dt_s: 0.004
+    execute_diff_ik_substeps: true
     diff_ik:
       # max_velocity_rad_s and dt_max_s are inserted from executor.motion_limits.arm.
       w_pos: 1.0
@@ -124,10 +125,12 @@ makes the new chunk independent of that hidden solver history.
 IK runs while **decoding a predicted chunk**, with SE(3) segments divided into
 at-most-`ik_validation_dt_s` steps (also respecting the QP dt cap). Each source knot uses
 the fixed policy action interval, and each QP substep gets its actual subdivision duration.
-The adapter retains every decoded source knot. At commit time, the shared timeline removes
-expired rows and starts from the first row at or after the execution boundary. Only final
-joint knots are retained. The shared executor then interpolates those joint knots and sends
-commands on control ticks. CalibWrist samples TCP at the
+The model-facing chunk always retains its original action horizon and interval. With
+`execute_diff_ik_substeps: false` (the default), only final joint knots drive the runtime,
+preserving the previous behavior. When the option is true, the adapter also passes the
+already-computed joint substeps to the runtime-only trajectory. The timeline trims and
+samples that dense trajectory for execution while Viewer and RTC continue to consume the
+original source knots. CalibWrist samples TCP at the
 control rate, solves each sample seeded from the preceding command, and retains
 all those dense joint commands; it can precompute an entire chunk, and its async
 path has a separate sender thread. The difference is which samples are retained

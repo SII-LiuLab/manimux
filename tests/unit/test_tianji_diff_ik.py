@@ -217,7 +217,11 @@ def test_real_diff_adapter_chunk_timing_and_atomic_rejection(horizon, offset):
     config = load_config(ROOT / "manimux/configs/experiments/pass_ball/tianji_umi_dp_default.yaml")
     config["robot"]["type"] = "mock"
     config["policy"]["horizon_steps"] = horizon
-    config["policy"]["adapter"].update(ik_backend="diff", first_action_offset_s=offset)
+    config["policy"]["adapter"].update(
+        ik_backend="diff",
+        first_action_offset_s=offset,
+        execute_diff_ik_substeps=True,
+    )
     bind_diff_ik_profile(config)
     adapter = UmiDpTianjiAdapter(config["robot"], config["policy"])
     state = RobotState({side + "_arm": np.r_[START, 0.8] for side in ("left", "right")}, 10**9, 1)
@@ -243,8 +247,18 @@ def test_real_diff_adapter_chunk_timing_and_atomic_rejection(horizon, offset):
     assert chunk.horizon_steps == horizon
     assert chunk.observation_time_ns == 10**9 + round(offset * 1e9)
     assert chunk.metadata["ik_backend"] == "diff"
+    assert chunk.runtime_trajectory is not None
+    runtime = chunk.runtime_trajectory
+    assert runtime.horizon_steps == horizon * 9
+    assert runtime.dt_ns == chunk.dt_ns // 9
+    assert runtime.start_time_ns == chunk.observation_time_ns - chunk.dt_ns + runtime.dt_ns
+    assert chunk.metadata["diff_ik_substeps_per_action"] == 9
     for side in ("left", "right"):
         assert adapter.kin[side]._sdk is None
+        np.testing.assert_array_equal(
+            runtime.groups[side + "_arm"][8::9],
+            chunk.groups[side + "_arm"],
+        )
         delta = np.diff(np.vstack([START, chunk.groups[side + "_arm"][:, :7]]), axis=0)
         dt = action_interval(config["policy"])
         assert (

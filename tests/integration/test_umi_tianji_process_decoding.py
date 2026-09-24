@@ -340,6 +340,7 @@ def test_umi_tianji_per_arm_processes_match_inline_diff_decode():
     config["robot"]["type"] = "mock"
     config["policy"]["horizon_steps"] = 64
     config["policy"]["adapter"]["ik_backend"] = "diff"
+    config["policy"]["adapter"]["execute_diff_ik_substeps"] = True
     bind_diff_ik_profile(config)
     adapter = UmiDpTianjiAdapter(config["robot"], config["policy"])
     actions = []
@@ -383,11 +384,19 @@ def test_umi_tianji_per_arm_processes_match_inline_diff_decode():
         assert set(chunk.metadata["decode_partition_ms"]) == {"left_arm", "right_arm"}
         assert chunk.source_offset_steps == 0
         assert chunk.horizon_steps == 64
+        assert chunk.runtime_trajectory is not None
+        assert chunk.runtime_trajectory.horizon_steps == 64 * 9
         assert chunk.source_offset_steps == inline.source_offset_steps
         assert chunk.observation_time_ns == inline.observation_time_ns
         for side in ("left", "right"):
             np.testing.assert_allclose(
                 chunk.groups[side + "_arm"], inline.groups[side + "_arm"], atol=1e-9, rtol=0
+            )
+            np.testing.assert_allclose(
+                chunk.runtime_trajectory.groups[side + "_arm"],
+                inline.runtime_trajectory.groups[side + "_arm"],
+                atol=1e-9,
+                rtol=0,
             )
             assert chunk.metadata["diff_ik_lag"][side] == pytest.approx(
                 inline.metadata["diff_ik_lag"][side], abs=1e-9
