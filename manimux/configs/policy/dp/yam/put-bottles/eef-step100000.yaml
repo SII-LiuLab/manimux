@@ -1,0 +1,27 @@
+policy_name: DP
+protocol: ws
+host: 127.0.0.1
+port: 8520
+bench_name: RoboDojo_real
+task_name: put_bottles_into_the_bin
+ckpt_name: put_bottles_into_the_bin
+env_cfg_type: yam_dual
+action_type: ee
+seed: 42
+gpu_id: 0
+eval_batch: false
+checkpoint_num: 100000
+checkpoint_path: ../../../checkpoints/finetuned/ziyang/dp-yam-eef-put-bottles-step100000
+eef_representation: absolute_xyz_euler
+require_observation_history: true
+action_horizon: 6
+checkpoint_variant: dp_yam_eef_step100000
+checkpoint_source: 579abd982af3289bd6835112bebe197a0e9c81f1403b6d9d8573326a48c30534
+backend_identity:
+  fields:
+  - policy_name
+  - checkpoint_variant
+  - checkpoint_source
+  - action_type
+  - action_horizon
+checkpoint_sha256: 579abd982af3289bd6835112bebe197a0e9c81f1403b6d9d8573326a48c30534

@@ -22,11 +22,14 @@ HARDWARE_VERIFIED_VARIANTS = {
     "pi05_yam_pick_red_ball_box_step_1000",
 }
 YAM_FINETUNED_VARIANTS = HARDWARE_VERIFIED_VARIANTS | {
+    "pi05_yam_put_bottles_joint_ee_step_30000_eef",
     "pi05_yam_assemble_screwdriver_step_15000",
     "pi05_yam_put_bottles_joint_step_30000",
     "pi05_yam_put_bottles_joint_ee_step_30000",
 }
-GPU_FORWARD_VERIFIED_VARIANTS = HARDWARE_VERIFIED_VARIANTS
+GPU_FORWARD_VERIFIED_VARIANTS = HARDWARE_VERIFIED_VARIANTS | {
+    "pi05_yam_put_bottles_joint_ee_step_30000_eef",
+}
 TASK_QUALITY_LIMITED_VARIANTS = {
     "pi05_yam_finetuned",
     "pi05_yam_pick_red_ball_box_step_1000",
@@ -108,10 +111,12 @@ def _resolved_contract(config_path: Path, config: dict[str, Any]) -> dict[str, A
         "norm_stats_source": config.get("norm_stats_source"),
         "xpolicylab_root": str(XPOLICY_ROOT),
         "train_config_name": train_config.name,
-        "action_space": "absolute_joint_position",
+        "action_space": "absolute_ee_pose"
+        if config.get("action_type") == "ee"
+        else "absolute_joint_position",
         "action_horizon": horizon,
         "num_steps": num_steps,
-        "rtc": "pi_guided_v1",
+        "rtc": "unsupported" if config.get("action_type") == "ee" else "pi_guided_v1",
     }
 
 
@@ -121,7 +126,8 @@ def main(argv: list[str] | None = None) -> int:
     source.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     source.add_argument("--experiment", type=Path, help="Use the experiment's paired policy_server")
     parser.add_argument(
-        "--local", type=Path,
+        "--local",
+        type=Path,
         help="Station bindings (default: manimux/configs/local/station.yaml)",
     )
     parser.add_argument("--check", action="store_true", help="validate and print resolved setup")
