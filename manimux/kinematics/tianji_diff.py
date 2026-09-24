@@ -28,7 +28,6 @@ class DifferentialIKConfig(BaseModel):
 
     # Bound from the effective shared executor profile; never a second rate constant.
     max_velocity_rad_s: float = Field(gt=0)
-    dt_max_s: float = Field(gt=0)
     w_pos: float = Field(default=1.0, gt=0)
     w_rot: float = Field(default=1.0, gt=0)
     lam: float = Field(default=0.001, ge=0)
@@ -292,7 +291,7 @@ class TianjiDifferentialIK:
             return failure("invalid_input", note="target must be a rigid transform")
         if self._tool_inverse is not None:
             target = target @ self._tool_inverse
-        dt = min(max(dt_s, 1e-6), self.config.dt_max_s)
+        dt = max(dt_s, 1e-6)
         joints = np.degrees(previous)
         cached = self._next_frame
         if cached is not None and np.array_equal(cached[0], previous):

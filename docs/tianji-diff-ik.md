@@ -43,7 +43,7 @@ policy:
 
 Use the same reference from another Tianji experiment. The model, checkpoint identity and
 RTC sampler stay the same. IK selection is an embodiment setting. The config loader expands
-the profile, and the checkpoint binder writes these effective runtime options:
+the profile, and the checkpoint binder writes these tuning options:
 
 ```yaml
 policy:
@@ -62,16 +62,14 @@ policy:
       max_lag_mm: 5.0
       max_lag_deg: null
       lag_policy: report
-      # Inserted from executor.motion_limits.arm by the binder:
-      max_velocity_rad_s: 0.9047786842338605
-      dt_max_s: 0.016
 ```
 
-`max_velocity_rad_s` comes from `motion_limits.arm.max_velocity`; `dt_max_s`
-comes from its `max_step_dt_s`. There is no second hardcoded speed constant.
-The history strategy checks these values against the currently loaded profile
-on every construction, rejecting missing/stale/conflicting values. Rebind after
-changing the profile. Both shared motion limits and a finite dt cap are required.
+The serialized adapter config contains solver tuning only. At runtime the adapter
+receives `executor.motion_limits` directly and gives the differential solver the
+resolved `motion_limits.arm.max_velocity`. This keeps one copy of the arm speed
+limit; the checkpoint binder and history strategy no longer copy or compare it.
+A finite executor `max_step_dt_s` is still required by the Tianji control profile,
+but it remains an executor command-budget setting rather than a solver field.
 
 The QP uses independent per-joint velocity constraints regardless of the shared
 executor's `per_joint`/`isotropic` mode; this matches the reference differential
@@ -104,8 +102,8 @@ error is a rotation vector, not an Euler-coordinate delta. The flange Jacobian
 uses modified DH's post-link joint axes and includes the static flange offset.
 Targets are transformed from TCP to flange using the same mounted tool as FK.
 
-The solver caps each effective dt and clips numerical OSQP overshoot to the
-velocity box. It rejects empty boxes before `OSQP.update` so OSQP cannot silently
+The solver uses the duration supplied by its caller and clips numerical OSQP
+overshoot to the velocity box. It rejects empty boxes before `OSQP.update` so OSQP cannot silently
 reuse a stale problem. Unsolved statuses and nonfinite solutions fail; solved
 steps are checked again for position margin and J6/J7 interference. Fixed sparse
 patterns and within-chunk primal warm starts preserve the upstream QP procedure.
@@ -133,7 +131,7 @@ makes the new chunk independent of that hidden solver history.
 ## Timing and validation
 
 IK runs while **decoding a predicted chunk**, with SE(3) segments divided into
-at-most-4ms steps by default (also respecting the QP dt cap). The optional
+at-most-4ms steps by default. The optional
 `ik_validation_dt_s` adapter override changes that internal subdivision. Each source knot uses
 the fixed policy action interval, and each QP substep gets its actual subdivision duration.
 The adapter retains every decoded source knot. At commit time, the shared timeline removes

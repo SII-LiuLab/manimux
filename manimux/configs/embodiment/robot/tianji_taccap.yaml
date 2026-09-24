@@ -22,6 +22,10 @@ hardware:
   stale_timeout_s: 0.2
   ready_timeout_s: 3.0
   max_tracking_error_deg: 10  # Original command-to-measured bound.
+  # Shared Marvin controller capability/settings for both arms.
+  rated_joint_velocity_rad_s: 3.141592653589793  # 180 deg/s from ccs_m6_40 PNVA.
+  velocity_ratio: 32
+  acceleration_ratio: 100
 components:
   # FK/IK 在各臂自身基座中计算；这里仅保留参与 TCP 的末端安装关系。
   left_arm:

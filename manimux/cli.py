@@ -456,6 +456,15 @@ def load_config(path: str | Path, *, local: str | Path | None = None) -> dict:
     if raw.get("control_profile") is not None:
         profile_path = Path(raw["control_profile"])
         profile_raw = read_yaml(profile_path)
+        if profile_raw.get("rate_contract") is not None:
+            from manimux.embodiments.arm.tianji.arm import resolve_rate_contract
+
+            assembly = read_yaml(raw["robot"]["config"])
+            controller = _merge(
+                assembly.get("hardware", {}),
+                raw.get("robot", {}).get("options", {}).get("hardware", {}),
+            )
+            profile_raw = resolve_rate_contract(profile_raw, controller, gripper_indices)
         if gripper_indices is not None and profile_raw.get("motion_limits") is not None:
             profile_gripper = profile_raw["motion_limits"].setdefault("gripper", {})
             _set_shared_value(

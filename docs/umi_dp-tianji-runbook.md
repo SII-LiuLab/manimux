@@ -31,12 +31,11 @@ checks the paired `expected_artifacts`; ManiMux verifies the server's identity
 and sampling capabilities before execution. The checked-in templates are
 intentionally unbound and rejected by the actual Tianji adapter until bound.
 
-`manimux/configs/embodiment/robot/tianji_control.yaml` owns runtime command limits and has 30Hz
-action points. A legacy 100ms-action checkpoint cannot bind to that profile.
-To use one, explicitly create/select a matching control profile and runtime
-template with its action interval, retaining reviewed hardware and motion limits;
-the binder will never silently change those settings. Its first action offset
-is still 1/source_fps (33.3ms at 30fps).
+`manimux/configs/embodiment/robot/tianji_control.yaml` owns runtime command limits.
+The experiment and checkpoint identity own the policy action interval. A legacy
+100ms-action checkpoint therefore needs a runtime template with the matching
+`policy.action_dt_s`; the binder will never silently change that setting. Its
+first action offset is still 1/source_fps (33.3ms at 30fps).
 
 ## Start the model service
 

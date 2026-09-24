@@ -151,11 +151,9 @@ def test_observation_and_action_stay_in_each_arm_base():
 def test_spawned_action_decode_matches_inline(backend):
     cfg = configured()
     cfg["policy"]["adapter"]["ik_backend"] = backend
-    if backend == "diff":
-        from manimux.policy_adapter.umi_dp.ik_config import bind_diff_ik_profile
-
-        bind_diff_ik_profile(cfg)
-    adapter = build_policy_adapter(cfg["robot"], cfg["policy"])
+    adapter = build_policy_adapter(
+        cfg["robot"], cfg["policy"], motion_limits=cfg["executor"]["motion_limits"]
+    )
     steps = actions(adapter.robot_kinematics, cfg["policy"]["horizon_policy_steps"])
     decoder = ActionDecoderClient(cfg["robot"], cfg["policy"], adapter)
     try:
@@ -253,7 +251,6 @@ def test_new_recipe_keeps_original_timing_and_control_envelopes():
 
 def test_diff_ik_experiment_is_complete_and_matches_motion_profile():
     from manimux.policy_adapter.umi_dp.history import HistoryStrategy
-    from manimux.policy_adapter.umi_dp.ik_config import bind_diff_ik_profile
 
     raw = yaml.safe_load(DIFF_EXPERIMENT.read_text())
     assert raw["policy"]["adapter"]["diff_ik"] == {
@@ -277,9 +274,12 @@ def test_diff_ik_experiment_is_complete_and_matches_motion_profile():
         "lag_policy": "report",
     }
     bind_test_identity(config)
-    bind_diff_ik_profile(config)
-    assert options["diff_ik"]["max_velocity_rad_s"] == motion["max_velocity"]
-    assert options["diff_ik"]["dt_max_s"] == motion["max_step_dt_s"]
+    adapter = build_policy_adapter(
+        config["robot"], config["policy"], motion_limits=config["executor"]["motion_limits"]
+    )
+    assert adapter.diff_solvers["left"].config.max_velocity_rad_s == motion["max_velocity"]
+    assert "max_velocity_rad_s" not in options["diff_ik"]
+    assert "dt_max_s" not in options["diff_ik"]
     assert config["policy"]["action_decoding"] == "process"
     HistoryStrategy(config)
 

@@ -43,6 +43,7 @@ def state_vector(value):
 
 
 class UmiDpTianjiAdapter(PolicyAdapter):
+    uses_motion_limits = True
     supports_context_only_decode = True
     # This checkpoint's full source trajectory starts at the request
     # observation. Timeline owns all stale-row trimming at commit time.
@@ -51,9 +52,10 @@ class UmiDpTianjiAdapter(PolicyAdapter):
     # parallel and merge them atomically.
     decode_partitions = ("left_arm", "right_arm")
 
-    def __init__(self, robot, policy, *, kinematics=None):
+    def __init__(self, robot, policy, *, kinematics=None, motion_limits=None):
         self.validate(robot, policy)
         self.policy = policy
+        self.motion_limits = motion_limits
         identity = policy["expected_backend"]["model"]
         self.horizon = policy["horizon_policy_steps"]
         self.dt_ns = round(action_interval(policy) * 1e9)
@@ -99,7 +101,12 @@ class UmiDpTianjiAdapter(PolicyAdapter):
 
                 if not isinstance(arm_solver, TianjiArmKinematics):
                     raise ValueError("UMI differential IK requires Tianji kinematics")
-                config = DifferentialIKConfig.model_validate(policy["adapter"].get("diff_ik", {}))
+                arm_motion = None if motion_limits is None else motion_limits.get("arm")
+                if arm_motion is None or arm_motion.get("max_velocity") is None:
+                    raise ValueError("UMI differential IK requires resolved arm motion limits")
+                tuning = dict(policy["adapter"].get("diff_ik", {}))
+                tuning["max_velocity_rad_s"] = arm_motion["max_velocity"]
+                config = DifferentialIKConfig.model_validate(tuning)
                 self.diff_solvers[side] = TianjiDifferentialIK(arm_solver, config)
 
     def validate(self, robot, policy):
@@ -228,8 +235,6 @@ class UmiDpTianjiAdapter(PolicyAdapter):
         # sampled SE(3) path at that cadence rather than relaxing that detector
         # or applying its per-servo-step threshold to an entire 30/10 Hz knot.
         step_dt = self.validation_dt
-        if diff_solver is not None:
-            step_dt = min(step_dt, diff_solver.config.dt_max_s)
         substeps = max(1, math.ceil(duration_s / step_dt))
         for index in range(1, substeps + 1):
             alpha = index / substeps

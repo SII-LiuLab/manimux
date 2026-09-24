@@ -146,6 +146,11 @@ class TianjiTaccapRobot(RobotBase):
     ) -> None:
         clock = clock if clock is not None else SystemClock()
         control = {**model.hardware, **(hardware or {})}
+        shared_arm_hardware = {
+            name: control.pop(name) for name in ("velocity_ratio", "acceleration_ratio")
+        }
+        # Runtime shaping consumes the rated capability; the SDK only needs percentages.
+        control.pop("rated_joint_velocity_rad_s")
         overrides = dict(component_hardware or {})
         bound = {name: dict(entry["hardware"]) for name, entry in model.components.items()}
         # 按组件名应用本地绑定；拼错名称时由字典索引直接报错。
@@ -159,7 +164,9 @@ class TianjiTaccapRobot(RobotBase):
             if side in settings:
                 raise ValueError("one controller side cannot be used by multiple groups")
             sides[name] = side
-            settings[side] = TianjiArmSettings(**bound[group.arm_name])
+            settings[side] = TianjiArmSettings(
+                **{**shared_arm_hardware, **bound[group.arm_name]}
+            )
         controller = TianjiController(settings=settings, clock=clock, **control)
         arms, end_effectors, sensors = {}, {}, {}
         configs = {}

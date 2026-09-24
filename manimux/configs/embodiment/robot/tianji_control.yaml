@@ -10,13 +10,20 @@ robot:
     execute: false
     end_effector_control: false
 
-# Runtime guard, radians (index 7 is the aperture). Derived from the controller:
-#   position: ccs_m6_40 PNVA limits minus the 5 deg LIMIT_MARGIN_DEG; arm B J6
-#             narrowed to +-58 deg (JOINT_LIMIT_OVERRIDE)
-#   velocity: 180 deg/s x vel_ratio 32 %
-#   acceleration: not checked in software, as in teleop's SafetyGate;
-#                 acc_ratio still configures acceleration inside the controller
-#   aperture: the shaping limits below divided by 0.9
+# One authored rate contract. The loader combines it with the assembly's rated
+# joint velocity and controller percentages to build motion_limits and guard rates.
+rate_contract:
+  command_margin: 0.9
+  mode: isotropic
+  max_step_dt_s: 0.016
+  max_acceleration: null
+  gripper:
+    max_velocity: 3.0
+    max_acceleration: 12.0
+    max_closing_velocity: 1.0
+
+# Runtime position guard, radians (index 7 is the aperture). The arm limits are
+# ccs_m6_40 PNVA bounds minus 5 degrees; arm B J6 is narrowed to +-58 degrees.
 command_safety:
   position_lower:
     left_arm: [-2.8797932657906435, -2.007128639793479, -2.8797932657906435, -2.443460952792061, -2.8797932657906435, -0.9599310885968813, -1.4835298641951802, 0.0]
@@ -24,22 +31,4 @@ command_safety:
   position_upper:
     left_arm: [2.8797932657906435, 2.007128639793479, 2.8797932657906435, 0.9599310885968813, 2.8797932657906435, 0.9599310885968813, 1.4835298641951802, 1.0]
     right_arm: [2.8797932657906435, 2.007128639793479, 2.8797932657906435, 0.9599310885968813, 2.8797932657906435, 0.9250245035569946, 1.4835298641951802, 1.0]
-  max_velocity:
-    left_arm: [1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 3.3333333333333335]
-    right_arm: [1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 3.3333333333333335]
   max_acceleration: null
-
-# Executor shaping, kept inside the guard by tianji-control's CMD_RATE_MARGIN 0.9:
-#   arm: scale all seven joint increments together; same velocity budget and
-#        16 ms maximum step time as teleop, with no software acceleration clamp
-#   gripper: ManiMux's default aperture rates; closing as for YAM
-motion_limits:
-  arm:
-    mode: isotropic
-    max_velocity: 0.9047786842338605
-    max_step_dt_s: 0.016
-    max_acceleration: null
-  gripper:
-    max_velocity: 3.0
-    max_acceleration: 12.0
-    max_closing_velocity: 1.0

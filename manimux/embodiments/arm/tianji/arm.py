@@ -7,6 +7,7 @@ import ipaddress
 import threading
 import time
 from collections.abc import Mapping
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
@@ -20,6 +21,50 @@ from manimux.kinematics.base import FlangeKinematicsBase, FloatArray, KinematicC
 
 _CONTROL_SESSION = threading.Lock()
 _ARM = {"left": ("A", 0), "right": ("B", 1)}
+
+
+def resolve_rate_contract(
+    profile: dict, controller: dict, gripper_indices: dict[str, int] | None
+) -> dict:
+    """Expand one Tianji controller capability into runtime shaping and guard rates."""
+    values = deepcopy(profile)
+    contract = values.pop("rate_contract")
+    margin = float(contract["command_margin"])
+    if not 0 < margin <= 1:
+        raise ValueError("Tianji command_margin must be in (0, 1]")
+    rated = float(controller["rated_joint_velocity_rad_s"])
+    ratio = controller["velocity_ratio"]
+    if (
+        not np.isfinite(rated)
+        or rated <= 0
+        or isinstance(ratio, bool)
+        or not isinstance(ratio, int)
+        or not 1 <= ratio <= 100
+    ):
+        raise ValueError("Tianji rated velocity and controller ratio are invalid")
+    controller_velocity = rated * ratio / 100
+    gripper = deepcopy(contract["gripper"])
+    command_safety = values.setdefault("command_safety", {})
+    if "motion_limits" in values or "max_velocity" in command_safety:
+        raise ValueError("Tianji rate contract conflicts with authored runtime rates")
+    groups = values["robot"]["group_dims"]
+    if gripper_indices is None or set(gripper_indices) != set(groups):
+        raise ValueError("Tianji rate contract requires one gripper index per robot group")
+    command_safety["max_velocity"] = {}
+    for name, dimension in groups.items():
+        rates = [controller_velocity] * dimension
+        rates[gripper_indices[name]] = gripper["max_velocity"] * (1.0 / margin)
+        command_safety["max_velocity"][name] = rates
+    values["motion_limits"] = {
+        "arm": {
+            "mode": contract["mode"],
+            "max_velocity": controller_velocity * margin,
+            "max_step_dt_s": contract["max_step_dt_s"],
+            "max_acceleration": contract["max_acceleration"],
+        },
+        "gripper": gripper,
+    }
+    return values
 
 
 @dataclass(frozen=True, slots=True)

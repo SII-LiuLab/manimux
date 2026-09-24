@@ -104,13 +104,10 @@ def main():
         import tempfile
 
         from manimux.policy_adapter.umi_dp.history import HistoryStrategy
-        from manimux.policy_adapter.umi_dp.ik_config import bind_diff_ik_profile
-
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", dir=output.parent) as stream:
             yaml.safe_dump(runtime, stream, sort_keys=False)
             stream.flush()
             resolved = load_config(stream.name)
-            bind_diff_ik_profile(resolved)
             HistoryStrategy(resolved)
             runtime["policy"]["options"] = resolved["policy"]["options"]
             runtime["policy"]["adapter"] = resolved["policy"]["adapter"]

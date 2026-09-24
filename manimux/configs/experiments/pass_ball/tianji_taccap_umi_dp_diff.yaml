@@ -1,5 +1,6 @@
 # UMI_DP + Tianji-TacCap differential-IK experiment entry.
 # Keep execution and Viewer disabled until a bound checkpoint and station are reviewed.
+control_profile: ../../embodiment/robot/tianji_control.yaml
 run:
   task: pass the ball between the two grippers
   output_dir: ./data/experiments/umi-dp-tianji-diff
@@ -70,4 +71,4 @@ inference:
   config: ../../inference/tianji_taccap_umi_dp.yaml
 executor:
   type: smooth
-  config: ../../executor/tianji_taccap_smooth.yaml
+  config: ../../executor/tianji_smooth_control_profile.yaml

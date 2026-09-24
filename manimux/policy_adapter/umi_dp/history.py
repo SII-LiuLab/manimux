@@ -146,9 +146,6 @@ class HistoryStrategy:
     discard_plans_while_paused = True
 
     def __init__(self, config):
-        from manimux.policy_adapter.umi_dp.ik_config import validate_diff_ik_profile
-
-        validate_diff_ik_profile(config)
         options = config["policy"]["adapter"]
         expected = config["policy"].get("expected_backend")
         identity = {} if expected is None else expected.get("model", {})

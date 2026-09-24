@@ -16,7 +16,6 @@ sys.path.insert(0, str(REPO))
 def main():
     from manimux.cli import load_config
     from manimux.policy_adapter.umi_dp.history import WindowSnapshot
-    from manimux.policy_adapter.umi_dp.ik_config import bind_diff_ik_profile
     from manimux.policy_adapter.umi_dp.tianji import UmiDpTianjiAdapter, matrix_pose
     from manimux.types import (
         ActionContext,
@@ -42,13 +41,16 @@ def main():
     config = load_config(args.config)
     if args.ik_backend:
         config["policy"]["adapter"]["ik_backend"] = args.ik_backend
-    bind_diff_ik_profile(config)
     # Only kinematics is constructed: neither a RobotBase nor sensor is opened.
     config["robot"]["type"] = "mock"
     report = {}
     for horizon in args.horizons:
         config["policy"]["horizon_policy_steps"] = horizon
-        adapter = UmiDpTianjiAdapter(config["robot"], config["policy"])
+        adapter = UmiDpTianjiAdapter(
+            config["robot"],
+            config["policy"],
+            motion_limits=config["executor"]["motion_limits"],
+        )
         start = np.radians([50, -40, -30, -100, -65, 0, 40])
         state = RobotState(
             {side + "_arm": np.r_[start, 0.8] for side in ("left", "right")}, 1000000000, 1

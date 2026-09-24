@@ -333,7 +333,6 @@ def wait_for_decode(decoder):
 def test_umi_tianji_per_arm_processes_match_inline_diff_decode():
     pytest.importorskip("osqp")
     from manimux.policies.decoder import ActionDecoderClient
-    from manimux.policy_adapter.umi_dp.ik_config import bind_diff_ik_profile
     from manimux.policy_adapter.umi_dp.tianji import UmiDpTianjiAdapter, matrix_pose
     from manimux.types import ActionContext, InferenceResponse, RobotState
 
@@ -352,8 +351,11 @@ def test_umi_tianji_per_arm_processes_match_inline_diff_decode():
         first_action_offset_s=1 / 30,
         observation_period_s=0.1,
     )
-    bind_diff_ik_profile(config)
-    adapter = UmiDpTianjiAdapter(config["robot"], config["policy"])
+    adapter = UmiDpTianjiAdapter(
+        config["robot"],
+        config["policy"],
+        motion_limits=config["executor"]["motion_limits"],
+    )
     actions = []
     for index in range(64):
         action = {}

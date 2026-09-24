@@ -237,6 +237,41 @@ def test_umi_pass_ball_enables_close_latch_with_shared_motion_limits(variant):
     assert config["robot"]["options"]["end_effector_control"] is False
 
 
+def test_tianji_rate_contract_derives_one_controller_and_runtime_speed():
+    assembly = yaml.safe_load(
+        Path("manimux/configs/embodiment/robot/tianji_taccap.yaml").read_text()
+    )
+    profile = yaml.safe_load(
+        Path("manimux/configs/embodiment/robot/tianji_control.yaml").read_text()
+    )
+    assert "motion_limits" not in profile
+    assert "max_velocity" not in profile["command_safety"]
+
+    config = load_config(
+        "manimux/configs/experiments/pass_ball/tianji_taccap_umi_dp.yaml"
+    )
+    hardware = assembly["hardware"]
+    controller_speed = (
+        hardware["rated_joint_velocity_rad_s"] * hardware["velocity_ratio"] / 100
+    )
+    executor_speed = controller_speed * profile["rate_contract"]["command_margin"]
+    assert config["executor"]["motion_limits"]["arm"]["max_velocity"] == pytest.approx(
+        executor_speed
+    )
+    assert config["executor"]["smooth"]["max_velocity"] == pytest.approx(executor_speed)
+    for rates in config["executor"]["command_safety"]["max_velocity"].values():
+        assert rates[:7] == pytest.approx([controller_speed] * 7)
+
+
+def test_tianji_taccap_experiments_use_shared_control_and_thin_executor_profiles():
+    for path in Path("manimux/configs/experiments").glob("**/tianji_taccap_*.yaml"):
+        raw = yaml.safe_load(path.read_text())
+        assert raw["control_profile"].endswith("/tianji_control.yaml")
+        assert raw["executor"]["config"].endswith(
+            "/tianji_smooth_control_profile.yaml"
+        )
+
+
 @pytest.mark.parametrize(
     "override",
     [
