@@ -39,3 +39,6 @@ ego_view_mode: black
 # null means: synthesize the black image at the left-wrist input resolution.
 black_ego_shape: null
 default_prompt: Pass the ball between the two grippers.
+# true restricts RTC guidance to the trained action slots; false guides all
+# 60 channels, padding included (the original sampler behavior).
+rtc_mask_padding: false

@@ -22,3 +22,5 @@ def test_xr1_sampler_check_runs_without_model_or_gpu() -> None:
     assert payload["gpu_used"] is False
     assert payload["native"]["conditioned_inside_generate"] is True
     assert payload["xpolicy"]["conditioned_inside_generate"] is True
+    assert payload["xpolicy"]["padding_excluded_when_masked"] is True
+    assert payload["xpolicy"]["unmasked_default_unchanged"] is True
