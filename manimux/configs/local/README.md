@@ -6,8 +6,11 @@ service addresses.** Keep task, action format, inference algorithm and control s
 in the experiment. You do not need a new driver for another robot of the same model.
 
 The default file is `manimux/configs/local/station.yaml`. It is ignored by Git and excluded
-from packages. Runtime startup and the camera, Pi05 and UMI_DP `--experiment` entry points
-read it automatically. Pi05's standalone `--config` entry also resolves local path/service bindings. `--local <path>` selects another station.
+from packages. Checkpoint-bound runtime/server pairs may be kept under the likewise ignored
+`manimux/configs/local/deployments/` directory. Runtime startup and the camera, Pi05 and
+UMI_DP `--experiment` entry points read the selected station automatically. Pi05's
+standalone `--config` entry also resolves local path/service bindings. `--local <path>`
+selects another station.
 
 ## 1. Select the robot and prepare its environment
 

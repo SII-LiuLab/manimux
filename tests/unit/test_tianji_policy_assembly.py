@@ -36,6 +36,7 @@ ASSEMBLY = ROOT / "manimux/configs/embodiment/robot/tianji_taccap.yaml"
 DIFF_EXPERIMENT = (
     ROOT / "manimux/configs/experiments/pass_ball/tianji_taccap_umi_dp_diff.yaml"
 )
+LIVE_DIFF_EXPERIMENT = DIFF_EXPERIMENT.with_name("tianji_taccap_umi_dp_diff_live.yaml")
 Q = np.radians([21.8, -41, -4.74, -63.67, 10.15, 14.72, 7.68])
 
 
@@ -282,6 +283,19 @@ def test_diff_ik_experiment_is_complete_and_matches_motion_profile():
     assert "dt_max_s" not in options["diff_ik"]
     assert config["policy"]["action_decoding"] == "process"
     HistoryStrategy(config)
+
+
+def test_live_diff_ik_experiment_only_enables_execution_and_viewer():
+    safe = load_config(DIFF_EXPERIMENT)
+    live = load_config(LIVE_DIFF_EXPERIMENT)
+    assert live["robot"]["options"]["execute"] is True
+    assert live["robot"]["options"]["end_effector_control"] is True
+    assert live["viewer"]["enabled"] is True
+    assert live["inference"] == safe["inference"]
+    assert live["executor"] == safe["executor"]
+    assert live["policy"]["adapter"] == safe["policy"]["adapter"]
+    assert live["robot"]["control_hz"] == safe["robot"]["control_hz"]
+    assert live["run"]["max_control_steps"] == safe["run"]["max_control_steps"]
 
 
 def test_renaming_camera_frames_preserves_pixels_time_and_sequence(monkeypatch):

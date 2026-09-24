@@ -266,7 +266,12 @@ def test_tianji_rate_contract_derives_one_controller_and_runtime_speed():
 def test_tianji_taccap_experiments_use_shared_control_and_thin_executor_profiles():
     for path in Path("manimux/configs/experiments").glob("**/tianji_taccap_*.yaml"):
         raw = yaml.safe_load(path.read_text())
-        assert raw["control_profile"].endswith("/tianji_control.yaml")
+        expected = (
+            "tianji_control_live.yaml"
+            if path.stem.endswith("_live")
+            else "tianji_control.yaml"
+        )
+        assert raw["control_profile"].endswith(f"/{expected}")
         assert raw["executor"]["config"].endswith(
             "/tianji_smooth_control_profile.yaml"
         )
