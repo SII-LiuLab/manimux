@@ -22,7 +22,13 @@ from manimux.policies.base import action_interval
 from manimux.policies.xpolicylab.codec import matrix_pose, pose_matrix
 from manimux.policy_adapter.base import PolicyAdapter
 from manimux.runtime.rtc.request import RtcInferenceRequest
-from manimux.types import ActionChunk, ActionContext, InferenceRequest, ObservationSnapshot
+from manimux.types import (
+    ActionChunk,
+    ActionContext,
+    InferenceRequest,
+    ObservationSnapshot,
+    RuntimeTrajectory,
+)
 
 ACTION_SEMANTICS = "absolute_per_arm_base_xyz_wxyz"
 NATIVE_ACTION_SEMANTICS = "anchor_relative_ee_delta"
@@ -93,6 +99,11 @@ class XR1TianjiTacCapAdapter(PolicyAdapter):
         self.ik_backend = options.get("ik_backend", "analytic")
         if self.ik_backend not in {"analytic", "diff"}:
             raise ValueError("policy.adapter.ik_backend must be analytic or diff")
+        self.execute_diff_ik_substeps = options.get("execute_diff_ik_substeps", False)
+        if not isinstance(self.execute_diff_ik_substeps, bool):
+            raise ValueError("policy.adapter.execute_diff_ik_substeps must be boolean")
+        if self.execute_diff_ik_substeps and self.ik_backend != "diff":
+            raise ValueError("execute_diff_ik_substeps requires ik_backend: diff")
         if self.ik_backend == "analytic" and options.get("diff_ik"):
             raise ValueError("policy.adapter.diff_ik applies only to ik_backend: diff")
         self.diff_solvers = {}
@@ -208,7 +219,17 @@ class XR1TianjiTacCapAdapter(PolicyAdapter):
                 offset += GROUP_DIMS[name]
         return poses, weights
 
-    def _solve_knot(self, model, current, target, gripper, *, diff_solver=None, lag=None):
+    def _solve_knot(
+        self,
+        model,
+        current,
+        target,
+        gripper,
+        *,
+        diff_solver=None,
+        lag=None,
+        substep_joints=None,
+    ):
         current = _state_vector(current, label="IK seed").copy()
         current[-1] = gripper
         start = model.fk(current)
@@ -250,6 +271,8 @@ class XR1TianjiTacCapAdapter(PolicyAdapter):
                     lag["worst_lag_mm"] = max(lag["worst_lag_mm"], float(result.pos_err_mm))
                     lag["worst_lag_deg"] = max(lag["worst_lag_deg"], float(result.rot_err_deg))
                     lag["lag_exceedances"] += int(result.lag_exceeded)
+            if substep_joints is not None:
+                substep_joints.append(current[:7].copy())
         return current
 
     def warmup_decode(self, partition: str | None) -> None:
@@ -344,12 +367,15 @@ class XR1TianjiTacCapAdapter(PolicyAdapter):
         gripper_targets, gripper_clip_max_abs = self._gripper_targets(steps)
 
         groups: dict[str, np.ndarray] = {}
+        runtime_groups: dict[str, np.ndarray] = {}
+        samples_per_action = None
         lag_stats: dict[str, dict[str, float | int]] = {}
         for name in groups_to_decode:
             model = self.kinematics.models[name]
             current = _state_vector(
                 context.measured_state.groups[name], label=f"observation {name}"
             ).copy()
+            previous_gripper = float(current[-1])
             solver = self.diff_solvers.get(name)
             lag = None
             if solver is not None:
@@ -361,19 +387,57 @@ class XR1TianjiTacCapAdapter(PolicyAdapter):
                 }
             key = f"{GROUP_SIDES[name]}_ee_pose"
             rows: list[np.ndarray] = []
+            runtime_rows: list[np.ndarray] | None = (
+                [] if self.execute_diff_ik_substeps else None
+            )
             for index, step in enumerate(steps):
+                gripper = float(gripper_targets[name][index])
+                substep_joints: list[np.ndarray] | None = (
+                    [] if runtime_rows is not None else None
+                )
                 current = self._solve_knot(
                     model,
                     current,
                     pose_matrix(step[key]),
-                    float(gripper_targets[name][index]),
+                    gripper,
                     diff_solver=solver,
                     lag=lag,
+                    substep_joints=substep_joints,
                 )
                 rows.append(current.copy())
+                if runtime_rows is not None:
+                    count = len(substep_joints)
+                    if not count or (
+                        samples_per_action is not None and count != samples_per_action
+                    ):
+                        raise ValueError("diffIK substep count changed within one action chunk")
+                    samples_per_action = count
+                    for substep_index, joints in enumerate(substep_joints, start=1):
+                        alpha = substep_index / count
+                        aperture = (1.0 - alpha) * previous_gripper + alpha * gripper
+                        runtime_rows.append(np.r_[joints, aperture])
+                previous_gripper = gripper
             groups[name] = np.ascontiguousarray(np.stack(rows))
+            if runtime_rows is not None:
+                runtime_groups[name] = np.ascontiguousarray(np.stack(runtime_rows))
             if lag is not None:
                 lag_stats[name] = lag
+
+        runtime_trajectory = None
+        runtime_dt_ns = None
+        if runtime_groups:
+            if samples_per_action is None:
+                raise ValueError("diffIK runtime trajectory has no samples")
+            runtime_dt_ns = self._action_dt_ns // samples_per_action
+            if runtime_dt_ns <= 0:
+                raise ValueError("diffIK runtime trajectory interval rounded to zero")
+            runtime_trajectory = RuntimeTrajectory(
+                start_time_ns=(
+                    context.observation_time_ns - self._action_dt_ns + runtime_dt_ns
+                ),
+                dt_ns=runtime_dt_ns,
+                groups=runtime_groups,
+            )
 
         return ActionChunk(
             plan_id=f"xr1-tianji-{context.request_seq}-{uuid.uuid4().hex[:8]}",
@@ -384,6 +448,7 @@ class XR1TianjiTacCapAdapter(PolicyAdapter):
             dt_ns=self._action_dt_ns,
             groups=groups,
             source_offset_steps=0,
+            runtime_trajectory=runtime_trajectory,
             metadata={
                 "source_action_semantics": ACTION_SEMANTICS,
                 "native_action_semantics": NATIVE_ACTION_SEMANTICS,
@@ -392,6 +457,15 @@ class XR1TianjiTacCapAdapter(PolicyAdapter):
                 "ik_backend": self.ik_backend,
                 "ik_seed_source": self.decode_seed_source,
                 "ik_seed_time_ns": context.measured_state.monotonic_ns,
+                **(
+                    {
+                        "execute_diff_ik_substeps": True,
+                        "diff_ik_substeps_per_action": samples_per_action,
+                        "runtime_trajectory_dt_ns": runtime_dt_ns,
+                    }
+                    if runtime_trajectory is not None
+                    else {}
+                ),
                 **({"diff_ik_lag": lag_stats} if lag_stats else {}),
             },
         )

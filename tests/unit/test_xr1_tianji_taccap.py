@@ -187,6 +187,7 @@ def test_absolute_ee_actions_decode_to_tianji_joint_chunk():
     assert chunk.metadata["gripper_clip_max_abs"] == 0.0
     assert chunk.metadata["ik_seed_source"] == "observation_state"
     assert chunk.metadata["ik_seed_time_ns"] == context.observation_time_ns
+    assert chunk.runtime_trajectory is None
     # A mapping wrapper is accepted as well as the bare action list.
     wrapped = adapter.decode_action({"actions": steps}, context)
     np.testing.assert_allclose(wrapped.groups["left_arm"], chunk.groups["left_arm"])
@@ -338,6 +339,24 @@ def test_any_ik_failure_rejects_the_whole_chunk():
         adapter.decode_action(_identity_steps(), context)
 
 
+def test_dense_diff_ik_execution_option_requires_diff_backend():
+    config = load_config(EXPERIMENT)
+    policy = deepcopy(config["policy"])
+    policy["action_decoding"] = "inline"
+    policy["adapter"]["ik_backend"] = "analytic"
+    policy["adapter"].pop("diff_ik", None)
+    policy["adapter"]["execute_diff_ik_substeps"] = True
+    kinematics = RobotKinematics(
+        {name: FakeManipulator() for name in ("left_arm", "right_arm")}
+    )
+    with pytest.raises(ValueError, match="requires ik_backend: diff"):
+        XR1TianjiTacCapAdapter(config["robot"], policy, kinematics=kinematics)
+
+    policy["adapter"]["execute_diff_ik_substeps"] = "true"
+    with pytest.raises(ValueError, match="must be boolean"):
+        XR1TianjiTacCapAdapter(config["robot"], policy, kinematics=kinematics)
+
+
 def _wait_for_decode(decoder: ActionDecoderClient):
     until = time.monotonic() + 30
     while time.monotonic() < until:
@@ -364,6 +383,7 @@ def _diff_actions(adapter: XR1TianjiTacCapAdapter) -> list[dict]:
 def test_diff_ik_uses_two_processes_and_matches_direct_decode():
     pytest.importorskip("osqp")
     config = load_config(EXPERIMENT)
+    config["policy"]["adapter"]["execute_diff_ik_substeps"] = True
     adapter = XR1TianjiTacCapAdapter(config["robot"], config["policy"])
     adapter.validate(config["robot"], config["policy"])
     now = time.monotonic_ns()
@@ -404,12 +424,31 @@ def test_diff_ik_uses_two_processes_and_matches_direct_decode():
         assert chunk is not None
         assert chunk.metadata["decode_mode"] == "process"
         assert chunk.metadata["ik_backend"] == "diff"
+        assert chunk.metadata["execute_diff_ik_substeps"] is True
+        assert chunk.metadata["diff_ik_substeps_per_action"] == 9
         assert set(chunk.metadata["decode_partition_ms"]) == {
             "left_arm",
             "right_arm",
         }
+        assert chunk.runtime_trajectory is not None
+        assert chunk.runtime_trajectory.horizon_steps == 30 * 9
+        assert chunk.runtime_trajectory.dt_ns == chunk.dt_ns // 9
+        assert chunk.runtime_trajectory.start_time_ns == (
+            chunk.observation_time_ns - chunk.dt_ns + chunk.runtime_trajectory.dt_ns
+        )
+        assert direct.runtime_trajectory is not None
         for group in ("left_arm", "right_arm"):
             np.testing.assert_allclose(chunk.groups[group], direct.groups[group], atol=1e-9, rtol=0)
+            np.testing.assert_allclose(
+                chunk.runtime_trajectory.groups[group],
+                direct.runtime_trajectory.groups[group],
+                atol=1e-9,
+                rtol=0,
+            )
+            np.testing.assert_array_equal(
+                chunk.runtime_trajectory.groups[group][8::9],
+                chunk.groups[group],
+            )
             assert chunk.metadata["diff_ik_lag"][group] == pytest.approx(
                 direct.metadata["diff_ik_lag"][group], abs=1e-9
             )
