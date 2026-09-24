@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 
 from manimux.runtime.timeline import ActionTimeline
-from manimux.types import ActionChunk
+from manimux.types import ActionChunk, RuntimeTrajectory
 
 
 def _chunk(request_seq: int, observation_time_ns: int = 0) -> ActionChunk:
@@ -316,3 +316,69 @@ def test_serial_scheduling_still_anchors_on_the_commit() -> None:
     assert _commit(timeline, _chunk(1, observation_time_ns=0), now_ns=18, commit_lead_ns=5).accepted
     assert timeline.sample(22) is None
     np.testing.assert_allclose(timeline.sample(23)["left_arm"], [0.0, 1.0])
+
+
+def test_runtime_trajectory_is_executed_without_changing_the_source_horizon() -> None:
+    source = np.array([[4.0], [8.0], [12.0]])
+    dense = np.arange(1.0, 13.0).reshape(-1, 1)
+    chunk = ActionChunk(
+        "dense",
+        1,
+        100,
+        0,
+        "joint_position",
+        100,
+        {"arm": source},
+        runtime_trajectory=RuntimeTrajectory(25, 25, {"arm": dense}),
+    )
+    timeline = ActionTimeline({"arm": 1})
+    assert timeline.commit(
+        chunk,
+        now_ns=25,
+        commit_lead_ns=0,
+        max_plan_age_ns=1000,
+        current_command={"arm": np.zeros(1)},
+        blend_steps=0,
+    ).accepted
+
+    # Viewer/RTC-facing state keeps the model's three 100 ns rows.
+    committed = timeline.active_horizon()
+    assert committed.start_time_ns == 100
+    assert committed.dt_ns == 100
+    np.testing.assert_array_equal(committed.groups["arm"], source)
+    assert timeline.sample(50) is None
+    assert timeline.cursor(250) == 1
+
+    # Executor references use the adapter-prepared 25 ns samples instead.
+    reference = timeline.reference_horizon(now_ns=50, dt_ns=25, horizon_steps=2)
+    assert reference.dt_ns == 25
+    np.testing.assert_array_equal(reference.groups["arm"][:, 0], [2.0, 3.0])
+
+
+def test_runtime_trajectory_blend_uses_source_step_timing() -> None:
+    source = np.array([[10.0], [20.0], [30.0]])
+    dense = np.linspace(1.0, 30.0, 12).reshape(-1, 1)
+    chunk = ActionChunk(
+        "dense",
+        1,
+        100,
+        0,
+        "joint_position",
+        100,
+        {"arm": source},
+        runtime_trajectory=RuntimeTrajectory(25, 25, {"arm": dense}),
+    )
+    timeline = ActionTimeline({"arm": 1})
+    assert timeline.commit(
+        chunk,
+        now_ns=25,
+        commit_lead_ns=0,
+        max_plan_age_ns=1000,
+        current_command={"arm": np.zeros(1)},
+        blend_steps=2,
+    ).accepted
+
+    # At source row 0 both representations retain the existing alpha=1/2 blend.
+    assert timeline.active_horizon().groups["arm"][0, 0] == 5.0
+    runtime = timeline.reference_horizon(now_ns=100, dt_ns=25, horizon_steps=1)
+    assert runtime.groups["arm"][0, 0] == 0.5 * dense[3, 0]

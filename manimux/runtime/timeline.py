@@ -74,8 +74,10 @@ class ActionTimeline:
         self._start_on_commit = start_on_commit
         self._group_dims = dict(group_dims)
         self._active: _ActivePlan | None = None
+        self._runtime_active: _ActivePlan | None = None
         # Kept only to cover the commit_lead window before _active starts.
         self._outgoing: _ActivePlan | None = None
+        self._runtime_outgoing: _ActivePlan | None = None
         self._accepted_request_seq = -1
 
     @property
@@ -87,9 +89,9 @@ class ActionTimeline:
         return self._accepted_request_seq
 
     def remaining_ns(self, now_ns: int) -> int:
-        if self._active is None:
+        if self._runtime_active is None:
             return 0
-        return max(0, self._active.end_time_ns - now_ns)
+        return max(0, self._runtime_active.end_time_ns - now_ns)
 
     def cursor(self, now_ns: int) -> int:
         """Return the current index in the committed plan for observers."""
@@ -100,7 +102,7 @@ class ActionTimeline:
         return min(max(0, int(position)), active.horizon_steps)
 
     def active_horizon(self) -> ActionHorizon | None:
-        """Copy the exact trimmed/blended horizon committed for execution."""
+        """Copy the trimmed/blended model-source horizon for observers and RTC."""
         active = self._active
         if active is None:
             return None
@@ -136,6 +138,13 @@ class ActionTimeline:
         for name, dim in self._group_dims.items():
             if chunk.groups[name].shape[1] != dim or current_command[name].shape != (dim,):
                 return CommitResult(False, f"dimension_mismatch:{name}")
+        runtime = chunk.runtime_trajectory
+        if runtime is not None:
+            if set(runtime.groups) != set(self._group_dims):
+                return CommitResult(False, "runtime_group_mismatch")
+            for name, dim in self._group_dims.items():
+                if runtime.groups[name].shape[1] != dim:
+                    return CommitResult(False, f"runtime_dimension_mismatch:{name}")
 
         # Earliest wall-clock time at which the committed plan may start.
         earliest_ns = now_ns + commit_lead_ns
@@ -198,8 +207,89 @@ class ActionTimeline:
             observation_time_ns=chunk.observation_time_ns,
             hold_last_step=self._start_on_commit,
         )
+
+        runtime_plan = new_plan
+        if runtime is not None:
+            source_end_time_ns = (
+                start_time_ns + (end - trimmed_steps - 1) * chunk.dt_ns
+                if self._start_on_commit
+                else chunk.observation_time_ns
+                + (chunk.source_offset_steps + end - 1) * chunk.dt_ns
+            )
+            if self._start_on_commit:
+                runtime_start_index = 0
+                runtime_end_index = runtime.horizon_steps
+                runtime_start_time_ns = earliest_ns
+            else:
+                runtime_age_ns = max(0, earliest_ns - runtime.start_time_ns)
+                runtime_start_index = int(
+                    (runtime_age_ns + runtime.dt_ns - 1) // runtime.dt_ns
+                    if runtime_age_ns
+                    else 0
+                )
+                runtime_end_index = min(
+                    runtime.horizon_steps,
+                    int((source_end_time_ns - runtime.start_time_ns) // runtime.dt_ns) + 1,
+                )
+                runtime_start_time_ns = (
+                    runtime.start_time_ns + runtime_start_index * runtime.dt_ns
+                )
+            if runtime_start_index >= runtime_end_index:
+                return CommitResult(False, "no_future_runtime_horizon")
+
+            runtime_groups = {
+                name: values[runtime_start_index:runtime_end_index].copy()
+                for name, values in runtime.groups.items()
+            }
+            unblended_runtime_groups = {
+                name: values.copy() for name, values in runtime_groups.items()
+            }
+            if actual_blend_steps:
+                blend_duration_ns = actual_blend_steps * chunk.dt_ns
+                current = copy_group_vector(current_command)
+                for name, values in runtime_groups.items():
+                    for index in range(len(values)):
+                        row_time_ns = runtime_start_time_ns + index * runtime.dt_ns
+                        alpha = np.clip(
+                            (row_time_ns - start_time_ns + chunk.dt_ns) / blend_duration_ns,
+                            0.0,
+                            1.0,
+                        )
+                        if alpha >= 1.0:
+                            break
+                        values[index] = (1.0 - alpha) * current[name] + alpha * values[index]
+
+            runtime_hold_from_step = {}
+            for name, step in chunk.hold_from_step.items():
+                invalid_time_ns = (
+                    start_time_ns + max(0, step - trimmed_steps) * chunk.dt_ns
+                    if self._start_on_commit
+                    else chunk.observation_time_ns
+                    + (chunk.source_offset_steps + step) * chunk.dt_ns
+                )
+                relative_ns = invalid_time_ns - runtime_start_time_ns
+                first_invalid = max(
+                    0,
+                    int((relative_ns + runtime.dt_ns - 1) // runtime.dt_ns),
+                )
+                if first_invalid < len(next(iter(runtime_groups.values()))):
+                    runtime_hold_from_step[name] = first_invalid
+
+            runtime_plan = _ActivePlan(
+                plan_id=chunk.plan_id,
+                request_seq=chunk.request_seq,
+                start_time_ns=runtime_start_time_ns,
+                dt_ns=runtime.dt_ns,
+                groups=runtime_groups,
+                hold_from_step=runtime_hold_from_step,
+                unblended_groups=unblended_runtime_groups,
+                observation_time_ns=chunk.observation_time_ns,
+                hold_last_step=self._start_on_commit,
+            )
         self._outgoing = self._active
+        self._runtime_outgoing = self._runtime_active
         self._active = new_plan
+        self._runtime_active = runtime_plan
         self._accepted_request_seq = chunk.request_seq
         return CommitResult(
             True,
@@ -218,8 +308,20 @@ class ActionTimeline:
             return self._outgoing
         return active
 
+    def _runtime_plan_at(self, time_ns: int) -> _ActivePlan | None:
+        """Runtime plan owning ``time_ns``; it may use denser adapter samples."""
+        active = self._runtime_active
+        if active is not None and time_ns < active.start_time_ns:
+            return self._runtime_outgoing
+        return active
+
     def sample(self, time_ns: int) -> GroupVector | None:
+        """Sample the model/source trajectory used by observers and RTC."""
         plan = self._plan_at(time_ns)
+        return None if plan is None else _sample_plan(plan, time_ns)
+
+    def _sample_runtime(self, time_ns: int) -> GroupVector | None:
+        plan = self._runtime_plan_at(time_ns)
         return None if plan is None else _sample_plan(plan, time_ns)
 
     def reference_horizon(
@@ -231,13 +333,13 @@ class ActionTimeline:
     ) -> ActionHorizon | None:
         # Report the plan that owns now_ns: across a commit_lead window the
         # executor is still tracking the outgoing plan, not the committed one.
-        active = self._plan_at(now_ns)
+        active = self._runtime_plan_at(now_ns)
         if active is None:
             return None
         samples: dict[str, list[np.ndarray]] = {name: [] for name in self._group_dims}
         last: GroupVector | None = None
         for step in range(horizon_steps):
-            sample = self.sample(now_ns + step * dt_ns)
+            sample = self._sample_runtime(now_ns + step * dt_ns)
             if sample is None:
                 if last is None:
                     return None
@@ -262,7 +364,7 @@ class ActionTimeline:
         )
 
     def _tracking_sample(self, now_ns: int) -> GroupVector | None:
-        active = self._plan_at(now_ns)
+        active = self._runtime_plan_at(now_ns)
         if active is None or active.unblended_groups is None:
             return None
         position = np.clip(
