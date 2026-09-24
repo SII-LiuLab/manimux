@@ -1,4 +1,5 @@
 # Safe-by-default Tianji-TacCap deployment for the XR-1 pass-ball checkpoint.
+control_profile: ../../embodiment/robot/tianji_control.yaml
 run:
   task: pass the ball between the two grippers
   output_dir: ./data/experiments/xiaomi-xr1-tianji-pass-ball-step50000
@@ -51,7 +52,7 @@ inference:
   config: ../../inference/tianji_taccap_manimux.yaml
 executor:
   type: smooth
-  config: ../../executor/tianji_taccap_smooth.yaml
+  config: ../../executor/tianji_smooth_control_profile.yaml
   smooth:
     gripper:
       mode: continuous

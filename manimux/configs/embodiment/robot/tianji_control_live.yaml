@@ -1,17 +1,15 @@
-# Tianji-TacCap component assembly. FK/IK and controller settings are owned by
-# manimux/configs/embodiment/; this shared profile retains the original runtime envelopes.
-# Device bindings belong in --local; both command switches remain disabled here.
+# Live Tianji-TacCap control profile. This intentionally preserves the reviewed
+# rate contract and command bounds from tianji_control.yaml while enabling arm
+# and end-effector command output. Device bindings remain in the private station.
 robot:
   type: tianji_taccap
   group_dims:
     left_arm: 8
     right_arm: 8
   options:
-    execute: false
-    end_effector_control: false
+    execute: true
+    end_effector_control: true
 
-# One authored rate contract. The loader combines it with the assembly's rated
-# joint velocity and controller percentages to build motion_limits and guard rates.
 rate_contract:
   command_margin: 0.9
   mode: isotropic
@@ -22,8 +20,6 @@ rate_contract:
     max_acceleration: 12.0
     max_closing_velocity: 1.0
 
-# Runtime position guard, radians (index 7 is the aperture). The arm limits are
-# ccs_m6_40 PNVA bounds minus 5 degrees; arm B J6 is narrowed to +-58 degrees.
 command_safety:
   position_lower:
     left_arm: [-2.8797932657906435, -2.007128639793479, -2.8797932657906435, -2.443460952792061, -2.8797932657906435, -0.9599310885968813, -1.4835298641951802, 0.0]

@@ -1,5 +1,6 @@
 # UMI_DP + Tianji-TacCap differential-IK experiment entry.
 # Keep execution and Viewer disabled until a bound checkpoint and station are reviewed.
+control_profile: ../../embodiment/robot/tianji_control.yaml
 run:
   task: pass the ball between the two grippers
   output_dir: ./data/experiments/umi-dp-tianji-diff
@@ -38,34 +39,15 @@ policy:
   action_decoding: process
   adapter:
     type: manimux.policy_adapter.umi_dp.tianji:UmiDpTianjiAdapter
-    deployment_bound: false
     camera_map:
       cam_left_wrist: left_wrist_camera
       cam_right_wrist: right_wrist_camera
       cam_left_wrist_prev: left_wrist_camera_prev
       cam_right_wrist_prev: right_wrist_camera_prev
-    observation_period_s: 0.1
-    observation_tolerance_s: 0.04
-    first_action_offset_s: 0.03333333333333333
-    state_tolerance_s: 0.02
-    camera_skew_s: 0.04
     ik_validation_dt_s: 0.004
     ik_backend: diff
     diff_ik:
-      # These bounds must match executor.motion_limits.arm.
-      max_velocity_rad_s: 0.9047786842338605
-      dt_max_s: 0.016
-      w_pos: 1.0
-      w_rot: 1.0
-      lam: 0.001
-      check_j67: true
-      mu_nullspace: 1000.0
-      nullspace_activation_deg: 25.0
-      limit_margin_deg: null
-      j67_margin_deg: null
-      max_lag_mm: 5.0
-      max_lag_deg: null
-      lag_policy: report
+      config: ../../embodiment/arm/tianji_diff_ik.yaml
   horizon_policy_steps: 16
   timeout_s: 30.0
   startup_timeout_s: 120.0
@@ -89,4 +71,4 @@ inference:
   config: ../../inference/tianji_taccap_umi_dp.yaml
 executor:
   type: smooth
-  config: ../../executor/tianji_taccap_smooth.yaml
+  config: ../../executor/tianji_smooth_control_profile.yaml

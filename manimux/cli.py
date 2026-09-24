@@ -80,7 +80,7 @@ def load_local(path: str | Path) -> dict:
 def read_experiment(
     path: str | Path, *, local: str | Path | None = None, bind_local: bool = True
 ) -> dict:
-    """Expand policy/inference/executor/server references and explicit station bindings.
+    """Expand component references and explicit station bindings.
 
     Each section references at most one base YAML, without recursive inheritance.
     robot.config remains the assembly path; reading does not construct RobotModel.
@@ -98,6 +98,11 @@ def read_experiment(
             raw[name] = _merge(read_yaml(reference), section)
         if name == "policy_server" and isinstance(raw.get(name), dict):
             backend_identity = raw[name].pop("backend_identity", None)
+    adapter = raw.get("policy", {}).get("adapter", {})
+    diff_ik = adapter.get("diff_ik", {})
+    if isinstance(diff_ik, dict) and "config" in diff_ik:
+        reference = (source.parent / diff_ik.pop("config")).resolve()
+        adapter["diff_ik"] = _merge(read_yaml(reference), diff_ik)
     robot = raw.setdefault("robot", {})
     if robot.get("config") is not None:
         robot["config"] = str((source.parent / robot["config"]).resolve())
@@ -451,6 +456,15 @@ def load_config(path: str | Path, *, local: str | Path | None = None) -> dict:
     if raw.get("control_profile") is not None:
         profile_path = Path(raw["control_profile"])
         profile_raw = read_yaml(profile_path)
+        if profile_raw.get("rate_contract") is not None:
+            from manimux.embodiments.arm.tianji.arm import resolve_rate_contract
+
+            assembly = read_yaml(raw["robot"]["config"])
+            controller = _merge(
+                assembly.get("hardware", {}),
+                raw.get("robot", {}).get("options", {}).get("hardware", {}),
+            )
+            profile_raw = resolve_rate_contract(profile_raw, controller, gripper_indices)
         if gripper_indices is not None and profile_raw.get("motion_limits") is not None:
             profile_gripper = profile_raw["motion_limits"].setdefault("gripper", {})
             _set_shared_value(

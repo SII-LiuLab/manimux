@@ -12,20 +12,33 @@ from manimux.kinematics.tianji import TianjiKinematics, j67_ok
 from manimux.kinematics.tianji_diff import DifferentialIKConfig, TianjiDifferentialIK
 from manimux.policies.base import action_interval
 from manimux.policy_adapter.umi_dp.history import HistoryStrategy
-from manimux.policy_adapter.umi_dp.ik_config import bind_diff_ik_profile
 
 pytest.importorskip("osqp")
 ROOT = Path(__file__).resolve().parents[2]
 START = np.radians([50, -40, -30, -100, -65, 0, 40])
 
 
+def bind_test_identity(config, *, offset=1 / 30):
+    config["policy"]["expected_backend"]["model"].update(
+        checkpoint_sha256="offline-test",
+        training_config_sha256="offline-test",
+        checkpoint_path="offline-test",
+        weight_key="ema",
+        rgb_normalize=True,
+        action_horizon=config["policy"]["horizon_policy_steps"],
+        action_dt_s=action_interval(config["policy"]),
+        first_action_offset_s=offset,
+        observation_period_s=0.1,
+    )
+    return config
+
+
 @pytest.fixture
 def solver():
     kin = TianjiKinematics(end_effector="umi_follower")
     config = load_config(ROOT / "manimux/configs/experiments/pass_ball/tianji_umi_dp_default.yaml")
-    config["policy"]["adapter"]["ik_backend"] = "diff"
-    bind_diff_ik_profile(config)
-    return TianjiDifferentialIK(kin, DifferentialIKConfig(**config["policy"]["adapter"]["diff_ik"]))
+    velocity = config["executor"]["motion_limits"]["arm"]["max_velocity"]
+    return TianjiDifferentialIK(kin, DifferentialIKConfig(max_velocity_rad_s=velocity))
 
 
 def test_flange_jacobian_matches_finite_difference():
@@ -46,14 +59,14 @@ def test_flange_jacobian_matches_finite_difference():
 
 
 @pytest.mark.parametrize("dt", [0.0005, 0.004, 0.016, 0.2])
-def test_rate_bound_tracking_lag_and_dt_cap(solver, dt):
+def test_rate_bound_and_tracking_lag(solver, dt):
     target = solver.kinematics.fk(START, 0.8)
     target[:3, 3] += [0.2, -0.1, 0.15]
     result = solver.solve(target, START, dt)
     assert not result.ok and result.reason == "tracking_lag"
     assert result.pos_err_mm > solver.config.max_lag_mm
     delta = np.max(np.abs(result.joints - START))
-    assert 0 < delta <= solver.config.max_velocity_rad_s * min(dt, solver.config.dt_max_s) + 1e-14
+    assert 0 < delta <= solver.config.max_velocity_rad_s * dt + 1e-14
     assert np.max(np.abs(result.qdot_rad_s)) <= solver.config.max_velocity_rad_s + 1e-14
 
 
@@ -172,34 +185,28 @@ def test_nullspace_objective_pushes_joint_toward_interior(solver):
     assert not solver._nullspace_gradient(np.degrees(START)).any()
 
 
-def test_diff_rate_profile_binding_and_runtime_stale_rejection():
+def test_diff_adapter_uses_runtime_motion_limit_without_copying_it():
+    from manimux.policy_adapter.umi_dp.tianji import UmiDpTianjiAdapter
+
     config = load_config(ROOT / "manimux/configs/experiments/pass_ball/tianji_umi_dp_default.yaml")
     config["policy"]["adapter"]["ik_backend"] = "diff"
-    with pytest.raises(ValueError, match="max_velocity_rad_s"):
-        HistoryStrategy(config)
+    bind_test_identity(config)
     config["executor"]["motion_limits"]["arm"]["max_velocity"] = 0.37
-    config["executor"]["motion_limits"]["arm"]["max_step_dt_s"] = 0.012
-    bind_diff_ik_profile(config)
-    assert config["policy"]["adapter"]["diff_ik"]["max_velocity_rad_s"] == 0.37
     HistoryStrategy(config)
-    config["executor"]["motion_limits"]["arm"]["max_velocity"] = 0.31
-    with pytest.raises(ValueError, match="conflicts with the shared motion profile"):
-        HistoryStrategy(config)
+    config["robot"]["type"] = "mock"
+    adapter = UmiDpTianjiAdapter(
+        config["robot"],
+        config["policy"],
+        motion_limits=config["executor"]["motion_limits"],
+    )
+    assert adapter.diff_solvers["left"].config.max_velocity_rad_s == 0.37
+    assert "max_velocity_rad_s" not in config["policy"]["adapter"]["diff_ik"]
 
 
-def test_cannot_relax_embodiment_margin_or_disable_umi_interference(solver):
+def test_cannot_relax_embodiment_margin(solver):
     config = solver.config.model_copy(update={"limit_margin_deg": 3.0})
     with pytest.raises(ValueError, match="cannot reduce"):
         TianjiDifferentialIK(solver.kinematics, config)
-    from manimux.policy_adapter.umi_dp.tianji import UmiDpTianjiAdapter
-
-    runtime = load_config(ROOT / "manimux/configs/experiments/pass_ball/tianji_umi_dp_default.yaml")
-    runtime["robot"]["type"] = "mock"
-    runtime["policy"]["adapter"]["ik_backend"] = "diff"
-    bind_diff_ik_profile(runtime)
-    runtime["policy"]["adapter"]["diff_ik"]["check_j67"] = False
-    with pytest.raises(ValueError, match="requires the J6/J7 constraint"):
-        UmiDpTianjiAdapter(runtime["robot"], runtime["policy"])
 
 
 @pytest.mark.parametrize("horizon,offset", [(16, 1 / 30), (64, 0.1)])
@@ -217,9 +224,13 @@ def test_real_diff_adapter_chunk_timing_and_atomic_rejection(horizon, offset):
     config = load_config(ROOT / "manimux/configs/experiments/pass_ball/tianji_umi_dp_default.yaml")
     config["robot"]["type"] = "mock"
     config["policy"]["horizon_policy_steps"] = horizon
-    config["policy"]["adapter"].update(ik_backend="diff", first_action_offset_s=offset)
-    bind_diff_ik_profile(config)
-    adapter = UmiDpTianjiAdapter(config["robot"], config["policy"])
+    config["policy"]["adapter"]["ik_backend"] = "diff"
+    bind_test_identity(config, offset=offset)
+    adapter = UmiDpTianjiAdapter(
+        config["robot"],
+        config["policy"],
+        motion_limits=config["executor"]["motion_limits"],
+    )
     state = RobotState({side + "_arm": np.r_[START, 0.8] for side in ("left", "right")}, 10**9, 1)
     previous = RobotState({key: value.copy() for key, value in state.groups.items()}, 900000000, 0)
     frames = {
@@ -260,7 +271,11 @@ def test_real_diff_adapter_chunk_timing_and_atomic_rejection(horizon, offset):
         )
     # The report policy keeps that bounded, lagging chunk and records the lag.
     config["policy"]["adapter"]["diff_ik"]["lag_policy"] = "report"
-    reporting = UmiDpTianjiAdapter(config["robot"], config["policy"])
+    reporting = UmiDpTianjiAdapter(
+        config["robot"],
+        config["policy"],
+        motion_limits=config["executor"]["motion_limits"],
+    )
     reporting.prepare_request(InferenceRequest("test", 3, 10**9, 2 * 10**9, window))
     chunk = reporting.decode_action(
         {"actions": actions}, ActionContext(3, 10**9, 10**9, measured_state=state)

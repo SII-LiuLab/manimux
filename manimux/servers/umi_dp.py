@@ -89,13 +89,6 @@ def main():
             policy["adapter"]["diff_ik"] = yaml.safe_load(args.diff_ik_config.read_text())
         policy["expected_backend"]["model"].update(report)
         policy["horizon_policy_steps"] = report["action_horizon"]
-        policy["adapter"].update(
-            {
-                "deployment_bound": True,
-                "observation_period_s": report["observation_period_s"],
-                "first_action_offset_s": report["first_action_offset_s"],
-            }
-        )
         host = config.get("host", "127.0.0.1")
         if host in {"0.0.0.0", "::"}:
             host = "127.0.0.1"
@@ -111,13 +104,10 @@ def main():
         import tempfile
 
         from manimux.policy_adapter.umi_dp.history import HistoryStrategy
-        from manimux.policy_adapter.umi_dp.ik_config import bind_diff_ik_profile
-
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", dir=output.parent) as stream:
             yaml.safe_dump(runtime, stream, sort_keys=False)
             stream.flush()
             resolved = load_config(stream.name)
-            bind_diff_ik_profile(resolved)
             HistoryStrategy(resolved)
             runtime["policy"]["options"] = resolved["policy"]["options"]
             runtime["policy"]["adapter"] = resolved["policy"]["adapter"]

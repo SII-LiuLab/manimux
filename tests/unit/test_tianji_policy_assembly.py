@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+import yaml
 
 from manimux.cli import load_config
 from manimux.clock import SystemClock
@@ -35,18 +36,11 @@ ASSEMBLY = ROOT / "manimux/configs/embodiment/robot/tianji_taccap.yaml"
 DIFF_EXPERIMENT = (
     ROOT / "manimux/configs/experiments/pass_ball/tianji_taccap_umi_dp_diff.yaml"
 )
+LIVE_DIFF_EXPERIMENT = DIFF_EXPERIMENT.with_name("tianji_taccap_umi_dp_diff_live.yaml")
 Q = np.radians([21.8, -41, -4.74, -63.67, 10.15, 14.72, 7.68])
 
 
-def configured():
-    cfg = load_config(ROOT / "manimux/configs/experiments/pass_ball/tianji_umi_dp_default.yaml")
-    cfg["robot"] = robot_parameters(
-        type="tianji_taccap", config=ASSEMBLY, group_dims={"left_arm": 8, "right_arm": 8}
-    )
-    # A test identity satisfies the existing handshake contract; no model is loaded.
-    cfg["policy"]["adapter"]["deployment_bound"] = True
-    for key in ("kinematics", "kinematics_options", "right_kinematics_options"):
-        cfg["policy"]["options"].pop(key, None)
+def bind_test_identity(cfg, *, offset=1 / 30, period=0.1):
     cfg["policy"]["expected_backend"]["model"].update(
         checkpoint_sha256="offline-test",
         training_config_sha256="offline-test",
@@ -55,10 +49,19 @@ def configured():
         rgb_normalize=True,
         action_horizon=cfg["policy"]["horizon_policy_steps"],
         action_dt_s=action_interval(cfg["policy"]),
-        first_action_offset_s=cfg["policy"]["adapter"]["first_action_offset_s"],
-        observation_period_s=cfg["policy"]["adapter"]["observation_period_s"],
+        first_action_offset_s=offset,
+        observation_period_s=period,
     )
     return cfg
+
+
+def configured():
+    cfg = load_config(ROOT / "manimux/configs/experiments/pass_ball/tianji_umi_dp_default.yaml")
+    cfg["robot"] = robot_parameters(
+        type="tianji_taccap", config=ASSEMBLY, group_dims={"left_arm": 8, "right_arm": 8}
+    )
+    # A test identity satisfies the handshake contract; no model is loaded.
+    return bind_test_identity(cfg)
 
 
 def actions(model, horizon):
@@ -149,11 +152,9 @@ def test_observation_and_action_stay_in_each_arm_base():
 def test_spawned_action_decode_matches_inline(backend):
     cfg = configured()
     cfg["policy"]["adapter"]["ik_backend"] = backend
-    if backend == "diff":
-        from manimux.policy_adapter.umi_dp.ik_config import bind_diff_ik_profile
-
-        bind_diff_ik_profile(cfg)
-    adapter = build_policy_adapter(cfg["robot"], cfg["policy"])
+    adapter = build_policy_adapter(
+        cfg["robot"], cfg["policy"], motion_limits=cfg["executor"]["motion_limits"]
+    )
     steps = actions(adapter.robot_kinematics, cfg["policy"]["horizon_policy_steps"])
     decoder = ActionDecoderClient(cfg["robot"], cfg["policy"], adapter)
     try:
@@ -233,10 +234,7 @@ def test_new_recipe_keeps_original_timing_and_control_envelopes():
     assert new["robot"]["group_dims"] == old["robot"]["group_dims"]
     assert new["robot"]["control_hz"] == old["robot"]["control_hz"]
     assert action_interval(new["policy"]) == action_interval(old["policy"])
-    assert (
-        new["policy"]["adapter"]["first_action_offset_s"]
-        == old["policy"]["adapter"]["first_action_offset_s"]
-    )
+    assert new["inference"]["history"] == old["inference"]["history"]
     forecast_keys = {"expected_decode_s", "decode_forecast_size", "decode_forecast_mode"}
     assert {key: value for key, value in new["inference"].items() if key not in forecast_keys} == {
         key: value for key, value in old["inference"].items() if key not in forecast_keys
@@ -254,18 +252,50 @@ def test_new_recipe_keeps_original_timing_and_control_envelopes():
 
 def test_diff_ik_experiment_is_complete_and_matches_motion_profile():
     from manimux.policy_adapter.umi_dp.history import HistoryStrategy
-    from manimux.policy_adapter.umi_dp.ik_config import bind_diff_ik_profile
 
+    raw = yaml.safe_load(DIFF_EXPERIMENT.read_text())
+    assert raw["policy"]["adapter"]["diff_ik"] == {
+        "config": "../../embodiment/arm/tianji_diff_ik.yaml"
+    }
     config = load_config(DIFF_EXPERIMENT)
     options = config["policy"]["adapter"]
     motion = config["executor"]["motion_limits"]["arm"]
     assert options["ik_backend"] == "diff"
-    assert options["diff_ik"]["max_velocity_rad_s"] == motion["max_velocity"]
-    assert options["diff_ik"]["dt_max_s"] == motion["max_step_dt_s"]
-    assert options["diff_ik"]["check_j67"]
+    assert options["diff_ik"] == {
+        "w_pos": 1.0,
+        "w_rot": 1.0,
+        "lam": 0.001,
+        "limit_margin_deg": None,
+        "j67_margin_deg": None,
+        "mu_nullspace": 1000.0,
+        "nullspace_activation_deg": 25.0,
+        "nullspace_weights": None,
+        "max_lag_mm": 5.0,
+        "max_lag_deg": None,
+        "lag_policy": "report",
+    }
+    bind_test_identity(config)
+    adapter = build_policy_adapter(
+        config["robot"], config["policy"], motion_limits=config["executor"]["motion_limits"]
+    )
+    assert adapter.diff_solvers["left"].config.max_velocity_rad_s == motion["max_velocity"]
+    assert "max_velocity_rad_s" not in options["diff_ik"]
+    assert "dt_max_s" not in options["diff_ik"]
     assert config["policy"]["action_decoding"] == "process"
-    bind_diff_ik_profile(config)
     HistoryStrategy(config)
+
+
+def test_live_diff_ik_experiment_only_enables_execution_and_viewer():
+    safe = load_config(DIFF_EXPERIMENT)
+    live = load_config(LIVE_DIFF_EXPERIMENT)
+    assert live["robot"]["options"]["execute"] is True
+    assert live["robot"]["options"]["end_effector_control"] is True
+    assert live["viewer"]["enabled"] is True
+    assert live["inference"] == safe["inference"]
+    assert live["executor"] == safe["executor"]
+    assert live["policy"]["adapter"] == safe["policy"]["adapter"]
+    assert live["robot"]["control_hz"] == safe["robot"]["control_hz"]
+    assert live["run"]["max_control_steps"] == safe["run"]["max_control_steps"]
 
 
 def test_renaming_camera_frames_preserves_pixels_time_and_sequence(monkeypatch):
@@ -331,5 +361,6 @@ def test_checkpoint_binding_preserves_assembly_path_when_relocated(tmp_path, mon
     runpy.run_path(str(ROOT / "manimux/servers/umi_dp.py"), run_name="__main__")
     bound = load_config(output)
     assert bound["robot"]["type"] == "tianji_taccap" and bound["robot"]["config"] == ASSEMBLY
-    assert bound["policy"]["adapter"]["deployment_bound"]
+    assert "deployment_bound" not in bound["policy"]["adapter"]
+    assert bound["policy"]["expected_backend"]["model"] == report
     assert output.with_name("run-server.yaml").is_file()

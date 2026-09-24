@@ -25,7 +25,7 @@ CalibWrist 的等比例关节限速来自 teleop 的 `algos.safety.SafetyGate`�
 | CalibWrist 的发送时步长检查 | `deploy/tianji/command_sink.py::TianjiCommandSink.send` | 超过速率 × 命令时间间隔 × 1.05 就停，不在这里削减 |
 | ManiMux 的命令削减 | `runtime/executors/limits.py` | 对每个关节分别限制速度、加速度 |
 | ManiMux 的拒绝检查 | `runtime/safety.py::SafetyGuard` | 对命令差分计算速度、加速度，越界报错 |
-| 天机在 ManiMux 中的具体限值 | `manimux/configs/embodiment/robot/tianji_control.yaml` | 本地 `3d5beff` 为现有机制填写的本体参数 |
+| Current Tianji limits in ManiMux | Controller capability in `tianji_taccap.yaml` plus the rate contract in `tianji_control.yaml` | Derives concrete SafetyGuard and executor limits during loading |
 
 ## teleop 和 CalibWrist
 
@@ -129,6 +129,24 @@ ManiMux 输出：   [1,    2,   2]  # 逐关节截断
 此时不能再声称最终位置增量一定保持原目标方向。默认 per_joint 的计算路径保留。
 Smooth 的滤波/制动、位置边界和夹爪配置继续独立生效。用法见
 [配置说明](../manimux/configs/README.md#选择手臂命令的削减方式)。
+
+## Current configuration sources
+
+The component assembly at `manimux/configs/embodiment/robot/tianji_taccap.yaml`
+is the single source for the Marvin rated joint velocity, `velocity_ratio`, and
+`acceleration_ratio`. The shared control profile declares only the command margin,
+shaping mode, maximum step duration, and gripper rates. The loader derives:
+
+- SafetyGuard arm velocity = rated velocity x controller velocity ratio;
+- executor arm velocity = SafetyGuard velocity x `command_margin`;
+- both arm controller instances use the same velocity and acceleration ratios;
+- Diff-IK reads the executor arm velocity at runtime instead of storing a copy in
+  the adapter configuration.
+
+Changing a controller ratio or command margin therefore changes one source while
+keeping the resolved guard, executor, and Diff-IK rates aligned. `max_step_dt_s`
+still limits the executor's per-step velocity budget; it is no longer a second
+Diff-IK solver time cap. This cleanup does not change control-tick timing semantics.
 
 验证：`test_executors.py`、`test_config.py`、`test_tianji_driver.py` 共 111 项通过。
 另在 30、100、250 Hz 下，以相同关节目标分别运行 teleop 的原始

@@ -178,7 +178,10 @@ class EdgeRuntime:
         self._sensors = [build_sensor(sensor, self._clock) for sensor in config["sensors"]]
         # 运行时直接复用整机的运动学；解码子进程从同一配置加载离线模型。
         self._adapter = build_policy_adapter(
-            config["robot"], config["policy"], kinematics=self._robot.kinematics
+            config["robot"],
+            config["policy"],
+            kinematics=self._robot.kinematics,
+            motion_limits=config["executor"]["motion_limits"],
         )
         self._adapter.validate(config["robot"], config["policy"])
         self._decode_seed_source = getattr(
@@ -200,7 +203,12 @@ class EdgeRuntime:
             # does); the constructed strategy decides, not the plugin path.
             if self._strategy.name not in {"manimux", "rtc"}:
                 raise ValueError("process action decoding requires the manimux or rtc strategy")
-            self._decoder = ActionDecoderClient(config["robot"], config["policy"], self._adapter)
+            self._decoder = ActionDecoderClient(
+                config["robot"],
+                config["policy"],
+                self._adapter,
+                motion_limits=config["executor"]["motion_limits"],
+            )
         self._decode_forecast = DecodeForecast(
             floor_s=config["inference"]["expected_decode_s"],
             size=config["inference"]["decode_forecast_size"],

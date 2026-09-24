@@ -13,6 +13,7 @@ import pytest
 import zarr
 
 from manimux.cli import load_config, prepare_experiment
+from manimux.policies.base import action_interval
 from manimux.policies.fake import FakePolicyAdapter
 from manimux.runtime import build_runtime
 from manimux.runtime.edge import EdgeRuntime
@@ -332,7 +333,6 @@ def wait_for_decode(decoder):
 def test_umi_tianji_per_arm_processes_match_inline_diff_decode():
     pytest.importorskip("osqp")
     from manimux.policies.decoder import ActionDecoderClient
-    from manimux.policy_adapter.umi_dp.ik_config import bind_diff_ik_profile
     from manimux.policy_adapter.umi_dp.tianji import UmiDpTianjiAdapter, matrix_pose
     from manimux.types import ActionContext, InferenceResponse, RobotState
 
@@ -340,8 +340,22 @@ def test_umi_tianji_per_arm_processes_match_inline_diff_decode():
     config["robot"]["type"] = "mock"
     config["policy"]["horizon_policy_steps"] = 64
     config["policy"]["adapter"]["ik_backend"] = "diff"
-    bind_diff_ik_profile(config)
-    adapter = UmiDpTianjiAdapter(config["robot"], config["policy"])
+    config["policy"]["expected_backend"]["model"].update(
+        checkpoint_sha256="offline-test",
+        training_config_sha256="offline-test",
+        checkpoint_path="offline-test",
+        weight_key="ema",
+        rgb_normalize=True,
+        action_horizon=64,
+        action_dt_s=action_interval(config["policy"]),
+        first_action_offset_s=1 / 30,
+        observation_period_s=0.1,
+    )
+    adapter = UmiDpTianjiAdapter(
+        config["robot"],
+        config["policy"],
+        motion_limits=config["executor"]["motion_limits"],
+    )
     actions = []
     for index in range(64):
         action = {}

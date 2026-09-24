@@ -69,9 +69,7 @@ def main():
     converter = fx_kine.Marvin_Kine()
     profile = load_config(REPO / "manimux/configs/experiments/pass_ball/tianji_umi_dp_default.yaml")
     motion = profile["executor"]["motion_limits"]["arm"]
-    tuning = DifferentialIKConfig(
-        max_velocity_rad_s=motion["max_velocity"], dt_max_s=motion["max_step_dt_s"]
-    )
+    tuning = DifferentialIKConfig(max_velocity_rad_s=motion["max_velocity"])
     starts = [
         [50, -40, -30, -100, -65, 0, 40],
         [155, -95, 140, -115, -100, 48, 48],  # active nullspace, positive J67 quadrant
@@ -117,7 +115,7 @@ def main():
                 xyzabc = converter.mat4x4_to_xyzabc(pose_mat=sdk_flange)
                 dt = (0.004, 0.008, 0.030, 0.0005)[step % 4]
                 expected = legacy.solve(xyzabc, np.degrees(previous), dt)
-                actual = port.solve(target, previous, dt)
+                actual = port.solve(target, previous, min(dt, motion["max_step_dt_s"]))
                 expected_reason = expected.reason
                 if expected.ok and expected.pos_err_mm > tuning.max_lag_mm:
                     expected_reason = "tracking_lag"
@@ -160,7 +158,7 @@ def main():
         name: hashlib.sha256((reference / name).read_bytes()).hexdigest() for name in files
     }
     report["max_velocity_rad_s"] = motion["max_velocity"]
-    report["dt_max_s"] = motion["max_step_dt_s"]
+    report["caller_dt_cap_s"] = motion["max_step_dt_s"]
     report["osqp_version"] = port._osqp.__version__
     text = json.dumps(report, indent=2)
     print(text)

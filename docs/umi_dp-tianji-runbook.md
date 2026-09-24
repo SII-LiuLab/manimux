@@ -31,12 +31,11 @@ checks the paired `expected_artifacts`; ManiMux verifies the server's identity
 and sampling capabilities before execution. The checked-in templates are
 intentionally unbound and rejected by the actual Tianji adapter until bound.
 
-`manimux/configs/embodiment/robot/tianji_control.yaml` owns runtime command limits and has 30Hz
-action points. A legacy 100ms-action checkpoint cannot bind to that profile.
-To use one, explicitly create/select a matching control profile and runtime
-template with its action interval, retaining reviewed hardware and motion limits;
-the binder will never silently change those settings. Its first action offset
-is still 1/source_fps (33.3ms at 30fps).
+`manimux/configs/embodiment/robot/tianji_control.yaml` owns runtime command limits.
+The experiment and checkpoint identity own the policy action interval. A legacy
+100ms-action checkpoint therefore needs a runtime template with the matching
+`policy.action_dt_s`; the binder will never silently change that setting. Its
+first action offset is still 1/source_fps (33.3ms at 30fps).
 
 ## Start the model service
 
@@ -272,7 +271,7 @@ Both pass-ball templates run `robot.control_hz: 100` (10ms ticks);
 `max_control_steps: 2400` keeps the previous 24s rollout cap. The earlier 250Hz setting
 sent a fresh position target every 4ms, and on 2026-09-14 the loop did not hold
 it (median tick 4.8–4.9ms, 6–7% of ticks above 6ms). The IK path does not depend
-on the control rate: substeps stay at `ik_validation_dt_s` (4ms) and the diff-IK
+on the control rate: substeps stay at the adapter's 4ms default and the diff-IK
 dt cap comes from `motion_limits.arm.max_step_dt_s`, so decode compute is
 unchanged. The rate only sets how often the loop polls finished decodes. Over
 the 47 process-decoded H64 diff commits recorded at 250Hz with

@@ -23,7 +23,7 @@
 | 文件 | 职责 |
 | --- | --- |
 | `manimux/configs/embodiment/robot/tianji_taccap.yaml` | 组件、安装关系、控制组和显示资产 |
-| `manimux/configs/inference/tianji_taccap_manimux.yaml + manimux/configs/executor/tianji_taccap_smooth.yaml` | 原实验调度、平滑和执行约束 |
+| `manimux/configs/embodiment/robot/tianji_control.yaml + manimux/configs/executor/tianji_smooth_control_profile.yaml` | 共享运动限制、发送保护与执行平滑 |
 | `.local/tianji_taccap.yaml` | 私有设备、服务和路径绑定 |
 | `manimux/configs/embodiment/arm/tianji_left.yaml`、`tianji_right.yaml` | 左右机械臂模型和控制参数 |
 | `manimux/configs/embodiment/end_effector/taccap.yaml` | 末端执行器参数 |
