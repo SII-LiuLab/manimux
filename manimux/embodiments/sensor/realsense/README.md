@@ -19,7 +19,8 @@ uv pip install --python envs/yam/.venv/bin/python -e '.[realsense]'
 
 - `read()` 返回 RGB uint8 的 `SensorFrame`；序号来自 RGB 帧，时间为主机接收时间。
 - `capture()` 额外返回可选 uint16 深度、米/计数比例、同帧 Unix 与单调时间戳。
-- `read_with_timestamp()` 提供相机网络服务使用的 RGB/depth/Unix 秒接口。
+- `read_with_timestamp()` exposes RGB/depth/Unix seconds for direct diagnostic use.
+  The camera service uses the shared `read() -> SensorFrame` interface.
 - `camera_serial` 绑定设备；`width`、`height`、`fps` 显式选择流。
 - `enable_depth`、`align_depth`、`flip`、`exposure_us`、`white_balance` 按配置执行。
 - The network service defaults to 640×360, 30 Hz and aligned depth; component YAML

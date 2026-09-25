@@ -146,9 +146,9 @@ def test_camera_cli_uses_shared_local_without_real_devices(tmp_path, monkeypatch
     opened, events = {}, []
     local = write_local(tmp_path)
 
-    def open_camera(name, spec, by_id_root):
+    def open_camera(name, spec):
         opened[name] = spec
-        return SimpleNamespace(close=lambda: None)
+        return SimpleNamespace(start=lambda: None, close=lambda: None)
 
     class FakeServer:
         def __init__(self, **kwargs):
@@ -165,7 +165,7 @@ def test_camera_cli_uses_shared_local_without_real_devices(tmp_path, monkeypatch
             events.append("close")
 
     monkeypatch.setattr(server, "CameraServer", FakeServer)
-    monkeypatch.setattr(server, "_open_taccap", open_camera)
+    monkeypatch.setattr(server, "build_camera", open_camera)
     monkeypatch.setattr(server.signal, "signal", lambda *args: None)
     assert server.main(["--experiment", str(EXPERIMENT), "--local", str(local)]) == 0
     assert events == ["bind", "run", "close"]

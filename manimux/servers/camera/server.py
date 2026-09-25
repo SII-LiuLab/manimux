@@ -1,6 +1,6 @@
 """ZMQ-based camera server.
 
-Hosts the RealSense cameras in a long-lived process so eval clients can pull
+Hosts camera components in a long-lived process so eval clients can pull
 the latest frames on demand without paying for pipeline startup, fighting the
 policy loop for camera I/O, or coupling robot-control timing to camera I/O.
 
@@ -46,15 +46,10 @@ import yaml
 import zmq
 
 from manimux.cli import read_experiment, read_yaml, resolve_local_path
-from manimux.embodiments.sensor.taccap.sensor import V4L_BY_ID
+from manimux.embodiments.sensor import SensorBase, build_camera
+from manimux.types import SensorFrame
 
 logger = logging.getLogger("camera_server")
-
-CAMERA_TYPES = ("realsense", "orbbec", "taccap")
-TACCAP_KEYS = frozenset(
-    {"type", "camera_serial", "width", "height", "fps", "max_frame_age_sec", "startup_timeout_sec"}
-)
-
 
 DEFAULT_REP_ENDPOINT = "tcp://127.0.0.1:5555"
 DEFAULT_PUB_ENDPOINT = "tcp://127.0.0.1:5556"
@@ -74,7 +69,7 @@ def camera_config(experiment: dict) -> dict:
         component = read_yaml(assembly_path.parent / entry["config"])
         # 明确按组件名绑定，不依靠字典顺序或设备扫描顺序推断左右。
         cameras[stream_name] = {
-            "type": camera["type"],
+            "implementation": component["implementation"],
             **component.get("options", {}),
             **entry.get("options", {}),
             **component.get("hardware", {}),
@@ -89,7 +84,7 @@ class CameraServer:
 
     def __init__(
         self,
-        cameras: dict[str, Any],
+        cameras: dict[str, SensorBase],
         rep_endpoint: str = DEFAULT_REP_ENDPOINT,
         pub_endpoint: str | None = None,
         pub_period_sec: float = DEFAULT_PUB_PERIOD_SEC,
@@ -111,6 +106,8 @@ class CameraServer:
         self._req_total = 0
         self._req_window = 0
         self._last_heartbeat = time.time()
+        # Keep the existing Unix-seconds wire format using the host capture clock.
+        self._unix_offset_s = time.time() - time.monotonic_ns() / 1e9
 
     # ------------------------------------------------------------------
     # Frame sourcing
@@ -127,17 +124,11 @@ class CameraServer:
         if missing:
             raise ValueError(f"Unknown cameras: {sorted(missing)}")
         for name in names:
-            cam = self.cameras[name]
-            read_with_timestamp = getattr(cam, "read_with_timestamp", None)
-            if callable(read_with_timestamp):
-                image, _depth, ts = read_with_timestamp()
-            else:
-                image, _depth = cam.read()
-                ts = getattr(cam, "_latest_frame_timestamp", None) or 0.0
-            frames[name] = image
-            # Timestamp must belong to the returned image even if the capture
-            # thread has already advanced to its next frame.
-            timestamps[name] = float(ts)
+            frame = self.cameras[name].read()
+            if not isinstance(frame, SensorFrame):
+                raise TypeError(f"Camera {name!r} must return one SensorFrame")
+            frames[name] = frame.data
+            timestamps[name] = frame.capture_monotonic_ns / 1e9 + self._unix_offset_s
         return {"ok": True, "frames": frames, "timestamps": timestamps}
 
     # ------------------------------------------------------------------
@@ -265,98 +256,31 @@ class CameraServer:
 # --------------------------------------------------------------------------
 
 
-def _build_cameras_from_config(cfg_path: Path, *, by_id_root: Path = V4L_BY_ID) -> dict[str, Any]:
-    """Open every camera in ``sensors.cameras``; ``type`` selects the backend (default realsense).
-
-    Each backend's SDK is imported only when a camera of that type is configured,
-    and a configured camera that cannot be found fails the server start.
-    """
+def _build_cameras_from_config(cfg_path: Path) -> dict[str, SensorBase]:
+    """Load standalone camera configuration and start its components."""
     with Path(cfg_path).open(encoding="utf-8") as handle:
         cfg = yaml.safe_load(handle)
-    return _build_cameras(cfg, by_id_root=by_id_root)
+    return _build_cameras(cfg)
 
 
-def _build_cameras(cfg: dict, *, by_id_root: Path = V4L_BY_ID) -> dict[str, Any]:
-    """旧相机 YAML 和新实验/local 入口共用原有采集实现。"""
-    camera_cfg = cfg["sensors"]["cameras"]
-    kinds: dict[str, str] = {}
-    for name, spec in camera_cfg.items():
-        kind = spec.get("type", "realsense")
-        if kind not in CAMERA_TYPES:
-            raise ValueError(
-                f"camera {name!r}: unknown camera type {kind!r}; expected one of {CAMERA_TYPES}"
-            )
-        if kind == "taccap":
-            unknown = sorted(set(spec) - TACCAP_KEYS)
-            if unknown:
-                raise ValueError(f"camera {name!r}: unknown taccap keys {unknown}")
-        kinds[name] = kind
-    if "realsense" in kinds.values():
-        from manimux.embodiments.sensor.realsense import get_device_ids
-
-        logger.info("Discovering RealSense devices...")
-        ids = get_device_ids()
-        logger.info("Found %d RealSense devices: %s", len(ids), ids)
-    cameras: dict[str, Any] = {}
+def _build_cameras(cfg: dict) -> dict[str, SensorBase]:
+    """Construct every component before starting any device; clean up failed starts."""
+    cameras = {
+        name: build_camera(name, spec)
+        for name, spec in cfg["sensors"]["cameras"].items()
+    }
     try:
-        for name, spec in camera_cfg.items():
-            if kinds[name] == "taccap":
-                cameras[name] = _open_taccap(name, spec, by_id_root)
-            else:
-                cameras[name] = _open_rgbd(name, spec)
-    except Exception:
+        for name, camera in cameras.items():
+            logger.info("Starting camera %s", name)
+            camera.start()
+    except BaseException:
         for camera in cameras.values():
-            camera.close()
+            try:
+                camera.close()
+            except Exception:
+                logger.exception("Camera cleanup failed after startup error")
         raise
     return cameras
-
-
-def _open_taccap(name: str, spec: dict[str, Any], by_id_root: Path) -> Any:
-    from manimux.embodiments.sensor.taccap import TacCapCamera
-
-    if not spec.get("camera_serial"):
-        raise ValueError(f"camera {name!r}: taccap cameras need camera_serial")
-    logger.info("Opening TacCap camera %s (serial=%s)", name, spec["camera_serial"])
-    return TacCapCamera(
-        str(spec["camera_serial"]),
-        width=int(spec.get("width", 640)),
-        height=int(spec.get("height", 480)),
-        fps=int(spec.get("fps", 30)),
-        max_frame_age_sec=float(spec.get("max_frame_age_sec", 0.30)),
-        startup_timeout_sec=float(spec.get("startup_timeout_sec", 3.0)),
-        by_id_root=by_id_root,
-    )
-
-
-def _open_rgbd(name: str, spec: dict[str, Any]) -> Any:
-    if spec.get("type", "realsense") == "realsense":
-        from manimux.embodiments.sensor.realsense import RealSenseSensor
-
-        # 旧相机服务使用 640x360、RGB+对齐深度；组件 YAML 可以显式覆盖。
-        options = {
-            "width": 640,
-            "height": 360,
-            "enable_depth": True,
-            "align_depth": True,
-            "warmup_frames": 15,
-            **spec,
-        }
-        options.pop("type", None)
-        serial = options.pop("camera_serial", options.pop("device_id", None))
-        camera = RealSenseSensor(name=name, camera_serial=serial, **options)
-        camera.start()
-        return camera
-    from manimux.embodiments.sensor.orbbec import OrbbecCamera
-
-    return OrbbecCamera(
-        spec["device_id"],
-        flip=bool(spec.get("flip", False)),
-        width=int(spec.get("width", 640)),
-        height=int(spec.get("height", 360)),
-        fps=int(spec.get("fps", 30)),
-        max_frame_age_sec=float(spec.get("max_frame_age_sec", 0.30)),
-        enable_depth=spec.get("enable_depth", True),
-    )
 
 
 def main(argv: list[str] | None = None) -> int:

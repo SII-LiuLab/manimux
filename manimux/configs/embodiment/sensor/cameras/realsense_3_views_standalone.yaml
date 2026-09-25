@@ -18,6 +18,7 @@ sensors:
       width: 640
       height: 480
       fps: 30
+      warmup_frames: 15
       enable_depth: false
     # 前方场景相机（MolmoAct 的 top_cam / ABC 的 top）
     front_camera:
@@ -25,6 +26,7 @@ sensors:
       width: 640
       height: 480
       fps: 30
+      warmup_frames: 15
       enable_depth: false
     # 右腕相机
     right_camera:
@@ -32,4 +34,5 @@ sensors:
       width: 640
       height: 480
       fps: 30
+      warmup_frames: 15
       enable_depth: false

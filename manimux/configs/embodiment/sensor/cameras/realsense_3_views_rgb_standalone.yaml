@@ -7,6 +7,7 @@ sensors:
       width: 640
       height: 480
       fps: 30
+      warmup_frames: 15
       max_frame_age_sec: 0.5
       enable_depth: false
     front_camera:
@@ -14,6 +15,7 @@ sensors:
       width: 640
       height: 480
       fps: 30
+      warmup_frames: 15
       max_frame_age_sec: 0.5
       enable_depth: false
     right_camera:
@@ -21,5 +23,6 @@ sensors:
       width: 640
       height: 480
       fps: 30
+      warmup_frames: 15
       max_frame_age_sec: 0.5
       enable_depth: false

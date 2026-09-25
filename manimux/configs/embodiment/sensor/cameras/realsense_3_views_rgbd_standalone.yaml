@@ -10,16 +10,25 @@ sensors:
       width: 640
       height: 480
       fps: 30
+      warmup_frames: 15
       max_frame_age_sec: 0.5
+      enable_depth: true
+      align_depth: true
     front_camera:
       device_id: "260322276687"
       width: 640
       height: 480
       fps: 30
+      warmup_frames: 15
       max_frame_age_sec: 0.5
+      enable_depth: true
+      align_depth: true
     right_camera:
       device_id: "260322274672"
       width: 640
       height: 480
       fps: 30
+      warmup_frames: 15
       max_frame_age_sec: 0.5
+      enable_depth: true
+      align_depth: true

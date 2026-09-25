@@ -46,6 +46,7 @@ tests/
 !/tests/unit/test_pi05_yam_eef.py
 !/tests/unit/test_pi05_yam_eef_runtime.py
 !/tests/unit/test_selected_camera_requests.py
+!/tests/unit/test_orbbec_sensor.py
 !/tests/unit/test_sapolicy_xpl_model.py
 !/tests/unit/test_sapolicy_xpl_transport.py
 !/tests/unit/test_sapolicy_decode_timing.py

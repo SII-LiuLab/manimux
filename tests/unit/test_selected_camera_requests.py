@@ -15,6 +15,7 @@ from manimux.embodiments.sensor.camera_server.client import (
     CameraClientError,
     CameraSubscriber,
 )
+from manimux.types import SensorFrame
 from manimux.servers.camera.server import CameraServer, _build_cameras_from_config
 
 
@@ -27,9 +28,10 @@ import time
 from types import SimpleNamespace
 import numpy as np
 import zmq
+from manimux.types import SensorFrame
 from manimux.servers.camera.server import CameraServer
 image = np.broadcast_to(np.array([11, 22, 33], dtype=np.uint8), (4, 5, 3)).copy()
-camera = SimpleNamespace(read_with_timestamp=lambda: (image, None, time.time()),
+camera = SimpleNamespace(read=lambda: SensorFrame("camera", image, time.monotonic_ns(), 1),
                          close=lambda: None)
 server = CameraServer({'left_wrist': camera, 'right_wrist': camera},
                       rep_endpoint='tcp://127.0.0.1:0',
@@ -148,7 +150,7 @@ def test_unselected_broken_camera_does_not_block_request():
     server = CameraServer(
         {
             "selected": SimpleNamespace(
-                read=lambda: (image, None), _latest_frame_timestamp=time.time()
+                read=lambda: SensorFrame("selected", image, time.monotonic_ns(), 1)
             ),
             "other": SimpleNamespace(read=broken),
         }
@@ -196,7 +198,7 @@ def test_selected_stale_frame_is_rejected(monkeypatch):
 
 def test_selected_snapshot_keeps_atomic_capture_timestamp():
     image = np.zeros((4, 5, 3), dtype=np.uint8)
-    captured_at = time.time() - 0.01
+    captured_at = time.monotonic_ns() - 10_000_000
 
     def unexpected_read():
         raise AssertionError("unselected or legacy camera read")
@@ -204,22 +206,21 @@ def test_selected_snapshot_keeps_atomic_capture_timestamp():
     server = CameraServer(
         {
             "selected": SimpleNamespace(
-                read=unexpected_read,
-                read_with_timestamp=lambda: (image, None, captured_at),
+                read=lambda: SensorFrame("selected", image, captured_at, 1),
                 _latest_frame_timestamp=captured_at + 0.01,
             ),
-            "other": SimpleNamespace(read_with_timestamp=unexpected_read),
+            "other": SimpleNamespace(read=unexpected_read),
         }
     )
     reply = server._snapshot(["selected"])
     assert list(reply["frames"]) == ["selected"]
     assert reply["frames"]["selected"] is image
-    assert reply["timestamps"] == {"selected": captured_at}
+    assert reply["timestamps"] == {"selected": captured_at / 1e9 + server._unix_offset_s}
+    assert server._snapshot(["selected"])["timestamps"] == reply["timestamps"]
 
 
 @pytest.mark.parametrize("kinds", [("orbbec",), ("realsense", "orbbec", "taccap")])
 def test_camera_factory_preserves_orbbec_and_taccap(monkeypatch, tmp_path, kinds):
-    discovery = []
 
     def factory(kind):
         def open_camera(device_id=None, **options):
@@ -238,21 +239,20 @@ def test_camera_factory_preserves_orbbec_and_taccap(monkeypatch, tmp_path, kinds
         "manimux.embodiments.sensor.realsense",
         SimpleNamespace(
             RealSenseSensor=factory("realsense"),
-            get_device_ids=lambda: discovery.append("realsense") or ["rs-serial"],
         ),
     )
     monkeypatch.setitem(
         sys.modules,
         "manimux.embodiments.sensor.orbbec",
-        SimpleNamespace(OrbbecCamera=factory("orbbec")),
+        SimpleNamespace(OrbbecSensor=factory("orbbec")),
     )
     monkeypatch.setitem(
         sys.modules,
         "manimux.embodiments.sensor.taccap",
-        SimpleNamespace(TacCapCamera=factory("taccap")),
+        SimpleNamespace(TacCapSensor=factory("taccap")),
     )
     specs = {
-        kind: {"type": kind, "camera_serial": "taccap-serial"}
+        kind: {"type": kind, "camera_serial": "taccap-serial", "fps": 30}
         if kind == "taccap"
         else {
             "type": kind,
@@ -269,7 +269,6 @@ def test_camera_factory_preserves_orbbec_and_taccap(monkeypatch, tmp_path, kinds
     config.write_text(yaml.safe_dump({"sensors": {"cameras": specs}}), encoding="utf-8")
     cameras = _build_cameras_from_config(config)
     assert set(cameras) == set(kinds)
-    assert discovery == (["realsense"] if "realsense" in kinds else [])
     for kind, camera in cameras.items():
         assert camera.kind == kind
         assert camera.device_id == f"{kind}-serial"

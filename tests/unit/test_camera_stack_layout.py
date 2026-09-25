@@ -110,13 +110,16 @@ def test_rgb_depth_frame_and_time_stay_paired(sdk, monkeypatch):
 
 
 
-def test_camera_server_uses_same_component_and_legacy_stream_defaults(sdk, monkeypatch):
-    from manimux.servers.camera.server import _open_rgbd
+def test_camera_server_uses_same_component_and_explicit_stream_settings(sdk, monkeypatch):
+    from manimux.servers.camera.server import _build_cameras
 
     events, rgb, _, _ = sdk
     # Keep this stream-options test synchronous; cache/thread behavior is tested below.
     monkeypatch.setattr(RealSenseSensor, "_capture_loop", lambda self: None)
-    camera = _open_rgbd("front", {"device_id": "serial"})
+    camera = _build_cameras({"sensors": {"cameras": {"front": {
+        "device_id": "serial", "width": 640, "height": 360,
+        "enable_depth": True, "align_depth": True, "warmup_frames": 15,
+    }}}})["front"]
     assert camera.background is True
     camera.background = False
     assert isinstance(camera, RealSenseSensor)
@@ -201,10 +204,12 @@ def test_yam_camera_service_resolves_assembly_and_local_serials():
         local=root / "manimux/configs/local/yam.example.yaml",
     )
     cameras = camera_config(config)["sensors"]["cameras"]
-    standalone = yaml.safe_load((root / "manimux/configs/embodiment/sensor/cameras/realsense_3_views_standalone.yaml").read_text())["sensors"]["cameras"]
+    local = yaml.safe_load((root / "manimux/configs/local/yam.example.yaml").read_text())
     assert {name: spec["camera_serial"] for name, spec in cameras.items()} == {
-        name: spec["device_id"] for name, spec in standalone.items()
+        name: local["robot"]["components"][name]["camera_serial"] for name in cameras
     }
+    assert all(spec["implementation"].endswith(":RealSenseSensor") for spec in cameras.values())
+
 
 
 def test_network_source_uses_component_lifecycle_without_connecting_at_construction(monkeypatch):
@@ -276,9 +281,46 @@ def test_component_sensor_imports_do_not_load_device_libraries():
     code = """
 import sys
 from manimux.embodiments.sensor import SensorBase, build_sensor
-from manimux.embodiments.sensor.orbbec import OrbbecCamera
+from manimux.embodiments.sensor.orbbec import OrbbecSensor
 from manimux.embodiments.sensor.realsense import RealSenseSensor
 from manimux.embodiments.sensor.taccap import TacCapSensor
 assert not {'cv2', 'pyudev', 'pyrealsense2', 'xense.taccap'} & sys.modules.keys()
 """
     subprocess.run([sys.executable, "-c", code], check=True)
+
+
+def test_custom_camera_implementation_and_start_failure_cleanup(monkeypatch):
+    from manimux.embodiments.sensor import SensorBase
+    from manimux.servers.camera.server import _build_cameras
+    from manimux.types import SensorFrame
+
+    events = []
+
+    class Camera(SensorBase):
+        def __init__(self, *, name, clock, camera_serial):
+            self.name, self.clock = name, clock
+            events.append((name, "construct", camera_serial))
+
+        def start(self):
+            events.append((self.name, "start"))
+            if self.name == "second":
+                raise RuntimeError("fake device failed")
+
+        def read(self):
+            return SensorFrame(self.name, np.zeros((1, 1, 3), np.uint8), self.clock.now_ns(), 1)
+
+        def close(self):
+            events.append((self.name, "close"))
+            if self.name == "first":
+                raise RuntimeError("fake close failed")
+
+    monkeypatch.setitem(sys.modules, "custom_camera_test", SimpleNamespace(Camera=Camera))
+    specs = {name: {"implementation": "custom_camera_test:Camera", "camera_serial": name}
+             for name in ("first", "second", "third")}
+    with pytest.raises(RuntimeError, match="fake device failed"):
+        _build_cameras({"sensors": {"cameras": specs}})
+    assert events == [
+        ("first", "construct", "first"), ("second", "construct", "second"),
+        ("third", "construct", "third"), ("first", "start"), ("second", "start"),
+        ("first", "close"), ("second", "close"), ("third", "close"),
+    ]

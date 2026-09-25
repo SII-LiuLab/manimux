@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 import yaml
 
-from manimux.embodiments.sensor.taccap import TacCapCamera, find_camera_device
+from manimux.embodiments.sensor.taccap import TacCapCamera, TacCapSensor, find_camera_device
 from manimux.servers.camera import server as camera_server
 
 REPO = Path(__file__).resolve().parents[2]
@@ -160,12 +160,14 @@ def test_camera_serves_rgb_frames_and_detects_stalls(by_id: Path) -> None:
 
 
 def test_server_builds_cameras_by_type(by_id: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(camera_server, "V4L_BY_ID", by_id, raising=False)
     config = REPO / "manimux/configs/embodiment/sensor/cameras/taccap_2_views_standalone.yaml"
-    cameras = camera_server._build_cameras_from_config(config, by_id_root=by_id)
+    cfg = yaml.safe_load(config.read_text())
+    for spec in cfg["sensors"]["cameras"].values():
+        spec["by_id_root"] = by_id
+    cameras = camera_server._build_cameras(cfg)
     try:
         assert set(cameras) == {"left_wrist", "right_wrist"}
-        assert all(isinstance(camera, TacCapCamera) for camera in cameras.values())
+        assert all(isinstance(camera, TacCapSensor) for camera in cameras.values())
     finally:
         for camera in cameras.values():
             camera.close()
@@ -183,6 +185,10 @@ def test_server_preserves_frame_timestamp_when_capture_advances(
     camera._max_frame_age_sec = 2.0
     camera._latest_color_image = np.zeros((2, 2, 3), dtype=np.uint8)
     camera._latest_frame_timestamp = 10.0
+    camera._latest_frame_monotonic_ns = 10_000_000_000
+    camera._latest_frame_index = 1
+    camera._clock = SimpleNamespace(now_ns=lambda: 11_000_000_000)
+    camera._started = True
     original = camera._latest_color_image
     class AdvancingCapture:
         def __enter__(self) -> AdvancingCapture:
@@ -192,10 +198,16 @@ def test_server_preserves_frame_timestamp_when_capture_advances(
             # Capture completes immediately after the reader releases its lock.
             camera._latest_color_image = np.ones((2, 2, 3), dtype=np.uint8)
             camera._latest_frame_timestamp = 11.0
+            camera._latest_frame_monotonic_ns = 11_000_000_000
+            camera._latest_frame_index = 2
 
     camera._frame_lock = AdvancingCapture()
     monkeypatch.setattr(taccap_module.time, "time", lambda: 11.0)
-    snapshot = camera_server.CameraServer({"wrist": camera})._snapshot()
+    sensor = TacCapSensor(name="wrist")
+    sensor._camera = camera
+    server = camera_server.CameraServer({"wrist": sensor})
+    server._unix_offset_s = 0
+    snapshot = server._snapshot()
     np.testing.assert_array_equal(snapshot["frames"]["wrist"], original)
     assert snapshot["timestamps"]["wrist"] == 10.0
     assert camera._latest_frame_timestamp == 11.0
@@ -204,8 +216,8 @@ def test_server_preserves_frame_timestamp_when_capture_advances(
 def test_server_rejects_unknown_types_and_keys(by_id: Path, tmp_path: Path) -> None:
     bad_type = tmp_path / "bad_type.yaml"
     bad_type.write_text(yaml.safe_dump({"sensors": {"cameras": {"c": {"type": "gopro"}}}}))
-    with pytest.raises(ValueError, match="unknown camera type 'gopro'"):
-        camera_server._build_cameras_from_config(bad_type, by_id_root=by_id)
+    with pytest.raises(ValueError, match="unknown manimux.embodiments.camera plugin 'gopro'"):
+        camera_server._build_cameras_from_config(bad_type)
     bad_key = tmp_path / "bad_key.yaml"
     bad_key.write_text(
         yaml.safe_dump(
@@ -219,5 +231,5 @@ def test_server_rejects_unknown_types_and_keys(by_id: Path, tmp_path: Path) -> N
         )
     )
     with pytest.raises(ValueError, match="device_id"):
-        camera_server._build_cameras_from_config(bad_key, by_id_root=by_id)
+        camera_server._build_cameras_from_config(bad_key)
     assert FakeCamera.instances == []
