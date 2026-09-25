@@ -1,0 +1,22 @@
+control_profile: ../../manimux/configs/embodiment/robot/yam_control.yaml
+run:
+  task: Control profile test
+robot:
+  type: yam
+  config: ../../manimux/configs/embodiment/robot/yam_dual.yaml
+  control_hz: 30.0
+  options:
+    execute: false
+    move_to_start_on_connect: false
+    home_on_close: false
+policy:
+  worker: fake
+  adapter:
+    type: manimux.policies.fake:FakePolicyAdapter
+  action_dt_s: 0.03333333333333333
+  horizon_policy_steps: 2
+  inference_delay_s: 0.0
+viewer:
+  enabled: false
+executor:
+  type: direct

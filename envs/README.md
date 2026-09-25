@@ -8,7 +8,7 @@ this README does not imply that environments in another checkout are missing.
 | Location | Purpose |
 | --- | --- |
 | Root `.venv/` | ManiMux core, development tools and offline Viewer; managed by the root project |
-| `envs/yam/.venv/` | YAM runtime, i2rt, cameras, Viewer and optional collection dependencies |
+| `envs/yam/.venv/` | YAM runtime, i2rt, cameras, Viewer and optional offline replay dependencies |
 | `envs/tianji/.venv/` | Tianji/TacCap hardware dependencies, prepared with the body runbook |
 | Model-specific environment | XPolicyLab model inference/training, such as `XPolicyLab/policy/Pi_05/openpi/.venv/` |
 | Existing `envs/umi_dp/`, `envs/xr1/`, etc. | Local environment conventions still referenced by some model launchers; follow their runbooks |
@@ -30,7 +30,7 @@ Hardware/model environments are usually created with `uv venv`, then populated w
 `uv pip install --python`. When adding dependencies, target the interpreter explicitly:
 
 ```bash
-uv pip install --python envs/yam/.venv/bin/python -e '.[collection,realsense,xpolicylab]'
+uv pip install --python envs/yam/.venv/bin/python -e '.[replay,realsense,xpolicylab]'
 ```
 
 Do not point root-project `uv sync` or `UV_PROJECT_ENVIRONMENT` at an existing independent

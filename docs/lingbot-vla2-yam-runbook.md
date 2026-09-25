@@ -83,9 +83,9 @@ adapter 只负责协议与 YAM 字段映射；ManiMux 只负责任务生命周�
 ```text
 finetune server: manimux/configs/policy/lingbot-vla2/yam/finetune.yaml
 base server:     manimux/configs/policy/lingbot-vla2/yam/base.yaml
-infra:   manimux/configs/experiments/pick_red_object/yam_lingbot_vla2_manimux.yaml
+infra:   manimux/configs/experiments/pick_red_object/lingbot-vla2/yam_lingbot_vla2_manimux.yaml
 rtc:     manimux/configs/experiments/pick_place/yam_lingbot_vla2_rtc.yaml
-step-15000 rtc: manimux/configs/experiments/assemble_screwdriver/yam_lingbot_vla2_rtc_step15000.yaml
+step-15000 rtc: manimux/configs/experiments/assemble_screwdriver/lingbot-vla2/yam_lingbot_vla2_rtc_step15000.yaml
 adapter: XPolicyLab/policy/LingBot_VLA2/model.py
 sampler: XPolicyLab/policy/LingBot_VLA2/rtc.py
 server:  XPolicyLab/policy/LingBot_VLA2/setup_eval_policy_server.sh
@@ -177,7 +177,7 @@ envs/yam/.venv/bin/python scripts/validation/check_lingbot_vla2_yam.py
 检查器读取 server config 中的显式路径；缺少任何权重 shard、训练配置、robot
 config 或 norm stats 都会返回 `status: blocked`，且不会加载 GPU 模型。
 
-检查器同时读取 `manimux/configs/experiments/pick_red_object/yam_lingbot_vla2_manimux.yaml`，要求：
+检查器同时读取 `manimux/configs/experiments/pick_red_object/lingbot-vla2/yam_lingbot_vla2_manimux.yaml`，要求：
 
 - `policy.action_dt_s == 1 / native_hz`；
 - `policy.horizon_policy_steps == action_horizon`；
@@ -193,7 +193,7 @@ RTC 配置使用同一个检查入口：
 ```bash
 envs/yam/.venv/bin/python scripts/validation/check_lingbot_vla2_yam.py \
   --config manimux/configs/policy/lingbot-vla2/yam/finetune-assemble-screwdriver-step15000.yaml \
-  --infra-config manimux/configs/experiments/assemble_screwdriver/yam_lingbot_vla2_rtc_step15000.yaml
+  --infra-config manimux/configs/experiments/assemble_screwdriver/lingbot-vla2/yam_lingbot_vla2_rtc_step15000.yaml
 ```
 
 除相同的 Hz/dt/horizon 契约外，它还验证 sampler capability、`beta > 0`、delay
@@ -241,7 +241,7 @@ envs/yam/.venv/bin/python scripts/datasets/prepare_lingbot_vla2_base_assets.py
 
 envs/yam/.venv/bin/python scripts/validation/check_lingbot_vla2_yam.py \
   --config manimux/configs/policy/lingbot-vla2/yam/base.yaml \
-  --infra-config manimux/configs/experiments/pick_red_object/yam_lingbot_vla2_manimux.yaml
+  --infra-config manimux/configs/experiments/pick_red_object/lingbot-vla2/yam_lingbot_vla2_manimux.yaml
 ```
 
 第二条必须输出 `status: ready`、
@@ -272,7 +272,7 @@ bash XPolicyLab/policy/LingBot_VLA2/setup_eval_policy_server.sh \
 
 # terminal 2: no-CAN forward probe
 envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
-  --config manimux/configs/experiments/pick_red_object/yam_lingbot_vla2_manimux.yaml
+  --config manimux/configs/experiments/pick_red_object/lingbot-vla2/yam_lingbot_vla2_manimux.yaml
 ```
 
 只有 probe 返回有限的 `native_shape: [50, 14]` 和
@@ -306,7 +306,7 @@ bash XPolicyLab/policy/LingBot_VLA2/setup_eval_policy_server.sh \
 ```bash
 cd /home/ubuntu/manimux
 envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
-  --config manimux/configs/experiments/pick_red_object/yam_lingbot_vla2_manimux.yaml
+  --config manimux/configs/experiments/pick_red_object/lingbot-vla2/yam_lingbot_vla2_manimux.yaml
 ```
 
 ### Terminal 2：三相机服务
@@ -315,7 +315,7 @@ envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/manimux-camera-server --config manimux/configs/embodiment/sensor/cameras/yam.yaml
+envs/yam/.venv/bin/manimux-camera-server --config manimux/configs/embodiment/sensor/cameras/realsense_3_views_standalone.yaml
 ```
 
 确认三台 RealSense 均已打开，并看到 `REP bound` 与 `PUB bound`。
@@ -345,7 +345,7 @@ done
 ```bash
 cd /home/ubuntu/manimux
 envs/yam/.venv/bin/manimux run \
-  --config manimux/configs/experiments/pick_red_object/yam_lingbot_vla2_manimux.yaml
+  --config manimux/configs/experiments/pick_red_object/lingbot-vla2/yam_lingbot_vla2_manimux.yaml
 ```
 
 连接后机械臂按配置用 `3.5 s` 移到起始姿态，结束时用 `3.5 s` 回 Home。正常停止时只在
@@ -389,7 +389,7 @@ bash XPolicyLab/policy/LingBot_VLA2/setup_eval_policy_server.sh \
 
 # terminal 3: ManiMux
 envs/yam/.venv/bin/manimux run \
-  --config manimux/configs/experiments/pick_red_object/yam_lingbot_vla2_manimux.yaml
+  --config manimux/configs/experiments/pick_red_object/lingbot-vla2/yam_lingbot_vla2_manimux.yaml
 ```
 
 这些 finetune 命令当前仍没有 GPU forward、server handshake、相机、CAN 或真机证据。

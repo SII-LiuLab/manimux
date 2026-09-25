@@ -164,7 +164,7 @@ def server() -> Iterator[FakeXPolicyLabServer]:
 
 
 def _configs(server_url: str) -> tuple[Any, Any]:
-    config = load_config("manimux/configs/experiments/pick_red_object/yam_xpolicylab_smoke.yaml")
+    config = load_config("manimux/configs/experiments/pick_red_object/xpolicylab/yam_xpolicylab_smoke.yaml")
     config["policy"]["options"]["server"] = server_url
     return config["robot"], config["policy"]
 

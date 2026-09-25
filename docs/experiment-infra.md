@@ -27,8 +27,8 @@ Viewer exposes a prominent `Experiment mode` switch before each rollout:
 
 | Mode | Intended use | Human reward |
 |---|---|---|
-| **OFF** | Deployment, debugging and demonstrations | Optional; the next rollout is not blocked |
-| **ON** | Formal pilot or benchmark collection | Required after every finalized rollout |
+| **OFF** | Deployment, debugging and demonstrations | No scoring step |
+| **ON** | Formal pilot or benchmark collection | Save or skip evaluation after a finalized rollout |
 
 The switch is locked after `Prepare new rollout` so one rollout cannot change modes midway. When
 experiment mode is ON, also set a readable `Layout / condition ID` such as `red-ball-left-01`.
@@ -47,7 +47,8 @@ After the model server, camera server, Viewer and `manimux serve` are independen
 5. Click `Finish & Home` after success, failure or timeout.
 6. Wait for Recorder finalization and the robot's configured shutdown/home sequence.
 7. If experiment mode is ON, select `success`, `failure` or `invalid`, add the smoothness score and
-   failure tags, then click `Save evaluation`.
+   failure tags, then click `Save evaluation`, or click `Skip evaluation` without filling
+   the fields. Skipping does not create `evaluation/human-label.json` or assign a task result.
 8. Prepare the next rollout only after the service reports ready.
 
 `Pause / Hold` holds the current commanded position; it does not return home. The advanced recovery

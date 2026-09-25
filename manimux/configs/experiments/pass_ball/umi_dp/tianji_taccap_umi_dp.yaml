@@ -1,0 +1,75 @@
+# 实验入口：选择本体、policy 与运行方式。用 --local 指定工位，不自动连接设备。
+control_profile: ../../../embodiment/robot/tianji_control.yaml
+
+run:
+  task: pass the ball between the two grippers
+  output_dir: ./data/experiments/umi-dp-tianji
+  max_control_steps: 2400
+
+robot:
+  type: tianji_taccap
+  config: ../../../embodiment/robot/tianji_taccap.yaml
+  control_hz: 100.0
+  options:
+    execute: false
+    end_effector_control: false
+    hardware:
+      stale_timeout_s: 0.1  # 保留原传球实验的反馈超时；本体默认仍为 0.2 s。
+
+sensors:
+- name: tianji_wrist_history
+  driver: manimux.embodiments.sensor.camera_server.timestamped:build_sensor
+  options:
+    camera_names: [left_wrist, right_wrist]
+    max_frame_age_sec: 0.15
+    clock_jump_tolerance_s: 0.02
+    output_names:
+      left_wrist: left_wrist_camera
+      right_wrist: right_wrist_camera
+  service: camera
+
+policy:
+# UMI_DP 的 Tianji–TacCap 观察/动作约定。服务地址来自 local。
+  worker: xpolicylab_ws
+  service: policy
+  action_decoding: process
+  adapter:
+    type: manimux.policy_adapter.umi_dp.tianji:UmiDpTianjiAdapter
+    camera_map:
+      cam_left_wrist: left_wrist_camera
+      cam_right_wrist: right_wrist_camera
+      cam_left_wrist_prev: left_wrist_camera_prev
+      cam_right_wrist_prev: right_wrist_camera_prev
+    ik_backend: analytic
+  horizon_policy_steps: 16
+  timeout_s: 30.0
+  startup_timeout_s: 120.0
+  options:
+    connect_timeout_s: 30.0
+    request_timeout_s: 30.0
+  action_dt_s: 0.03333333333333333
+
+viewer:
+  enabled: false
+  robot: tianji-taccap
+  policy_label: UMI DP Tianji
+
+recording:
+  enabled: true
+
+# Inference controls requests and chunk handoff; the executor controls smoothing and limits.
+inference:
+  algorithm: manimux
+  config: ../../../inference/tianji_taccap_umi_dp.yaml
+
+executor:
+  type: smooth
+  config: ../../../executor/tianji_smooth_control_profile.yaml
+
+policy_server:
+  config: ../../../policy/umi_dp/tianji/assembly.yaml
+  task_name: pass_ball
+
+# Device serials and service addresses come from the shared station file.
+camera_server:
+  config: ../../../embodiment/sensor/cameras/taccap_2_views.yaml

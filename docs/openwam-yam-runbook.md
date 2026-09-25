@@ -169,17 +169,17 @@ the robot:
 
 ```bash
 envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
-  --config manimux/configs/experiments/put_bottles/yam_openwam_manimux_step30000.yaml \
+  --config manimux/configs/experiments/put_bottles/openwam/yam_openwam_manimux_step30000.yaml \
   --instruction "Put the bottles into the bin."
 ```
 
 After the probe succeeds, start the camera service and ManiMux runtime:
 
 ```bash
-envs/yam/.venv/bin/manimux-camera-server --config manimux/configs/embodiment/sensor/cameras/yam.yaml
+envs/yam/.venv/bin/manimux-camera-server --config manimux/configs/embodiment/sensor/cameras/realsense_3_views_standalone.yaml
 
 envs/yam/.venv/bin/manimux serve \
-  --config manimux/configs/experiments/put_bottles/yam_openwam_manimux_step30000.yaml
+  --config manimux/configs/experiments/put_bottles/openwam/yam_openwam_manimux_step30000.yaml
 ```
 
 ```bash

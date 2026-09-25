@@ -12,7 +12,7 @@ import numpy as np
 import viser
 from viser.extras import ViserUrdf
 
-from manimux.collection.yam.data.replay import JointReplay, load_joint_replay
+from manimux.viewer.replay_data.replay import JointReplay, load_joint_replay
 
 from .robots.base import RobotAdapter
 
@@ -485,8 +485,8 @@ def serve_collection_replay(
     if target_hz is not None or low_rates_hz is not None:
         if source not in {"command", "feedback"} or target_hz is None or low_rates_hz is None:
             raise ValueError("Custom rates require a replay source and both target and lower rates")
-        from manimux.collection.yam.data.command_resampling import load_command_rate_replay
-        from manimux.collection.yam.data.feedback_resampling import load_feedback_rate_replay
+        from manimux.viewer.replay_data.command_resampling import load_command_rate_replay
+        from manimux.viewer.replay_data.feedback_resampling import load_feedback_rate_replay
 
         loader = load_feedback_rate_replay if source == "feedback" else load_command_rate_replay
         data = loader(episode, target_hz=target_hz, low_rates_hz=low_rates_hz)

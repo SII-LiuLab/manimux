@@ -8,7 +8,7 @@ from manimux.policy_adapter.dp.yam import DPYamAdapter, HistorySnapshot, History
 from manimux.types import InferenceRequest, RobotState, SensorFrame
 from XPolicyLab.policy.DP.eef_codec import pack_eef, unpack_eef
 
-EXPERIMENT = "manimux/configs/experiments/put_bottles/yam_dp_serial_eef_step100000.yaml"
+EXPERIMENT = "manimux/configs/experiments/put_bottles/dp/yam_dp_serial_eef_step100000.yaml"
 
 
 def test_eef_wire_roundtrip():

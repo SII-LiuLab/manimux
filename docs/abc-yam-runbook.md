@@ -26,10 +26,10 @@ envs/abc/.venv/bin/manimux-abc-server \
 若相机服务尚未运行，使用 640×480、与 teleop 一致的 RGB-only 配置启动：
 
 ```bash
-envs/yam/.venv/bin/manimux-camera-server --config manimux/configs/embodiment/sensor/cameras/yam_rgb.yaml
+envs/yam/.venv/bin/manimux-camera-server --config manimux/configs/embodiment/sensor/cameras/realsense_3_views_rgb_standalone.yaml
 ```
 
-通用 `manimux/configs/embodiment/sensor/cameras/yam.yaml` 此前省略尺寸，默认采集 640×360；现已同步为
+通用 `manimux/configs/embodiment/sensor/cameras/realsense_3_views_standalone.yaml` 此前省略尺寸，默认采集 640×360；现已同步为
 640×480 RGB-only。ABC 服务保留自己的 letterbox 预处理，不使用 SA 的裁剪。
 本次准备时，左 D405 在同时启用 RGB/深度时持续等待超时，RGB-only 可正常出帧。
 相机配置新增可选 `enable_depth: false`；其他配置默认仍为 RGB+深度。
@@ -37,7 +37,7 @@ RGB-only 的 `read()` 明确返回 `(RGB, None)`，不伪造深度图，ZMQ RGB 
 
 ```bash
 envs/yam/.venv/bin/manimux serve \
-  --config manimux/configs/experiments/put_bottles/yam_abc_official_bottles_75k_smooth.yaml
+  --config manimux/configs/experiments/put_bottles/abc/yam_abc_official_bottles_75k_smooth.yaml
 ```
 
 由用户在 GUI Prepare / Start rollout。`official-bottles-75k-smooth.yaml` 采用
@@ -56,7 +56,7 @@ envs/yam/.venv/bin/manimux serve \
 
 ```bash
 envs/yam/.venv/bin/python scripts/validation/abc_yam_offline_infer.py \
-  --config manimux/configs/experiments/put_bottles/yam_abc_official_bottles_75k_smooth.yaml \
+  --config manimux/configs/experiments/put_bottles/abc/yam_abc_official_bottles_75k_smooth.yaml \
   --episode ~/teleop_data/put_bottles_into_the_bin/20260905_155053_7fc15edb \
   --output data/diagnostics/abc_official_75k_20260910
 ```
@@ -86,8 +86,8 @@ envs/yam/.venv/bin/python scripts/validation/abc_yam_offline_infer.py \
 ## 配置位置
 
 ```text
-ManiMux: manimux/configs/experiments/put_bottles/yam_abc_manimux.yaml
-RTC:     manimux/configs/experiments/put_bottles/yam_abc_rtc.yaml
+ManiMux: manimux/configs/experiments/put_bottles/abc/yam_abc_manimux.yaml
+RTC:     manimux/configs/experiments/put_bottles/abc/yam_abc_rtc.yaml
 ```
 
 以后增加其他本体时放在 `configs/abc/<embodiment>/`。
@@ -170,7 +170,7 @@ envs/abc/.venv/bin/manimux-abc-server \
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/manimux-camera-server --config manimux/configs/embodiment/sensor/cameras/yam.yaml
+envs/yam/.venv/bin/manimux-camera-server --config manimux/configs/embodiment/sensor/cameras/realsense_3_views_standalone.yaml
 ```
 
 ## 3. Viewer
@@ -194,7 +194,7 @@ for c in can_left can_right; do printf '%s: ' "$c"; ip -details link show "$c" |
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/manimux run --config manimux/configs/experiments/put_bottles/yam_abc_manimux.yaml
+envs/yam/.venv/bin/manimux run --config manimux/configs/experiments/put_bottles/abc/yam_abc_manimux.yaml
 ```
 
 ## 和 MolmoAct 的差异

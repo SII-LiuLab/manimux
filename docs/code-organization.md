@@ -1,7 +1,7 @@
 # ManiMux 代码组织
 
 本文件区分目标布局与当前迁移状态。Tianji–TacCap 使用分体装配，YAM 已有臂爪一体
-组件；YAM 实验与采集已切换到同一装配入口，RealSense 已统一为 sensor 组件。XPolicyLab 是独立 Git 仓库。
+组件；YAM 实验使用统一装配入口，RealSense 已统一为 sensor 组件。XPolicyLab 是独立 Git 仓库。
 
 ## 当前主要布局
 
@@ -10,12 +10,11 @@ repository/
 ├── README.md / pyproject.toml / uv.lock
 ├── manimux/
 │   ├── configs/
-│   │   ├── experiments/<task>/ # 实验入口；关键选择和动作时间直接可见
+│   │   ├── experiments/<task>/<model>/ # 实验入口；关键选择和动作时间直接可见
 │   │   ├── embodiment/        # 组件、整机、IK 与相机组合
 │   │   ├── policy/<model>/    # Checkpoint and inference deployment recipes
 │   │   ├── inference/         # 推理算法参数
 │   │   ├── executor/          # 平滑与执行限制
-│   │   ├── collection/        # 数采入口
 │   │   ├── viewer/            # 显示配置
 │   │   └── local/             # 工位模板
 │   ├── embodiments/
@@ -28,7 +27,7 @@ repository/
 │   ├── policies/              # worker、解码进程、模型客户端
 │   ├── kinematics/            # 公共运动学接口与组合算法
 │   ├── runtime/               # 调度、时间线、执行器和必要保护
-│   ├── collection/ / viewer/ / recording/ / evaluation/
+│   ├── viewer/ / recording/ / evaluation/
 │   └── cli.py / session.py / types.py / clock.py / __main__.py
 ├── XPolicyLab/                # 独立仓库：学习模型实现与模型服务
 ├── env_cfg/                   # XPolicyLab 当前固定读取的外部机器人维度接口
@@ -64,7 +63,7 @@ ManiMux 中的模型服务脚本只负责读取配置和启动它。相机服务
   相机服务和 Tianji 策略服务入口复用这些函数。
 - `config_files.py` 及其中的 `RobotBindings`、`LocalBindings` 配置类已移除。
   相机流与整机组件的映射放回相机服务。
-- 顶层 `config.py` 已移除。runtime、机器人注册、策略、工作进程、采集后端及脚本
+- 顶层 `config.py` 已移除。runtime、机器人注册、策略、工作进程及脚本
   使用普通字典。完整实验入口是 `cli.load_config()`：读取与引用解析完成后，调用
   各模块的普通参数函数补齐原默认值。`prepare_experiment()` 不构造硬件对象。
 - 模块的参数函数放在对应实现旁边，未新增独立的配置类或配置文件框架。运动限位、
@@ -75,7 +74,7 @@ ManiMux 中的模型服务脚本只负责读取配置和启动它。相机服务
   离线运动学，不传递已连接的 robot 对象。
 - 实例化链路仍是 `cli → build_runtime → EdgeRuntime → build_robot → from_config`。
   独立相机服务持有物理设备时，runtime 只启动网络传感器；整机传感器保持未启动。
-- 这里移除的是原顶层配置类及其调用；YAM 采集 GUI 的工位数据类、Viewer 面板
+- 这里移除的是原顶层配置类及其调用；Viewer 面板
   配置及官方运动学参数不属于这个顶层实验配置接口，未做无关重写。
 - 顶层 `robots/` 已整目录删除。runtime 和工厂直接使用 `embodiments.robot.RobotBase`，
   整机负责提供统一控制方法与运动学，不再保留重复的机器人 Protocol 或旧导入转发。
@@ -86,7 +85,7 @@ ManiMux 中的模型服务脚本只负责读取配置和启动它。相机服务
   runtime 与整机读取均保留原帧对象、时间戳和序号；测试假相机位于 `tests/support/`。
 - 实际 adapter 已迁入 `policy_adapter/`，XPolicyLab 客户端和 wire codec 位于
   `policies/xpolicylab/`。旧纯 adapter 包和旧方法签名兼容分支已移除。
-- 实验入口归 `manimux/configs/experiments/<task>/`，server 配置归 `manimux/configs/policy/<model>/`。
+- 实验入口归 `manimux/configs/experiments/<task>/<model>/`，server 配置归 `manimux/configs/policy/<model>/`。
   算法使用 `inference.algorithm`，执行器使用 `executor.type`，adapter 使用
   `policy.adapter.type`；adapter 参数直接写在实验中。
 - `integrations/` 仍有旧 native 模型源码与工具；HTTP 客户端已归入 `policies/`。此次 adapter 迁移未宣称这些
@@ -121,7 +120,7 @@ YAM 的原模型与求解器已移到 `embodiments/arm/yam/`，臂和自带夹�
 其 `assets/i2rt/robot_models/` 下；顶层 `assets/` 已移空。旧 YAM 硬件和运动学导入路径已删除；公开接口直接指向组件。Viewer 使用组件提供的显示坐标映射，将归一化夹爪
 展开成两个指尖关节；控制仍发送原来的完整 7 维目标。
 
-新的可选实验是 `manimux/configs/experiments/put_bottles/yam_pi05_joint.yaml`，工位模板为
+新的可选实验是 `manimux/configs/experiments/put_bottles/pi05/yam_pi05_joint.yaml`，工位模板为
 `manimux/configs/local/yam.example.yaml`。构造和模型加载不打开 CAN；连接和运动是显式操作。
 接口与迁移边界见 [YAM 一体组件](yam-integrated-component.md)。
 
@@ -131,14 +130,15 @@ Tianji 的资源已经分别放在：
 - `embodiments/end_effector/taccap/assets/`：末端几何、URDF 与 meshes。
 - `embodiments/robot/tianji_taccap/assets/`：整机支架资源。
 
-YAM 采集与旧实验均使用 `type: yam`；控制共享配置迁到
+YAM 实验使用 `type: yam`；控制共享配置迁到
 `manimux/configs/embodiment/robot/yam_control.yaml`。旧 `robots/yam/`、左右臂历史 YAML、
 原始 CAN 旁路记录及锁探针已移除。RealSense 只保留组件内的一套 SDK 实现，
-采集端转换帧格式，独立相机网络服务位于 `camera_server/`。
+独立相机网络服务位于 `servers/camera/`。
 ManiUniCon 与 mock 机器人实现、注册、示例和独立模拟运行脚本已删除。
-采集 GUI 的 `--mock` 模式也已移除；回归测试的设备替身仅放在 `tests/support/`。
+遥操作与示范数采代码、配置和入口已移除；回归测试的设备替身仅放在 `tests/support/`。
+历史数据的离线读取保留在 `viewer/replay_data/`，运行记录仍由 `recording/` 负责。
 旧 Tianji 驱动备份、注册和手动恢复分支已删除；既有传球模板改用 `tianji_taccap`。
-Orbbec 的服务端采集实现已迁入 sensor 组件目录，采集 GUI 的专用接口保持原有实现。一级 `policy_adapter/` 已完成实际实现迁移；专用 IK 求解器的统一注入仍需保持各自阈值和 TCP 语义，不在目录迁移中改写。
+Orbbec 的服务端采集实现已迁入 sensor 组件目录。一级 `policy_adapter/` 已完成实际实现迁移；专用 IK 求解器的统一注入仍需保持各自阈值和 TCP 语义，不在目录迁移中改写。
 
 ## 必须保持的行为
 

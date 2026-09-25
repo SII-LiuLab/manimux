@@ -22,7 +22,7 @@ def main():
     parser.add_argument("--repeats", type=int, default=3)
     args = parser.parse_args()
     cfg = load_config(
-        "manimux/configs/experiments/put_bottles/yam_sapolicy_manimux_direct_async.yaml"
+        "manimux/configs/experiments/put_bottles/sapolicy/yam_sapolicy_manimux_direct_async.yaml"
     )
     source = args.recorded_diagnostics
     predictions = np.load(source / "offline-ik-profile.npz")

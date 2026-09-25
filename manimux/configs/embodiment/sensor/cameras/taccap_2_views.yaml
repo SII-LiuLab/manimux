@@ -1,0 +1,4 @@
+# Camera streams reference robot components; the station supplies device serials.
+cameras:
+  left_wrist: {component: left_wrist_camera, type: taccap}
+  right_wrist: {component: right_wrist_camera, type: taccap}

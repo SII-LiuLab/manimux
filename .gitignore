@@ -24,8 +24,6 @@
 !/envs/README.md
 *.egg-info/
 data/
-!manimux/collection/yam/data/
-!manimux/collection/yam/data/**
 __pycache__/
 *.py[cod]
 dist/
@@ -44,7 +42,6 @@ tests/
 /tests/*
 !/tests/unit/
 /tests/unit/*
-!/tests/unit/test_yam_collection.py
 !/tests/unit/test_dp_yam_eef.py
 !/tests/unit/test_pi05_yam_eef.py
 !/tests/unit/test_pi05_yam_eef_runtime.py
@@ -93,6 +90,8 @@ tests/
 !/manimux/embodiments/arm/yam/assets/**
 !/tests/unit/test_yam_assembly.py
 !/tests/unit/test_policy_adapter_configuration.py
+!/tests/unit/test_action_replay.py
+!/tests/unit/test_viewer_evaluation.py
 !/tests/unit/test_station_entrypoints.py
 !/tests/unit/test_tianji_local_bindings.py
 

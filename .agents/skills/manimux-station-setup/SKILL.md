@@ -23,7 +23,7 @@ station in this order: CLI `--local`, experiment `local:`, default station path.
 are relative to the working directory, experiment references to that YAML, and `paths`
 values to the station file. Use the same experiment and station for the three processes.
 Pi05 standalone `--config` also reads the selected station. Camera/UMI_DP standalone
-`--config`, Viewer sockets, other model launchers and YAM collection retain separate
+`--config`, Viewer sockets, other model launchers retain separate
 configuration paths; do not claim they all use the station file. Some historical YAM
 experiments still lack named camera/service mappings; check the selected recipe instead
 of assuming every existing experiment supports camera `--experiment` startup.

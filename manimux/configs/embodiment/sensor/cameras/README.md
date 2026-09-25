@@ -1,16 +1,43 @@
-# 相机服务配置
+# Camera service recipes
 
-这些文件定义一次相机服务打开的设备组合；单个设备的组件声明在上一级目录。
-历史配置按真实采集差异保留，不再分散到模型目录。
+Name camera combinations by device family and total view count. Robot names belong
+to the assembly that references the cameras, not to the camera recipe filename.
 
-| 文件 | 设备组合 |
-| --- | --- |
-| `yam.yaml` | 左腕、前方、右腕 RealSense，RGB，当前 Pi05 示例 |
-| `yam_rgb.yaml` | 同一组 RGB，显式声明历史帧龄参数 |
-| `yam_rgbd.yaml` | 同一组设备，沿用历史配置的默认深度开关 |
-| `yam_gemini305.yaml` / `yam_gemini335.yaml` | 两个腕部相机与所选 Gemini |
-| `yam_gemini_pair.yaml` | 两个 Gemini |
-| `tianji_taccap.yaml` | 两个 TacCap 腕部相机 |
+## Component recipes
 
-各文件保留原来的设备名、序列号、分辨率和帧率。新工位可以使用实验的
-`camera_server` 组件选择和 `--local` 设备绑定，避免复制设备地址到多个实验。
+Reference these through an experiment's `camera_server.config`. Stream names map to
+robot components; device serials and service addresses come from the local station.
+
+- `realsense_3_views.yaml`: left wrist, front and right wrist RealSense streams.
+- `taccap_2_views.yaml`: left and right TacCap wrist streams.
+
+For example, an experiment under `experiments/put_bottles/pi05/` uses:
+
+```yaml
+camera_server:
+  config: ../../../embodiment/sensor/cameras/realsense_3_views.yaml
+```
+
+Start the camera service with `--experiment <experiment.yaml>` so the launcher can
+resolve the robot components and station. `sensors.options.camera_names` selects
+the runtime's input streams; `policy.adapter.camera_map` maps those streams to model
+inputs. These remain explicit in the experiment.
+
+## Standalone recipes
+
+Files ending in `_standalone.yaml` retain the existing direct device settings and
+are launched with `--config <camera-recipe.yaml>`. Their `sensors.cameras` structure
+is different from the component recipes above; do not use them as
+`camera_server.config` references.
+
+- `realsense_3_views_standalone.yaml`: three RealSense RGB cameras.
+- `realsense_3_views_rgb_standalone.yaml`: the same views with explicit frame-age bounds.
+- `realsense_3_views_rgbd_standalone.yaml`: the historical recipe with depth defaults preserved.
+- `realsense_gemini305_3_views_standalone.yaml`: two RealSense wrists and one Gemini 305.
+- `realsense_gemini335_3_views_standalone.yaml`: two RealSense wrists and one Gemini 335.
+- `gemini305_gemini335_2_views_standalone.yaml`: the two external Gemini views.
+- `taccap_2_views_standalone.yaml`: two TacCap wrist cameras.
+
+The SAPolicy five-camera setup still uses two services: the three RealSense views
+plus the two external Gemini views. Renaming recipes does not combine those services
+or change their endpoints, serials, resolution, frame rate or depth settings.

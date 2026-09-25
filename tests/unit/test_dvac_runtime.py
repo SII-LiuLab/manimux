@@ -26,7 +26,7 @@ def _chunk(horizon: int = 50) -> ActionChunk:
 
 
 def test_dvac_truncates_only_after_full_chunk_decode() -> None:
-    config = load_config("manimux/configs/experiments/pick_red_object/yam_pi05_dvac_step1000.yaml")
+    config = load_config("manimux/configs/experiments/pick_red_object/pi05/yam_pi05_dvac_step1000.yaml")
     strategy = DvacInferenceStrategy(config)
     response = InferenceResponse(
         session_id="session",
@@ -44,7 +44,7 @@ def test_dvac_truncates_only_after_full_chunk_decode() -> None:
 
 
 def test_dvac_rejects_invalid_metadata_and_uses_configured_blending() -> None:
-    config = load_config("manimux/configs/experiments/pick_red_object/yam_pi05_dvac_step1000.yaml")
+    config = load_config("manimux/configs/experiments/pick_red_object/pi05/yam_pi05_dvac_step1000.yaml")
     strategy = DvacInferenceStrategy(config)
     for raw_action in ({"actions": []}, {"dvac": {"execution_steps": 0}}):
         response = InferenceResponse(
@@ -71,7 +71,7 @@ def test_dvac_rejects_invalid_metadata_and_uses_configured_blending() -> None:
 
 
 def test_dvac_config_preserves_paper_defaults_and_pi05_contract() -> None:
-    config = load_config("manimux/configs/experiments/pick_red_object/yam_pi05_dvac_step1000.yaml")
+    config = load_config("manimux/configs/experiments/pick_red_object/pi05/yam_pi05_dvac_step1000.yaml")
 
     assert config["inference"]["algorithm"] == "dvac"
     assert config["inference"]["dvac"]["tail_policy_steps"] == 5

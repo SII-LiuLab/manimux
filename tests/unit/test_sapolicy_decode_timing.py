@@ -20,7 +20,7 @@ from manimux.types import (
     SensorFrame,
 )
 
-CONFIG = "manimux/configs/experiments/put_bottles/yam_sapolicy_manimux_xpl.yaml"
+CONFIG = "manimux/configs/experiments/put_bottles/sapolicy/yam_sapolicy_manimux_xpl.yaml"
 
 
 class _FakeKinematics:

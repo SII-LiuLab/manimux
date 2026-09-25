@@ -10,7 +10,7 @@ from manimux.policy_adapter.sapolicy.yam import SAPolicyXPolicyRequest
 from manimux.policy_adapter.sapolicy.yam import SAPolicyYamAdapter as build_adapter
 from manimux.types import ObservationSnapshot, RobotState, SensorFrame
 
-CONFIG = "manimux/configs/experiments/put_bottles/yam_sapolicy_manimux_xpl.yaml"
+CONFIG = "manimux/configs/experiments/put_bottles/sapolicy/yam_sapolicy_manimux_xpl.yaml"
 
 
 def _snapshot(now_ns: int) -> ObservationSnapshot:
@@ -83,7 +83,7 @@ def test_rtc_condition_preserves_joint_fk_calibration_and_shared_transport():
     from manimux.policies.xpolicylab.client import build_model
     from manimux.runtime.rtc.request import RtcInferenceRequest
 
-    config = load_config("manimux/configs/experiments/put_bottles/yam_sapolicy_mv51_top_rtc.yaml")
+    config = load_config("manimux/configs/experiments/put_bottles/sapolicy/yam_sapolicy_mv51_top_rtc.yaml")
     adapter = build_adapter(config["robot"], config["policy"])
     now = time.monotonic_ns()
     snapshot = _snapshot(now)
@@ -137,7 +137,7 @@ def test_mv51_smoothing_and_rtc_profiles_keep_rate_caps_disabled(view, suffix):
 
     suffix = suffix.replace("-", "_")
     config = load_config(
-        f"manimux/configs/experiments/put_bottles/yam_sapolicy_mv51_{view}{suffix}.yaml"
+        f"manimux/configs/experiments/put_bottles/sapolicy/yam_sapolicy_mv51_{view}{suffix}.yaml"
     )
     smooth = config["executor"]["smooth"]
     executor = SmoothExecutor(smooth, 1 / config["robot"]["control_hz"])

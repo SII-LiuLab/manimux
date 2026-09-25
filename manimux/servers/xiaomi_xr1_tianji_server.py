@@ -17,7 +17,7 @@ XPOLICY_ROOT = REPO_ROOT / "XPolicyLab"
 XR1_ROOT = XPOLICY_ROOT / "policy/Xiaomi_Robotics_1/xiaomi_robotics_1/xr1"
 DEFAULT_EXPERIMENT = (
     REPO_ROOT
-    / "manimux/configs/experiments/pass_ball/tianji_taccap_xiaomi_xr1_step50000.yaml"
+    / "manimux/configs/experiments/pass_ball/xiaomi-xr1/tianji_taccap_xiaomi_xr1_step50000.yaml"
 )
 
 

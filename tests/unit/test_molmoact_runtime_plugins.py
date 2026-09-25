@@ -22,7 +22,7 @@ from manimux.types import ActionContext
 
 
 def test_molmoact_yam_run_config_selects_real_plugins_without_touching_hardware() -> None:
-    config = load_config(Path("manimux/configs/experiments/pick_red_object/yam_molmoact2_manimux.yaml"))
+    config = load_config(Path("manimux/configs/experiments/pick_red_object/molmoact2/yam_molmoact2_manimux.yaml"))
 
     assert isinstance(build_robot(config["robot"], SystemClock()), YamRobot)
     assert isinstance(build_sensor(config["sensors"][0], SystemClock()), CameraServerSensorDriver)
@@ -31,7 +31,7 @@ def test_molmoact_yam_run_config_selects_real_plugins_without_touching_hardware(
 
 
 def test_molmoact_adapter_splits_raw_actions_into_canonical_yam_groups() -> None:
-    config = load_config("manimux/configs/experiments/pick_red_object/yam_molmoact2_manimux.yaml")
+    config = load_config("manimux/configs/experiments/pick_red_object/molmoact2/yam_molmoact2_manimux.yaml")
     adapter = build_policy_adapter(config["robot"], config["policy"])
     raw = np.arange(30 * 14, dtype=np.float64).reshape(30, 14)
 
@@ -48,7 +48,7 @@ def test_molmoact_adapter_splits_raw_actions_into_canonical_yam_groups() -> None
 
 
 def test_molmoact_adapter_rejects_wrong_action_width() -> None:
-    config = load_config("manimux/configs/experiments/pick_red_object/yam_molmoact2_manimux.yaml")
+    config = load_config("manimux/configs/experiments/pick_red_object/molmoact2/yam_molmoact2_manimux.yaml")
     adapter = build_policy_adapter(config["robot"], config["policy"])
 
     with pytest.raises(ValueError, match="shape"):
@@ -64,7 +64,7 @@ def test_an_unknown_robot_option_is_refused_before_the_arms_move() -> None:
     The arms would still move -- just not the way the config says. Reject the
     key at construction instead, before anything opens CAN.
     """
-    config = load_config("manimux/configs/experiments/pick_red_object/yam_molmoact2_manimux.yaml")
+    config = load_config("manimux/configs/experiments/pick_red_object/molmoact2/yam_molmoact2_manimux.yaml")
     config["robot"]["options"]["start_duration"] = 1.0  # missing the _s suffix
 
     with pytest.raises(TypeError, match="start_duration"):
@@ -72,7 +72,7 @@ def test_an_unknown_robot_option_is_refused_before_the_arms_move() -> None:
 
 
 def test_live_config_enables_explicit_start_and_verified_home() -> None:
-    config = load_config("manimux/configs/experiments/pick_red_object/yam_molmoact2_manimux.yaml")
+    config = load_config("manimux/configs/experiments/pick_red_object/molmoact2/yam_molmoact2_manimux.yaml")
 
     assert config["robot"]["options"]["move_to_start_on_connect"] is True
     assert config["robot"]["options"]["home_on_close"] is True

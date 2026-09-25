@@ -9,8 +9,8 @@
 - [Python environments](../envs/README.md) · [XPolicyLab action metadata](../env_cfg/README.md): why these differ from experiment and station configuration.
 - [Configuration guide](../manimux/configs/README.md): config layout, field meanings and shared control profiles.
 - [Viewer tutorial](viewer-tutorial.html): rollout controls, camera views and experiment labels.
+- [Action replay](action-replay.md): play named joint trajectories in an independent offline Viewer.
 - [Experiment workflow](experiment-infra.md): persistent services, normal/experiment modes and saved evidence.
-- [YAM collection](yam-collection.md): the original-style collection GUI with ManiMux follower control.
 - [Architecture](architecture.md): policy, adapter, strategy, executor and robot boundaries.
 - [Agent guide](../AGENTS.md): XPolicyLab-only model integration, legacy migration and validation rules.
 
@@ -24,14 +24,10 @@
 Both are version-pinned submodules. They are platform components, not additional policies
 or inference strategies in the support counts below.
 
-## Collection status
+## Scope
 
-- **Teleop:** available through the [YAM collection GUI](yam-collection.md), with ManiMux follower control.
-- **UMI:** planned collection integration; no runnable collector entry point yet.
-- **DAgger:** planned human-intervention / corrective-data collection; no runnable collector entry point yet.
-
-The Collection badge groups current and planned collection modes. The LLM-judge badge refers
-to the offline model-judge integration through [PRM-as-a-Judge](prm-as-a-judge.md), not an additional online controller.
+Teleoperation and demonstration collection are outside this repository. ManiMux retains
+policy deployment, rollout recording, offline replay and evaluation.
 
 ## Policies and deployment
 
@@ -57,7 +53,7 @@ checkpoint, or support for every policy × embodiment × inference combination.
 - **10 policy integrations:** eight model families have YAM deployment configurations:
   Pi05, MolmoAct2, ABC, GR00T, LingBot-VLA2, Xiaomi XR-1, OpenWAM and SAPolicy.
   Cosmos3 and Isaac 0.5 add two model-only / offline paths, not two more YAM-ready policies.
-  Checkpoint variants, the generic XPolicyLab bridge and the collection leader policy are not counted separately.
+  Checkpoint variants, the generic XPolicyLab bridge are not counted separately.
 - **Hardware assemblies:** YAM uses the component implementation; Tianji–TacCap migration
   boundaries are listed in [code organization](code-organization.md). Simulator drivers
   have been retired. A model checkpoint does not itself establish a hardware integration.
@@ -68,7 +64,6 @@ checkpoint, or support for every policy × embodiment × inference combination.
 
 Sources: [model configurations](../manimux/configs/), [robot factories](../manimux/embodiments/robot/__init__.py),
 [strategy registry](../manimux/runtime/inference.py) and [serial execution](serial-execution.md).
-UMI and DAgger are collection roadmap items and do not contribute to these implementation counts.
 
 ## Inference and execution
 

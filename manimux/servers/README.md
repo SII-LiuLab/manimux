@@ -15,7 +15,7 @@
 
 ```bash
 envs/yam/.venv/bin/python -m manimux.servers.camera.server \
-  --config manimux/configs/embodiment/sensor/cameras/yam.yaml
+  --config manimux/configs/embodiment/sensor/cameras/realsense_3_views_standalone.yaml
 
 XPolicyLab/policy/Pi_05/openpi/.venv/bin/python -m manimux.servers.pi05 \
   --config manimux/configs/policy/pi05/yam/put-bottles/joint-step30000.yaml

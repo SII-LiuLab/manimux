@@ -138,7 +138,7 @@ def test_parallel_sapolicy_ik_matches_serial_including_failed_waypoints():
     from manimux.policy_adapter.sapolicy.yam import SAPolicyYamAdapter, _pose_to_wire_endpose
     from manimux.types import ActionContext, InferenceResponse, RobotState
 
-    cfg = load_config("manimux/configs/experiments/put_bottles/yam_sapolicy_manimux_xpl.yaml")
+    cfg = load_config("manimux/configs/experiments/put_bottles/sapolicy/yam_sapolicy_manimux_xpl.yaml")
     adapter = SAPolicyYamAdapter(cfg["robot"], cfg["policy"])
     groups = {
         name: np.array([0.1, 0.8, 1.0, -0.2, 0.1, 0.2, 0.5]) for name in cfg["robot"]["group_dims"]

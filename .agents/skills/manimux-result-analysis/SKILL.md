@@ -24,8 +24,8 @@ Runtime episodes are written by `manimux/recording/episode.py`:
 | `videos/index.json` and camera MP4s | Written-frame timestamps, configured FPS and dropped-bundle summary, when video is enabled |
 
 Interrupted episodes may remain in `.partial` directories and lack finalized arrays.
-Collection has its own format: inspect `manimux/collection/yam/data/recorder.py`
-and its writer rather than assuming runtime Zarr paths. YAM collection can include
+Legacy demonstration recordings use a separate format. Inspect the offline readers in
+`manimux/viewer/replay_data/` rather than assuming runtime Zarr paths. These recordings can include
 `manimux-control.jsonl`, controller targets, measured joints and separate timestamps.
 
 ## Keep the evidence stages separate

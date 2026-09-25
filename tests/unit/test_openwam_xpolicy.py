@@ -54,7 +54,7 @@ def setup(monkeypatch):
 
     kin = Kinematics()
     monkeypatch.setattr(manimux.kinematics, "build_kinematics", lambda *a, **k: kin)
-    config = load_config(ROOT / "manimux/configs/experiments/put_bottles/yam_openwam_manimux.yaml")
+    config = load_config(ROOT / "manimux/configs/experiments/put_bottles/openwam/yam_openwam_manimux.yaml")
     config["robot"]["type"] = "fake"
     adapter = OpenWAMYamAdapter(config["robot"], config["policy"])
     state = RobotState(
@@ -304,7 +304,7 @@ def test_training_arguments(tmp_path):
 def test_checked_in_put_bottles_deployment_is_bound():
     config = load_config(
         ROOT
-        / "manimux/configs/experiments/put_bottles/yam_openwam_manimux_step30000.yaml"
+        / "manimux/configs/experiments/put_bottles/openwam/yam_openwam_manimux_step30000.yaml"
     )
     identity = config["policy"]["expected_backend"]["model"]
     assert config["robot"]["control_hz"] == 100.0

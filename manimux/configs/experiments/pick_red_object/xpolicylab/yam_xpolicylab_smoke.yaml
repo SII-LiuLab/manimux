@@ -1,0 +1,91 @@
+# XPolicyLab policy served over WebSocket, driving the dual YAM arms.
+#
+# Which policy this runs is decided when the XPolicyLab server is launched, not
+# here -- this file only describes the robot, the wire, and the timing. Point
+# `policy.options.server` at that server and keep everything else.
+#
+# ⚠️ THIS MOVES THE ARMS. Clear the workspace, keep the e-stop in hand, and
+# confirm can_left / can_right are ERROR-ACTIVE before starting.
+run:
+  task: Pick the red ball up and place it into the box.
+  output_dir: ./data
+  # 一次 rollout 最多执行的控制步数；达到后自动回 Home 并退出。
+  max_control_steps: 1600
+
+robot:
+  config: ../../../embodiment/robot/yam_dual.yaml
+  control_hz: 30.0
+  options:
+    move_to_start_on_connect: true
+    start_duration_s: 5.0
+    home_duration_s: 5.0
+    home_on_close: true
+    start_joints:
+      left_arm:
+      - -0.6094071869993112
+      - 0.5834668497749291
+      - 0.8424887464713517
+      - -1.0168230716411042
+      - -0.11081864652475382
+      - -0.45796139467459973
+      - 0.9969282527609157
+      right_arm:
+      - 0.321393148699169
+      - 0.5643930724040587
+      - 0.8009079118028541
+      - -1.01796749828336
+      - -0.18024719615472584
+      - 0.4129472800793472
+      - 0.994773647405226
+    execute: true
+  type: yam
+
+sensors:
+- name: yam_cameras
+  driver: camera_server
+  service: camera
+  options:
+    request_timeout_ms: 500
+    max_frame_age_sec: 0.5
+    camera_names: [left_camera, front_camera, right_camera]
+
+policy:
+  worker: xpolicylab_ws
+  service: policy
+  adapter:
+  # 30 Hz. This is what the runtime executes at AND what gets declared to the
+  # policy as `additional_info.frequency` -- the rate is ours, not the model's.
+    type: manimux.policy_adapter.joint:JointAdapter
+    camera_map:
+      cam_head: front_camera
+      cam_left_wrist: left_camera
+      cam_right_wrist: right_camera
+
+  action_dt_s: 0.03333333333333333
+  timeout_s: 1.0
+  horizon_policy_steps: 30
+  inference_delay_s: 0.0
+
+viewer:
+  enabled: true
+  robot: yam
+  policy_label: XPolicyLab
+
+recording:
+  enabled: true
+
+# Inference controls requests and chunk handoff; the executor controls smoothing and limits.
+inference:
+  algorithm: manimux
+  config: ../../../inference/yam_manimux_single.yaml
+  refill_threshold_s: 0.5
+  max_plan_age_s: 1.0
+  blend_policy_steps: 8
+
+executor:
+  type: smooth
+  config: ../../../executor/yam_smooth_fast.yaml
+
+# Device serials and service addresses come from the shared station file.
+camera_server:
+  config: ../../../embodiment/sensor/cameras/realsense_3_views.yaml

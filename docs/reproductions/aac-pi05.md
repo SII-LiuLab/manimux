@@ -4,8 +4,8 @@
 
 - **Recorded:** 2026-08-21.
 - **Target:** Pi05 JAX checkpoints through XPolicy + ManiMux AAC.
-- **Configs:** `manimux/configs/experiments/pick_red_object/yam_pi05_aac.yaml` and
-  `manimux/configs/experiments/pick_red_object/yam_pi05_aac_step1000.yaml`.
+- **Configs:** `manimux/configs/experiments/pick_red_object/pi05/yam_pi05_aac.yaml` and
+  `manimux/configs/experiments/pick_red_object/pi05/yam_pi05_aac_step1000.yaml`.
 - **Current gate:** source, contract, shape, regression and real `N=20` GPU forward passed. YAM
   hardware rollout has not been run for Pi05 AAC.
 - **Safety boundary:** Codex did not start the Pi05 server, cameras, CAN, preflight or robot.
@@ -82,7 +82,7 @@ fail during capability negotiation rather than silently fall back to ordinary in
 
 ```text
 server: manimux/configs/policy/pi05/yam/finetune.yaml
-infra:  manimux/configs/experiments/pick_red_object/yam_pi05_aac.yaml
+infra:  manimux/configs/experiments/pick_red_object/pi05/yam_pi05_aac.yaml
 output: N x 16 x 14 absolute joint positions
 dt:     1/30 s
 ```
@@ -91,7 +91,7 @@ dt:     1/30 s
 
 ```text
 server: manimux/configs/policy/pi05/yam/finetune-pick-red-ball-box-step1000.yaml
-infra:  manimux/configs/experiments/pick_red_object/yam_pi05_aac_step1000.yaml
+infra:  manimux/configs/experiments/pick_red_object/pi05/yam_pi05_aac_step1000.yaml
 output: N x 50 x 14 absolute joint positions after official output transforms
 dt:     1/30 s
 ```
@@ -149,7 +149,7 @@ Operator-run real GPU gate, after starting the matching Pi05 server:
 
 ```bash
 envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
-  --config manimux/configs/experiments/pick_red_object/yam_pi05_aac_step1000.yaml
+  --config manimux/configs/experiments/pick_red_object/pi05/yam_pi05_aac_step1000.yaml
 ```
 
 Pass criteria are `aac` capability, `N=20` finite native candidates, a finite selected `[K,14]`
@@ -165,7 +165,7 @@ emergency-stop checks, only the operator runs:
 ```bash
 cd /home/ubuntu/manimux
 envs/yam/.venv/bin/manimux run \
-  --config manimux/configs/experiments/pick_red_object/yam_pi05_aac_step1000.yaml
+  --config manimux/configs/experiments/pick_red_object/pi05/yam_pi05_aac_step1000.yaml
 ```
 
 Stop with one `Ctrl-C` and wait for the configured Home return and episode save. Do not stop the

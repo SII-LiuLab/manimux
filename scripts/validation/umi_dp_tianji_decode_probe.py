@@ -29,7 +29,7 @@ def main():
     parser.add_argument(
         "--config",
         type=Path,
-        default=REPO / "manimux/configs/experiments/pass_ball/tianji_umi_dp_default.yaml",
+        default=REPO / "manimux/configs/experiments/pass_ball/umi_dp/tianji_umi_dp_default.yaml",
     )
     parser.add_argument("--horizons", type=int, nargs="+", default=[16, 64])
     parser.add_argument("--repeat", type=int, default=3)

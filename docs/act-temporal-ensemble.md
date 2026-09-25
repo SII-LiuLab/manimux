@@ -50,7 +50,7 @@ scheduling**，不是未经改动的官方 rollout loop。
 
 ```bash
 envs/yam/.venv/bin/manimux run \
-  --config manimux/configs/experiments/pick_red_object/yam_pi05_act_temporal_ensemble.yaml
+  --config manimux/configs/experiments/pick_red_object/pi05/yam_pi05_act_temporal_ensemble.yaml
 ```
 
 该入口已完成离线公式、配置、Runtime 回归和 Pi05/YAM 真机执行。操作者在 step-1000
@@ -63,5 +63,5 @@ checkpoint 混用：
 
 ```bash
 envs/yam/.venv/bin/manimux run \
-  --config manimux/configs/experiments/pick_red_object/yam_pi05_act_temporal_ensemble_step1000.yaml
+  --config manimux/configs/experiments/pick_red_object/pi05/yam_pi05_act_temporal_ensemble_step1000.yaml
 ```

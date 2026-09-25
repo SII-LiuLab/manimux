@@ -17,9 +17,8 @@ manimux/
 │   └── sensor/realsense/
 │       ├── sensor.py         # 唯一 SDK 采集、后台缓存和资源释放
 │       └── README.md
-├── camera_server/            # 通用 ZMQ 相机服务与客户端
-└── collection/yam/camera/
-    └── realsense.py          # 只转换采集帧格式
+├── servers/camera/           # Camera service
+└── viewer/replay_data/       # Offline trajectory readers; no collection or device access
 ```
 
 ```yaml
@@ -62,7 +61,7 @@ CAN，是否退出前 Home 仍由 runtime 的 `home_on_close` 决定。
 - 组件：`manimux/configs/embodiment/arm/yam.yaml`
 - 整机：`manimux/configs/embodiment/robot/yam_dual.yaml`
 - 工位：`manimux/configs/local/yam.example.yaml`，实际绑定可复制到忽略的 `.local/`
-- Pi05 示例：`manimux/configs/experiments/put_bottles/yam_pi05_joint.yaml`
+- Pi05 示例：`manimux/configs/experiments/put_bottles/pi05/yam_pi05_joint.yaml`
 - Viewer：`manimux/viewer/robots/yam/viewer.yaml`，入口支持 `manimux-viewer --robot yam`
 
 Pi05 示例匹配已有 `manimux/configs/policy/pi05/yam/put-bottles/joint-step30000.yaml` 服务，
@@ -78,19 +77,19 @@ from manimux.clock import SystemClock
 from manimux.embodiments.robot import build_robot
 
 config = load_config(
-    "manimux/configs/experiments/put_bottles/yam_pi05_joint.yaml",
+    "manimux/configs/experiments/put_bottles/pi05/yam_pi05_joint.yaml",
     local="manimux/configs/local/yam.example.yaml",
 )
 robot = build_robot(config["robot"], SystemClock())
 ```
 
-YAM 采集与原有 63 份实验入口已切换为 `embodiments.robot.yam.YamRobot`。
+YAM 实验入口使用 `embodiments.robot.yam.YamRobot`。
 旧 `robots/yam/`、`kinematics/yam.py`、独立 `hardware.py` / `model.py` 已移除。
 原始 CAN 反馈旁路录制、锁探针及其配置/调用入口已删除，正常状态与动作记录保留。
 依赖旧协议的历史 MolmoAct 直连 launcher 随旧驱动退役；这不代表其模型迁移完成。
 
 RealSense 的 SDK 实现统一在 `embodiments/sensor/realsense/`，网络服务移到
-`camera_server/`；采集侧只保留格式适配。安装、生命周期与参数见：
+`servers/camera/`。示范数采已从仓库移除。安装、生命周期与参数见：
 
 - [YAM 组件](../manimux/embodiments/arm/yam/README.md)
 - [YAM 整机](../manimux/embodiments/robot/yam/README.md)

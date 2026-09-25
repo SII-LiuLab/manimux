@@ -29,7 +29,7 @@ from manimux.viewer.robots.yam import YamAdapter
 
 ROOT = Path(__file__).resolve().parents[2]
 ASSEMBLY = ROOT / "manimux/configs/embodiment/robot/yam_dual.yaml"
-EXPERIMENT = ROOT / "manimux/configs/experiments/put_bottles/yam_pi05_joint.yaml"
+EXPERIMENT = ROOT / "manimux/configs/experiments/put_bottles/pi05/yam_pi05_joint.yaml"
 START = np.array([-0.6094, 0.5835, 0.8425, -1.0168, -0.1108, -0.4580, 0.65])
 
 
@@ -265,7 +265,7 @@ def test_viewer_scene_mesh_paths_and_optional_display_frame(tmp_path):
 def test_new_recipe_preserves_joint_policy_and_execution_contract(fake_sdk):
     new = load_config(EXPERIMENT, local=ROOT / "manimux/configs/local/yam.example.yaml")
     old = load_config(
-        ROOT / "manimux/configs/experiments/put_bottles/yam_pi05_rtc_joint_step30000.yaml"
+        ROOT / "manimux/configs/experiments/put_bottles/pi05/yam_pi05_rtc_joint_step30000.yaml"
     )
     assert new["inference"] == old["inference"]
     assert new["executor"] == old["executor"]

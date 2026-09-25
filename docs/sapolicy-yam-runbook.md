@@ -61,9 +61,9 @@ XPolicyLab/policy/SAPolicy/.venv/bin/python manimux/servers/sapolicy.py \
 已有相机服务时直接复用；以下命令用于服务尚未启动的情况。
 
 ```bash
-envs/yam/.venv/bin/manimux-camera-server --config manimux/configs/embodiment/sensor/cameras/yam.yaml
+envs/yam/.venv/bin/manimux-camera-server --config manimux/configs/embodiment/sensor/cameras/realsense_3_views_standalone.yaml
 envs/yam/.venv/bin/manimux-camera-server \
-  --config manimux/configs/embodiment/sensor/cameras/yam_gemini_pair.yaml \
+  --config manimux/configs/embodiment/sensor/cameras/gemini305_gemini335_2_views_standalone.yaml \
   --rep-endpoint tcp://127.0.0.1:5575 --pub-endpoint tcp://127.0.0.1:5576
 envs/yam/.venv/bin/manimux-viewer --robot yam --host 0.0.0.0 --port 8086
 ```
@@ -94,10 +94,10 @@ GUI 默认 `camera_mode: policy`，跟随 runtime 上报的 `policy.adapter.came
 
 ```bash
 envs/yam/.venv/bin/manimux serve \
-  --config manimux/configs/experiments/put_bottles/yam_sapolicy_mv51_top.yaml
+  --config manimux/configs/experiments/put_bottles/sapolicy/yam_sapolicy_mv51_top.yaml
 # 使用 RTC：关闭上一 runtime 后选择此配置
 envs/yam/.venv/bin/manimux serve \
-  --config manimux/configs/experiments/put_bottles/yam_sapolicy_mv51_top_rtc.yaml
+  --config manimux/configs/experiments/put_bottles/sapolicy/yam_sapolicy_mv51_top_rtc.yaml
 ```
 
 打开 `http://localhost:8086`，点击 **Prepare normal rollout**，摆好场景后
@@ -129,7 +129,7 @@ XPolicyLab/policy/SAPolicy/.venv/bin/python -m XPolicyLab.policy.SAPolicy.valida
   --checkpoint "$PWD/checkpoints/finetuned/sapolicy/teleopMV51" --rtc \
   --output data/sapolicy/checkpoint-validation.json
 envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
-  --config manimux/configs/experiments/put_bottles/yam_sapolicy_mv51_top_rtc.yaml
+  --config manimux/configs/experiments/put_bottles/sapolicy/yam_sapolicy_mv51_top_rtc.yaml
 ```
 
 最后一条需要模型服务，只发送合成图像和配置中的关节状态，不打开相机或控制

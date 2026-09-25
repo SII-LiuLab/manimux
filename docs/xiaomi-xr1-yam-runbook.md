@@ -52,9 +52,9 @@ uv pip install --python envs/xr1/.venv/bin/python -e XPolicyLab
 
 ```text
 base server:    manimux/configs/policy/xiaomi-xr1/yam/base.yaml
-ManiMux:        manimux/configs/experiments/put_bottles/yam_xiaomi_xr1_manimux.yaml
-RTC:            manimux/configs/experiments/put_bottles/yam_xiaomi_xr1_rtc.yaml
-step-15000 RTC: manimux/configs/experiments/assemble_screwdriver/yam_xiaomi_xr1_rtc_step15000.yaml
+ManiMux:        manimux/configs/experiments/put_bottles/xiaomi-xr1/yam_xiaomi_xr1_manimux.yaml
+RTC:            manimux/configs/experiments/put_bottles/xiaomi-xr1/yam_xiaomi_xr1_rtc.yaml
+step-15000 RTC: manimux/configs/experiments/assemble_screwdriver/xiaomi-xr1/yam_xiaomi_xr1_rtc_step15000.yaml
 ```
 
 RTC 将 ManiMux `30 x 14` overlap condition 通过 FK 反编码到模型原生 `30 x 60` 空间，
@@ -110,7 +110,7 @@ envs/xr1/.venv/bin/python manimux/servers/xr1.py \
 
 # terminal 2: no-CAN GPU/WS/FK/IK probe
 envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
-  --config manimux/configs/experiments/put_bottles/yam_xiaomi_xr1_manimux.yaml
+  --config manimux/configs/experiments/put_bottles/xiaomi-xr1/yam_xiaomi_xr1_manimux.yaml
 ```
 
 probe 必须返回有限的 `native_shape: [30, 60]` 与 `canonical_shape: [30, 14]`。
@@ -118,7 +118,7 @@ probe 必须返回有限的 `native_shape: [30, 60]` 与 `canonical_shape: [30, 
 
 ```bash
 envs/yam/.venv/bin/manimux run \
-  --config manimux/configs/experiments/put_bottles/yam_xiaomi_xr1_manimux.yaml
+  --config manimux/configs/experiments/put_bottles/xiaomi-xr1/yam_xiaomi_xr1_manimux.yaml
 ```
 
 30 Hz 仍是 YAM 对照实验假设，不是官方 checkpoint 元数据。base 能否做任务是
@@ -148,7 +148,7 @@ envs/xr1/.venv/bin/python manimux/servers/xr1.py \
 ```bash
 cd /home/ubuntu/manimux
 envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
-  --config manimux/configs/experiments/put_bottles/yam_xiaomi_xr1_manimux.yaml
+  --config manimux/configs/experiments/put_bottles/xiaomi-xr1/yam_xiaomi_xr1_manimux.yaml
 ```
 
 只有 probe 返回有限的 `native_shape: [30, 60]` 和
@@ -160,7 +160,7 @@ envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/manimux-camera-server --config manimux/configs/embodiment/sensor/cameras/yam.yaml
+envs/yam/.venv/bin/manimux-camera-server --config manimux/configs/embodiment/sensor/cameras/realsense_3_views_standalone.yaml
 ```
 
 ### Terminal 3：Viewer
@@ -184,7 +184,7 @@ done
 ```bash
 cd /home/ubuntu/manimux
 envs/yam/.venv/bin/manimux run \
-  --config manimux/configs/experiments/put_bottles/yam_xiaomi_xr1_manimux.yaml
+  --config manimux/configs/experiments/put_bottles/xiaomi-xr1/yam_xiaomi_xr1_manimux.yaml
 ```
 
 连接后的前 `5.0 s` 是配置规定的起始姿态移动，不是模型动作；之后才执行 XR-1 经
@@ -203,8 +203,8 @@ envs/xr1/.venv/bin/python scripts/validation/check_xr1_rtc_sampler.py
 通过后，才使用同一个 server 做 RTC 对照：
 
 ```bash
-envs/yam/.venv/bin/manimux run --config manimux/configs/experiments/assemble_screwdriver/yam_xiaomi_xr1_manimux_step15000.yaml
-envs/yam/.venv/bin/manimux run --config manimux/configs/experiments/assemble_screwdriver/yam_xiaomi_xr1_rtc_step15000.yaml
+envs/yam/.venv/bin/manimux run --config manimux/configs/experiments/assemble_screwdriver/xiaomi-xr1/yam_xiaomi_xr1_manimux_step15000.yaml
+envs/yam/.venv/bin/manimux run --config manimux/configs/experiments/assemble_screwdriver/xiaomi-xr1/yam_xiaomi_xr1_rtc_step15000.yaml
 ```
 
 不要同时运行 ManiMux 与 RTC。相机、Viewer、CAN 检查和停止顺序参考

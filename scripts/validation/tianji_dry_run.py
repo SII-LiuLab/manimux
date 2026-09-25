@@ -31,7 +31,7 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--config", type=Path,
-        default=REPO / "manimux/configs/experiments/pass_ball/tianji_taccap_umi_dp.yaml",
+        default=REPO / "manimux/configs/experiments/pass_ball/umi_dp/tianji_taccap_umi_dp.yaml",
     )
     parser.add_argument("--local", type=Path, help="local controller and component bindings")
     parser.add_argument("--robot-ip", help="override robot.options.hardware.ip")

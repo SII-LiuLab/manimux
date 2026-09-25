@@ -34,7 +34,7 @@ from manimux.types import (
 ROOT = Path(__file__).resolve().parents[2]
 ASSEMBLY = ROOT / "manimux/configs/embodiment/robot/tianji_taccap.yaml"
 DIFF_EXPERIMENT = (
-    ROOT / "manimux/configs/experiments/pass_ball/tianji_taccap_umi_dp_diff.yaml"
+    ROOT / "manimux/configs/experiments/pass_ball/umi_dp/tianji_taccap_umi_dp_diff.yaml"
 )
 LIVE_DIFF_EXPERIMENT = DIFF_EXPERIMENT.with_name("tianji_taccap_umi_dp_diff_live.yaml")
 Q = np.radians([21.8, -41, -4.74, -63.67, 10.15, 14.72, 7.68])
@@ -56,7 +56,7 @@ def bind_test_identity(cfg, *, offset=1 / 30, period=0.1):
 
 
 def configured():
-    cfg = load_config(ROOT / "manimux/configs/experiments/pass_ball/tianji_umi_dp_default.yaml")
+    cfg = load_config(ROOT / "manimux/configs/experiments/pass_ball/umi_dp/tianji_umi_dp_default.yaml")
     cfg["robot"] = robot_parameters(
         type="tianji_taccap", config=ASSEMBLY, group_dims={"left_arm": 8, "right_arm": 8}
     )
@@ -228,8 +228,8 @@ def test_decoded_actions_reach_shared_controller_only_when_enabled(monkeypatch, 
 
 
 def test_new_recipe_keeps_original_timing_and_control_envelopes():
-    old = load_config(ROOT / "manimux/configs/experiments/pass_ball/tianji_umi_dp_default.yaml")
-    new = load_config(ROOT / "manimux/configs/experiments/pass_ball/tianji_taccap_umi_dp.yaml")
+    old = load_config(ROOT / "manimux/configs/experiments/pass_ball/umi_dp/tianji_umi_dp_default.yaml")
+    new = load_config(ROOT / "manimux/configs/experiments/pass_ball/umi_dp/tianji_taccap_umi_dp.yaml")
     assert new["robot"]["type"] == "tianji_taccap" and new["robot"]["config"] == ASSEMBLY
     assert new["robot"]["group_dims"] == old["robot"]["group_dims"]
     assert new["robot"]["control_hz"] == old["robot"]["control_hz"]
@@ -351,7 +351,7 @@ def test_checkpoint_binding_preserves_assembly_path_when_relocated(tmp_path, mon
         [
             "umi_dp_tianji_server.py",
             "--experiment",
-            str(ROOT / "manimux/configs/experiments/pass_ball/tianji_taccap_umi_dp.yaml"),
+            str(ROOT / "manimux/configs/experiments/pass_ball/umi_dp/tianji_taccap_umi_dp.yaml"),
             "--local",
             str(ROOT / "manimux/configs/local/tianji_taccap.example.yaml"),
             "--bind-runtime-config",

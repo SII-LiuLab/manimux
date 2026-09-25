@@ -22,15 +22,7 @@ realsense = ["pyrealsense2>=2.55"]
 tianji-diff-ik = [
   "osqp>=1,<2",
 ]
-collection = [
-  "av>=12",
-  "pyudev>=0.24; sys_platform == 'linux'",
-  "fastapi>=0.116",
-  "uvicorn>=0.35",
-  "opencv-python>=4.10",
-  "httpx>=0.27",
-  "h5py>=3.11",
-]
+replay = ["av>=12"]
 molmoact-yam = [
   "fastapi>=0.116",
   "h5py>=3.11",
@@ -93,7 +85,6 @@ dev = [
 
 [project.scripts]
 manimux = "manimux.cli:main"
-manimux-collect = "manimux.collection.cli:main"
 manimux-viewer = "manimux.viewer.dashboard:main"
 manimux-camera-server = "manimux.servers.camera.server:main"
 manimux-molmoact-server = "manimux.integrations.molmoact_yam.host_server_yam:main"

@@ -31,7 +31,7 @@ def bind_test_identity(config, *, offset=1 / 30):
 
 
 def setup_plan(commit_lead_s=0.0):
-    config = load_config("manimux/configs/experiments/pass_ball/tianji_umi_dp_rtc.yaml")
+    config = load_config("manimux/configs/experiments/pass_ball/umi_dp/tianji_umi_dp_rtc.yaml")
     config["policy"]["action_dt_s"] = 0.1
     bind_test_identity(config)
     config["inference"]["commit_lead_s"] = commit_lead_s
@@ -161,7 +161,7 @@ def test_rtc_rejects_independent_arm_holds():
 
 
 def test_runtime_factory_retains_tianji_history_wrapper_with_process_decoding(tmp_path):
-    config = load_config("manimux/configs/experiments/pass_ball/tianji_umi_dp_rtc.yaml")
+    config = load_config("manimux/configs/experiments/pass_ball/umi_dp/tianji_umi_dp_rtc.yaml")
     bind_test_identity(config)
     config["robot"]["type"] = "tests.support.robot:build_robot"
     config["sensors"] = []

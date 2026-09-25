@@ -336,7 +336,7 @@ def test_umi_tianji_per_arm_processes_match_inline_diff_decode():
     from manimux.policy_adapter.umi_dp.tianji import UmiDpTianjiAdapter, matrix_pose
     from manimux.types import ActionContext, InferenceResponse, RobotState
 
-    config = load_config(ROOT / "manimux/configs/experiments/pass_ball/tianji_umi_dp_default.yaml")
+    config = load_config(ROOT / "manimux/configs/experiments/pass_ball/umi_dp/tianji_umi_dp_default.yaml")
     config["robot"]["type"] = "mock"
     config["policy"]["horizon_policy_steps"] = 64
     config["policy"]["adapter"]["ik_backend"] = "diff"

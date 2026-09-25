@@ -119,7 +119,7 @@ class PolicyViewer:
         self.preparing_rollout = False
         self.service_ready = False
         self.experiment_mode = False
-        self.evaluation_saved = True
+        self.evaluation_complete = True
         self.episode_active = False
         self.launch_mode = "unknown"
         self.service_id = ""
@@ -332,6 +332,9 @@ class PolicyViewer:
             self.save_evaluation_btn = self.server.gui.add_button(
                 "Save evaluation", color="blue", disabled=True
             )
+            self.skip_evaluation_btn = self.server.gui.add_button(
+                "Skip evaluation", disabled=True
+            )
         self.overlay_folder = self.server.gui.add_folder(
             "Overlay controls", expand_by_default=True
         )
@@ -444,7 +447,12 @@ class PolicyViewer:
 
         @self.save_evaluation_btn.on_click
         def _save_evaluation(_event: Any) -> None:
-            self._save_manual_evaluation()
+            with self.lock:
+                self._save_manual_evaluation()
+
+        @self.skip_evaluation_btn.on_click
+        def _skip_evaluation(_event: Any) -> None:
+            self._skip_manual_evaluation()
 
         @self.show_plan.on_update
         def _show_plan(_event: Any) -> None:
@@ -685,7 +693,7 @@ class PolicyViewer:
         self.finish_requested = False
         self.finish_home = None
         self.new_rollout_requested = False
-        self.evaluation_saved = True
+        self.evaluation_complete = True
         self._set_policy_controls_enabled(False)
         self._set_evaluation_enabled(False)
         self.executor_info.value = "rollout interrupted"
@@ -699,7 +707,7 @@ class PolicyViewer:
             self.status.content = "🔴 **Controller fault · clear error is available**"
         elif last_error:
             self.status.content = "🔴 **Rollout interrupted · service idle**"
-        elif self.evaluation_saved:
+        elif self.evaluation_complete:
             self.status.content = "🟡 **Runtime service ready · prepare a rollout**"
 
     def _set_instruction(self, instruction: str) -> None:
@@ -731,17 +739,20 @@ class PolicyViewer:
         ):
             handle.disabled = not enabled
         self.save_evaluation_btn.disabled = not enabled
+        self.skip_evaluation_btn.disabled = (
+            self.episode_active or not self.experiment_mode or self.evaluation_complete
+        )
 
     def _set_experiment_mode(self, enabled: bool) -> None:
         self.experiment_mode = enabled
         self.rollout_setup_status.content = (
-            "🟢 **Experiment rollout** · a human label is required after Finish."
+            "🟢 **Experiment rollout** · save or skip evaluation after Finish."
             if enabled
             else "🔵 **Normal rollout** · no human label is required."
         )
 
     def _set_setup_controls_enabled(self, enabled: bool) -> None:
-        allowed = enabled and self.evaluation_saved and not self._recovery_pending()
+        allowed = enabled and self.evaluation_complete and not self._recovery_pending()
         self.prepare_normal_btn.disabled = not allowed
         self.prepare_experiment_btn.disabled = not allowed
         self.layout_id.disabled = not allowed
@@ -749,7 +760,7 @@ class PolicyViewer:
 
     def _prepare_rollout(self, *, experiment_mode: bool) -> None:
         with self.lock:
-            if self._recovery_pending() or not self.service_ready or not self.evaluation_saved:
+            if self._recovery_pending() or not self.service_ready or not self.evaluation_complete:
                 return
             self._set_experiment_mode(experiment_mode)
             self.new_rollout_requested = True
@@ -782,7 +793,7 @@ class PolicyViewer:
     def _reset_evaluation(self, episode_dir: str) -> None:
         self.current_episode_dir = Path(episode_dir).expanduser() if episode_dir else None
         self.episode_finalized = False
-        self.evaluation_saved = not self.experiment_mode
+        self.evaluation_complete = not self.experiment_mode
         self.episode_path.value = episode_dir or "not published"
         self.task_result.value = "unlabeled"
         self.smoothness_score.value = "3"
@@ -810,7 +821,7 @@ class PolicyViewer:
         self.episode_active = False
         self.current_episode_dir = None
         self.episode_finalized = False
-        self.evaluation_saved = True
+        self.evaluation_complete = True
         self.last_state_time = 0.0
         self.executor_info.value = "service idle"
         self.evaluation_status.content = "⚪ No completed rollout is awaiting evaluation."
@@ -840,6 +851,8 @@ class PolicyViewer:
         self.status.content = "🟠 **Runtime unavailable · waiting for service**"
 
     def _save_manual_evaluation(self) -> None:
+        if self.evaluation_complete or not self.experiment_mode:
+            return
         if not self.episode_finalized or self.current_episode_dir is None:
             self.evaluation_status.content = "🔴 Episode is not finalized."
             return
@@ -862,9 +875,21 @@ class PolicyViewer:
             self.evaluation_status.content = f"🔴 Evaluation was not saved: {exc}"
             return
         self.evaluation_status.content = f"🟢 Saved `{target}`"
-        self.evaluation_saved = True
+        self.evaluation_complete = True
+        self._set_evaluation_enabled(False)
         self._update_prepare_enabled()
         self._set_stage("setup" if self.service_ready else "complete")
+
+    def _skip_manual_evaluation(self) -> None:
+        with self.lock:
+            if self.episode_active or not self.experiment_mode or self.evaluation_complete:
+                return
+            self.evaluation_complete = True
+            self.evaluation_status.content = "⚪ Evaluation skipped; no human label was saved."
+            self._set_evaluation_enabled(False)
+            self._update_prepare_enabled()
+            self._set_stage("setup" if self.service_ready else "complete")
+            self.status.content = "⚪ **Rollout finished · evaluation skipped**"
 
     def control_state(self) -> dict[str, Any]:
         with self.lock:
@@ -1129,7 +1154,7 @@ class PolicyViewer:
             self._set_experiment_mode(bool(metadata.get("experiment_mode", False)))
             self.rollout_setup_status.content = (
                 "🟢 **Experiment rollout ready** · press Start rollout below; "
-                "a label is required after Finish."
+                "save or skip evaluation after Finish."
                 if self.experiment_mode
                 else "🔵 **Normal rollout ready** · press Start rollout below; "
                 "Finish saves the episode."
@@ -1164,7 +1189,7 @@ class PolicyViewer:
                 self.current_episode_dir = Path(episode_dir).expanduser()
                 self.episode_path.value = episode_dir
             self.episode_finalized = self.current_episode_dir is not None
-            self.evaluation_saved = not self.experiment_mode
+            self.evaluation_complete = not self.experiment_mode
             self.paused = True
             self.rollout_started = False
             self._set_policy_controls_enabled(False)
@@ -1175,12 +1200,12 @@ class PolicyViewer:
                 self.status.content = "🔴 **Rollout finished without a saved path**"
             elif self.experiment_mode:
                 self.evaluation_status.content = (
-                    "🟡 Select the task result and smoothness score, then save."
+                    "🟡 Save a task result and smoothness score, or click Skip evaluation."
                 )
                 self.status.content = (
-                    "⚪ **Rollout finished · awaiting human reward**"
+                    "⚪ **Rollout finished · save or skip evaluation**"
                     if self.launch_mode == "serve"
-                    else "⚪ **One-shot run finished · awaiting human reward**"
+                    else "⚪ **One-shot run finished · save or skip evaluation**"
                 )
             else:
                 self.evaluation_status.content = (
@@ -1221,12 +1246,12 @@ class PolicyViewer:
             if first_service_announcement:
                 self.layout_id.value = str(metadata.get("default_layout_id", "")) or "default"
             self.rollout_setup_status.content = (
-                "Choose a normal rollout, or an experiment rollout that requires a label."
+                "Choose a normal rollout (no scoring) or an experiment rollout (save or skip evaluation)."
             )
-            if self.current_episode_dir is None or self.evaluation_saved:
+            if self.current_episode_dir is None or self.evaluation_complete:
                 self.episode_path.value = str(metadata.get("last_episode_dir", "")) or "ready"
             self._update_prepare_enabled()
-            self._set_stage("setup" if self.evaluation_saved else "evaluation")
+            self._set_stage("setup" if self.evaluation_complete else "evaluation")
             self._idle_status(last_error)
         elif event == "episode_failed":
             if metadata.get("run_dir") and metadata["run_dir"] != self.service_id:
@@ -1421,12 +1446,21 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="list body folders containing viewer.yaml and exit",
     )
-    parser.add_argument("--demo", action="store_true", help="show synthetic data without hardware")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--demo", action="store_true", help="show synthetic data without hardware")
+    mode.add_argument("--replay-actions", type=Path, help="offline NPZ of named joint trajectories")
+    parser.add_argument("--action-dt-s", type=float, help="seconds between replay action points")
     return parser
 
 
 def main() -> None:
-    args = _parser().parse_args()
+    parser = _parser()
+    args = parser.parse_args()
+    if args.replay_actions is not None:
+        if args.action_dt_s is None or not np.isfinite(args.action_dt_s) or args.action_dt_s <= 0:
+            parser.error("--replay-actions requires a finite, positive --action-dt-s")
+    elif args.action_dt_s is not None:
+        parser.error("--action-dt-s requires --replay-actions")
     if args.list_robots:
         print(
             "\n".join(
@@ -1438,6 +1472,14 @@ def main() -> None:
         return
     viewer_config = load_viewer_config(args.config, robot=args.robot)
     robot = load_robot_view(viewer_config)
+    if args.replay_actions is not None:
+        from .action_replay import serve_action_replay
+
+        serve_action_replay(
+            args.replay_actions, robot, action_dt_s=args.action_dt_s,
+            host=args.host, port=args.port,
+        )
+        return
     viewer = PolicyViewer(
         args.host,
         args.port,

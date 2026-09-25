@@ -1,0 +1,97 @@
+run:
+  task: put the bottle into the bin
+  output_dir: ./data/experiments/openwam-yam
+  max_control_steps: 6000
+
+robot:
+  config: ../../../embodiment/robot/yam_dual.yaml
+  control_hz: 100.0
+  options:
+    move_to_start_on_connect: true
+    start_joints:
+      left_arm:
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 1.0
+      right_arm:
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 1.0
+    start_duration_s: 5.0
+    home_duration_s: 5.0
+    home_on_close: true
+    execute: true
+  type: yam
+
+sensors:
+- name: yam_cameras
+  driver: camera_server
+  service: camera
+  options:
+    request_timeout_ms: 500
+    max_frame_age_sec: 0.5
+    camera_names: [left_camera, front_camera, right_camera]
+
+policy:
+  # OpenWAM is hosted by the standard XPolicyLab server. The model and its
+  # vendored upstream source live under XPolicyLab/policy/OpenWAM.
+  worker: xpolicylab_ws
+  service: policy
+  adapter:
+    type: manimux.policy_adapter.openwam.yam:OpenWAMYamAdapter
+    camera_map:
+      cam_head: front_camera
+      cam_left_wrist: left_camera
+      cam_right_wrist: right_camera
+    kinematics: yam
+    kinematics_options:
+      arm_type: yam
+      gripper_type: linear_4310
+      num_arm_joints: 6
+
+  action_dt_s: 0.03333333333333333
+  timeout_s: 300.0
+  horizon_policy_steps: 32
+  inference_delay_s: 0.0
+  startup_timeout_s: 30.0
+  expected_backend:
+    server: xpolicylab_policy_server
+    model:
+      policy_family: openwam
+      observation_profile: yam_base
+      allow_dummy_policy: false
+  options:
+    connect_timeout_s: 30.0
+    request_timeout_s: 300.0
+
+viewer:
+  enabled: true
+  robot: yam
+  policy_label: OpenWAM YAM absolute EEF20
+
+recording:
+  enabled: true
+
+# Inference controls requests and chunk handoff; the executor controls smoothing and limits.
+inference:
+  algorithm: manimux
+  config: ../../../inference/yam_manimux_single.yaml
+  refill_threshold_s: 0.4
+  max_plan_age_s: 2.0
+  blend_policy_steps: 8
+
+executor:
+  type: smooth
+  config: ../../../executor/yam_smooth_standard.yaml
+
+# Device serials and service addresses come from the shared station file.
+camera_server:
+  config: ../../../embodiment/sensor/cameras/realsense_3_views.yaml

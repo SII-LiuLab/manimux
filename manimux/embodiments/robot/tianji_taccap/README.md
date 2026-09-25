@@ -91,7 +91,7 @@ robot = TianjiTaccapRobot.from_config("manimux/configs/embodiment/robot/tianji_t
 
 ## 实验入口与验证
 
-实验入口位于 `manimux/configs/experiments/pass_ball/tianji_taccap_umi_dp.yaml`。
+实验入口位于 `manimux/configs/experiments/pass_ball/umi_dp/tianji_taccap_umi_dp.yaml`。
 通过 `--local` 选择工位；policy 配置位于 `manimux/configs/policy/umi_dp/`。
 仍使用既有 XPolicyLab UMI_DP 模型和 `xpolicylab_ws`，需用原启动脚本绑定 checkpoint
 身份后才可运行。细节见 `docs/umi-dp-tianji-taccap-runbook.md`。

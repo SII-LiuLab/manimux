@@ -24,13 +24,13 @@ RTC 发起下一次推理后，仍会在等待响应时继续执行旧 chunk。
 先停止旧模型 server 和当前 runtime，再将两条命令中的配置一起换为：
 
 - server：`manimux/configs/policy/pi05/yam/put-bottles/joint-ee-step30000.yaml`；
-- runtime：`manimux/configs/experiments/put_bottles/yam_pi05_rtc_joint_ee_step30000.yaml`。
+- runtime：`manimux/configs/experiments/put_bottles/pi05/yam_pi05_rtc_joint_ee_step30000.yaml`。
 
 两套 RTC 都显式引用 [`manimux/configs/embodiment/robot/yam_control.yaml`](../manimux/configs/embodiment/robot/yam_control.yaml)，
 与 YAM 数采共享硬件参数、动作间隔和运动限幅；执行器仍为 100 Hz Smooth、8 Hz 滤波。
 公共配置当前不附加手臂速度/加速度限幅，夹爪保留 `1.0 /s` 的闭合目标限速，打开目标直接切换。
 这不等于取消硬件保护，也不保证物理夹爪恰好一秒闭合。
-详见 [共享控制说明](yam-collection.md#shared-control-profile)。其他历史配置不会自动继承这些设置。
+详见 [共享控制说明](../manimux/configs/README.md#arm-motion-limiting)。其他历史配置不会自动继承这些设置。
 
 遇到 `policy backend identity mismatch`，先检查端口上实际加载的模型与配置是否匹配，
 不要删除 `expected_backend` 来绕过检查。只核对本地路径和契约、不启动服务时，
@@ -53,7 +53,7 @@ checkpoints/finetuned/ziyang/pi05-yam-pick-red-ball-box-b384/1000/
 ```
 
 - server：`manimux/configs/policy/pi05/yam/finetune-pick-red-ball-box-step1000.yaml`；
-- ManiMux：`manimux/configs/experiments/pick_red_object/yam_pi05_manimux_step1000.yaml`；
+- ManiMux：`manimux/configs/experiments/pick_red_object/pi05/yam_pi05_manimux_step1000.yaml`；
 - 输入：三路独立 RGB、14 维 YAM state 和红球任务文本；
 - 输出：`50 x 14` absolute joint positions；
 - 时间语义：轨迹点 30Hz，底层下发 100Hz；
@@ -78,7 +78,7 @@ XLA_PYTHON_CLIENT_PREALLOCATE=false \
   XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
   scripts/validation/pi05_yam_offline_infer.py \
   --config manimux/configs/policy/pi05/yam/finetune-pick-red-ball-box-step1000.yaml \
-  --infra-config manimux/configs/experiments/pick_red_object/yam_pi05_manimux_step1000.yaml
+  --infra-config manimux/configs/experiments/pick_red_object/pi05/yam_pi05_manimux_step1000.yaml
 ```
 
 模型服务：
@@ -93,7 +93,7 @@ XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
 
 ```bash
 envs/yam/.venv/bin/manimux run \
-  --config manimux/configs/experiments/pick_red_object/yam_pi05_manimux_step1000.yaml
+  --config manimux/configs/experiments/pick_red_object/pi05/yam_pi05_manimux_step1000.yaml
 ```
 
 ## 螺丝刀 step-15000：七种算法、统一 Executor
@@ -102,7 +102,7 @@ envs/yam/.venv/bin/manimux run \
 三相机映射、起始位和 Recorder。模型原生输出均为 `50 × 14` absolute joint actions，
 轨迹点间隔 `1/30 s`。算法只改变采样、chunk 选择和调度，不切换底层 executor。
 
-所有配置位于 `manimux/configs/experiments/assemble_screwdriver/`，文件名为
+所有配置位于 `manimux/configs/experiments/assemble_screwdriver/pi05/`，文件名为
 `yam_pi05_<算法>_step15000.yaml`（算法名称使用下划线）：
 
 | 算法 / 文件名前缀 | runtime | 算法配置 |
@@ -144,7 +144,7 @@ XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
 ```bash
 cd /home/ubuntu/manimux
 envs/yam/.venv/bin/manimux serve \
-  --config manimux/configs/experiments/assemble_screwdriver/yam_pi05_paint_step15000.yaml
+  --config manimux/configs/experiments/assemble_screwdriver/pi05/yam_pi05_paint_step15000.yaml
 ```
 
 替换文件名前缀即可选择表中的其他算法，例如 RTC：
@@ -152,7 +152,7 @@ envs/yam/.venv/bin/manimux serve \
 ```bash
 cd /home/ubuntu/manimux
 envs/yam/.venv/bin/manimux serve \
-  --config manimux/configs/experiments/assemble_screwdriver/yam_pi05_rtc_step15000.yaml
+  --config manimux/configs/experiments/assemble_screwdriver/pi05/yam_pi05_rtc_step15000.yaml
 ```
 
 七种 runtime 选择一种运行，共用上面的同一个 policy server。
@@ -186,9 +186,9 @@ checkpoints/finetuned/robocurve/pi05-yam-molmoact2/  # robocurve/pi05-yam-molmoa
 - stats：checkpoint 自带 quantile norm stats；
 - 发布来源：`robocurve/pi05-yam-molmoact2`；
 - server：`manimux/configs/policy/pi05/yam/finetune.yaml`；
-- ManiMux 30Hz 默认配置：`manimux/configs/experiments/pick_red_object/yam_pi05_manimux.yaml`；
-- Pi-guided RTC 对照：`manimux/configs/experiments/pick_red_object/yam_pi05_rtc.yaml`；
-- 50ms 拉伸时序对照：`manimux/configs/experiments/pick_red_object/yam_pi05_stretched_50ms.yaml`。
+- ManiMux 30Hz 默认配置：`manimux/configs/experiments/pick_red_object/pi05/yam_pi05_manimux.yaml`；
+- Pi-guided RTC 对照：`manimux/configs/experiments/pick_red_object/pi05/yam_pi05_rtc.yaml`；
+- 50ms 拉伸时序对照：`manimux/configs/experiments/pick_red_object/pi05/yam_pi05_stretched_50ms.yaml`。
 
 ## 当前验证状态
 
@@ -253,7 +253,7 @@ nvidia-smi
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/manimux-camera-server --config manimux/configs/embodiment/sensor/cameras/yam.yaml
+envs/yam/.venv/bin/manimux-camera-server --config manimux/configs/embodiment/sensor/cameras/realsense_3_views_standalone.yaml
 ```
 
 已有 `5555` 服务时不要重复启动。Viewer 可选：
@@ -270,7 +270,7 @@ envs/yam/.venv/bin/manimux-viewer --robot yam --host 0.0.0.0 --port 8086
 ```bash
 cd /home/ubuntu/manimux
 envs/yam/.venv/bin/python scripts/validation/pi05_base_yam_preflight.py \
-  --config manimux/configs/experiments/pick_red_object/yam_pi05_manimux.yaml
+  --config manimux/configs/experiments/pick_red_object/pi05/yam_pi05_manimux.yaml
 ```
 
 保存它打印的 measured state、first action、shape、gripper range 和 steady latency。脚本只
@@ -290,7 +290,7 @@ done
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/manimux run --config manimux/configs/experiments/pick_red_object/yam_pi05_manimux.yaml
+envs/yam/.venv/bin/manimux run --config manimux/configs/experiments/pick_red_object/pi05/yam_pi05_manimux.yaml
 ```
 
 这个 ManiMux 基线将 16 个绝对关节点按约 0.50 秒执行。机器人控制环也是 30Hz，避免
@@ -300,7 +300,7 @@ ManiMux 负责。
 50ms 拉伸对照把同一组点按约 0.75 秒执行：
 
 ```bash
-envs/yam/.venv/bin/manimux run --config manimux/configs/experiments/pick_red_object/yam_pi05_stretched_50ms.yaml
+envs/yam/.venv/bin/manimux run --config manimux/configs/experiments/pick_red_object/pi05/yam_pi05_stretched_50ms.yaml
 ```
 
 两份配置是独立对照实验，不要同时运行。2026-08-20 的 50ms 真实运行中，模型请求和
@@ -340,7 +340,7 @@ RTC 使用独立 infra 配置。重复评测时启动一次长期 session servic
 
 ```bash
 envs/yam/.venv/bin/manimux serve \
-  --config manimux/configs/experiments/pick_red_object/yam_pi05_rtc_step1000.yaml
+  --config manimux/configs/experiments/pick_red_object/pi05/yam_pi05_rtc_step1000.yaml
 ```
 
 它与 step-1000 Default config 使用相同的 `50 x 14` checkpoint contract、100Hz robot loop、
@@ -358,8 +358,9 @@ Viser 在 episode 正常落盘后开放 `Task result`、`Smoothness (1-5)`、fai
 保存到 `rollout-*/evaluation/human-label.json`。这里的 task result 与 `result.json` 中表示 runtime
 正常收尾的 `success` 完全分开。
 
-Viewer 顶部先选择 `Experiment mode`：OFF 只控制 rollout，不要求 reward；ON 用于正式采集，
-必须填写人工评测后才能开始下一条。正式实验同时填写可读的 `Layout / condition ID`。Prepare
+Viewer 通过 Prepare normal / Prepare experiment 选择模式：普通模式不显示评分步骤；实验模式结束后，
+可以保存人工评测，也可以直接点击 `Skip evaluation` 进入下一条。跳过不会生成评分文件。
+正式实验同时填写可读的 `Layout / condition ID`。Prepare
 时页面中的 task command 会真实发送给 Pi05，不只是显示文本。
 
 `serve` 不加载模型、不启动相机，也不替代 Viewer。用户先分别启动 camera server、Pi05 model
@@ -383,7 +384,7 @@ Viewer trail；不会继承上一条 rollout 的推理状态。camera/model/view
 
 ```bash
 envs/yam/.venv/bin/manimux run \
-  --config manimux/configs/experiments/pick_red_object/yam_pi05_rtc_step1000.yaml
+  --config manimux/configs/experiments/pick_red_object/pi05/yam_pi05_rtc_step1000.yaml
 ```
 
 ## 停止
@@ -398,7 +399,7 @@ base zero-shot 是单独实验：
 
 ```text
 server: manimux/configs/policy/pi05/yam/base.yaml
-infra:  manimux/configs/experiments/pick_red_object/yam_pi05_base_rtc.yaml
+infra:  manimux/configs/experiments/pick_red_object/pi05/yam_pi05_base_rtc.yaml
 ```
 
 它使用 50-step Pi-guided RTC，不代表 YAM 微调版的默认配置。不要用 base config 覆盖本文

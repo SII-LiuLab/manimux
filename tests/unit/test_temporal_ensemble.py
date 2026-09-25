@@ -126,7 +126,7 @@ def test_temporal_ensemble_uses_configured_blending_and_requires_overlap() -> No
 
 def test_pi05_temporal_ensemble_config_loads_with_four_step_queries() -> None:
     config = load_config(
-        "manimux/configs/experiments/pick_red_object/yam_pi05_act_temporal_ensemble.yaml"
+        "manimux/configs/experiments/pick_red_object/pi05/yam_pi05_act_temporal_ensemble.yaml"
     )
 
     assert config["inference"]["algorithm"] == "act_temporal_ensemble"
@@ -138,7 +138,7 @@ def test_pi05_temporal_ensemble_config_loads_with_four_step_queries() -> None:
 
 def test_pi05_step1000_temporal_ensemble_preserves_checkpoint_contract() -> None:
     config = load_config(
-        "manimux/configs/experiments/pick_red_object/yam_pi05_act_temporal_ensemble_step1000.yaml"
+        "manimux/configs/experiments/pick_red_object/pi05/yam_pi05_act_temporal_ensemble_step1000.yaml"
     )
 
     assert config["inference"]["algorithm"] == "act_temporal_ensemble"

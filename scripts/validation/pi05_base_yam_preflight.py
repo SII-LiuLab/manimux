@@ -26,7 +26,7 @@ from manimux.runtime.rtc.mask import inpainting_condition
 from manimux.runtime.rtc.request import RtcInferenceRequest
 from manimux.types import ActionContext, InferenceRequest, ObservationSnapshot
 
-DEFAULT_CONFIG = Path("manimux/configs/experiments/pick_red_object/yam_pi05_base_rtc.yaml")
+DEFAULT_CONFIG = Path("manimux/configs/experiments/pick_red_object/pi05/yam_pi05_base_rtc.yaml")
 
 
 def _request(

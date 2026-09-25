@@ -43,6 +43,9 @@ def test_plugin_options_allow_config_driven_extensions() -> None:
     policy = policy_parameters(
         worker="fake",
         adapter={"type": "manimux.policies.fake:FakePolicyAdapter"},
+        action_dt_s=0.05,
+        horizon_policy_steps=20,
+        inference_delay_s=0.04,
         options={"server": "http://127.0.0.1:8202"},
     )
 

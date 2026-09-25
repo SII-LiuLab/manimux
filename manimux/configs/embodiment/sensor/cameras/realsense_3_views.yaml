@@ -1,0 +1,5 @@
+# Camera streams reference robot components; the station supplies device serials.
+cameras:
+  left_camera: {component: left_camera, type: realsense}
+  front_camera: {component: front_camera, type: realsense}
+  right_camera: {component: right_camera, type: realsense}

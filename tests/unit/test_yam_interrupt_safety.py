@@ -70,7 +70,7 @@ class _Bimanual:
 
 
 def _live_driver() -> tuple[YamRobot, _Bimanual]:
-    config = load_config("manimux/configs/experiments/pick_red_object/yam_molmoact2_manimux.yaml")
+    config = load_config("manimux/configs/experiments/pick_red_object/molmoact2/yam_molmoact2_manimux.yaml")
     config["robot"]["options"]["home_duration_s"] = 0.4
     config["robot"]["options"]["home_gripper_release_duration_s"] = 0.1
     config["robot"]["options"]["start_duration_s"] = 0.4

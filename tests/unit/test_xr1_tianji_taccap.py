@@ -24,7 +24,7 @@ from manimux.types import (
 
 ROOT = Path(__file__).resolve().parents[2]
 EXPERIMENT = (
-    ROOT / "manimux/configs/experiments/pass_ball/tianji_taccap_xiaomi_xr1_step50000.yaml"
+    ROOT / "manimux/configs/experiments/pass_ball/xiaomi-xr1/tianji_taccap_xiaomi_xr1_step50000.yaml"
 )
 
 

@@ -1,6 +1,6 @@
 # Braking-aware joint tracking and bounded execution prefixes
 
-`manimux/configs/experiments/put_bottles/yam_sapolicy_manimux_braking_h25.yaml` enables the optional
+`manimux/configs/experiments/put_bottles/sapolicy/yam_sapolicy_manimux_braking_h25.yaml` enables the optional
 `executor.smooth.tracking_mode: braking` mode. Existing profiles retain the
 legacy mode unless explicitly changed. MPC is unchanged. The bottle profile also
 uses the optional [latched release](independent-ik-execution.md) rule.

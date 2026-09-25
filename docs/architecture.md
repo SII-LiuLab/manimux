@@ -35,7 +35,7 @@ robot state + cameras
 V1 不实现 Control Plane、Inference Gateway 或 Data Service。一个 CLI launcher 启动三个顶层运行单元：
 
 ```text
-manimux run --config manimux/configs/experiments/my_task/my_run.yaml
+manimux run --config manimux/configs/experiments/my_task/my_model/my_run.yaml
 │
 ├── edge-agent
 │   ├── RobotBase / SensorBase
@@ -465,7 +465,7 @@ repository/
 │   ├── servers/               # camera service and XPolicyLab launchers
 │   ├── runtime/               # strategies, timeline, executors, safety
 │   ├── kinematics/
-│   ├── collection/
+│   ├── viewer/replay_data/   # Offline trajectory readers
 │   ├── viewer/
 │   ├── recording/
 │   ├── evaluation/

@@ -12,7 +12,7 @@ from manimux.servers import pi05
 from manimux.servers.camera import server as camera
 
 ROOT = Path(__file__).resolve().parents[2]
-EXPERIMENT = ROOT / "manimux/configs/experiments/put_bottles/yam_pi05_rtc_joint_step30000.yaml"
+EXPERIMENT = ROOT / "manimux/configs/experiments/put_bottles/pi05/yam_pi05_rtc_joint_step30000.yaml"
 SERVER = ROOT / "manimux/configs/policy/pi05/yam/put-bottles/joint-step30000.yaml"
 
 

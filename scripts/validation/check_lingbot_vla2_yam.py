@@ -19,7 +19,7 @@ XPOLICY_ROOT = REPO_ROOT / "XPolicyLab"
 DEFAULT_CONFIG = REPO_ROOT / "manimux/configs/policy/lingbot-vla2/yam/base.yaml"
 DEFAULT_INFRA_CONFIG = (
     REPO_ROOT
-    / "manimux/configs/experiments/pick_red_object/yam_lingbot_vla2_manimux.yaml"
+    / "manimux/configs/experiments/pick_red_object/lingbot-vla2/yam_lingbot_vla2_manimux.yaml"
 )
 
 

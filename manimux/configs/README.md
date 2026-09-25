@@ -5,20 +5,20 @@ To connect your own installation of a supported robot, start with
 one private `manimux/configs/local/station.yaml`. The guide explains which entry points
 read it automatically and which still use separate configuration.
 
-An experiment starts at `manimux/configs/experiments/<task>/<experiment>.yaml`.
+An experiment starts at `manimux/configs/experiments/<task>/<model>/<experiment>.yaml`.
 `manimux.cli.read_experiment()` resolves references and selected station bindings;
 `load_config()` supplies runtime defaults. These readers do not connect hardware or services.
 
 ```text
 manimux/configs/
-├── experiments/<task>/           # Robot, policy, adapter, inference and execution choices
-├── embodiment/                  # arm / end_effector / sensor / robot assembly
+├── experiments/<task>/<model>/  # Robot, policy, adapter, inference and execution choices
+├── examples/                   # Annotated complete configurations and launch walkthrough
+├── embodiment/                 # arm / end_effector / sensor / robot assembly
 ├── policy/<model>/<embodiment>/  # Deployment recipes consumed by XPolicyLab
-├── inference/                   # Reusable inference scheduling parameters
-├── executor/                    # Reusable smoothing and motion limits
-├── local/                       # Templates and the private local station file
-├── collection/                  # Collection entry points
-└── viewer/                      # Display and camera-preview layouts
+├── inference/                  # Reusable inference scheduling parameters
+├── executor/                   # Reusable smoothing and motion limits
+├── local/                      # Templates and the private local station file
+└── viewer/                     # Display and camera-preview layouts
 ```
 
 Camera combinations live in `embodiment/sensor/cameras/`; IK settings belong to their
@@ -37,6 +37,9 @@ Root [`envs/`](../../envs/README.md) describes local Python environments;
 that location by XPolicyLab. These have different purposes from experiment/station YAML.
 Moving directories alone does not migrate every historical deployment entry point.
 
+Start with the [annotated Pi05 RTC example](examples/README.md) for component references,
+`run` versus `serve`, and the Viewer experiment workflow.
+
 ## Action spacing and command frequency
 
 Each experiment explicitly declares `policy.action_dt_s`, `policy.horizon_policy_steps`,
@@ -49,11 +52,6 @@ Each experiment explicitly declares `policy.action_dt_s`, `policy.horizon_policy
   per second. This is a separate experiment choice, not the current RTC 30k recipe.
 - `executor.smooth.cutoff_hz` is a filter cutoff, not an interpolation or command rate.
 
-YAM collection separately requires `collection_hz` in its station entry point. Synchronous
-collection requires it to match `robot.control_hz`; threaded collection may submit leader
-targets at one rate and execute robot commands at another. Collection timing is never derived
-from `policy.action_dt_s`.
-
 Shared YAML is packaged with the code. References resolve relative to the referring YAML.
 Run output paths remain relative to the process's working directory unless the station
 supplies an output override; records are not implicitly written into the package.
@@ -64,7 +62,7 @@ Private station files are ignored by Git and excluded from packages.
 ```yaml
 robot:
   type: yam
-  config: ../../embodiment/robot/yam_dual.yaml
+  config: ../../../embodiment/robot/yam_dual.yaml
   control_hz: 30.0
 policy:
   worker: xpolicylab_ws
@@ -77,17 +75,17 @@ policy:
   action_dt_s: 0.03333333333333333
   horizon_policy_steps: 50
 policy_server:
-  config: ../../policy/pi05/yam/put-bottles/joint-step30000.yaml
+  config: ../../../policy/pi05/yam/put-bottles/joint-step30000.yaml
 inference:
   algorithm: rtc
-  config: ../../inference/yam_rtc.yaml
+  config: ../../../inference/yam_rtc.yaml
 executor:
   type: smooth
-  config: ../../executor/yam_smooth.yaml
+  config: ../../../executor/yam_smooth.yaml
 ```
 
 This illustrates the fields; see the complete
-[Pi05 RTC experiment](experiments/put_bottles/yam_pi05_rtc_joint_step30000.yaml).
+[Pi05 RTC experiment](experiments/put_bottles/pi05/yam_pi05_rtc_joint_step30000.yaml).
 The policy service address comes from the station. `policy.adapter` selects a Python
 implementation and its mappings directly, without a separate YAML for every adapter.
 See [policy adapters](../policy_adapter/README.md).
@@ -97,9 +95,13 @@ can serve different models with the same contract. XPolicyLab owns model normali
 and internal encoding. ManiMux owns robot groups, observation mapping and necessary FK/IK.
 The adapter base class does not guess a default joint-action format.
 
-Each of `policy`, `policy_server`, `inference` and `executor` can reference one base file.
+Each of `policy`, `policy_server`, `camera_server`, `inference` and `executor` can reference one base file.
 Experiment values override that file; lists are replaced as a whole. References are expanded
 one level. `robot.config` refers to the assembled robot configuration.
+
+For example, `camera_server.config: ../../../embodiment/sensor/cameras/realsense_3_views.yaml`
+selects named camera components for a YAM experiment. Device serials still come from the
+station; this component recipe is distinct from `cameras/realsense_3_views_standalone.yaml`.
 
 Physical runtime startup selects `--local`, then an explicit experiment `local:` reference,
 then the default station file. A CLI path is relative to the working directory; an experiment
@@ -121,7 +123,7 @@ Model services run in separate environments. Legacy native ABC/MolmoAct experime
 use this directory layout; that move does not mean their models have migrated to XPolicyLab.
 
 The Xiaomi Robotics 1 pass-ball checkpoint on Tianji-TacCap uses
-`experiments/pass_ball/tianji_taccap_xiaomi_xr1_step50000.yaml` and the policy recipe at
+`experiments/pass_ball/xiaomi-xr1/tianji_taccap_xiaomi_xr1_step50000.yaml` and the policy recipe at
 `policy/xiaomi-xr1/tianji/pass_ball/step50000.yaml`. Its Cartesian action adapter is selected
 by the experiment and performs inline FK/IK using the assembled Tianji robot kinematics.
 See the [XR-1 Tianji-TacCap runbook](../../docs/xiaomi-xr1-tianji-taccap-runbook.md).

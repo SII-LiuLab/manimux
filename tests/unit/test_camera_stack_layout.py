@@ -109,22 +109,6 @@ def test_rgb_depth_frame_and_time_stay_paired(sdk, monkeypatch):
     camera.close()
 
 
-def test_collection_uses_same_rgb_backend_and_keeps_exposure_and_depth_scale(sdk):
-    from manimux.collection.yam.camera.realsense import RealSense
-
-    events, rgb, depth, _ = sdk
-    camera = RealSense(
-        "top", "front", serial="serial", enable_depth=True, exposure_us=5000, white_balance=4200
-    )
-    frame = camera.read()
-    np.testing.assert_array_equal(frame.images["rgb"], rgb)
-    np.testing.assert_array_equal(frame.depth, depth)
-    assert frame.depth_scale == 0.001
-    assert ("exposure", 5000) in events and ("white_balance", 4200) in events
-    assert "align" not in events  # Original collection depth remains unaligned.
-    assert frame.meta["sequence"] == 1
-    camera.stop()
-
 
 def test_camera_server_uses_same_component_and_legacy_stream_defaults(sdk, monkeypatch):
     from manimux.servers.camera.server import _open_rgbd
@@ -213,11 +197,11 @@ def test_yam_camera_service_resolves_assembly_and_local_serials():
 
     root = Path(__file__).resolve().parents[2]
     config = load_config(
-        root / "manimux/configs/experiments/put_bottles/yam_pi05_joint.yaml",
+        root / "manimux/configs/experiments/put_bottles/pi05/yam_pi05_joint.yaml",
         local=root / "manimux/configs/local/yam.example.yaml",
     )
     cameras = camera_config(config)["sensors"]["cameras"]
-    standalone = yaml.safe_load((root / "manimux/configs/embodiment/sensor/cameras/yam.yaml").read_text())["sensors"]["cameras"]
+    standalone = yaml.safe_load((root / "manimux/configs/embodiment/sensor/cameras/realsense_3_views_standalone.yaml").read_text())["sensors"]["cameras"]
     assert {name: spec["camera_serial"] for name, spec in cameras.items()} == {
         name: spec["device_id"] for name, spec in standalone.items()
     }

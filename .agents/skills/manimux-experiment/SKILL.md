@@ -1,6 +1,6 @@
 ---
 name: manimux-experiment
-description: Select paired ManiMux policy-server and runtime configs, explain service roles, provide full startup commands and operate requested robot experiments. Use for inference, collection startup and runtime-mode changes on an already specified station.
+description: Select paired ManiMux policy-server and runtime configs, explain service roles, provide full startup commands and operate requested robot experiments. Use for inference startup and runtime-mode changes on an already specified station.
 ---
 
 # ManiMux Experiment
@@ -35,7 +35,7 @@ The existing Pi05 pure-joint 30k example, assuming its local environments, devic
 checkpoint paths have been prepared, is four separate terminals:
 
 ```bash
-envs/yam/.venv/bin/python -m manimux.servers.camera.server --config manimux/configs/embodiment/sensor/cameras/yam.yaml
+envs/yam/.venv/bin/python -m manimux.servers.camera.server --config manimux/configs/embodiment/sensor/cameras/realsense_3_views_standalone.yaml
 ```
 ```bash
 envs/yam/.venv/bin/python -m manimux.viewer.dashboard --robot yam --host 127.0.0.1 --port 8086
@@ -46,7 +46,7 @@ XPolicyLab/policy/Pi_05/openpi/.venv/bin/python -m manimux.servers.pi05 \
 ```
 ```bash
 envs/yam/.venv/bin/python -m manimux serve \
-  --config manimux/configs/experiments/put_bottles/yam_pi05_rtc_joint_step30000.yaml
+  --config manimux/configs/experiments/put_bottles/pi05/yam_pi05_rtc_joint_step30000.yaml
 ```
 
 Read `docs/guideline.md` and the chosen model/body runbook for another recipe. These are
@@ -64,10 +64,7 @@ launcher binds a real checkpoint to a paired server/runtime configuration.
   its driver during startup. Prepare can move YAM when the chosen config enables it.
   Inspect the selected runtime for paused inference behavior rather than assuming that
   inference and command execution start together.
-- For collection, use the body's own entry point. YAM uses
-  `python -m manimux.collection --config manimux/configs/collection/yam/station.yaml` from its
-  hardware environment; `--mock` selects a hardware-free GUI. Starting teleop includes
-  alignment and following, not merely opening a connection. See `docs/yam-collection.md`.
+- Teleoperation and demonstration collection are outside this repository.
 - Report which config/endpoint is running and the actual session/episode output directory.
   Distinguish configuration inspection, offline forward, server readiness and robot execution.
   A completed rollout is not itself evidence that the manipulation task succeeded.

@@ -16,7 +16,6 @@ Policy × Runtime × Embodiment
 [![Embodiments: hardware components](https://img.shields.io/badge/Embodiments-Hardware%20Components-2563EB?style=flat-square)](docs/README.md#support-counts)
 [![Inference: 8 modes](https://img.shields.io/badge/Inference-8%20Modes-F97316?style=flat-square)](docs/README.md#support-counts)
 <br/>
-[![Collection: Teleop, UMI and DAgger; implementation status in roadmap](https://img.shields.io/badge/Collection-Teleop%20%7C%20UMI%20%7C%20DAgger-D97706?style=flat-square)](docs/README.md#collection-status)
 [![Evaluation: human feedback and LLM judge](https://img.shields.io/badge/Evaluation-Human%20%2B%20LLM%20Judge-DB2777?style=flat-square)](docs/prm-as-a-judge.md)
 
 [English](README.md) · [简体中文](README.zh-CN.md)
@@ -25,7 +24,7 @@ Policy × Runtime × Embodiment
 
 </div>
 
-**ManiMux brings data collection, policy deployment and evaluation onto a shared real-robot
+**ManiMux brings policy deployment and evaluation onto a shared real-robot
 control foundation.** Instead of rebuilding the deployment stack for every model or robot,
 choose the **policy, runtime strategy, executor and embodiment** through configuration.
 Standard interfaces separate model inference from hardware control, making integrations reusable
@@ -36,10 +35,8 @@ across embodiments rather than tied to one model–robot pair.
 **XPolicyLab** provides the model integration boundary; human labels and **PRM-as-a-Judge**
 support evaluation of the recorded experiments.
 
-**Collect with the control semantics you deploy with.** Teleoperation reuses ManiMux's hardware
-interfaces and shared control profiles to align action timing, joint/gripper conventions and
-motion limits between demonstrations and policy execution. Optional execution smoothing stays
-an explicit choice—not a hidden difference in a separate deployment stack.
+**Scope:** ManiMux owns policy deployment, runtime recording, replay and evaluation.
+Teleoperation and demonstration collection are maintained outside this repository.
 
 > 📖 Connecting your own YAM or Tianji–TacCap? Start with [local station setup](manimux/configs/local/README.md). Installation and launch commands are in the [Guideline](docs/guideline.md); model and method guides are in [Documentation](docs/README.md).
 
@@ -57,13 +54,13 @@ devices. Users and coding agents should start with the [station guide](manimux/c
 
 Runtime startup and the camera, Pi05 and UMI_DP `--experiment` entry points automatically
 read this private, Git-ignored station file. Use `--local <path>` to select another station.
-Viewer network options, collection and other model launchers still have separate entry points;
+Viewer network options and other model launchers still have separate entry points;
 the [station guide](manimux/configs/local/README.md#scope-and-remaining-independent-entry-points)
 explains their scope.
 
 ## News
 
-- **[2026-09-13] Initial version in development.** We are building a shared foundation for configurable policy deployment, teleoperation collection and GUI-driven real-robot experiments.
+- **[2026-09-13] Initial version in development.** We are building a shared foundation for configurable policy deployment and GUI-driven real-robot experiments.
 
 <a id="features"></a>
 
@@ -75,11 +72,8 @@ explains their scope.
 | Cross-embodiment interfaces | ✅ | Shared contracts; component-based hardware assemblies |
 | Inference methods | ✅ | Async, serial, RTC, PAINT and adaptive chunking |
 | Robo GUI | ✅ | Rollout controls, cameras, 3D state, trajectories and chunk timelines |
-| Teleop collection | ✅ | Leader policy + YAM GUI, with ManiMux follower control |
-| Collection / deployment alignment | ✅ | Shared hardware interfaces, action timing and arm / gripper limits |
 | Execution evidence | ✅ | Configs, observations, actions, commands, feedback, events and video |
 | Evaluation | ✅ | Human labels + offline PRM / LLM judging |
-| UMI / DAgger collection | — | [Collection roadmap](docs/README.md#collection-status) |
 
 ✅ denotes implemented functionality, not validation of every model / hardware combination.
 [Support counts](docs/README.md#support-counts) also include model-only paths.
@@ -116,11 +110,9 @@ flowchart LR
     PLAN["<b>ADAPT & SCHEDULE</b><br/>Async · RTC · PAINT<br/>Serial · adaptive<br/><br/>Adapter → Timeline"]:::handoff
     ACT["<b>EXECUTE</b><br/>Direct · Smooth · MPC<br/><br/>Executor + Safety<br/>Control profile"]:::stage
     ROBOT(["<b>ROBOT</b><br/>RobotBase<br/>Hardware"]):::robot
-    TELEOP["<b>COLLECT</b><br/>YAM GUI<br/>LeaderPolicy"]:::collection
     REVIEW(["<b>REVIEW</b><br/>Robo GUI · records<br/>Human labels<br/>PRM-as-a-Judge"]):::side
 
     OBS --> THINK --> PLAN --> ACT --> ROBOT
-    TELEOP --> ACT
     ACT -.-> REVIEW
 
     classDef stage fill:#F6F8FA,stroke:#8C959F,stroke-width:1px,color:#1F2328
@@ -129,12 +121,10 @@ flowchart LR
     classDef robot fill:#1F2328,stroke:#1F2328,color:#FFFFFF
     classDef xpolicy fill:#8957E5,stroke:#6633B8,color:#FFFFFF
     classDef native fill:#2F6FEB,stroke:#1B4DB1,color:#FFFFFF
-    classDef collection fill:#1A7F55,stroke:#125C3D,color:#FFFFFF
     style THINK fill:#FFFFFF,stroke:#8C959F,stroke-dasharray:5 4,color:#1F2328
 ```
 
-Model servers never command hardware. Teleoperation bypasses chunk scheduling and reuses the
-execution interfaces, while retaining its own collection GUI and recording format.
+Model servers never command hardware. Runtime recording and offline replay remain part of ManiMux.
 New model integrations must follow the [XPolicyLab-only route](AGENTS.md#model-integration-xpolicylab-only);
 the native paths shown here remain for compatibility pending migration.
 
@@ -159,7 +149,7 @@ services if already running; collection and inference must not control the same 
 ```bash
 # Terminal 1: cameras
 envs/yam/.venv/bin/python -m manimux.servers.camera.server \
-  --experiment manimux/configs/experiments/put_bottles/yam_pi05_rtc_joint_step30000.yaml
+  --experiment manimux/configs/experiments/put_bottles/pi05/yam_pi05_rtc_joint_step30000.yaml
 
 # Terminal 2: Viewer
 envs/yam/.venv/bin/python -m manimux.viewer.dashboard --robot yam --host 127.0.0.1 --port 8086
@@ -167,11 +157,11 @@ envs/yam/.venv/bin/python -m manimux.viewer.dashboard --robot yam --host 127.0.0
 # Terminal 3: pure-joint 30k model server
 XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
   -m manimux.servers.pi05 \
-  --experiment manimux/configs/experiments/put_bottles/yam_pi05_rtc_joint_step30000.yaml
+  --experiment manimux/configs/experiments/put_bottles/pi05/yam_pi05_rtc_joint_step30000.yaml
 
 # Terminal 4: matching RTC runtime
 envs/yam/.venv/bin/python -m manimux serve \
-  --config manimux/configs/experiments/put_bottles/yam_pi05_rtc_joint_step30000.yaml
+  --config manimux/configs/experiments/put_bottles/pi05/yam_pi05_rtc_joint_step30000.yaml
 ```
 
 Open **http://127.0.0.1:8086**, then **Prepare → Start rollout → Finish & Home**.
@@ -182,7 +172,7 @@ Keep the server and runtime configs paired: this example uses **joint**, not **j
 
 - **Run:** [Guideline](docs/guideline.md) · [Configuration](manimux/configs/README.md).
 - **Integrate:** [Components and policy runbooks](docs/README.md) · [Inference methods](docs/README.md#inference-and-execution).
-- **Collect / evaluate:** [YAM collection](docs/yam-collection.md) · [Experiment workflow](docs/experiment-infra.md) · [PRM guide](docs/prm-as-a-judge.md).
+- **Evaluate:** [Experiment workflow](docs/experiment-infra.md) · [PRM guide](docs/prm-as-a-judge.md).
 - **Extend:** [Architecture contracts](docs/architecture.md).
 
 <a id="citation"></a>

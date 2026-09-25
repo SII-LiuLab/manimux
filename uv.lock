@@ -929,15 +929,6 @@ abc-yam = [
     { name = "requests" },
     { name = "uvicorn", extra = ["standard"] },
 ]
-collection = [
-    { name = "av" },
-    { name = "fastapi" },
-    { name = "h5py" },
-    { name = "httpx" },
-    { name = "opencv-python" },
-    { name = "pyudev", marker = "sys_platform == 'linux'" },
-    { name = "uvicorn" },
-]
 molmoact-yam = [
     { name = "fastapi" },
     { name = "h5py" },
@@ -957,6 +948,9 @@ molmoact-yam = [
 ]
 realsense = [
     { name = "pyrealsense2" },
+]
+replay = [
+    { name = "av" },
 ]
 tianji-diff-ik = [
     { name = "osqp" },
@@ -989,16 +983,13 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "accelerate", marker = "extra == 'xr1-yam'", specifier = ">=1.11" },
-    { name = "av", marker = "extra == 'collection'", specifier = ">=12" },
+    { name = "av", marker = "extra == 'replay'", specifier = ">=12" },
     { name = "fastapi", marker = "extra == 'abc-yam'", specifier = ">=0.116" },
-    { name = "fastapi", marker = "extra == 'collection'", specifier = ">=0.116" },
     { name = "fastapi", marker = "extra == 'molmoact-yam'", specifier = ">=0.116" },
     { name = "fastapi", marker = "extra == 'xr1-yam'", specifier = ">=0.116" },
     { name = "ftfy", marker = "extra == 'abc-yam'", specifier = ">=6.2" },
-    { name = "h5py", marker = "extra == 'collection'", specifier = ">=3.11" },
     { name = "h5py", marker = "extra == 'molmoact-yam'", specifier = ">=3.11" },
     { name = "hf-transfer", marker = "extra == 'molmoact-yam'", specifier = ">=0.1.8" },
-    { name = "httpx", marker = "extra == 'collection'", specifier = ">=0.27" },
     { name = "huggingface-hub", marker = "extra == 'molmoact-yam'", specifier = ">=0.36" },
     { name = "json-numpy", marker = "extra == 'abc-yam'", specifier = ">=2.1.0" },
     { name = "json-numpy", marker = "extra == 'molmoact-yam'", specifier = ">=2.1.0" },
@@ -1010,14 +1001,12 @@ requires-dist = [
     { name = "mujoco", specifier = ">=3.3" },
     { name = "numpy", specifier = ">=1.26,<2.5" },
     { name = "omegaconf", marker = "extra == 'molmoact-yam'", specifier = ">=2.3" },
-    { name = "opencv-python", marker = "extra == 'collection'", specifier = ">=4.10" },
     { name = "opencv-python", marker = "extra == 'molmoact-yam'", specifier = ">=4.10" },
     { name = "osqp", marker = "extra == 'tianji-diff-ik'", specifier = ">=1,<2" },
     { name = "pillow", specifier = ">=10" },
     { name = "pydantic", specifier = ">=2.8" },
     { name = "pyrealsense2", marker = "extra == 'molmoact-yam'", specifier = ">=2.55" },
     { name = "pyrealsense2", marker = "extra == 'realsense'", specifier = ">=2.55" },
-    { name = "pyudev", marker = "sys_platform == 'linux' and extra == 'collection'", specifier = ">=0.24" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "pyzmq", specifier = ">=26" },
     { name = "regex", marker = "extra == 'abc-yam'", specifier = ">=2024.5.15" },
@@ -1032,7 +1021,6 @@ requires-dist = [
     { name = "transformers", marker = "extra == 'molmoact-yam'", specifier = ">=4.57,<4.58" },
     { name = "transformers", marker = "extra == 'xr1-yam'", specifier = "==4.57.1" },
     { name = "tyro", marker = "extra == 'molmoact-yam'", specifier = ">=1.0.13" },
-    { name = "uvicorn", marker = "extra == 'collection'", specifier = ">=0.35" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'abc-yam'", specifier = ">=0.35" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'molmoact-yam'", specifier = ">=0.35" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'xr1-yam'", specifier = ">=0.35" },
@@ -1041,7 +1029,7 @@ requires-dist = [
     { name = "yourdfpy", specifier = ">=0.0.58" },
     { name = "zarr", specifier = ">=2.18,<3" },
 ]
-provides-extras = ["realsense", "tianji-diff-ik", "collection", "molmoact-yam", "xpolicylab", "abc-yam", "xr1-yam"]
+provides-extras = ["realsense", "tianji-diff-ik", "replay", "molmoact-yam", "xpolicylab", "abc-yam", "xr1-yam"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1805,15 +1793,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/82/ed/0301aeeac3e5353ef3d94b6ec08bbcabd04a72018415dcb29e588514bba8/python_dotenv-1.2.2.tar.gz", hash = "sha256:2c371a91fbd7ba082c2c1dc1f8bf89ca22564a087c2c287cd9b662adde799cf3", size = 50135, upload-time = "2026-03-01T16:00:26.196Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/0b/d7/1959b9648791274998a9c3526f6d0ec8fd2233e4d4acce81bbae76b44b2a/python_dotenv-1.2.2-py3-none-any.whl", hash = "sha256:1d8214789a24de455a8b8bd8ae6fe3c6b69a5e3d64aa8a8e5d68e694bbcb285a", size = 22101, upload-time = "2026-03-01T16:00:25.09Z" },
-]
-
-[[package]]
-name = "pyudev"
-version = "0.24.4"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/5e/1d/8bdbf651de1002e8b58fbe817bee22b1e8bfcdd24341d42c3238ce9a75f4/pyudev-0.24.4.tar.gz", hash = "sha256:e788bb983700b1a84efc2e88862b0a51af2a995d5b86bc9997546505cf7b36bc", size = 56135, upload-time = "2025-10-08T17:26:58.661Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/2a/51/3dc0cd6498b24dea3cdeaed648568e3ca7454d41334d840b114156d7479f/pyudev-0.24.4-py3-none-any.whl", hash = "sha256:b3b6b01c68e6fc628428cc45ff3fe6c277afbb5d96507f14473ddb4a6b959e00", size = 62784, upload-time = "2025-10-08T17:26:57.664Z" },
 ]
 
 [[package]]

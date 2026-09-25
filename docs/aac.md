@@ -97,6 +97,6 @@ Python 编译。
 已验证 Pi05 `N=20, H=50` 的真实 4090 forward：首次 JIT `7036.7 ms`，三次 warm round
 trip 为 `530.1/509.9/515.4 ms`。未验证 GR00T N1.7 `N=20` 的真实 GPU forward、Pi05
 长时间显存稳定性、YAM EE motion threshold、相机/CAN/真机行为。配置位于
-`manimux/configs/experiments/<task>/{yam_groot,yam_pi05}_aac*.yaml`，在真机 gate 完成前不标记为硬件可运行。Pi05
+`manimux/configs/experiments/<task>/<model>/{yam_groot,yam_pi05}_aac*.yaml`，在真机 gate 完成前不标记为硬件可运行。Pi05
 逐文件审计见
 [`docs/reproductions/aac-pi05.md`](reproductions/aac-pi05.md)。

@@ -123,7 +123,7 @@ Terminal 2 启动共享相机服务；已有 `5555` 服务时不要重复启动�
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/manimux-camera-server --config manimux/configs/embodiment/sensor/cameras/yam.yaml
+envs/yam/.venv/bin/manimux-camera-server --config manimux/configs/embodiment/sensor/cameras/realsense_3_views_standalone.yaml
 ```
 
 先检查两路 CAN：

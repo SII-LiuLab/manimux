@@ -10,7 +10,7 @@
 
 ```bash
 uv venv --python 3.12 envs/yam/.venv
-uv pip install --python envs/yam/.venv/bin/python -e '.[collection,realsense,xpolicylab]'
+uv pip install --python envs/yam/.venv/bin/python -e '.[replay,realsense,xpolicylab]'
 uv pip install --python envs/yam/.venv/bin/python \
   'git+https://github.com/i2rt-robotics/i2rt.git@5d47b358bafb30c65e397f2ece506550a0db4594'
 ```
@@ -34,8 +34,9 @@ uv pip install --python envs/yam/.venv/bin/python \
 
 组件配置是 `manimux/configs/embodiment/arm/yam.yaml`。CAN 通道由整机的
 `component_hardware` 或 local 配置绑定。双臂组装见
-[整机说明](../../robot/yam/README.md)。教学手柄也使用同一个控制器，按钮与主从
-映射留在 `collection/yam/robot/yam_adapter.py`。
+[整机说明](../../robot/yam/README.md)。
+
+Teleoperation and demonstration collection are maintained outside this repository.
 
 本次删除原始 CAN 旁路记录和锁耗时探针。正常 SDK 状态读取、图像、实际关节及
 提交动作的 episode 记录继续保留；历史原始反馈数据仍可离线读取。

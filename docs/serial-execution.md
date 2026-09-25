@@ -4,7 +4,7 @@
 
 ```bash
 envs/yam/.venv/bin/manimux serve \
-  --config manimux/configs/experiments/put_bottles/yam_pi05_serial_joint_step30000.yaml
+  --config manimux/configs/experiments/put_bottles/pi05/yam_pi05_serial_joint_step30000.yaml
 ```
 
 ```yaml

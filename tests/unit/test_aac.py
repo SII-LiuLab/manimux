@@ -77,7 +77,7 @@ def _candidate_chunks(samples: int = 3, horizon: int = 4) -> list[list[dict[str,
 
 
 def _aac_config() -> dict:
-    return load_config("manimux/configs/experiments/pick_red_object/yam_pi05_aac.yaml")
+    return load_config("manimux/configs/experiments/pick_red_object/pi05/yam_pi05_aac.yaml")
 
 
 def test_aac_elbow_and_motion_floor_match_official_indexing() -> None:

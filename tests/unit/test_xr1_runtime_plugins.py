@@ -46,15 +46,15 @@ ANCHOR = np.array(
 
 @pytest.fixture(scope="module")
 def adapter() -> XR1YamAdapter:
-    config = load_config("manimux/configs/experiments/put_bottles/yam_xiaomi_xr1_manimux.yaml")
+    config = load_config("manimux/configs/experiments/put_bottles/xiaomi-xr1/yam_xiaomi_xr1_manimux.yaml")
     return build_policy_adapter(config["robot"], config["policy"])
 
 
 def test_xr1_run_config_swaps_only_the_policy_layer() -> None:
     from manimux.embodiments.robot.yam import YamRobot
 
-    xr1 = load_config("manimux/configs/experiments/put_bottles/yam_xiaomi_xr1_manimux.yaml")
-    molmoact = load_config("manimux/configs/experiments/pick_red_object/yam_molmoact2_manimux.yaml")
+    xr1 = load_config("manimux/configs/experiments/put_bottles/xiaomi-xr1/yam_xiaomi_xr1_manimux.yaml")
+    molmoact = load_config("manimux/configs/experiments/pick_red_object/molmoact2/yam_molmoact2_manimux.yaml")
 
     assert isinstance(build_robot(xr1["robot"], SystemClock()), YamRobot)
     assert isinstance(build_sensor(xr1["sensors"][0], SystemClock()), CameraServerSensorDriver)

@@ -1,6 +1,6 @@
 ---
 name: manimux-development
-description: Develop or review ManiMux robot drivers, cameras, policy adapters, runtime strategies, collection and Viewer features. Use to locate the right extension point and preserve collection, training and deployment compatibility.
+description: Develop or review ManiMux robot drivers, cameras, policy adapters, runtime strategies and Viewer features. Use to locate the right extension point and preserve training and deployment compatibility.
 ---
 
 # ManiMux Development
@@ -20,7 +20,6 @@ integration into a framework rewrite or add unrelated checks.
 | Observation mapping and model actions to robot actions | `manimux/policy_adapter/base.py`, `manimux/policy_adapter/` |
 | FK/IK and robot geometry | `manimux/kinematics/base.py`, `manimux/viewer/robots/base.py` and their body-specific implementations |
 | Chunk scheduling and command generation | `manimux/runtime/inference.py`, `manimux/runtime/executors/base.py` |
-| Collection GUI and recording | `manimux/collection/`; retain separate implementations per embodiment |
 | Experiment UI, timelines and rollout evidence | `manimux/viewer/`, `manimux/recording/` |
 
 Shared state, frame, request and action structures live in `manimux/types.py`.
@@ -50,17 +49,14 @@ calls `prepare_request(request)` and `decode_action(raw, context)` directly.
 - Use a matching fake SDK or mock driver for the changed behavior. For a new body,
   exercise its actual group names and dimensions rather than copying a dual-arm fixture.
 
-## Keep collection, training and deployment consistent
+## Keep training and deployment consistent
 
-Collection does not need a cross-body GUI or a universal teleoperation implementation.
-YAM's example is `manimux/configs/collection/yam/station.yaml` → `manimux/configs/collection/yam/control.yaml`
-→ `manimux/configs/embodiment/robot/yam_control.yaml`; inference recipes reference that same control profile.
-Declare action_dt_s in each experiment policy; the shared body profile supplies layout and limits.
-Keep joint/gripper conventions and shared motion parameters
-consistent across its collection and deployment. Preserve those meanings in training
-conversion and checkpoint normalization. Executor smoothing is a separate choice.
+Teleoperation and demonstration collection are outside this repository. Keep runtime
+rollout recording and offline replay. Declare action_dt_s in each experiment policy;
+the shared body profile supplies layout and limits. Preserve the training data's
+joint/gripper conventions and timing in deployment. Executor smoothing is separate.
 
-Put complete experiments under `manimux/configs/experiments/<task>/` and deployment recipes
+Put complete experiments under `manimux/configs/experiments/<task>/<model>/` and deployment recipes
 under `manimux/configs/policy/<model>/<embodiment>/`, without a `server/` layer. XPolicyLab
 owns model defaults and serving. Private training configurations, launchers and notes
 belong to the root's ignored `training/` workspace. Select the adapter class and its mappings

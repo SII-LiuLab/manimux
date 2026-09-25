@@ -23,10 +23,10 @@ METHODS = {
 
 @pytest.mark.parametrize("method", METHODS)
 def test_screwdriver_algorithms_share_model_and_executor(method: str) -> None:
-    baseline = load_config(EXPERIMENTS / "assemble_screwdriver/yam_pi05_manimux_step15000.yaml")
+    baseline = load_config(EXPERIMENTS / "assemble_screwdriver/pi05/yam_pi05_manimux_step15000.yaml")
     config = load_config(
         EXPERIMENTS
-        / f"assemble_screwdriver/yam_pi05_{method.replace(chr(45), chr(95))}_step15000.yaml"
+        / f"assemble_screwdriver/pi05/yam_pi05_{method.replace(chr(45), chr(95))}_step15000.yaml"
     )
     runtime, sampling, action_start_mode = METHODS[method]
 
@@ -75,7 +75,7 @@ def test_screwdriver_algorithms_share_model_and_executor(method: str) -> None:
         # Keep algorithm defaults except the screwdriver ACT query interval.
         previous = load_config(
             EXPERIMENTS
-            / f"pick_red_object/yam_pi05_{method.replace(chr(45), chr(95))}_step1000.yaml"
+            / f"pick_red_object/pi05/yam_pi05_{method.replace(chr(45), chr(95))}_step1000.yaml"
         )
         for key in ("paint", "aac", "dvac", "temporal_ensemble"):
             expected = previous["inference"][key]
@@ -90,7 +90,7 @@ def test_screwdriver_algorithms_share_model_and_executor(method: str) -> None:
 
 
 def test_screwdriver_backend_identity_matches_shared_server() -> None:
-    config = load_config(EXPERIMENTS / "assemble_screwdriver/yam_pi05_manimux_step15000.yaml")
+    config = load_config(EXPERIMENTS / "assemble_screwdriver/pi05/yam_pi05_manimux_step15000.yaml")
     server_path = ROOT / f"manimux/configs/policy/pi05/yam/finetune-{SUFFIX}.yaml"
     server = yaml.safe_load(server_path.read_text())
     assert config["policy"]["expected_backend"] is not None
@@ -111,7 +111,7 @@ def test_screwdriver_backend_identity_matches_shared_server() -> None:
 
 
 def test_screwdriver_aac_scoring_stats_are_present_and_separate() -> None:
-    config = load_config(EXPERIMENTS / "assemble_screwdriver/yam_pi05_aac_step15000.yaml")
+    config = load_config(EXPERIMENTS / "assemble_screwdriver/pi05/yam_pi05_aac_step15000.yaml")
     stats = config["inference"]["aac"]["ee_stats_path"]
     assert stats is not None
     assert (ROOT / stats).is_file()

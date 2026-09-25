@@ -1,0 +1,84 @@
+# Complete YAM / Pi05 joint / put-bottles example.
+# References are relative to THIS file. See README.md before launching.
+control_profile: ../embodiment/robot/yam_control.yaml
+
+run:
+  task: Put the bottles into the bin.
+  output_dir: ./data/experiments/examples/yam-pi05-rtc
+  max_control_steps: 12000
+  # Viewer evaluation workflow; independent of inference and robot execution.
+  experiment_mode: false
+  layout_id: example
+
+robot:
+  type: yam
+  config: ../embodiment/robot/yam_dual.yaml
+  control_hz: 30.0
+  options:
+    # This still connects to hardware; it is not a mock configuration.
+    execute: false
+    move_to_start_on_connect: false
+    start_joints:
+      left_arm: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+      right_arm: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+    start_duration_s: 2.0
+    home_duration_s: 2.0
+    home_on_close: false
+
+# Runtime camera client: choose which named streams to read.
+sensors:
+- name: yam_cameras
+  driver: camera_server
+  service: camera
+  options:
+    request_timeout_ms: 500
+    max_frame_age_sec: 0.5
+    camera_names: [left_camera, front_camera, right_camera]
+
+# Runtime policy client and observation/action adapter.
+policy:
+  worker: xpolicylab_ws
+  service: policy
+  adapter:
+    type: manimux.policy_adapter.joint:JointAdapter
+    camera_map:
+      cam_head: front_camera
+      cam_left_wrist: left_camera
+      cam_right_wrist: right_camera
+  # Model action spacing, independent of robot.control_hz.
+  action_dt_s: 0.03333333333333333
+  horizon_policy_steps: 50
+  inference_delay_s: 0.0
+  timeout_s: 2.0
+  startup_timeout_s: 30.0
+  options:
+    request_timeout_s: 10.0
+
+viewer:
+  enabled: true
+  robot: yam
+  policy_label: Pi05 RTC example - execution disabled
+
+recording:
+  enabled: true
+  video_fps: 30.0
+
+# Scheduling and chunk handoff. Inline fields override this shared preset.
+inference:
+  algorithm: rtc
+  config: ../inference/yam_rtc.yaml
+  # Timeline discards elapsed action points without rewriting observation time.
+  action_start_mode: skip_elapsed_steps
+
+# Command smoothing and limits are independent of inference scheduling.
+executor:
+  type: smooth
+  config: ../executor/yam_smooth_control_profile.yaml
+
+# Model-side checkpoint and sampler settings for the separate policy service.
+policy_server:
+  config: ../policy/pi05/yam/put-bottles/joint-step30000.yaml
+
+# Camera service: choose devices by component name; serials come from station.yaml.
+camera_server:
+  config: ../embodiment/sensor/cameras/realsense_3_views.yaml

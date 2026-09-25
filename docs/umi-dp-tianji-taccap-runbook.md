@@ -74,7 +74,7 @@ switches. These remain in the assembly and experiment.
 
 The following recipes all support the shared station file:
 
-| Experiment under `manimux/configs/experiments/pass_ball/` | Scheduling |
+| Experiment under `manimux/configs/experiments/pass_ball/umi_dp/` | Scheduling |
 | --- | --- |
 | `tianji_taccap_umi_dp.yaml` | Component-based experiment with `manimux` scheduling |
 | `tianji_taccap_umi_dp_diff.yaml` | Component-based `manimux` experiment using differential IK |
@@ -91,7 +91,7 @@ Bind checkpoint identity in the model environment before launching a runtime:
 
 ```bash
 envs/umi_dp/.venv/bin/python -m manimux.servers.umi_dp \
-  --experiment manimux/configs/experiments/pass_ball/tianji_taccap_umi_dp.yaml \
+  --experiment manimux/configs/experiments/pass_ball/umi_dp/tianji_taccap_umi_dp.yaml \
   --bind-runtime-config .local/pass_ball/run.yaml
 ```
 
@@ -105,7 +105,7 @@ bound pair beside the private station file:
 
 ```bash
 envs/umi_dp/.venv/bin/python -m manimux.servers.umi_dp \
-  --experiment manimux/configs/experiments/pass_ball/tianji_taccap_umi_dp_diff_live.yaml \
+  --experiment manimux/configs/experiments/pass_ball/umi_dp/tianji_taccap_umi_dp_diff_live.yaml \
   --local manimux/configs/local/station.yaml \
   --bind-runtime-config manimux/configs/local/deployments/tianji_taccap_umi_dp_diff_live.yaml
 ```

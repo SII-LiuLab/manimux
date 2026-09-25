@@ -123,7 +123,7 @@ def test_duplicate_service_exits_before_camera_access(running_camera_service):
             "-m",
             "manimux.servers.camera.server",
             "--experiment",
-            "manimux/configs/experiments/pass_ball/tianji_taccap_umi_dp.yaml",
+            "manimux/configs/experiments/pass_ball/umi_dp/tianji_taccap_umi_dp.yaml",
             "--local",
             "manimux/configs/local/tianji_taccap.example.yaml",
             "--rep-endpoint",

@@ -29,7 +29,7 @@ class _Adapter:
 
 
 def _config() -> dict:
-    return load_config("manimux/configs/experiments/pick_red_object/yam_pi05_paint_step1000.yaml")
+    return load_config("manimux/configs/experiments/pick_red_object/pi05/yam_pi05_paint_step1000.yaml")
 
 
 def _snapshot(now_ns: int) -> ObservationSnapshot:

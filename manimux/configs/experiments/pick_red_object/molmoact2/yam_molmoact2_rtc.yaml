@@ -1,0 +1,95 @@
+# 一次 rollout 最多执行的控制步数；达到后自动回 Home 并退出。
+  # 老师原 ManiMux 的时间定义：相邻两个 Policy 点间隔 0.05 秒。
+    # RTC 的 VJP 引导让推理慢 2.2 倍（10 步采样时 613ms）。降到 5 步压回
+    # 7 步延迟，可行窗口 d<=s<=H-d 才有余量。
+# Inference controls requests and chunk handoff; the executor controls smoothing and limits.
+    # 配 5 步采样：(t²+(1−t)²)/(t(1−t)) 在 t=1/5 处 ≈ 4.25
+    # 运动整形（低通/速度/加速度/位置限制）复用下面的 execution.smooth，
+    # 和默认 runtime 完全同一套参数，只是折进 chunk 而不是放在下游。
+    # Policy 执行时的关节最高速度（rad/s）。
+    # Policy 执行时的关节最大加速度（rad/s^2）。
+run:
+  task: Pick the red ball up and place it into the box.
+  output_dir: ./data
+  max_control_steps: 1600
+
+robot:
+  config: ../../../embodiment/robot/yam_dual.yaml
+  control_hz: 20.0
+  options:
+    move_to_start_on_connect: true
+    start_duration_s: 5.0
+    home_duration_s: 5.0
+    home_on_close: true
+    start_joints:
+      left_arm:
+      - -0.6094071869993112
+      - 0.5834668497749291
+      - 0.8424887464713517
+      - -1.0168230716411042
+      - -0.11081864652475382
+      - -0.45796139467459973
+      - 0.9969282527609157
+      right_arm:
+      - 0.321393148699169
+      - 0.5643930724040587
+      - 0.8009079118028541
+      - -1.01796749828336
+      - -0.18024719615472584
+      - 0.4129472800793472
+      - 0.994773647405226
+    execute: true
+  type: yam
+
+sensors:
+- name: yam_cameras
+  driver: camera_server
+  service: camera
+  options:
+    request_timeout_ms: 500
+    max_frame_age_sec: 0.5
+    camera_names: [left_camera, front_camera, right_camera]
+
+policy:
+  worker: molmoact_http
+  service: policy_molmoact
+  adapter:
+    type: manimux.policy_adapter.molmoact_yam:MolmoActYamAdapter
+    camera_map:
+      left_cam: left_camera
+      top_cam: front_camera
+      right_cam: right_camera
+  action_dt_s: 0.05
+  timeout_s: 1.0
+  horizon_policy_steps: 30
+  inference_delay_s: 0.0
+  options:
+    enable_cuda_graph: true
+    num_steps: 5
+    normalization_tag: yam_dual_molmoact2
+
+viewer:
+  enabled: true
+  robot: yam
+  policy_label: MolmoAct
+
+recording:
+  enabled: true
+
+inference:
+  algorithm: rtc
+  config: ../../../inference/yam_rtc_base.yaml
+  rtc:
+    min_execute_policy_steps: 15
+    initial_delay_policy_steps: 8
+    beta: 4.25
+  max_plan_age_s: 1.0
+  blend_policy_steps: 8
+
+executor:
+  type: smooth
+  config: ../../../executor/yam_smooth_arm_standard.yaml
+
+# Device serials and service addresses come from the shared station file.
+camera_server:
+  config: ../../../embodiment/sensor/cameras/realsense_3_views.yaml

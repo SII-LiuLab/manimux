@@ -91,7 +91,7 @@ def bind_test_identity(config, *, offset=1 / 30):
 @pytest.fixture
 def adapter():
     kin = FakeKin()
-    config = load_config(ROOT / "manimux/configs/experiments/pass_ball/tianji_umi_dp_default.yaml")
+    config = load_config(ROOT / "manimux/configs/experiments/pass_ball/umi_dp/tianji_umi_dp_default.yaml")
     config["robot"]["type"] = "mock"
     bind_test_identity(config)
     assembled = SimpleNamespace(
@@ -161,7 +161,7 @@ def test_history_rejects_fake_request_history_stale_and_skewed():
 def test_history_delegates_and_validates_rtc_constraints():
     for name in ("default", "rtc"):
         config = load_config(
-            ROOT / f"manimux/configs/experiments/pass_ball/tianji_umi_dp_{name}.yaml"
+            ROOT / f"manimux/configs/experiments/pass_ball/umi_dp/tianji_umi_dp_{name}.yaml"
         )
         bind_test_identity(config)
         strategy = HistoryStrategy(config)

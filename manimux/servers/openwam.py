@@ -51,7 +51,7 @@ def main():
         if output.exists() or server_output.exists():
             raise FileExistsError("Refusing to overwrite bound deployment configs")
         runtime = read_experiment(
-            REPO / "manimux/configs/experiments/put_bottles/yam_openwam_manimux.yaml",
+            REPO / "manimux/configs/experiments/put_bottles/openwam/yam_openwam_manimux.yaml",
             bind_local=False,
         )
         identity_keys = (

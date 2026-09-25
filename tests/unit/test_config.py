@@ -16,8 +16,8 @@ from manimux.runtime.executors.smooth import gripper_hysteresis_parameters
 from manimux.runtime.safety import command_safety_parameters
 
 
-def _collection_recipe() -> dict:
-    raw = yaml.safe_load(Path("manimux/configs/collection/yam/control.yaml").read_text())
+def _control_profile_recipe() -> dict:
+    raw = yaml.safe_load(Path("tests/fixtures/yam_control_profile.yaml").read_text())
     raw["robot"]["config"] = str(
         Path("manimux/configs/embodiment/robot/yam_dual.yaml").resolve()
     )
@@ -28,30 +28,30 @@ def _collection_recipe() -> dict:
 def test_yam_control_profile_preserves_executor_choices(action_variant, tmp_path):
     station = tmp_path / "station.yaml"
     station.write_text(Path("manimux/configs/local/yam.example.yaml").read_text())
-    collection = load_config("manimux/configs/collection/yam/control.yaml", local=station)
+    direct = load_config("tests/fixtures/yam_control_profile.yaml", local=station)
     inference = load_config(
-        "manimux/configs/experiments/put_bottles/"
+        "manimux/configs/experiments/put_bottles/pi05/"
         f"yam_pi05_rtc_{action_variant.replace(chr(45), chr(95))}_step30000.yaml",
         local=station,
     )
-    assert collection["control_profile"] == inference["control_profile"]
-    assert collection["robot"]["group_dims"] == inference["robot"]["group_dims"]
-    assert collection["policy"]["action_dt_s"] == inference["policy"]["action_dt_s"]
-    assert collection["executor"]["command_safety"] == inference["executor"]["command_safety"]
+    assert direct["control_profile"] == inference["control_profile"]
+    assert direct["robot"]["group_dims"] == inference["robot"]["group_dims"]
+    assert direct["policy"]["action_dt_s"] == inference["policy"]["action_dt_s"]
+    assert direct["executor"]["command_safety"] == inference["executor"]["command_safety"]
     for side in ("left", "right"):
         assert (
-            collection["robot"]["options"]["component_hardware"][f"{side}_yam"]
+            direct["robot"]["options"]["component_hardware"][f"{side}_yam"]
             == inference["robot"]["options"]["component_hardware"][f"{side}_yam"]
         )
-    assert collection["robot"]["control_hz"] == 30
+    assert direct["robot"]["control_hz"] == 30
     recipe = yaml.safe_load(
         Path(
-            "manimux/configs/experiments/put_bottles/"
+            "manimux/configs/experiments/put_bottles/pi05/"
             f"yam_pi05_rtc_{action_variant.replace(chr(45), chr(95))}_step30000.yaml"
         ).read_text()
     )
     assert inference["robot"]["control_hz"] == recipe["robot"]["control_hz"]
-    assert collection["executor"]["type"] == "direct"
+    assert direct["executor"]["type"] == "direct"
     assert inference["executor"]["smooth"]["max_velocity"] is None
     assert inference["executor"]["smooth"]["max_acceleration"] is None
     assert inference["executor"]["smooth"]["gripper"]["max_velocity"] is None
@@ -87,7 +87,7 @@ def test_yam_control_profile_preserves_executor_choices(action_variant, tmp_path
 )
 def test_control_profile_rejects_local_conflicts(tmp_path, field, value):
     raw = loads(
-        dumps(deepcopy(load_config("manimux/configs/collection/yam/control.yaml")), default=str)
+        dumps(deepcopy(load_config("tests/fixtures/yam_control_profile.yaml")), default=str)
     )
     target = raw
     parts = field.split(".")
@@ -113,7 +113,7 @@ def test_control_profile_relative_path_and_safety_contract(tmp_path):
     }
     profile["command_safety"] = envelope
     (tmp_path / "shared.yaml").write_text(yaml.safe_dump(profile))
-    raw = _collection_recipe()
+    raw = _control_profile_recipe()
     raw["control_profile"] = "shared.yaml"
     path = tmp_path / "local.yaml"
     path.write_text(yaml.safe_dump(raw))
@@ -129,7 +129,7 @@ def test_control_profile_relative_path_and_safety_contract(tmp_path):
 def test_policy_timing_is_independent_of_shared_robot_limits(tmp_path):
     """换模型动作时间轴不修改本体限制，也不改变主循环下发频率。"""
     raw = loads(
-        dumps(deepcopy(load_config("manimux/configs/collection/yam/control.yaml")), default=str)
+        dumps(deepcopy(load_config("tests/fixtures/yam_control_profile.yaml")), default=str)
     )
     raw["policy"]["action_dt_s"] = 0.05
     raw["robot"]["control_hz"] = 100.0
@@ -145,7 +145,7 @@ def test_control_profile_rejects_recursive_inheritance(tmp_path):
     profile = yaml.safe_load(Path("manimux/configs/embodiment/robot/yam_control.yaml").read_text())
     profile["control_profile"] = "shared.yaml"
     (tmp_path / "shared.yaml").write_text(yaml.safe_dump(profile))
-    raw = _collection_recipe()
+    raw = _control_profile_recipe()
     raw["control_profile"] = "shared.yaml"
     path = tmp_path / "local.yaml"
     path.write_text(yaml.safe_dump(raw))
@@ -158,7 +158,7 @@ def test_shared_finite_motion_limits_are_resolved_for_smooth_and_direct(tmp_path
     profile["motion_limits"]["arm"] = {"max_velocity": 0.5, "max_acceleration": 2.0}
     profile["motion_limits"]["gripper"].update(max_velocity=2.0, max_acceleration=10.0)
     (tmp_path / "shared.yaml").write_text(yaml.safe_dump(profile))
-    raw = _collection_recipe()
+    raw = _control_profile_recipe()
     raw["control_profile"] = "shared.yaml"
     path = tmp_path / "local.yaml"
     for executor in ("direct", "smooth"):
@@ -189,7 +189,7 @@ def test_motion_mode_defaults_and_explicit_selection(tmp_path):
     assert arm_motion_parameters()["mode"] == "per_joint"
     with pytest.raises(ValueError):
         arm_motion_parameters(mode="unknown")
-    raw = _collection_recipe()
+    raw = _control_profile_recipe()
     profile = yaml.safe_load(Path("manimux/configs/embodiment/robot/yam_control.yaml").read_text())
     profile["motion_limits"]["arm"].update(mode="isotropic", max_step_dt_s=0.016)
     (tmp_path / "shared.yaml").write_text(yaml.safe_dump(profile))
@@ -214,7 +214,7 @@ def test_motion_mode_defaults_and_explicit_selection(tmp_path):
 
 @pytest.mark.parametrize("variant", ["default", "rtc"])
 def test_umi_pass_ball_enables_close_latch_with_shared_motion_limits(variant):
-    config = load_config(f"manimux/configs/experiments/pass_ball/tianji_umi_dp_{variant}.yaml")
+    config = load_config(f"manimux/configs/experiments/pass_ball/umi_dp/tianji_umi_dp_{variant}.yaml")
     gripper = config["executor"]["smooth"]["gripper"]
     assert gripper["mode"] == "close_latch"
     assert (gripper["close_threshold"], gripper["open_threshold"], gripper["closed_value"]) == (
@@ -248,7 +248,7 @@ def test_tianji_rate_contract_derives_one_controller_and_runtime_speed():
     assert "max_velocity" not in profile["command_safety"]
 
     config = load_config(
-        "manimux/configs/experiments/pass_ball/tianji_taccap_umi_dp.yaml"
+        "manimux/configs/experiments/pass_ball/umi_dp/tianji_taccap_umi_dp.yaml"
     )
     hardware = assembly["hardware"]
     controller_speed = (
@@ -322,9 +322,26 @@ def test_mock_config_loads() -> None:
     assert config["robot"]["group_dims"]["left_arm"] == 6
 
 
+@pytest.mark.parametrize("field", ["action_dt_s", "horizon_policy_steps"])
+def test_policy_timing_requires_explicit_config(field, tmp_path) -> None:
+    raw = yaml.safe_load(Path("tests/fixtures/runtime.yaml").read_text())
+    del raw["policy"][field]
+    path = tmp_path / "runtime.yaml"
+    path.write_text(yaml.safe_dump(raw))
+
+    with pytest.raises(TypeError, match=field):
+        load_config(path)
+
+
+def test_real_policy_does_not_inherit_fake_inference_delay() -> None:
+    config = load_config("manimux/configs/experiments/pass_ball/umi_dp/tianji_umi_dp_default.yaml")
+    assert config["policy"]["worker"] == "xpolicylab_ws"
+    assert "inference_delay_s" not in config["policy"]
+
+
 def test_total_trajectory_duration_overrides_point_spacing() -> None:
     config = load_config(
-        Path("manimux/configs/experiments/pick_red_object/yam_molmoact2_manimux.yaml")
+        Path("manimux/configs/experiments/pick_red_object/molmoact2/yam_molmoact2_manimux.yaml")
     )
 
     assert config["policy"]["trajectory_duration_s"] is None
@@ -351,7 +368,7 @@ def test_expected_backend_requires_a_stable_identity_field() -> None:
 
 
 def test_policy_recipe_generates_backend_identity() -> None:
-    path = Path("manimux/configs/experiments/assemble_screwdriver/yam_pi05_manimux_step15000.yaml")
+    path = Path("manimux/configs/experiments/assemble_screwdriver/pi05/yam_pi05_manimux_step15000.yaml")
     raw = read_experiment(path, bind_local=False)
     server = raw["policy_server"]
     identity = raw["policy"]["expected_backend"]["model"]

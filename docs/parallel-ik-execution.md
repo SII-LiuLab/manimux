@@ -1,6 +1,6 @@
 # Full IK with independent decoding processes
 
-`manimux/configs/experiments/put_bottles/yam_sapolicy_manimux_direct_async.yaml` preserves SAPolicy's
+`manimux/configs/experiments/put_bottles/sapolicy/yam_sapolicy_manimux_direct_async.yaml` preserves SAPolicy's
 full-pose IK and direct joint execution. It enables `policy.action_decoding:
 process`; the default remains `inline` for existing configurations.
 

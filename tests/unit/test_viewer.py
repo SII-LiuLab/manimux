@@ -78,7 +78,7 @@ def test_prepare_button_atomically_selects_rollout_mode(experiment_mode: bool) -
     viewer = PolicyViewer.__new__(PolicyViewer)
     viewer.lock = threading.RLock()
     viewer.experiment_mode = not experiment_mode
-    viewer.evaluation_saved = True
+    viewer.evaluation_complete = True
     viewer.service_ready = True
     viewer.new_rollout_requested = False
     viewer.preparing_rollout = False
@@ -238,11 +238,11 @@ def _camera_state(camera_map=None, frames=None, *, robot="yam"):
 @pytest.mark.parametrize(
     "config_path",
     [
-        "manimux/configs/experiments/put_bottles/yam_pi05_rtc_joint_step30000.yaml",
-        "manimux/configs/experiments/put_bottles/yam_pi05_rtc_joint_ee_step30000.yaml",
-        "manimux/configs/experiments/put_bottles/yam_sapolicy_mv51_top_rtc.yaml",
-        "manimux/configs/experiments/put_bottles/yam_sapolicy_mv51_gemini305_rtc.yaml",
-        "manimux/configs/experiments/put_bottles/yam_sapolicy_mv51_gemini335_rtc.yaml",
+        "manimux/configs/experiments/put_bottles/pi05/yam_pi05_rtc_joint_step30000.yaml",
+        "manimux/configs/experiments/put_bottles/pi05/yam_pi05_rtc_joint_ee_step30000.yaml",
+        "manimux/configs/experiments/put_bottles/sapolicy/yam_sapolicy_mv51_top_rtc.yaml",
+        "manimux/configs/experiments/put_bottles/sapolicy/yam_sapolicy_mv51_gemini305_rtc.yaml",
+        "manimux/configs/experiments/put_bottles/sapolicy/yam_sapolicy_mv51_gemini335_rtc.yaml",
     ],
 )
 @pytest.mark.parametrize("reverse_order", [False, True])
@@ -309,7 +309,7 @@ def test_tianji_wrist_views_keep_spatial_slots_without_agent_view(
     from manimux.cli import load_config
 
     camera_map = load_config(
-        f"manimux/configs/experiments/pass_ball/tianji_umi_dp_{runtime_config}.yaml",
+        f"manimux/configs/experiments/pass_ball/umi_dp/tianji_umi_dp_{runtime_config}.yaml",
     )["policy"]["adapter"]["camera_map"]
     if not include_history:
         camera_map = {
@@ -953,7 +953,7 @@ def _service_ready_viewer() -> tuple[PolicyViewer, list[str]]:
     viewer.launch_mode = "serve"
     viewer.episode_active = True
     viewer.episode_finalized = False
-    viewer.evaluation_saved = False
+    viewer.evaluation_complete = False
     viewer.experiment_mode = True
     viewer.current_episode_dir = None
     viewer.paused = False
@@ -1011,7 +1011,7 @@ def test_new_runtime_service_resets_an_unfinalized_rollout() -> None:
     assert viewer.service_id == "/sessions/new"
     assert not viewer.episode_active
     assert not viewer.episode_finalized
-    assert viewer.evaluation_saved
+    assert viewer.evaluation_complete
     assert viewer.current_episode_dir is None
     assert viewer.last_state_time == 0.0
     assert not viewer.rollout_started
@@ -1045,7 +1045,7 @@ def test_new_runtime_service_also_resets_a_finalized_unlabeled_rollout() -> None
     )
 
     assert viewer.current_episode_dir is None
-    assert viewer.evaluation_saved
+    assert viewer.evaluation_complete
     assert stages[-1] == "setup"
 
 

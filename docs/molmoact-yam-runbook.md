@@ -5,8 +5,8 @@
 ## 配置位置
 
 ```text
-ManiMux: manimux/configs/experiments/pick_red_object/yam_molmoact2_manimux.yaml
-RTC:     manimux/configs/experiments/pick_red_object/yam_molmoact2_rtc.yaml
+ManiMux: manimux/configs/experiments/pick_red_object/molmoact2/yam_molmoact2_manimux.yaml
+RTC:     manimux/configs/experiments/pick_red_object/molmoact2/yam_molmoact2_rtc.yaml
 ```
 
 以后增加其他本体时放在 `configs/molmoact2/<embodiment>/`，不要再创建顶层扁平 YAML。
@@ -30,7 +30,7 @@ manimux-molmoact-server \
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/manimux-camera-server --config manimux/configs/embodiment/sensor/cameras/yam.yaml
+envs/yam/.venv/bin/manimux-camera-server --config manimux/configs/embodiment/sensor/cameras/realsense_3_views_standalone.yaml
 ```
 
 确认三台相机均已打开，并看到 `REP bound` 和 `PUB bound`。
@@ -59,10 +59,10 @@ for c in can_left can_right; do printf '%s: ' "$c"; ip -details link show "$c" |
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/manimux run --config manimux/configs/experiments/pick_red_object/yam_molmoact2_manimux.yaml
+envs/yam/.venv/bin/manimux run --config manimux/configs/experiments/pick_red_object/molmoact2/yam_molmoact2_manimux.yaml
 ```
 
-真机速度和时间直接修改 `manimux/configs/experiments/pick_red_object/yam_molmoact2_manimux.yaml`：
+真机速度和时间直接修改 `manimux/configs/experiments/pick_red_object/molmoact2/yam_molmoact2_manimux.yaml`：
 
 - `policy.action_dt_s`：相邻 Policy 轨迹点的时间间隔（秒）；
 - `executor.smooth.max_velocity`：关节最大速度（rad/s）；

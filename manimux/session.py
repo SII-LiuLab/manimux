@@ -662,8 +662,8 @@ class RuntimeSessionService:
         if self._recovery is not None and self._recovery.available:
             print("Manual recovery is always visible: stop a rollout, drag A/B/AB, or Return Home")
         print(
-            "Normal rollouts require no reward; experiment rollouts require a human "
-            "label before the next rollout"
+            "Normal rollouts need no scoring; experiment rollouts offer evaluation "
+            "that can be saved or skipped"
         )
         while max_rollout_attempts is None or attempts < max_rollout_attempts:
             request = self._wait_for_rollout_request()

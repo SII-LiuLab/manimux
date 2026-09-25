@@ -67,7 +67,7 @@ def main():
     from manimux.embodiments.arm.tianji.sdk.marvin import fx_kine
 
     converter = fx_kine.Marvin_Kine()
-    profile = load_config(REPO / "manimux/configs/experiments/pass_ball/tianji_umi_dp_default.yaml")
+    profile = load_config(REPO / "manimux/configs/experiments/pass_ball/umi_dp/tianji_umi_dp_default.yaml")
     motion = profile["executor"]["motion_limits"]["arm"]
     tuning = DifferentialIKConfig(max_velocity_rad_s=motion["max_velocity"])
     starts = [

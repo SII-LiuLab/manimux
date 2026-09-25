@@ -9,7 +9,7 @@ runbook：
 - [LingBot-VLA2 + YAM](lingbot-vla2-yam-runbook.md)
 
 配置统一按 `configs/<model>/<embodiment>/` 组织，具体命名规则见
-[`manimux/configs/README.md`](../manimux/configs/README.md)。`manimux/configs/experiments/pick_red_object/yam_xpolicylab_smoke.yaml` 只用于
+[`manimux/configs/README.md`](../manimux/configs/README.md)。`manimux/configs/experiments/pick_red_object/xpolicylab/yam_xpolicylab_smoke.yaml` 只用于
 通用 WebSocket bridge 冒烟，不代表具体模型实验。
 
 ## 源码关系

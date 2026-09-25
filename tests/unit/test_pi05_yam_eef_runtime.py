@@ -11,7 +11,7 @@ from manimux.types import ActionContext, InferenceRequest, ObservationSnapshot, 
 
 @pytest.mark.parametrize("injected", [True, False])
 def test_grouped_kinematics_request_and_decode(injected):
-    c = load_config("manimux/configs/experiments/put_bottles/yam_pi05_manimux_eef_step30000.yaml")
+    c = load_config("manimux/configs/experiments/put_bottles/pi05/yam_pi05_manimux_eef_step30000.yaml")
     kin = RobotModel.from_config(c["robot"]["config"]).kinematics
     a = build_policy_adapter(c["robot"], c["policy"], kinematics=kin if injected else None)
     if injected:

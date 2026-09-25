@@ -13,11 +13,11 @@ runtime needs the normal Tianji dependencies plus ManiMux's `xpolicylab` extra.
 bash XPolicyLab/policy/UMI_DP/install.sh envs/umi_dp/.venv
 # Check the actual EMA/model, SHA, H, dt, first offset, and preprocessing:
 envs/umi_dp/.venv/bin/python manimux/servers/umi_dp.py \
-  --experiment manimux/configs/experiments/pass_ball/tianji_taccap_umi_dp.yaml \
+  --experiment manimux/configs/experiments/pass_ball/umi_dp/tianji_taccap_umi_dp.yaml \
   --checkpoint /path/to/trusted/pass_ball.ckpt --check
 # Write a paired model-server and runtime config, bound to those artifacts:
 envs/umi_dp/.venv/bin/python manimux/servers/umi_dp.py \
-  --experiment manimux/configs/experiments/pass_ball/tianji_taccap_umi_dp.yaml \
+  --experiment manimux/configs/experiments/pass_ball/umi_dp/tianji_taccap_umi_dp.yaml \
   --checkpoint /path/to/trusted/pass_ball.ckpt \
   --bind-runtime-config data/experiments/pass-ball-bound.yaml
 ```
@@ -151,7 +151,7 @@ Bind the actual checkpoint and explicitly select the existing IK backend:
 
 ```bash
 envs/umi_dp/.venv/bin/python manimux/servers/umi_dp.py \
-  --experiment manimux/configs/experiments/pass_ball/tianji_umi_dp_rtc.yaml \
+  --experiment manimux/configs/experiments/pass_ball/umi_dp/tianji_umi_dp_rtc.yaml \
   --checkpoint /path/to/trusted/pass_ball.ckpt \
   --ik-backend diff \
   --diff-ik-config manimux/configs/embodiment/arm/tianji_diff_ik.yaml \

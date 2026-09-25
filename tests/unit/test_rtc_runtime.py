@@ -97,7 +97,7 @@ def test_rtc_request_passes_the_core_worker_contract() -> None:
 @pytest.mark.parametrize("view", ["top", "gemini305", "gemini335"])
 def test_sapolicy_rtc_profiles_build_with_process_decoding_without_hardware(tmp_path, view):
     config = load_config(
-        f"manimux/configs/experiments/put_bottles/yam_sapolicy_mv51_{view}_rtc.yaml"
+        f"manimux/configs/experiments/put_bottles/sapolicy/yam_sapolicy_mv51_{view}_rtc.yaml"
     )
     config["robot"]["type"] = "tests.support.robot:build_robot"
     config["sensors"] = []
@@ -115,7 +115,7 @@ def test_policy_plugins_only_send_a_condition_when_one_is_present() -> None:
 
     from manimux.policies import build_policy_model
 
-    config = load_config("manimux/configs/experiments/put_bottles/yam_abc_manimux.yaml")
+    config = load_config("manimux/configs/experiments/put_bottles/abc/yam_abc_manimux.yaml")
     model = build_policy_model(config["policy"])
     model._session_id = "s"
 

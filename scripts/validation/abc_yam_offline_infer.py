@@ -32,7 +32,7 @@ def main() -> None:
     parser.add_argument("--episode", type=Path, required=True)
     parser.add_argument("--indices", type=int, nargs="+", default=[0, 150, 300])
     parser.add_argument(
-        "--config", default="manimux/configs/experiments/put_bottles/yam_abc_official_bottles_75k.yaml"
+        "--config", default="manimux/configs/experiments/put_bottles/abc/yam_abc_official_bottles_75k.yaml"
     )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()

@@ -91,7 +91,7 @@ def read_experiment(
     from manimux.policies.base import backend_identity_from_recipe
 
     backend_identity = None
-    for name in ("policy", "inference", "executor", "policy_server"):
+    for name in ("policy", "inference", "executor", "policy_server", "camera_server"):
         section = raw.get(name, {})
         if "config" in section:
             reference = (source.parent / section.pop("config")).resolve()

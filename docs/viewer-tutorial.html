@@ -220,7 +220,7 @@
           <h3><span class="step">1</span>Camera</h3>
           <pre>cd /home/ubuntu/manimux
 envs/yam/.venv/bin/manimux-camera-server \
-  --config manimux/configs/embodiment/sensor/cameras/yam.yaml</pre>
+  --config manimux/configs/embodiment/sensor/cameras/realsense_3_views_standalone.yaml</pre>
         </div>
         <div class="card">
           <h3><span class="step">2</span>Viewer</h3>
@@ -239,7 +239,7 @@ XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
           <h3><span class="step">4</span>Runtime service</h3>
           <pre>cd /home/ubuntu/manimux
 envs/yam/.venv/bin/manimux serve \
-  --config manimux/configs/experiments/pick_red_object/yam_pi05_rtc_step1000.yaml</pre>
+  --config manimux/configs/experiments/pick_red_object/pi05/yam_pi05_rtc_step1000.yaml</pre>
         </div>
       </div>
       <div class="callout">
@@ -262,8 +262,8 @@ envs/yam/.venv/bin/manimux serve \
       <table>
         <thead><tr><th>模式</th><th>用途</th><th>结束后</th></tr></thead>
         <tbody>
-          <tr><td><strong>Normal rollout</strong></td><td>调试、观察模型、检查链路</td><td>保存轨迹和视频，不强制人工 reward</td></tr>
-          <tr><td><strong>Experiment rollout</strong></td><td>正式实验或 calibration</td><td>填写 task result、smoothness、reviewer 和失败标签后保存</td></tr>
+          <tr><td><strong>Normal rollout</strong></td><td>调试、观察模型、检查链路</td><td>保存轨迹和视频，不显示评分步骤</td></tr>
+          <tr><td><strong>Experiment rollout</strong></td><td>正式实验或 calibration</td><td>填写评价后保存，或直接点击 Skip evaluation；跳过不生成评分文件</td></tr>
         </tbody>
       </table>
       <div class="callout warn">

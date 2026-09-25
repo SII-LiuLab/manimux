@@ -134,7 +134,7 @@ from pprint import pprint
 from manimux.cli import load_config, resolve_local_path
 from manimux.servers.camera.server import camera_config
 
-experiment = "manimux/configs/experiments/put_bottles/yam_pi05_rtc_joint_step30000.yaml"
+experiment = "manimux/configs/experiments/put_bottles/pi05/yam_pi05_rtc_joint_step30000.yaml"
 config = load_config(experiment, local=resolve_local_path(experiment))
 pprint({
     "local": str(config["local"]),
@@ -148,7 +148,7 @@ PYCODE
 ```
 
 For Tianji, use its Python environment and replace the experiment path with
-`manimux/configs/experiments/pass_ball/tianji_taccap_umi_dp.yaml`.
+`manimux/configs/experiments/pass_ball/umi_dp/tianji_taccap_umi_dp.yaml`.
 The shared controller IP appears under `shared_hardware.ip`. This inspection does not
 construct the robot, open devices or test Tianji FK/IK.
 
@@ -200,7 +200,6 @@ Binding a station does not switch these experiment settings.
 | XR-1 Tianji launcher | Uses the selected station's policy service, checkpoint, normalization and optional processor bindings |
 | Camera / UMI_DP standalone `--config` | Reads that standalone server configuration; use `--experiment` for shared station bindings |
 | Viewer process | Still uses its own launch options for network addresses and the web port |
-| YAM collection | Still uses its own collection station file, including leader-device settings |
 | Other model launchers | Follow their model runbooks; this change does not add shared station loading to every launcher |
 
 UMI_DP's `--bind-runtime-config` generates a paired runtime and server configuration.

@@ -26,7 +26,7 @@ Use the same checkpoint binder as the analytic path:
 
 ```bash
 envs/umi_dp/.venv/bin/python manimux/servers/umi_dp.py \
-  --experiment manimux/configs/experiments/pass_ball/tianji_taccap_umi_dp_diff.yaml \
+  --experiment manimux/configs/experiments/pass_ball/umi_dp/tianji_taccap_umi_dp_diff.yaml \
   --checkpoint /path/to/trusted/pass_ball.ckpt \
   --bind-runtime-config data/experiments/pass-ball-diff.yaml
 ```

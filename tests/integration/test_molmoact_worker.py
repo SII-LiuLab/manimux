@@ -65,7 +65,7 @@ def test_molmoact_http_worker_round_trip_to_canonical_action_chunk() -> None:
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
 
-    config = load_config("manimux/configs/experiments/pick_red_object/yam_molmoact2_manimux.yaml")
+    config = load_config("manimux/configs/experiments/pick_red_object/molmoact2/yam_molmoact2_manimux.yaml")
     config["policy"]["options"]["server"] = f"http://127.0.0.1:{server.server_port}"
     session_id = "molmoact-test-session"
     worker = PolicyWorkerClient(config["policy"], session_id)
@@ -136,7 +136,7 @@ def test_molmoact_worker_fails_startup_before_hardware_when_server_is_unhealthy(
     server = ThreadingHTTPServer(("127.0.0.1", 0), _UnhealthyMolmoHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
-    config = load_config("manimux/configs/experiments/pick_red_object/yam_molmoact2_manimux.yaml")
+    config = load_config("manimux/configs/experiments/pick_red_object/molmoact2/yam_molmoact2_manimux.yaml")
     config["policy"]["options"]["server"] = f"http://127.0.0.1:{server.server_port}"
     worker = PolicyWorkerClient(config["policy"], "unhealthy-session")
 

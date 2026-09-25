@@ -135,7 +135,7 @@ Smooth/MPC limits and Safety remain explicit outer real-robot layers and are not
 
 ```text
 server: manimux/configs/policy/pi05/yam/finetune-pick-red-ball-box-step1000.yaml
-infra:  manimux/configs/experiments/pick_red_object/yam_pi05_autohorizon_step1000.yaml
+infra:  manimux/configs/experiments/pick_red_object/pi05/yam_pi05_autohorizon_step1000.yaml
 ```
 
 The server config is unchanged because AutoHorizon reuses the same JAX checkpoint and matching norm
@@ -157,7 +157,7 @@ Before any robot process, run the forward probe:
 ```bash
 cd /home/ubuntu/manimux
 envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
-  --config manimux/configs/experiments/pick_red_object/yam_pi05_autohorizon_step1000.yaml
+  --config manimux/configs/experiments/pick_red_object/pi05/yam_pi05_autohorizon_step1000.yaml
 ```
 
 The probe must report a finite `50 x 14` native/canonical chunk and an `autohorizon` metadata block
@@ -195,7 +195,7 @@ run:
 ```bash
 cd /home/ubuntu/manimux
 envs/yam/.venv/bin/manimux run \
-  --config manimux/configs/experiments/pick_red_object/yam_pi05_autohorizon_step1000.yaml
+  --config manimux/configs/experiments/pick_red_object/pi05/yam_pi05_autohorizon_step1000.yaml
 ```
 
 ## 7. Validation Matrix

@@ -36,7 +36,7 @@ def bind_test_identity(config, *, offset=1 / 30):
 @pytest.fixture
 def solver():
     kin = TianjiKinematics(end_effector="umi_follower")
-    config = load_config(ROOT / "manimux/configs/experiments/pass_ball/tianji_umi_dp_default.yaml")
+    config = load_config(ROOT / "manimux/configs/experiments/pass_ball/umi_dp/tianji_umi_dp_default.yaml")
     velocity = config["executor"]["motion_limits"]["arm"]["max_velocity"]
     return TianjiDifferentialIK(kin, DifferentialIKConfig(max_velocity_rad_s=velocity))
 
@@ -188,7 +188,7 @@ def test_nullspace_objective_pushes_joint_toward_interior(solver):
 def test_diff_adapter_uses_runtime_motion_limit_without_copying_it():
     from manimux.policy_adapter.umi_dp.tianji import UmiDpTianjiAdapter
 
-    config = load_config(ROOT / "manimux/configs/experiments/pass_ball/tianji_umi_dp_default.yaml")
+    config = load_config(ROOT / "manimux/configs/experiments/pass_ball/umi_dp/tianji_umi_dp_default.yaml")
     config["policy"]["adapter"]["ik_backend"] = "diff"
     bind_test_identity(config)
     config["executor"]["motion_limits"]["arm"]["max_velocity"] = 0.37
@@ -221,7 +221,7 @@ def test_real_diff_adapter_chunk_timing_and_atomic_rejection(horizon, offset):
         SensorFrame,
     )
 
-    config = load_config(ROOT / "manimux/configs/experiments/pass_ball/tianji_umi_dp_default.yaml")
+    config = load_config(ROOT / "manimux/configs/experiments/pass_ball/umi_dp/tianji_umi_dp_default.yaml")
     config["robot"]["type"] = "mock"
     config["policy"]["horizon_policy_steps"] = horizon
     config["policy"]["adapter"]["ik_backend"] = "diff"

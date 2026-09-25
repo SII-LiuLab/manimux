@@ -1,7 +1,9 @@
 # ManiMux Agent Guide
 
 ManiMux is a composable real-robot experiment platform. Keep model inference, runtime
-scheduling, embodiment control, collection and experiment interfaces separate.
+scheduling, embodiment control and experiment interfaces separate.
+Teleoperation and demonstration collection are outside this repository; retain runtime
+rollout recording and offline replay.
 These instructions apply throughout this checkout; also read the instructions in any
 submodule or nested directory before editing it.
 
@@ -12,7 +14,7 @@ repository root. They describe existing code and workflows, not permission to ru
 
 | Task | Skill |
 |---|---|
-| Develop a driver, camera, adapter, runtime, collection or Viewer feature | [Development](.agents/skills/manimux-development/SKILL.md) |
+| Develop a driver, camera, adapter, runtime or Viewer feature | [Development](.agents/skills/manimux-development/SKILL.md) |
 | Bind an installation to local robots, cameras and SDKs | [Station setup](.agents/skills/manimux-station-setup/SKILL.md) |
 | Select configs, give startup commands or run an experiment | [Experiment](.agents/skills/manimux-experiment/SKILL.md) |
 | Analyze recorded rollouts, chunks, tracking or video | [Result analysis](.agents/skills/manimux-result-analysis/SKILL.md) |
@@ -60,7 +62,7 @@ Do not add another standalone native model implementation to ManiMux.
   protocol or register a new native model worker to bypass the shared policy interface.
 
 This rule concerns learned models. Robot drivers, embodiment/action adapters, runtime
-strategies, executors, mock policies and collection leader policies still belong in ManiMux.
+strategies, executors and mock policies still belong in ManiMux.
 An isolated model environment or process is expected; a parallel native integration stack is not.
 
 ## Required structure and boundaries
@@ -72,7 +74,7 @@ XPolicyLab/policy/<POLICY>/
     installation, data, training and evaluation entry points
     README.md
 manimux/configs/policy/<model>/<embodiment>/<task>/
-manimux/configs/experiments/<task>/<embodiment>_<model>_<variant>.yaml
+manimux/configs/experiments/<task>/<model>/<embodiment>_<model>_<variant>.yaml
 manimux/configs/inference/
 manimux/configs/executor/
 docs/<model>-<embodiment>-runbook.md
@@ -96,7 +98,7 @@ do not substitute fake training, dummy actions or silent fallbacks for an implem
 | ManiMux `policy_adapter/` | Observation mapping, robot groups, action semantics and necessary FK/IK |
 | ManiMux runtime | Inference scheduling, chunk handoff, timelines and rollout lifecycle |
 | Executor / RobotBase | Command generation, configured limits and hardware communication |
-| Collection / Robo GUI / recording | Demonstrations, experiment controls, visualization and execution evidence |
+| Robo GUI / recording | Experiment controls, visualization and execution evidence |
 
 Model servers must not connect to cameras/CAN or command a robot. The hardware runtime
 must not acquire model dependencies such as torch/JAX just to use a new policy.

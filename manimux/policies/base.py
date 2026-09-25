@@ -48,18 +48,17 @@ def backend_identity_from_recipe(server: dict, spec: dict) -> dict:
     }
 
 
-def policy_parameters(**options) -> dict:
-    """补齐推理客户端和动作解码参数；模型实现仍在 XPolicyLab。"""
+def policy_parameters(*, action_dt_s: float, horizon_policy_steps: int, **options) -> dict:
+    """Require experiment timing and fill client and action-decoding options."""
 
     if "horizon_steps" in options:
         raise ValueError("unsupported policy field: horizon_steps")
     values = {
         "device": "cpu",
-        "action_dt_s": 0.05,
+        "action_dt_s": action_dt_s,
         "trajectory_duration_s": None,
         "timeout_s": 1.0,
-        "horizon_policy_steps": 20,
-        "inference_delay_s": 0.04,
+        "horizon_policy_steps": horizon_policy_steps,
         "startup_timeout_s": 30.0,
         "action_decoding": "inline",
         "expected_backend": None,

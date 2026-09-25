@@ -22,7 +22,7 @@ from manimux.viewer import ViewerControl
 @pytest.mark.parametrize("backend", ["analytic", "diff"])
 @pytest.mark.parametrize("horizon", [16, 64])
 def test_real_tianji_parallel_ik_matches_serial_and_rejects_whole_chunk(backend, horizon):
-    config = load_config("manimux/configs/experiments/pass_ball/tianji_umi_dp_rtc.yaml")
+    config = load_config("manimux/configs/experiments/pass_ball/umi_dp/tianji_umi_dp_rtc.yaml")
     config["robot"]["type"] = "tests.support.robot:build_robot"
     config["policy"]["horizon_policy_steps"] = horizon
     config["policy"]["adapter"]["ik_backend"] = backend

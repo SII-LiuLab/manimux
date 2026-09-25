@@ -22,7 +22,7 @@ DeepSpeed 模型文件，并通过共享 `xpolicylab_ws` worker 服务 ManiMux�
 
 - 模型服务：`manimux/configs/policy/xiaomi-xr1/tianji/pass_ball/step50000.yaml`
 - 安全关闭执行的实验模板：
-  `manimux/configs/experiments/pass_ball/tianji_taccap_xiaomi_xr1_step50000.yaml`
+  `manimux/configs/experiments/pass_ball/xiaomi-xr1/tianji_taccap_xiaomi_xr1_step50000.yaml`
 - server launcher：`manimux/servers/xiaomi_xr1_tianji_server.py`
 
 模板保持 `robot.options.execute: false`、Viewer 关闭。加载配置、检查 checkpoint 或启动
@@ -46,7 +46,7 @@ Qwen processor 默认使用 `Qwen/Qwen3-VL-4B-Instruct`，首次启动需要 Hug
 cd /path/to/manimux
 conda run -n mibot --no-capture-output python \
   manimux/servers/xiaomi_xr1_tianji_server.py \
-  --experiment manimux/configs/experiments/pass_ball/tianji_taccap_xiaomi_xr1_step50000.yaml \
+  --experiment manimux/configs/experiments/pass_ball/xiaomi-xr1/tianji_taccap_xiaomi_xr1_step50000.yaml \
   --local .local/tianji_taccap.yaml \
   --checkpoint /path/to/posttrain_pass_ball_50k_8gpu_epoch0_step50000_checkpoint \
   --check
@@ -63,7 +63,7 @@ conda run -n mibot --no-capture-output python \
 cd /path/to/manimux
 conda run -n mibot --no-capture-output python \
   manimux/servers/xiaomi_xr1_tianji_server.py \
-  --experiment manimux/configs/experiments/pass_ball/tianji_taccap_xiaomi_xr1_step50000.yaml \
+  --experiment manimux/configs/experiments/pass_ball/xiaomi-xr1/tianji_taccap_xiaomi_xr1_step50000.yaml \
   --local .local/tianji_taccap.yaml \
   --checkpoint /path/to/posttrain_pass_ball_50k_8gpu_epoch0_step50000_checkpoint
 ```
@@ -80,7 +80,7 @@ checkpoint。
 cd /path/to/manimux
 conda run -n xense-taccap --no-capture-output python \
   -m manimux.servers.camera.server \
-  --experiment manimux/configs/experiments/pass_ball/tianji_taccap_xiaomi_xr1_step50000.yaml \
+  --experiment manimux/configs/experiments/pass_ball/xiaomi-xr1/tianji_taccap_xiaomi_xr1_step50000.yaml \
   --local .local/tianji_taccap.yaml
 ```
 
@@ -88,7 +88,7 @@ conda run -n xense-taccap --no-capture-output python \
 
 ```bash
 conda run -n xense-taccap --no-capture-output python -m manimux run \
-  --config manimux/configs/experiments/pass_ball/tianji_taccap_xiaomi_xr1_step50000.yaml \
+  --config manimux/configs/experiments/pass_ball/xiaomi-xr1/tianji_taccap_xiaomi_xr1_step50000.yaml \
   --local .local/tianji_taccap.yaml
 ```
 

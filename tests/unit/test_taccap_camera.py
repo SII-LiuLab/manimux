@@ -161,7 +161,7 @@ def test_camera_serves_rgb_frames_and_detects_stalls(by_id: Path) -> None:
 
 def test_server_builds_cameras_by_type(by_id: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(camera_server, "V4L_BY_ID", by_id, raising=False)
-    config = REPO / "manimux/configs/embodiment/sensor/cameras/tianji_taccap.yaml"
+    config = REPO / "manimux/configs/embodiment/sensor/cameras/taccap_2_views_standalone.yaml"
     cameras = camera_server._build_cameras_from_config(config, by_id_root=by_id)
     try:
         assert set(cameras) == {"left_wrist", "right_wrist"}

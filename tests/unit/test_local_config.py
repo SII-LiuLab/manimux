@@ -14,7 +14,7 @@ from manimux.policies.base import action_interval
 from manimux.servers.camera.server import camera_config
 
 ROOT = Path(__file__).resolve().parents[2]
-EXPERIMENT = ROOT / "manimux/configs/experiments/pass_ball/tianji_taccap_umi_dp.yaml"
+EXPERIMENT = ROOT / "manimux/configs/experiments/pass_ball/umi_dp/tianji_taccap_umi_dp.yaml"
 TEMPLATE = ROOT / "manimux/configs/local/tianji_taccap.example.yaml"
 
 
