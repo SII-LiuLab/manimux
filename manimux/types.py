@@ -109,6 +109,8 @@ class ActionContext:
     max_source_steps: int | None = None
     decode_budget_ms: float | None = None
     independent_groups: bool = False
+    # Outgoing runtime rows around execution_time_ns for a waypoint handoff.
+    handoff_reference: ActionHorizon | None = None
 
 
 @dataclass(slots=True)
@@ -129,6 +131,15 @@ class RuntimeTrajectory:
         return int(next(iter(self.groups.values())).shape[0])
 
 
+@dataclass(frozen=True, slots=True)
+class AppliedHandoff:
+    """Waypoint handoff an adapter used; the timeline verifies it at commit."""
+
+    plan_id: str  # Runtime plan the handoff starts from.
+    time_ns: int  # Handoff time; the outgoing plan runs until then.
+    reference: GroupVector  # Outgoing command at time_ns used as the decode seed.
+
+
 @dataclass(slots=True)
 class ActionChunk:
     plan_id: str  # Unique identifier for this action plan.
@@ -144,6 +155,7 @@ class ActionChunk:
     # Optional denser joint path prepared by an adapter. Source groups/dt/horizon
     # remain the model-side contract used by scheduling, RTC and visualization.
     runtime_trajectory: RuntimeTrajectory | None = None
+    handoff: AppliedHandoff | None = None  # Set when the chunk starts from a waypoint handoff.
 
     def __post_init__(self) -> None:
         if self.dt_ns <= 0:
@@ -224,4 +236,5 @@ def copy_action_chunk(chunk: ActionChunk) -> ActionChunk:
                 },
             )
         ),
+        handoff=chunk.handoff,
     )

@@ -193,6 +193,10 @@ class EdgeRuntime:
             self._adapter, "supports_independent_group_decode", False
         ):
             raise ValueError("adapter does not support independent group decoding")
+        if config["inference"]["handoff"] == "waypoint" and not getattr(
+            self._adapter, "supports_waypoint_handoff", False
+        ):
+            raise ValueError("adapter does not support waypoint handoff")
         self._strategy = strategy or DefaultChunkStrategy(config)
         self._decoder = None
         if config["policy"]["action_decoding"] == "process":
@@ -531,6 +535,20 @@ class EdgeRuntime:
                             except ValueError as exc:
                                 response = replace(response, error=f"decode_seed_unavailable:{exc}")
                             else:
+                                handoff_reference = None
+                                if self._config["inference"][
+                                    "handoff"
+                                ] == "waypoint" and self._strategy.decode_handoff(
+                                    response=response
+                                ):
+                                    # The adapter aligns the handoff within one source row.
+                                    start_ns += int(
+                                        self._config["inference"]["handoff_margin_s"] * 1e9
+                                    )
+                                    handoff_reference = self._timeline.handoff_reference(
+                                        start_ns,
+                                        round(action_interval(self._config["policy"]) * 1e9),
+                                    )
                                 self._decoder.submit(
                                     response,
                                     ActionContext(
@@ -539,6 +557,7 @@ class EdgeRuntime:
                                         created_time_ns=response.finished_time_ns,
                                         execution_time_ns=start_ns,
                                         measured_state=seed,
+                                        handoff_reference=handoff_reference,
                                         max_source_steps=self._config["inference"][
                                             "max_chunk_steps"
                                         ],
@@ -561,6 +580,11 @@ class EdgeRuntime:
                                     seed_time_ns=seed.monotonic_ns,
                                     seed_source=seed_source,
                                     expected_start_ns=start_ns,
+                                    handoff_plan_id=(
+                                        None
+                                        if handoff_reference is None
+                                        else handoff_reference.plan_id
+                                    ),
                                     seed_to_expected_start_ms=(
                                         start_ns - seed.monotonic_ns
                                     )

@@ -148,6 +148,13 @@ class ActionTimeline:
 
         # Earliest wall-clock time at which the committed plan may start.
         earliest_ns = now_ns + commit_lead_ns
+        if chunk.handoff is not None:
+            # A waypoint handoff already replaced the blend before embodiment decoding.
+            if blend_steps:
+                raise ValueError("waypoint handoff chunks must not be blended again")
+            reason = self._check_handoff(chunk, earliest_ns)
+            if reason is not None:
+                return CommitResult(False, reason)
         # Elapsed source-trajectory time when execution starts.
         age_at_commit_ns = max(0, earliest_ns - chunk.observation_time_ns)
         # First source row whose timestamp is not earlier than earliest_ns.
@@ -297,6 +304,49 @@ class ActionTimeline:
             trimmed_steps=trimmed_steps,
             timeline_latency_ns=age_at_commit_ns,
         )
+
+    def handoff_reference(self, time_ns: int, window_ns: int) -> ActionHorizon | None:
+        """Copy runtime rows covering a handoff; time_ns: handoff time, window_ns: span after it."""
+        plan = self._runtime_plan_at(time_ns)
+        if (
+            plan is None
+            or plan.hold_last_step
+            or time_ns < plan.start_time_ns
+            or time_ns + window_ns > plan.end_time_ns
+        ):
+            return None
+        lower = (time_ns - plan.start_time_ns) // plan.dt_ns
+        upper = min(
+            plan.horizon_steps,
+            -(-(time_ns + window_ns - plan.start_time_ns) // plan.dt_ns) + 1,
+        )
+        return ActionHorizon(
+            start_time_ns=plan.start_time_ns + lower * plan.dt_ns,
+            dt_ns=plan.dt_ns,
+            plan_id=plan.plan_id,
+            groups={name: values[lower:upper].copy() for name, values in plan.groups.items()},
+            observation_time_ns=plan.observation_time_ns,
+        )
+
+    def _check_handoff(self, chunk: ActionChunk, earliest_ns: int) -> str | None:
+        """Reject a handoff that no longer continues the command; earliest_ns: first start time."""
+        handoff = chunk.handoff
+        runtime = chunk.runtime_trajectory
+        if runtime is None or runtime.start_time_ns != handoff.time_ns:
+            return "handoff_runtime_misaligned"
+        plan = self._runtime_plan_at(handoff.time_ns)
+        if plan is None or plan.plan_id != handoff.plan_id:
+            return "handoff_plan_changed"
+        if earliest_ns > handoff.time_ns:
+            return "handoff_missed"
+        reference = _sample_plan(plan, handoff.time_ns)
+        if reference is None or any(
+            not np.allclose(reference[name], handoff.reference[name], rtol=0.0, atol=1e-9)
+            or not np.array_equal(runtime.groups[name][0], handoff.reference[name])
+            for name in self._group_dims
+        ):
+            return "handoff_reference_mismatch"
+        return None
 
     def _plan_at(self, time_ns: int) -> _ActivePlan | None:
         """The plan that owns ``time_ns``: the outgoing one until _active starts."""

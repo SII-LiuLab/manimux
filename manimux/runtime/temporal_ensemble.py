@@ -187,6 +187,11 @@ class ACTTemporalEnsembleStrategy:
         del response, now_ns
         return self._ensembler.aggregate(chunk)
 
+    def decode_handoff(self, *, response: InferenceResponse) -> bool:
+        """response: model output about to be decoded; this strategy keeps its own trajectory."""
+        del response
+        return False
+
     def commit_settings(
         self,
         *,

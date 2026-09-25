@@ -71,6 +71,8 @@ class InferenceStrategy(Protocol):
         last_command: GroupVector,
     ) -> CommitSettings: ...
 
+    def decode_handoff(self, *, response: InferenceResponse) -> bool: ...
+
     def prepare_chunk(
         self,
         *,
@@ -170,6 +172,11 @@ class DefaultChunkStrategy:
             blend_steps=self._config["inference"]["blend_steps"],
             anchor_source="measured_state",
         )
+
+    def decode_handoff(self, *, response: InferenceResponse) -> bool:
+        """response: model output about to be decoded; True requests a waypoint handoff."""
+        del response
+        return self._config["inference"]["handoff"] == "waypoint"
 
     def prepare_chunk(
         self,

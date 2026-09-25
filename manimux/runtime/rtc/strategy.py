@@ -170,6 +170,11 @@ class RtcInferenceStrategy:
             anchor_source="last_command",
         )
 
+    def decode_handoff(self, *, response: InferenceResponse) -> bool:
+        """response: model output to decode; conditioned chunks are also joined by waypoint."""
+        del response
+        return self._config["inference"]["handoff"] == "waypoint"
+
     def clear_condition(self, request_seq: int) -> None:
         """A history adapter can discover that no committed overlap remains."""
         self._conditioned_requests.discard(request_seq)
