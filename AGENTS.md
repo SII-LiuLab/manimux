@@ -14,10 +14,14 @@ repository root. They describe existing code and workflows, not permission to ru
 
 | Task | Skill |
 |---|---|
-| Develop a driver, camera, adapter, runtime or Viewer feature | [Development](.agents/skills/manimux-development/SKILL.md) |
+| Integrate or review a component, policy client/adapter, runtime or Viewer feature | [Development](.agents/skills/manimux-development/SKILL.md) |
 | Bind an installation to local robots, cameras and SDKs | [Station setup](.agents/skills/manimux-station-setup/SKILL.md) |
 | Select configs, give startup commands or run an experiment | [Experiment](.agents/skills/manimux-experiment/SKILL.md) |
 | Analyze recorded rollouts, chunks, tracking or video | [Result analysis](.agents/skills/manimux-result-analysis/SKILL.md) |
+
+For a new integration, the Development skill maps each extension to its existing
+interface, owning directory, configuration and focused validation. Read its relevant
+reference before copying an older integration; compatibility paths are not templates.
 
 ## First connection to a local robot
 
