@@ -78,6 +78,7 @@ The following recipes all support the shared station file:
 | --- | --- |
 | `tianji_taccap_umi_dp.yaml` | Component-based experiment with `manimux` scheduling |
 | `tianji_taccap_umi_dp_diff.yaml` | Component-based `manimux` experiment using differential IK |
+| `tianji_taccap_umi_dp_diff_live.yaml` | Execution-enabled DiffIK experiment with Viewer-controlled rollouts |
 | `tianji_umi_dp_default.yaml` | Existing `manimux` recipe and shared control profile |
 | `tianji_umi_dp_rtc.yaml` | RTC recipe with process action decoding |
 
@@ -99,17 +100,34 @@ Select `tianji_taccap_umi_dp_diff.yaml` for differential IK or
 station. Add `--check` without `--bind-runtime-config` to inspect artifact identity without
 exporting a pair.
 
+For a reviewed real-robot DiffIK deployment, select the explicit live recipe and keep the
+bound pair beside the private station file:
+
+```bash
+envs/umi_dp/.venv/bin/python -m manimux.servers.umi_dp \
+  --experiment manimux/configs/experiments/pass_ball/tianji_taccap_umi_dp_diff_live.yaml \
+  --local manimux/configs/local/station.yaml \
+  --bind-runtime-config manimux/configs/local/deployments/tianji_taccap_umi_dp_diff_live.yaml
+```
+
+The live recipe selects `tianji_control_live.yaml`, enables arm and end-effector commands,
+and enables Viewer-controlled rollouts. It does not copy controller addresses, serials or
+checkpoint paths out of the private station. The non-live recipes remain read-only defaults.
+
 Binding reads the actual artifacts and records checkpoint identity, horizon, observation
 period, first-action offset and preprocessing conventions. The checkpoint action interval
 must match the experiment; binding does not silently change it. It starts no model,
 camera or robot service. Existing output files are not overwritten.
 
-The command writes `.local/pass_ball/run.yaml` and `run-server.yaml`:
+Binding writes the requested runtime path and a sibling whose name ends in
+`-server.yaml`. In the live example these are
+`manimux/configs/local/deployments/tianji_taccap_umi_dp_diff_live.yaml` and
+`manimux/configs/local/deployments/tianji_taccap_umi_dp_diff_live-server.yaml`:
 
-- `run.yaml` retains an absolute reference to the selected station. Runtime and
+- The runtime file retains an absolute reference to the selected station. Runtime and
   `--experiment` service launches reread its current bindings; hardware identifiers
   are not copied into the exported runtime.
-- `run-server.yaml` is a standalone resolved snapshot. Launching it with `--config`
+- The `-server.yaml` file is a standalone resolved snapshot. Launching it with `--config`
   uses the saved addresses and artifact path, without consulting the station.
 
 After changing service addresses, use `--experiment` to read the updated station or
@@ -118,45 +136,52 @@ its expected identity matches the selected artifacts. Do not bypass identity che
 
 ## Start the services
 
-Use the bound experiment for all three roles. The following commands open services or
+Use the bound experiment for the model, camera and runtime roles. The following commands open services or
 hardware and belong to an intended deployment session.
 
 Start the model in its environment:
 
 ```bash
 envs/umi_dp/.venv/bin/python -m manimux.servers.umi_dp \
-  --experiment .local/pass_ball/run.yaml
+  --config manimux/configs/local/deployments/tianji_taccap_umi_dp_diff_live-server.yaml
 ```
 
 Start the camera service on the computer with the wrist cameras:
 
 ```bash
 envs/tianji/.venv/bin/python -m manimux.servers.camera.server \
-  --experiment .local/pass_ball/run.yaml
+  --experiment manimux/configs/local/deployments/tianji_taccap_umi_dp_diff_live.yaml
 ```
 
 Start the hardware runtime:
 
 ```bash
-envs/tianji/.venv/bin/python -m manimux run \
-  --config .local/pass_ball/run.yaml
+envs/tianji/.venv/bin/python -m manimux serve \
+  --config manimux/configs/local/deployments/tianji_taccap_umi_dp_diff_live.yaml
 ```
 
-All three read the station referenced by the bound experiment. For another station,
-append the same `--local <path>` to each command. To intentionally launch the standalone
-model-server snapshot instead, use:
+Start Viewer after the runtime is listening:
 
 ```bash
-envs/umi_dp/.venv/bin/python -m manimux.servers.umi_dp \
-  --config .local/pass_ball/run-server.yaml
+envs/tianji/.venv/bin/python -m manimux.viewer.dashboard \
+  --robot tianji --host 127.0.0.1 --port 8086
 ```
 
-The experiment defaults to `robot.options.execute: false` and
-`robot.options.end_effector_control: false`. Runtime still connects and reads feedback.
-Execution settings belong to the experiment, not the station. Tianji connection does
-not Home; the existing controller enables on the first executed command. The component
-assembly does not implement Home or manual drag recovery. See [Viewer](viewer.md) for
-its separate display and control interface.
+The camera and runtime read the station referenced by the bound experiment. The model
+command intentionally uses the standalone server snapshot whose checkpoint identity was
+verified while binding. For another station, regenerate the pair with that station before
+starting the services. `manimux serve` keeps the runtime available for Viewer-controlled
+rollouts; use `manimux run` only for an immediate single session.
+Open `http://127.0.0.1:8086`, then use **Prepare normal rollout → Start rollout →
+Finish rollout**. `Start rollout` begins real command execution; Tianji Home remains a
+separate recovery action.
+
+The non-live experiments default to `robot.options.execute: false` and
+`robot.options.end_effector_control: false`; runtime still connects and reads feedback.
+The explicit `tianji_taccap_umi_dp_diff_live.yaml` recipe sets both fields and
+`viewer.enabled` to true. Execution settings belong to the experiment, not the station.
+Tianji connection does not Home; the existing controller enables on the first executed
+command. See [Viewer](viewer.md) for its separate display and control interface.
 
 ## Preserved action and timing conventions
 

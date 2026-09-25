@@ -1,0 +1,75 @@
+# Live UMI_DP + Tianji-TacCap differential-IK experiment entry.
+# This recipe enables arm/end-effector commands and Viewer-controlled rollouts.
+# Bind a reviewed checkpoint before starting the runtime.
+control_profile: ../../embodiment/robot/tianji_control_live.yaml
+run:
+  task: pass the ball between the two grippers
+  output_dir: ./data/experiments/umi-dp-tianji-diff
+  max_control_steps: 2400
+robot:
+  type: tianji_taccap
+  config: ../../embodiment/robot/tianji_taccap.yaml
+  control_hz: 100.0
+  options:
+    execute: true
+    end_effector_control: true
+    hardware:
+      stale_timeout_s: 0.1
+sensors:
+- name: tianji_wrist_history
+  driver: manimux.embodiments.sensor.camera_server.timestamped:build_sensor
+  options:
+    camera_names:
+    - left_wrist
+    - right_wrist
+    max_frame_age_sec: 0.15
+    clock_jump_tolerance_s: 0.02
+    output_names:
+      left_wrist: left_wrist_camera
+      right_wrist: right_wrist_camera
+  service: camera
+viewer:
+  enabled: true
+  robot: tianji-taccap
+  policy_label: UMI DP Tianji DiffIK Live
+recording:
+  enabled: true
+policy:
+  worker: xpolicylab_ws
+  service: policy
+  action_decoding: process
+  adapter:
+    type: manimux.policy_adapter.umi_dp.tianji:UmiDpTianjiAdapter
+    camera_map:
+      cam_left_wrist: left_wrist_camera
+      cam_right_wrist: right_wrist_camera
+      cam_left_wrist_prev: left_wrist_camera_prev
+      cam_right_wrist_prev: right_wrist_camera_prev
+    ik_validation_dt_s: 0.004
+    ik_backend: diff
+    diff_ik:
+      config: ../../embodiment/arm/tianji_diff_ik.yaml
+  horizon_policy_steps: 16
+  timeout_s: 30.0
+  startup_timeout_s: 120.0
+  options:
+    connect_timeout_s: 30.0
+    request_timeout_s: 30.0
+  action_dt_s: 0.03333333333333333
+policy_server:
+  config: ../../policy/umi_dp/tianji/assembly.yaml
+  task_name: pass_ball
+camera_server:
+  cameras:
+    left_wrist:
+      component: left_wrist_camera
+      type: taccap
+    right_wrist:
+      component: right_wrist_camera
+      type: taccap
+inference:
+  algorithm: manimux
+  config: ../../inference/tianji_taccap_umi_dp.yaml
+executor:
+  type: smooth
+  config: ../../executor/tianji_smooth_control_profile.yaml

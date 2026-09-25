@@ -40,6 +40,7 @@ def write_station(tmp_path):
     [
         "tianji_taccap_umi_dp.yaml",
         "tianji_taccap_umi_dp_diff.yaml",
+        "tianji_taccap_umi_dp_diff_live.yaml",
         "tianji_umi_dp_default.yaml",
         "tianji_umi_dp_rtc.yaml",
     ],
@@ -50,8 +51,9 @@ def test_tianji_station_binds_controller_grippers_and_camera_streams(tmp_path, f
     bound = cli.load_config(experiment, local=station)
     options = bound["robot"]["options"]
     assert options["hardware"]["ip"] == "192.0.2.10"
-    assert options["execute"] is False
-    assert options["end_effector_control"] is False
+    live = filename.endswith("_live.yaml")
+    assert options["execute"] is live
+    assert options["end_effector_control"] is live
     components = options["component_hardware"]
     cameras = camera_config(bound)["sensors"]["cameras"]
     for side in ("left", "right"):

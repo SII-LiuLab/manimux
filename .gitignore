@@ -6,6 +6,7 @@
 # Private training recipes, launchers, notes and outputs stay outside the package.
 /training/
 /manimux/configs/local/station.yaml
+/manimux/configs/local/deployments/
 /.vscode/
 /qz/
 /weekly_report/
