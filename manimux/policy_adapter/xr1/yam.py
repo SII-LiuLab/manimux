@@ -33,7 +33,7 @@ from typing import Any
 import numpy as np
 
 from manimux.policies.base import action_interval
-from manimux.policy_adapter.base import PolicyAdapter
+from manimux.policy_adapter.kinematics import KinematicAdapter
 from manimux.runtime.rtc.request import RtcInferenceRequest
 from manimux.types import (
     ActionChunk,
@@ -82,9 +82,6 @@ def joint_condition_to_xr1_actions(
         raise ValueError("XR-1 joint condition must be finite")
     if tuple(group_order) != DEFAULT_GROUP_ORDER:
         raise ValueError(f"XR-1 condition codec requires group order {list(DEFAULT_GROUP_ORDER)}")
-    if kinematics.num_arm_joints != ARM_JOINTS:
-        raise ValueError(f"XR-1 condition codec requires {ARM_JOINTS} arm joints")
-
     actions = np.zeros((condition.shape[0], ACTION_DIM), dtype=np.float64)
     offset = 0
     for group in group_order:
@@ -94,9 +91,9 @@ def joint_condition_to_xr1_actions(
         targets = condition[:, offset : offset + GROUP_DIM]
         offset += GROUP_DIM
 
-        anchor_pose = kinematics.fk(anchor[:ARM_JOINTS], float(anchor[-1]))
+        anchor_pose = kinematics.models[group].fk(anchor)
         target_poses = np.stack(
-            [kinematics.fk(row[:ARM_JOINTS], float(row[-1])) for row in targets]
+            [kinematics.models[group].fk(row) for row in targets]
         )
         anchor_rotation = anchor_pose[:3, :3]
         columns = ARM_SLICES[group]
@@ -126,11 +123,11 @@ def _axis_angle_to_rotation(axis_angle: np.ndarray) -> np.ndarray:
     return np.eye(3) + np.sin(theta) * cross + (1.0 - np.cos(theta)) * (cross @ cross)
 
 
-class XR1YamAdapter(PolicyAdapter):
+class XR1YamAdapter(KinematicAdapter):
     """End-effector deltas -> absolute poses -> YAM joint groups via IK."""
 
     def __init__(self, robot: dict, policy: dict, *, kinematics=None) -> None:
-        from manimux.kinematics import build_kinematics
+        super().__init__(robot, policy, kinematics=kinematics)
 
         self._group_order = tuple(policy["adapter"].get("group_order", DEFAULT_GROUP_ORDER))
         self._group_dims = dict(robot["group_dims"])
@@ -138,15 +135,7 @@ class XR1YamAdapter(PolicyAdapter):
         camera_map = policy["adapter"].get("camera_map", DEFAULT_CAMERA_MAP)
         self._required_cameras = tuple(str(value) for value in camera_map.values())
 
-        kinematics_name = policy["adapter"].get("kinematics", "yam")
-        options = policy["adapter"].get("kinematics_options", {})
-        self._kinematics = build_kinematics(kinematics_name, **options)
         self._anchors: OrderedDict[int, np.ndarray] = OrderedDict()
-        if self._kinematics.num_arm_joints != ARM_JOINTS:
-            raise ValueError(
-                f"XR-1 assumes {ARM_JOINTS} arm joints, kinematics reports "
-                f"{self._kinematics.num_arm_joints}"
-            )
 
     def build_observation(self, snapshot: ObservationSnapshot) -> ObservationSnapshot:
         missing = [name for name in self._required_cameras if name not in snapshot.frames]
@@ -170,7 +159,7 @@ class XR1YamAdapter(PolicyAdapter):
             request.action_condition,
             request.observation.state.groups,
             group_order=self._group_order,
-            kinematics=self._kinematics,
+            kinematics=self.kinematics,
         )
         return replace(request, action_condition=native_condition)
 
@@ -224,7 +213,7 @@ class XR1YamAdapter(PolicyAdapter):
         width: int,
     ) -> np.ndarray:
         columns = ARM_SLICES[group]
-        anchor_pose = self._kinematics.fk(joints, gripper)
+        anchor_pose = self._fk(group, joints, gripper)
         anchor_rotation = anchor_pose[:3, :3]
         anchor_position = anchor_pose[:3, 3]
 
@@ -240,7 +229,7 @@ class XR1YamAdapter(PolicyAdapter):
             target[:3, 3] = anchor_position + anchor_rotation @ row[columns["pos"]]
             target[:3, :3] = anchor_rotation @ _axis_angle_to_rotation(row[columns["aa"]])
 
-            converged, solved = self._kinematics.ik(target, seed, gripper)
+            converged, solved = self._ik(group, target, seed, gripper)
             if converged:
                 # Seeding the next step with this solution keeps the chunk on one
                 # IK branch, so the joint trajectory stays continuous.

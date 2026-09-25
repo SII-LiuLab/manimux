@@ -30,8 +30,10 @@ from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
-from scipy.spatial.transform import Rotation
 
+from manimux.embodiments.layout import group_layouts
+from manimux.kinematics.poses import matrix_pose as matrix_pose
+from manimux.kinematics.poses import pose_matrix as pose_matrix
 from manimux.types import FloatArray, ObservationSnapshot
 
 DATA_FORMAT_VERSION = "v1.0"
@@ -192,23 +194,6 @@ def build_layouts(
 
 
 # 标准位姿字典使用 xyz + wxyz；只转换表示，不变换参考坐标系。
-def pose_matrix(value):
-    pose = np.asarray(value, dtype=np.float64)
-    if pose.shape != (7,) or not np.isfinite(pose).all():
-        raise ValueError("EE pose must be finite [xyz, quaternion wxyz]")
-    if not np.isclose(np.linalg.norm(pose[3:]), 1.0, atol=1e-4):
-        raise ValueError("EE quaternion must be unit length")
-    result = np.eye(4)
-    result[:3, :3] = Rotation.from_quat(pose[[4, 5, 6, 3]]).as_matrix()
-    result[:3, 3] = pose[:3]
-    return result
-
-
-def matrix_pose(matrix):
-    quat = Rotation.from_matrix(matrix[:3, :3]).as_quat()
-    return np.r_[matrix[:3, 3], quat[[3, 0, 1, 2]]]
-
-
 # Wire names and the existing numeric options are shared by transport and adapters.
 DEFAULT_SERVER = "ws://127.0.0.1:8500"
 DEFAULT_GROUP_ORDER = ("left_arm", "right_arm")
@@ -230,27 +215,42 @@ def _positive_float_option(options: Mapping[str, object], name: str, default: fl
     return float(value)
 
 
-def _positive_int_option(options: Mapping[str, object], name: str, default: int) -> int:
-    value = options.get(name, default)
-    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
-        raise ValueError(f"policy.adapter.{name} must be a non-negative integer")
-    return value
-
-
-def _bool_option(options: Mapping[str, object], name: str, default: bool) -> bool:
-    value = options.get(name, default)
-    if not isinstance(value, bool):
-        raise ValueError(f"policy.adapter.{name} must be a boolean")
-    return value
-
-
 def _layouts_from_options(
     options: Mapping[str, object],
     group_dims: Mapping[str, int],
 ) -> tuple[GroupLayout, ...]:
-    return build_layouts(
-        tuple(options.get("group_order", DEFAULT_GROUP_ORDER)),
-        dict(options.get("group_prefixes", DEFAULT_GROUP_PREFIXES)),
-        group_dims,
-        gripper_dofs=_positive_int_option(options, "gripper_dofs", DEFAULT_GRIPPER_DOFS),
+    layouts = group_layouts(group_dims, options)
+    prefixes = options.get("group_prefixes", DEFAULT_GROUP_PREFIXES)
+    return tuple(
+        GroupLayout(name, prefixes[name], **layouts[name])
+        for name in options.get("group_order", tuple(group_dims))
     )
+
+
+def decode_policy_actions(raw, *, layouts, format):
+    """Translate XPolicyLab step dictionaries at the backend boundary."""
+    if format == "native":
+        return raw
+    metadata = dict(raw) if isinstance(raw, Mapping) else {}
+    steps = metadata.pop("actions", raw)
+    if format == "joint":
+        groups = decode_action_steps(steps, layouts=layouts)
+    elif format == "pose":
+        if not isinstance(steps, Sequence) or not steps:
+            raise ValueError("pose actions must contain per-step dictionaries")
+        groups = {}
+        for layout in layouts:
+            pose_key = f"{layout.prefix}_ee_pose" if layout.prefix else "ee_pose"
+            rows = []
+            for index, step in enumerate(steps):
+                pose = _step_value(step, pose_key, 7, index)
+                tool = (
+                    _step_value(step, layout.gripper_key, layout.gripper_dofs, index)
+                    if layout.gripper_dofs
+                    else np.empty(0)
+                )
+                rows.append(np.r_[pose, tool])
+            groups[layout.group] = np.stack(rows)
+    else:
+        raise ValueError(f"unsupported policy action_format {format!r}")
+    return {**metadata, "format": format, "actions": groups}

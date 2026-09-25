@@ -1,8 +1,8 @@
 """ManiMux policy plugins backed by an XPolicyLab WebSocket policy server.
 
-Same split as the MolmoAct/ABC/XR-1 plugins: the model plugin only speaks the
-wire protocol, and every robot semantic -- group order, arm/gripper layout,
-camera naming, chunk timing -- lives in the adapter.
+The client owns the XPolicyLab wire format. It uses the resolved component
+layout and camera mapping to encode observations and translate action replies.
+Robot action interpretation, FK/IK and chunk timing stay in embodiment adapters.
 
 What is different is that the server on the other end is not ours. XPolicyLab
 serves one ``Model`` per policy out of its own environment, so a single plugin
@@ -32,14 +32,11 @@ from manimux.policies.xpolicylab.aac import (
 )
 from manimux.policies.xpolicylab.codec import (
     DEFAULT_CAMERA_MAP,
-    DEFAULT_GRIPPER_DOFS,
-    DEFAULT_GROUP_ORDER,
-    DEFAULT_GROUP_PREFIXES,
     DEFAULT_SERVER,
     GroupLayout,
+    _layouts_from_options,
     _positive_float_option,
-    _positive_int_option,
-    build_layouts,
+    decode_policy_actions,
     encode_observation,
 )
 from manimux.policies.xpolicylab.ws_client import XPolicyLabWsClient
@@ -52,6 +49,9 @@ class XPolicyLabWsPolicyModel:
     def __init__(self, config: dict) -> None:
         options = config["options"]
         adapter = config["adapter"]
+        self._action_format = options.get("action_format", "native")
+        if self._action_format not in {"joint", "pose", "native"}:
+            raise ValueError(f"unknown action_format {self._action_format!r}")
         self._url = options.get("server", DEFAULT_SERVER)
         self._camera_map = dict(adapter.get("camera_map", DEFAULT_CAMERA_MAP))
         # The observation carries the rate *we* run at. XPolicyLab treats the
@@ -66,9 +66,7 @@ class XPolicyLabWsPolicyModel:
         )
         # The model plugin never sees RobotConfig, so the arm/gripper split is
         # resolved from the first observation and then held fixed.
-        self._group_order = tuple(adapter.get("group_order", DEFAULT_GROUP_ORDER))
-        self._group_prefixes = dict(adapter.get("group_prefixes", DEFAULT_GROUP_PREFIXES))
-        self._gripper_dofs = _positive_int_option(adapter, "gripper_dofs", DEFAULT_GRIPPER_DOFS)
+        self._layout_options = dict(adapter)
         self._horizon_steps = config["horizon_policy_steps"]
         self._aac_kinematics_name = options.get("aac_kinematics", "yam")
         self._aac_kinematics: ArmKinematics | None = None
@@ -95,6 +93,10 @@ class XPolicyLabWsPolicyModel:
         self._aac_previous = None
 
     def infer(self, request: InferenceRequest) -> object:
+        raw = self._infer_wire(request)
+        return decode_policy_actions(raw, layouts=self._layouts, format=self._action_format)
+
+    def _infer_wire(self, request: InferenceRequest) -> object:
         if request.session_id != self._session_id:
             raise RuntimeError("XPolicyLab session is not initialized")
         client = self._client
@@ -103,11 +105,9 @@ class XPolicyLabWsPolicyModel:
 
         snapshot = request.observation
         if not self._layouts:
-            self._layouts = build_layouts(
-                self._group_order,
-                self._group_prefixes,
+            self._layouts = _layouts_from_options(
+                self._layout_options,
                 {name: int(values.size) for name, values in snapshot.state.groups.items()},
-                gripper_dofs=self._gripper_dofs,
             )
         observation = encode_observation(
             snapshot,
@@ -116,14 +116,20 @@ class XPolicyLabWsPolicyModel:
             instruction=request.instruction,
             frequency=self._frequency,
         )
-        extra_state = getattr(request, "xpolicylab_state", None)
+        # The older request attributes remain for SAPolicy and Tianji, whose
+        # adapter migration is intentionally outside this change.
+        extra_state = getattr(request, "model_state", None)
+        if extra_state is None:
+            extra_state = getattr(request, "xpolicylab_state", None)
         if extra_state is not None:
             if not isinstance(extra_state, Mapping) or set(extra_state) & set(observation["state"]):
                 raise ValueError("XPolicy additional state must not replace canonical joint state")
             observation["state"].update(extra_state)
         # Embodiment adapters (e.g. sapolicy_yam) may attach EE poses / intrinsics
         # that the generic joint-state codec does not carry.
-        extra_info = getattr(request, "xpolicylab_additional_info", None)
+        extra_info = getattr(request, "model_info", None)
+        if extra_info is None:
+            extra_info = getattr(request, "xpolicylab_additional_info", None)
         if isinstance(extra_info, Mapping) and extra_info:
             merged = dict(observation.get("additional_info") or {})
             merged.update(dict(extra_info))

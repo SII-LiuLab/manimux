@@ -145,3 +145,9 @@ Orbbec 的服务端采集实现已迁入 sensor 组件目录。一级 `policy_ad
 Tianji FK/IK 使用官方实现，保留旧版求解约束。控制位姿始终相对各自手臂基座；
 公共场景坐标变换只用于 Viewer。末端安装与 TCP 变换仍参与组合运动学。
 配置组织调整不得改变动作间隔、执行限位、采集时间戳或真实硬件连接行为。
+
+## Component and policy interface walkthrough
+
+See [the development walkthrough](component-policy-development.md) for component-owned
+action layouts, shared body kinematics, canonical client replies, and a hardware-free
+example using two policy clients with the same adapter.

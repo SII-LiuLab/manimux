@@ -51,11 +51,6 @@ policy:
       cam_left_wrist: left_camera
       cam_right_wrist: right_camera
     action_codec: xr1_ee_delta
-    kinematics: yam
-    kinematics_options:
-      arm_type: yam
-      gripper_type: linear_4310
-      num_arm_joints: 6
 
   action_dt_s: 0.03333333333333333
   timeout_s: 2.0

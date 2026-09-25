@@ -1,28 +1,35 @@
-"""YAM embodiment boundary for XPolicyLab absolute per-arm base poses."""
+"""YAM embodiment boundary for absolute per-arm base poses."""
 
 import uuid
 from collections import OrderedDict
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 import numpy as np
 
+from manimux.kinematics.poses import matrix_pose, pose_matrix
+from manimux.policies.actions import action_groups
 from manimux.policies.base import action_interval
-from manimux.policies.xpolicylab.codec import DEFAULT_CAMERA_MAP, matrix_pose, pose_matrix
-from manimux.policy_adapter.base import PolicyAdapter
+from manimux.policy_adapter.kinematics import KinematicAdapter
 from manimux.types import ActionChunk, InferenceRequest
+
+DEFAULT_CAMERA_MAP = {
+    "cam_head": "front_camera",
+    "cam_left_wrist": "left_camera",
+    "cam_right_wrist": "right_camera",
+}
 
 SEMANTICS = "absolute_per_arm_base_xyz_wxyz"
 
 
 @dataclass(slots=True)
-class XPolicyPoseRequest(InferenceRequest):
-    xpolicylab_state: dict | None = None
+class PoseRequest(InferenceRequest):
+    model_state: dict | None = None
 
 
-class OpenWAMYamAdapter(PolicyAdapter):
+class OpenWAMYamAdapter(KinematicAdapter):
     def __init__(self, robot, policy, *, kinematics=None):
-        from manimux.kinematics import build_kinematics
+        super().__init__(robot, policy, kinematics=kinematics)
 
         self.validate(robot, policy)
         self.cameras = policy["adapter"].get("camera_map", DEFAULT_CAMERA_MAP)
@@ -30,17 +37,9 @@ class OpenWAMYamAdapter(PolicyAdapter):
             raise ValueError("OpenWAM requires the three standard XPolicy cameras")
         self.horizon = policy["horizon_policy_steps"]
         self.dt = int(action_interval(policy) * 1e9)
-        self.kin = build_kinematics(
-            policy["adapter"].get("kinematics", "yam"),
-            **policy["adapter"].get("kinematics_options", {}),
-        )
-        if self.kin.num_arm_joints != 6:
-            raise ValueError("YAM requires six joints per arm")
         self.anchors = OrderedDict()
 
     def validate(self, robot, policy):
-        if policy["worker"] != "xpolicylab_ws":
-            raise ValueError("OpenWAM requires xpolicylab_ws")
         if list(robot["group_dims"].items()) != [("left_arm", 7), ("right_arm", 7)]:
             raise ValueError("OpenWAM YAM requires left_arm/right_arm with 6+1 values")
         if robot["type"] == "yam":
@@ -75,27 +74,27 @@ class OpenWAMYamAdapter(PolicyAdapter):
                 raise ValueError("YAM state must contain seven finite values per arm")
             if not 0 <= values[-1] <= 1:
                 raise ValueError("YAM gripper must be in [0, 1]")
-            matrix = self.kin.fk(values[:6], float(values[-1]))
+            matrix = self._fk(group, values[:6], float(values[-1]))
             state[f"{side}_ee_pose"] = matrix_pose(matrix)
             anchors[group] = values
         self.anchors[request.request_seq] = anchors
         while len(self.anchors) > 8:
             self.anchors.popitem(last=False)
-        return XPolicyPoseRequest(
+        return PoseRequest(
             session_id=request.session_id,
             request_seq=request.request_seq,
             observation_time_ns=request.observation_time_ns,
             deadline_ns=request.deadline_ns,
             observation=request.observation,
             instruction=request.instruction,
-            xpolicylab_state=state,
+            model_state=state,
         )
 
     def decode_action(self, raw, context):
         if not isinstance(raw, Mapping) or raw.get("action_semantics") != SEMANTICS:
             raise ValueError("OpenWAM actions must declare absolute per-arm base pose semantics")
-        steps = raw.get("actions")
-        if not isinstance(steps, Sequence) or len(steps) != self.horizon:
+        actions = action_groups(raw, {g: 8 for g in self.kinematics.models}, format="pose")
+        if any(len(rows) != self.horizon for rows in actions.values()):
             raise ValueError(f"OpenWAM action horizon must be {self.horizon}")
         anchors = self.anchors.pop(context.request_seq, None)
         if anchors is None:
@@ -112,12 +111,12 @@ class OpenWAMYamAdapter(PolicyAdapter):
             if seed.shape != (7,) or not np.isfinite(seed).all():
                 raise ValueError("Invalid measured YAM state")
             current, rows = seed[:6].copy(), []
-            for step in steps:
-                target = pose_matrix(step[f"{side}_ee_pose"])
-                grip = np.asarray(step[f"{side}_ee_joint_state"], dtype=float)
+            for step in actions[group]:
+                target = pose_matrix(step[:7])
+                grip = step[7:]
                 if grip.shape != (1,) or not np.isfinite(grip).all() or not 0 <= grip[0] <= 1:
                     raise ValueError("OpenWAM gripper must be one value in [0, 1]")
-                ok, solved = self.kin.ik(target, current, float(grip[0]))
+                ok, solved = self._ik(group, target, current, float(grip[0]))
                 solved = np.asarray(solved)
                 if not ok or solved.shape != (6,) or not np.isfinite(solved).all():
                     raise ValueError("OpenWAM IK failed; rejecting the entire action chunk")

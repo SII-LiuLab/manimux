@@ -289,8 +289,15 @@ def test_new_recipe_preserves_joint_policy_and_execution_contract(fake_sdk):
         }
         for _ in range(new["policy"]["horizon_policy_steps"])
     ]
-    chunk = adapter.decode_action(
+    from manimux.policies.xpolicylab.codec import _layouts_from_options, decode_policy_actions
+
+    payload = decode_policy_actions(
         steps,
+        layouts=_layouts_from_options(new["policy"]["adapter"], new["robot"]["group_dims"]),
+        format="joint",
+    )
+    chunk = adapter.decode_action(
+        payload,
         ActionContext(
             request_seq=1,
             observation_time_ns=10,

@@ -88,6 +88,7 @@ def read_experiment(
     source = Path(path).expanduser().resolve()
     raw = read_yaml(source)
     from manimux.embodiments.robot import apply_action_contract
+    from manimux.embodiments.layout import assembly_action_contract
     from manimux.policies.base import backend_identity_from_recipe
 
     backend_identity = None
@@ -106,7 +107,7 @@ def read_experiment(
     robot = raw.setdefault("robot", {})
     if robot.get("config") is not None:
         robot["config"] = str((source.parent / robot["config"]).resolve())
-        contract = read_yaml(robot["config"]).get("action_contract")
+        contract = assembly_action_contract(robot["config"])
         if contract is not None:
             apply_action_contract(raw, contract)
     if raw.get("control_profile") is not None:

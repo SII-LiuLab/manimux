@@ -65,6 +65,8 @@ def _action_step(step: object) -> object:
 
 def _raw_action_summary(raw: object) -> dict[str, object]:
     actions = raw.get("actions") if isinstance(raw, Mapping) and "actions" in raw else raw
+    if isinstance(raw, Mapping) and raw.get("format") in {"joint", "pose"}:
+        return {"type": raw["format"], "groups": _group_action_summary(actions)}
     if isinstance(actions, Sequence) and not isinstance(actions, str | bytes):
         if not actions:
             return {"type": type(raw).__name__, "steps": 0}

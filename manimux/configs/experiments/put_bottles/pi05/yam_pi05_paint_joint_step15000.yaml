@@ -71,6 +71,7 @@ policy:
       num_steps: 10
   startup_timeout_s: 30.0
   options:
+    action_format: joint
     request_timeout_s: 10.0
 
 viewer:

@@ -38,11 +38,11 @@ def test_history_and_fk_request():
         InferenceRequest("test", 0, snapshot.state.monotonic_ns, 2_000_000_000, snapshot)
     )
     assert len(r.observation.frames) == 9
-    assert len(r.xpolicylab_additional_info["dp_history_states"]) == 3
+    assert len(r.model_info["dp_history_states"]) == 3
     for i in range(3):
         assert r.observation.frames[f"front_camera_t{i}"].data[0, 0, 0] == i
-    pose = r.xpolicylab_additional_info["dp_history_states"][0]["left_ee_pose"]
-    expected = adapter.kin.fk(q[:6], q[-1])
+    pose = r.model_info["dp_history_states"][0]["left_ee_pose"]
+    expected = adapter.kinematics.models["left_arm"].fk(q)
     np.testing.assert_allclose(pose[:3], expected[:3, 3])
     np.testing.assert_allclose(
         Rotation.from_quat(pose[[4, 5, 6, 3]]).as_matrix(), expected[:3, :3], atol=1e-9

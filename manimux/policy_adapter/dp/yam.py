@@ -7,7 +7,8 @@ from dataclasses import dataclass, field
 import numpy as np
 from scipy.spatial.transform import Rotation
 
-from manimux.policy_adapter.base import PolicyAdapter
+from manimux.policies.actions import action_groups
+from manimux.policy_adapter.kinematics import KinematicAdapter
 from manimux.policy_adapter.umi_dp.history import MeasuredHistory
 from manimux.types import ActionChunk, InferenceRequest, ObservationSnapshot, SensorFrame
 
@@ -19,7 +20,7 @@ class HistorySnapshot(ObservationSnapshot):
 
 @dataclass(slots=True)
 class DPRequest(InferenceRequest):
-    xpolicylab_additional_info: dict = field(default_factory=dict)
+    model_info: dict = field(default_factory=dict)
 
 
 class HistoryStrategy:
@@ -77,11 +78,10 @@ class HistoryStrategy:
         return self.delegate.build_submission(**{**kwargs, "snapshot": window})
 
 
-class DPYamAdapter(PolicyAdapter):
+class DPYamAdapter(KinematicAdapter):
     def __init__(self, robot, policy, *, kinematics=None):
-        from manimux.kinematics import build_kinematics
+        super().__init__(robot, policy, kinematics=kinematics)
 
-        self.kin = build_kinematics("yam")
         self.groups = ("left_arm", "right_arm")
         self.dt = round(policy["action_dt_s"] * 1e9)
         self.horizon = policy["horizon_policy_steps"]
@@ -101,7 +101,7 @@ class DPYamAdapter(PolicyAdapter):
             state = {}
             for side, group in zip(("left", "right"), self.groups, strict=True):
                 q = sample.state.groups[group]
-                pose = self.kin.fk(q[:6], float(q[6]))
+                pose = self._fk(group, q[:6], float(q[6]))
                 quat = Rotation.from_matrix(pose[:3, :3]).as_quat()
                 state[f"{side}_ee_pose"] = np.r_[pose[:3, 3], quat[3], quat[:3]]
                 state[f"{side}_ee_joint_state"] = np.asarray(q[6:7])
@@ -131,20 +131,20 @@ class DPYamAdapter(PolicyAdapter):
         )
 
     def decode_action(self, raw, context):
-        actions = raw.get("actions") if isinstance(raw, dict) else raw
-        if len(actions) != self.horizon:
+        actions = action_groups(raw, {g: 8 for g in self.groups}, format="pose")
+        if any(len(rows) != self.horizon for rows in actions.values()):
             raise ValueError("DP action horizon mismatch")
         anchor = self.anchors.pop(context.request_seq, None)
         seed_state = context.measured_state if context.measured_state is not None else anchor
         if seed_state is None:
             raise ValueError("DP IK requires a measured seed")
         groups = {}
-        for side, group in zip(("left", "right"), self.groups, strict=True):
+        for group in self.groups:
             seed = np.asarray(seed_state.groups[group][:6]).copy()
             rows = []
-            for action in actions:
-                pose = np.asarray(action[f"{side}_ee_pose"], dtype=float)
-                grip = np.asarray(action[f"{side}_ee_joint_state"], dtype=float)
+            for action in actions[group]:
+                pose = np.asarray(action[:7], dtype=float)
+                grip = np.asarray(action[7:], dtype=float)
                 if (
                     pose.shape != (7,)
                     or grip.shape != (1,)
@@ -155,7 +155,7 @@ class DPYamAdapter(PolicyAdapter):
                 transform[:3, 3] = pose[:3]
                 transform[:3, :3] = Rotation.from_quat(pose[[4, 5, 6, 3]]).as_matrix()
                 aperture = float(np.clip(grip[0], 0, 1))
-                ok, joints = self.kin.ik(transform, seed, aperture)
+                ok, joints = self._ik(group, transform, seed, aperture)
                 if not ok:
                     raise ValueError(f"DP IK failed for {group} at step {len(rows)}")
                 seed = joints

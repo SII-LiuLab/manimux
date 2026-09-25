@@ -633,8 +633,6 @@ def gripper_hysteresis_parameters(**options) -> dict:
         "open_value": 1.0,
         **options,
     }
-    if not values["group_indices"]:
-        raise ValueError("gripper group_indices must not be empty")
     if any((not name or index < 0 for name, index in values["group_indices"].items())):
         raise ValueError("gripper group_indices must map non-empty names to non-negative indices")
     if values["close_threshold"] >= values["open_threshold"]:

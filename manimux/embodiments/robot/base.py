@@ -14,6 +14,7 @@ import yaml
 from scipy.spatial.transform import Rotation
 
 from manimux.clock import Clock, SystemClock
+from manimux.embodiments.layout import assembly_action_contract, group_layouts
 from manimux.embodiments.arm.base import ArmBase, ArmController, ArmModel
 from manimux.embodiments.end_effector.base import EndEffectorModel
 from manimux.embodiments.end_effector.gripper import GripperBase, GripperCommand
@@ -369,6 +370,7 @@ class RobotModel:
     config_path: Path
     # Optional arm-only Home targets in model coordinates (radians), without tool commands.
     home_joints: Mapping[str, FloatArray] = field(default_factory=dict)
+    action_layouts: Mapping[str, dict] = field(default_factory=dict)
 
     @classmethod
     def from_config(cls, path: Path | str) -> RobotModel:
@@ -467,6 +469,9 @@ class RobotModel:
                 q.setflags(write=False)
                 home_joints[group_name] = q
         kin = RobotKinematics({key: value.kinematics for key, value in groups.items()})
+        contract = assembly_action_contract(source)
+        layouts = (group_layouts({name: model.num_coordinates for name, model in kin.models.items()},
+                                contract) if contract else {})
         return cls(
             name,
             MappingProxyType(groups),
@@ -475,4 +480,5 @@ class RobotModel:
             MappingProxyType(dict(spec.get("hardware", {}))),
             source,
             MappingProxyType(home_joints),
+            MappingProxyType(layouts),
         )

@@ -99,7 +99,7 @@ def test_runtime_prefix_and_failure_diagnostics():
     request = adapter.prepare_request(
         InferenceRequest("test", 0, 1, 100, ObservationSnapshot(state, {}))
     )
-    assert set(request.xpolicylab_state) == {"left_ee_pose", "right_ee_pose"}
+    assert set(request.model_state) == {"left_ee_pose", "right_ee_pose"}
     row = {
         side + key: val
         for side in ("left", "right")
@@ -108,9 +108,18 @@ def test_runtime_prefix_and_failure_diagnostics():
             ("_ee_joint_state", np.array([0.4])),
         ]
     }
+    from manimux.policies.xpolicylab.codec import build_layouts, decode_policy_actions
+
+    layouts = build_layouts(
+        ("left_arm", "right_arm"),
+        {"left_arm": "left", "right_arm": "right"},
+        {"left_arm": 7, "right_arm": 7},
+        gripper_dofs=1,
+    )
+    payload = decode_policy_actions([row] * 50, layouts=layouts, format="pose")
     context = ActionContext(0, 1, 1, measured_state=state)
-    chunk = adapter.decode_action([row] * 50, context)
+    chunk = adapter.decode_action(payload, context)
     assert kin.calls == 24 and chunk.horizon_steps == 12
     kin.fail = True
     with pytest.raises(ValueError, match="no_solution"):
-        adapter.decode_action([row] * 50, context)
+        adapter.decode_action(payload, context)

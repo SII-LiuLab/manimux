@@ -58,6 +58,7 @@ policy:
   inference_delay_s: 0.0
   startup_timeout_s: 30.0
   options:
+    action_format: joint
     request_timeout_s: 10.0
 
 viewer:

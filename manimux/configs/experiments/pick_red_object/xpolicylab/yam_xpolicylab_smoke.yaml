@@ -66,6 +66,9 @@ policy:
   horizon_policy_steps: 30
   inference_delay_s: 0.0
 
+  options:
+    action_format: joint
+
 viewer:
   enabled: true
   robot: yam

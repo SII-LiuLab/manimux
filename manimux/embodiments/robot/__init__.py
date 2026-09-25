@@ -7,6 +7,7 @@ from copy import deepcopy
 from pathlib import Path
 
 from manimux.clock import Clock
+from manimux.embodiments.layout import gripper_indices, group_layouts
 from manimux.embodiments.robot.base import RobotBase, RobotModel
 from manimux.plugins import load_plugin
 
@@ -22,24 +23,33 @@ def _set_contract_value(target: dict, name: str, value: object, label: str) -> N
 def action_contract_group_indices(config: dict) -> dict[str, int] | None:
     """Return each group's gripper coordinate from its resolved action contract."""
 
-    group_dims = config.get("robot", {}).get("group_dims")
-    gripper_dofs = config.get("policy", {}).get("adapter", {}).get("gripper_dofs")
-    if not group_dims or gripper_dofs is None:
+    dims = config.get("robot", {}).get("group_dims")
+    options = config.get("policy", {}).get("adapter", {})
+    if not dims or not ({"group_layouts", "gripper_dofs"} & options.keys()):
         return None
-    return {name: dimension - gripper_dofs for name, dimension in group_dims.items()}
+    return gripper_indices(group_layouts(dims, options))
 
 
 def apply_action_contract(config: dict, contract: dict) -> dict[str, int]:
     """Apply one embodiment-owned action layout to policy and execution sections."""
 
-    group_dims = contract["group_dims"]
+    dimensions = contract.get("group_dims")
+    if "group_layouts" in contract:
+        dimensions = {
+            name: item["arm_dofs"] + item["gripper_dofs"]
+            for name, item in contract["group_layouts"].items()
+        }
+        if "group_dims" in contract and dimensions != contract["group_dims"]:
+            raise ValueError("component action layout conflicts with assembly dimensions")
+    layouts = group_layouts(dimensions, contract)
     robot = config.setdefault("robot", {})
     adapter = config.setdefault("policy", {}).setdefault("adapter", {})
-    _set_contract_value(robot, "group_dims", group_dims, "robot.group_dims")
+    _set_contract_value(robot, "group_dims", dimensions, "robot.group_dims")
+    _set_contract_value(robot, "group_layouts", layouts, "robot.group_layouts")
     for name, value in {
-        "group_order": list(group_dims),
-        "group_prefixes": contract["group_prefixes"],
-        "gripper_dofs": contract["gripper_dofs"],
+        "group_order": list(dimensions),
+        "group_prefixes": contract.get("group_prefixes", {name: name for name in dimensions}),
+        "group_layouts": layouts,
     }.items():
         _set_contract_value(adapter, name, value, f"policy.adapter.{name}")
     indices = action_contract_group_indices(config)
@@ -91,7 +101,11 @@ _BUILTINS = {
 def build_robot(config: dict, clock: Clock) -> RobotBase:
     """Select an assembly by robot.type; only connect() may open its hardware."""
     factory = load_plugin(config["type"], group="manimux.embodiments.robot", builtins=_BUILTINS)
-    return factory(config, clock)
+    robot = factory(config, clock)
+    declared = config.get("group_layouts")
+    if declared is not None and robot.model is not None and declared != robot.model.action_layouts:
+        raise ValueError("configured action layout does not match the assembled robot")
+    return robot
 
 
 __all__ = [

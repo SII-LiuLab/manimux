@@ -15,8 +15,9 @@ from collections.abc import Mapping
 
 import numpy as np
 
+from manimux.embodiments.layout import group_layouts
+from manimux.policies.actions import action_groups
 from manimux.policies.base import action_interval
-from manimux.policies.xpolicylab.codec import build_layouts, decode_action_steps
 from manimux.policy_adapter.base import PolicyAdapter
 from manimux.types import ActionChunk, ActionContext, InferenceRequest, ObservationSnapshot
 
@@ -34,17 +35,8 @@ class LingBotVLA2YamAdapter(PolicyAdapter):
     """Anchor-relative arm joints plus absolute grippers -> absolute YAM joints."""
 
     def __init__(self, robot: dict, policy: dict, *, kinematics=None) -> None:
-        group_order = tuple(policy["adapter"].get("group_order", DEFAULT_GROUP_ORDER))
-        prefixes = dict(policy["adapter"].get("group_prefixes", DEFAULT_GROUP_PREFIXES))
-        gripper_dofs = int(policy["adapter"].get("gripper_dofs", 1))
-        if gripper_dofs != 1:
-            raise ValueError("LingBot-VLA2 YAM requires exactly one gripper value per arm")
-        self._layouts = build_layouts(
-            group_order,
-            prefixes,
-            robot["group_dims"],
-            gripper_dofs=gripper_dofs,
-        )
+        self._layouts = group_layouts(robot["group_dims"], policy["adapter"])
+        self._dimensions = dict(robot["group_dims"])
         self._camera_map = dict(policy["adapter"].get("camera_map", DEFAULT_CAMERA_MAP))
         self._required_cameras = tuple(self._camera_map.values())
         self._action_dt_ns = int(action_interval(policy) * 1_000_000_000)
@@ -60,17 +52,20 @@ class LingBotVLA2YamAdapter(PolicyAdapter):
 
     def prepare_request(self, request: InferenceRequest) -> InferenceRequest:
         anchors: dict[str, np.ndarray] = {}
-        for layout in self._layouts:
-            values = request.observation.state.groups.get(layout.group)
+        for group, layout in self._layouts.items():
+            values = request.observation.state.groups.get(group)
             if values is None:
-                raise ValueError(f"LingBot-VLA2 observation is missing group {layout.group!r}")
+                raise ValueError(f"LingBot-VLA2 observation is missing group {group!r}")
             vector = np.asarray(values, dtype=np.float64).reshape(-1)
-            if vector.shape != (layout.dim,) or not np.isfinite(vector).all():
+            if (
+                vector.shape != ((layout["arm_dofs"] + layout["gripper_dofs"]),)
+                or not np.isfinite(vector).all()
+            ):
                 raise ValueError(
-                    f"LingBot-VLA2 observation group {layout.group!r} must be "
-                    f"finite with shape ({layout.dim},)"
+                    f"LingBot-VLA2 observation group {group!r} must be "
+                    f"finite with shape ({(layout['arm_dofs'] + layout['gripper_dofs'])},)"
                 )
-            anchors[layout.group] = np.ascontiguousarray(vector.copy())
+            anchors[group] = np.ascontiguousarray(vector.copy())
 
         self._anchors[request.request_seq] = anchors
         while len(self._anchors) > 8:
@@ -93,7 +88,7 @@ class LingBotVLA2YamAdapter(PolicyAdapter):
                 f"LingBot-VLA2 adapter has no observation anchor for request {context.request_seq}"
             )
 
-        native_groups = decode_action_steps(raw.get("actions"), layouts=self._layouts)
+        native_groups = action_groups(raw, self._dimensions, format="joint")
         horizons = {values.shape[0] for values in native_groups.values()}
         if horizons != {self._horizon_steps}:
             raise ValueError(
@@ -101,11 +96,11 @@ class LingBotVLA2YamAdapter(PolicyAdapter):
             )
 
         groups: dict[str, np.ndarray] = {}
-        for layout in self._layouts:
-            native = native_groups[layout.group]
+        for group, layout in self._layouts.items():
+            native = native_groups[group]
             absolute = native.copy()
-            absolute[:, : layout.arm_dofs] += anchors[layout.group][None, : layout.arm_dofs]
-            groups[layout.group] = np.ascontiguousarray(absolute)
+            absolute[:, : layout["arm_dofs"]] += anchors[group][None, : layout["arm_dofs"]]
+            groups[group] = np.ascontiguousarray(absolute)
 
         return ActionChunk(
             plan_id=f"lingbot-vla2-{context.request_seq}-{uuid.uuid4().hex[:8]}",
@@ -123,12 +118,12 @@ class LingBotVLA2YamAdapter(PolicyAdapter):
 
     def validate(self, robot: dict, policy: dict) -> None:
         del policy
-        expected_groups = tuple(layout.group for layout in self._layouts)
+        expected_groups = tuple(self._layouts)
         if tuple(robot["group_dims"]) != expected_groups:
             raise ValueError(
                 "LingBot-VLA2 YAM requires robot groups in order "
                 f"{list(expected_groups)}, got {list(robot['group_dims'])}"
             )
-        for layout in self._layouts:
-            if layout.arm_dofs != 6 or layout.gripper_dofs != 1:
+        for layout in self._layouts.values():
+            if layout["arm_dofs"] != 6 or layout["gripper_dofs"] != 1:
                 raise ValueError("LingBot-VLA2 YAM requires two 6+1 arm groups")

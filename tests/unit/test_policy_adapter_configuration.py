@@ -17,11 +17,10 @@ def test_same_policy_can_select_distinct_action_formats(tmp_path):
     fixture["robot"]["group_dims"] = {"arm": 3}
     fixture["policy"].update(horizon_policy_steps=3, action_dt_s=0.1)
     rows = np.array([[0.1, 0.2, 0.3], [0.2, 0.3, 0.4], [0.3, 0.4, 0.5]])
-    structured = [{"arm_joint_state": row[:2], "ee_joint_state": row[2:]} for row in rows]
     context = ActionContext(request_seq=7, observation_time_ns=100, created_time_ns=200)
     chunks = []
     for implementation, payload in [
-        ("manimux.policy_adapter.joint:JointAdapter", structured),
+        ("manimux.policy_adapter.joint:JointAdapter", {"format": "joint", "actions": {"arm": rows}}),
         ("manimux.policy_adapter.abc_yam:AbcYamAdapter", rows),
     ]:
         recipe = deepcopy(fixture)

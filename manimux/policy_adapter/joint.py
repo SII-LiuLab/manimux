@@ -6,39 +6,38 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Mapping
 
+from manimux.embodiments.layout import group_layouts
+from manimux.policies.actions import action_groups
 from manimux.policies.base import action_interval
-from manimux.policies.xpolicylab.codec import (
-    DEFAULT_CAMERA_MAP,
-    _bool_option,
-    _layouts_from_options,
-    decode_action_steps,
-)
 from manimux.policy_adapter.base import PolicyAdapter
 from manimux.types import ActionChunk, ActionContext, ObservationSnapshot
 
 
 class JointAdapter(PolicyAdapter):
-    """Translate canonical snapshots and XPolicyLab per-step action dictionaries."""
+    """Translate canonical grouped joint targets into timed robot chunks."""
 
     def __init__(self, robot: dict, policy: dict, *, kinematics=None) -> None:
-        self._layouts = _layouts_from_options(policy["adapter"], robot["group_dims"])
-        self._camera_map = dict(policy["adapter"].get("camera_map", DEFAULT_CAMERA_MAP))
+        self._dimensions = dict(robot["group_dims"])
+        self._layouts = group_layouts(self._dimensions, policy["adapter"])
+        self._camera_map = dict(policy["adapter"].get("camera_map", {}))
         self._required_cameras = tuple(self._camera_map.values())
         self._action_dt_ns = int(action_interval(policy) * 1_000_000_000)
         self._horizon_steps = policy["horizon_policy_steps"]
-        self._allow_short_horizon = _bool_option(policy["adapter"], "allow_short_horizon", False)
+        self._allow_short_horizon = policy["adapter"].get("allow_short_horizon", False)
+        if not isinstance(self._allow_short_horizon, bool):
+            raise ValueError("allow_short_horizon must be boolean")
 
     def build_observation(self, snapshot: ObservationSnapshot) -> ObservationSnapshot:
         missing = [name for name in self._required_cameras if name not in snapshot.frames]
         if missing:
-            raise ValueError(f"XPolicyLab adapter is missing cameras: {missing}")
+            raise ValueError(f"Policy adapter is missing cameras: {missing}")
         return snapshot
 
     def decode_action(self, raw: object, context: ActionContext) -> ActionChunk:
-        action_payload = raw.get("actions") if isinstance(raw, Mapping) else raw
-        groups = decode_action_steps(action_payload, layouts=self._layouts)
+        groups = action_groups(raw, self._dimensions, format="joint")
+        if raw.get("action_semantics") not in (None, "absolute_joint_position"):
+            raise ValueError("JointAdapter requires absolute joint-position semantics")
         horizons = {values.shape[0] for values in groups.values()}
         horizon = next(iter(horizons)) if len(horizons) == 1 else None
         valid_short_horizon = (
@@ -48,12 +47,12 @@ class JointAdapter(PolicyAdapter):
         )
         if horizons != {self._horizon_steps} and not valid_short_horizon:
             raise ValueError(
-                f"XPolicyLab action horizon must be {self._horizon_steps}"
+                f"Policy action horizon must be {self._horizon_steps}"
                 f"{' or 2..' + str(self._horizon_steps) if self._allow_short_horizon else ''}, "
                 f"got {sorted(horizons)}"
             )
         return ActionChunk(
-            plan_id=f"xpolicylab-{context.request_seq}-{uuid.uuid4().hex[:8]}",
+            plan_id=f"joint-{context.request_seq}-{uuid.uuid4().hex[:8]}",
             request_seq=context.request_seq,
             observation_time_ns=context.observation_time_ns,
             created_time_ns=context.created_time_ns,
@@ -64,15 +63,5 @@ class JointAdapter(PolicyAdapter):
 
     def validate(self, robot: dict, policy: dict) -> None:
         del policy
-        expected = tuple(layout.group for layout in self._layouts)
-        if tuple(robot["group_dims"]) != expected:
-            raise ValueError(
-                "XPolicyLab requires robot groups in order "
-                f"{list(expected)}, got {list(robot['group_dims'])}"
-            )
-        for layout in self._layouts:
-            if robot["group_dims"][layout.group] != layout.dim:
-                raise ValueError(
-                    f"group {layout.group!r} is {robot['group_dims'][layout.group]} values "
-                    f"but the layout describes {layout.dim}"
-                )
+        if robot["group_dims"] != self._dimensions:
+            raise ValueError("adapter action layout does not match robot groups")

@@ -7,13 +7,14 @@ from dataclasses import dataclass, field
 import numpy as np
 from scipy.spatial.transform import Rotation
 
+from manimux.policies.actions import action_groups
 from manimux.policy_adapter.base import PolicyAdapter
 from manimux.types import ActionChunk, InferenceRequest
 
 
 @dataclass(slots=True)
 class EefRequest(InferenceRequest):
-    xpolicylab_state: dict = field(default_factory=dict)
+    model_state: dict = field(default_factory=dict)
 
 
 class Pi05YamEefAdapter(PolicyAdapter):
@@ -59,21 +60,21 @@ class Pi05YamEefAdapter(PolicyAdapter):
         )
 
     def decode_action(self, raw, context):
-        actions = raw.get("actions") if isinstance(raw, dict) else raw
-        if len(actions) != self.horizon:
+        actions = action_groups(raw, {g: 8 for g in self.groups}, format="pose")
+        if any(len(rows) != self.horizon for rows in actions.values()):
             raise ValueError("Pi05 EEF action horizon mismatch")
-        actions = actions[: self.decode_steps]
+        actions = {group: rows[: self.decode_steps] for group, rows in actions.items()}
         anchor = self.anchors.pop(context.request_seq, None)
         seed_state = context.measured_state if context.measured_state is not None else anchor
         if seed_state is None:
             raise ValueError("Pi05 EEF IK requires measured joints")
         groups = {}
-        for side, group in zip(("left", "right"), self.groups, strict=True):
+        for group in self.groups:
             seed = np.asarray(seed_state.groups[group]).copy()
             rows = []
-            for step, action in enumerate(actions):
-                pose = np.asarray(action[f"{side}_ee_pose"], dtype=float)
-                grip = np.asarray(action[f"{side}_ee_joint_state"], dtype=float)
+            for step, action in enumerate(actions[group]):
+                pose = np.asarray(action[:7], dtype=float)
+                grip = np.asarray(action[7:], dtype=float)
                 if (
                     pose.shape != (7,)
                     or grip.shape != (1,)
@@ -114,8 +115,7 @@ class Pi05YamEefAdapter(PolicyAdapter):
             groups,
             metadata={
                 "raw_model_eef": {
-                    side: np.stack([a[f"{side}_ee_pose"] for a in actions]).tolist()
-                    for side in ("left", "right")
+                    side: actions[f"{side}_arm"][:, :7].tolist() for side in ("left", "right")
                 }
             },
         )

@@ -50,11 +50,6 @@ policy:
       cam_head: front_camera
       cam_left_wrist: left_camera
       cam_right_wrist: right_camera
-    kinematics: yam
-    kinematics_options:
-      arm_type: yam
-      gripper_type: linear_4310
-      num_arm_joints: 6
     deployment_bound: true
   action_dt_s: 0.03333333333333333
   timeout_s: 300.0
@@ -77,6 +72,7 @@ policy:
       norm_stats_sha256: b28b2f7af33cceeb3f5a49221c4471f349f1d311a69d52b0439d9aa6fb75bf5c
       action_horizon: 32
   options:
+    action_format: pose
     connect_timeout_s: 30.0
     request_timeout_s: 300.0
 
