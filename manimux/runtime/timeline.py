@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from manimux.types import (
+    ACTION_START_MODES,
     ActionChunk,
     ActionHorizon,
     GroupTrajectory,
@@ -66,12 +67,16 @@ class ActionTimeline:
         group_dims: dict[str, int],
         *,
         max_source_steps: int | None = None,
-        start_on_commit: bool = False,
+        action_start_mode: str = "skip_elapsed_steps",
+        hold_last_step: bool = False,
     ) -> None:
         if max_source_steps is not None and max_source_steps < 2:
             raise ValueError("max_source_steps must be at least two")
+        if action_start_mode not in ACTION_START_MODES:
+            raise ValueError(f"action_start_mode must be one of {sorted(ACTION_START_MODES)}")
         self._max_source_steps = max_source_steps
-        self._start_on_commit = start_on_commit
+        self._action_start_mode = action_start_mode
+        self._hold_last_step = hold_last_step
         self._group_dims = dict(group_dims)
         self._active: _ActivePlan | None = None
         # Kept only to cover the commit_lead window before _active starts.
@@ -127,7 +132,7 @@ class ActionTimeline:
             return CommitResult(False, "stale_request_seq")
         if now_ns - chunk.observation_time_ns > max_plan_age_ns:
             return CommitResult(False, "plan_too_old")
-        if self._start_on_commit and chunk.source_offset_steps:
+        if self._hold_last_step and chunk.source_offset_steps:
             return CommitResult(False, "serial_requires_untrimmed_chunk")
         if set(chunk.groups) != set(self._group_dims):
             return CommitResult(False, "group_mismatch")
@@ -141,18 +146,17 @@ class ActionTimeline:
         start_time_ns = now_ns + commit_lead_ns
         # Elapsed source-trajectory time when execution starts.
         age_at_commit_ns = max(0, start_time_ns - chunk.observation_time_ns)
-        # First source row whose timestamp is not earlier than start_time_ns.
-        # An exact row boundary keeps that row; a start between rows discards
-        # the earlier row instead of retiming an already-expired target.
-        source_cursor = int(
-            (age_at_commit_ns + chunk.dt_ns - 1) // chunk.dt_ns
-            if age_at_commit_ns
-            else 0
-        )
-        # Rows to remove from this chunk, excluding rows already removed upstream.
-        trimmed_steps = (
-            0 if self._start_on_commit else max(0, source_cursor - chunk.source_offset_steps)
-        )
+        if self._action_start_mode == "skip_elapsed_steps":
+            # Keep the first source row whose timestamp has not passed.
+            source_cursor = int(
+                (age_at_commit_ns + chunk.dt_ns - 1) // chunk.dt_ns
+                if age_at_commit_ns
+                else 0
+            )
+            trimmed_steps = max(0, source_cursor - chunk.source_offset_steps)
+        else:
+            # The returned chunk starts at its first available row when accepted.
+            trimmed_steps = 0
         end = chunk.horizon_steps
         if self._max_source_steps is not None:
             end = min(end, self._max_source_steps - chunk.source_offset_steps)
@@ -183,7 +187,7 @@ class ActionTimeline:
             hold_from_step=hold_from_step,
             unblended_groups=unblended_groups,
             observation_time_ns=chunk.observation_time_ns,
-            hold_last_step=self._start_on_commit,
+            hold_last_step=self._hold_last_step,
         )
         self._outgoing = self._active
         self._active = new_plan

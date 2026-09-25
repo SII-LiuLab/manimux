@@ -11,13 +11,13 @@ ROOT = Path(__file__).resolve().parents[2]
 EXPERIMENTS = ROOT / "manimux/configs/experiments"
 SUFFIX = "assemble-screwdriver-step15000"
 METHODS = {
-    "manimux": ("manimux", "default"),
-    "rtc": ("rtc", "rtc"),
-    "act-temporal-ensemble": ("act_temporal_ensemble", "default"),
-    "aac": ("aac", "aac"),
-    "paint": ("paint", "paint"),
-    "autohorizon": ("autohorizon", "autohorizon"),
-    "dvac": ("dvac", "dvac"),
+    "manimux": ("manimux", "default", "skip_elapsed_steps"),
+    "rtc": ("rtc", "rtc", "skip_elapsed_steps"),
+    "act-temporal-ensemble": ("act_temporal_ensemble", "default", "skip_elapsed_steps"),
+    "aac": ("aac", "aac", "first_step_when_ready"),
+    "paint": ("paint", "paint", "skip_elapsed_steps"),
+    "autohorizon": ("autohorizon", "autohorizon", "first_step_when_ready"),
+    "dvac": ("dvac", "dvac", "first_step_when_ready"),
 }
 
 
@@ -28,12 +28,13 @@ def test_screwdriver_algorithms_share_model_and_executor(method: str) -> None:
         EXPERIMENTS
         / f"assemble_screwdriver/yam_pi05_{method.replace(chr(45), chr(95))}_step15000.yaml"
     )
-    runtime, sampling = METHODS[method]
+    runtime, sampling, action_start_mode = METHODS[method]
 
     assert config["inference"]["algorithm"] == runtime
     strategy = build_inference_strategy(config)
     assert strategy.name == runtime
     assert strategy.required_sampling_modes == frozenset({sampling})
+    assert config["inference"]["action_start_mode"] == action_start_mode
 
     # Algorithm selection must not change hardware, observation or last-mile control.
     assert config["robot"] == baseline["robot"]

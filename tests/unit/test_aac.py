@@ -228,7 +228,7 @@ def test_aac_strategy_uses_the_server_capability_and_waits_for_chunk_end() -> No
     assert strategy.build_submission(request_seq=2, now_ns=1_300, **kwargs) is not None
 
 
-def test_aac_rebases_selected_chunk_after_synchronous_inference() -> None:
+def test_aac_keeps_observation_time_when_selecting_synchronous_chunk() -> None:
     strategy = build_inference_strategy(_aac_config())
     chunk = ActionChunk(
         plan_id="selected",
@@ -241,7 +241,7 @@ def test_aac_rebases_selected_chunk_after_synchronous_inference() -> None:
     )
     response = InferenceResponse("s", 1, 20, 1.0, raw_action=[])
     prepared = strategy.prepare_chunk(chunk=chunk, response=response, now_ns=1_000)
-    assert prepared.observation_time_ns == 1_000
+    assert prepared.observation_time_ns == 10
     assert prepared.horizon_steps == 3
 
     fields = strategy.on_plan_accepted(
@@ -268,13 +268,19 @@ def test_aac_rebases_selected_chunk_after_synchronous_inference() -> None:
     }
 
 
-def test_aac_config_rejects_runtime_blending() -> None:
+def test_aac_blending_is_controlled_by_config() -> None:
     payload = deepcopy(_aac_config())
     payload["inference"].pop("inference_schedule")
     payload["inference"].pop("refill_threshold_s")
     payload["inference"]["blend_policy_steps"] = 1
-    with pytest.raises(ValueError, match="blend_policy_steps=0"):
-        prepare_experiment(**payload)
+    config = prepare_experiment(**payload)
+    strategy = build_inference_strategy(config)
+    settings = strategy.commit_settings(
+        response=InferenceResponse("s", 1, 20, 1.0, raw_action=[]),
+        measured={"left_arm": np.zeros(7), "right_arm": np.zeros(7)},
+        last_command={"left_arm": np.ones(7), "right_arm": np.ones(7)},
+    )
+    assert settings.blend_steps == 1
 
 
 def test_aac_config_requires_fixed_ee_stats() -> None:

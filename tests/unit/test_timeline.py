@@ -94,6 +94,30 @@ def test_commit_trims_to_first_source_row_at_or_after_execution_start() -> None:
     )
 
 
+def test_first_step_when_ready_keeps_full_chunk_and_real_observation_time() -> None:
+    timeline = ActionTimeline(
+        {"left_arm": 2, "right_arm": 2},
+        action_start_mode="first_step_when_ready",
+    )
+    current = {"left_arm": np.zeros(2), "right_arm": np.zeros(2)}
+    result = timeline.commit(
+        _chunk(1),
+        now_ns=21,
+        commit_lead_ns=0,
+        max_plan_age_ns=100,
+        current_command=current,
+        blend_steps=0,
+    )
+
+    assert result.accepted
+    assert result.trimmed_steps == 0
+    assert result.timeline_latency_ns == 21
+    committed = timeline.active_horizon()
+    assert committed is not None
+    assert committed.observation_time_ns == 0
+    np.testing.assert_array_equal(committed.groups["left_arm"][0], [0.0, 1.0])
+
+
 def test_commit_does_not_trim_adapter_source_offset_twice() -> None:
     timeline = ActionTimeline({"left_arm": 2, "right_arm": 2})
     current = {"left_arm": np.zeros(2), "right_arm": np.zeros(2)}

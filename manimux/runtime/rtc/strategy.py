@@ -157,7 +157,7 @@ class RtcInferenceStrategy:
         last_command: GroupVector,
     ) -> CommitSettings:
         conditioned = response.request_seq in self._conditioned_requests
-        blend_steps = 0 if conditioned else self._config["inference"]["blend_policy_steps"]
+        blend_steps = self._config["inference"]["blend_policy_steps"]
         logger.info(
             "rtc_commit_settings seq=%d conditioned=%s blend_steps=%d",
             response.request_seq,

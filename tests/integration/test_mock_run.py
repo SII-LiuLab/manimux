@@ -161,6 +161,7 @@ def test_serial_full_chunks_hold_during_inference_and_discard_paused_results(
         chunk_policy_steps=50,
         commit_lead_s=0,
         blend_policy_steps=0,
+        action_start_mode="first_step_when_ready",
     )
     runtime = EdgeRuntime(config, tmp_path, clock=clock)
     robot = Robot(config["robot"]["group_dims"], clock)

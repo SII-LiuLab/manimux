@@ -94,6 +94,7 @@ inference:
   inference_schedule: serial
   max_plan_age_s: 2.0
   blend_policy_steps: 8
+  action_start_mode: first_step_when_ready
 executor:
   type: smooth
   config: ../../executor/yam_smooth_standard.yaml

@@ -73,14 +73,15 @@ class SynchronousChunkStrategy:
         )
 
     def commit_settings(self, *, response, measured, last_command) -> CommitSettings:
-        # 保持原同步策略：从实测状态开始，不混合上一块的预测轨迹。
+        # The config owns seam blending; synchronous strategies anchor it at measured state.
         return CommitSettings(
             current_command=copy_group_vector(measured),
-            blend_steps=0,
+            blend_steps=self._config["inference"]["blend_policy_steps"],
             anchor_source="measured_state",
         )
 
     def prepare_chunk(self, *, chunk, response, now_ns) -> ActionChunk:
+        del now_ns
         execution_steps = chunk.horizon_steps
         if self.horizon_metadata is not None:
             raw = response.raw_action
@@ -97,15 +98,20 @@ class SynchronousChunkStrategy:
                     f"{self.label} execution_steps must satisfy "
                     f"1 <= e <= {chunk.horizon_steps}, got {execution_steps!r}"
                 )
-        # 保留原行为：在收到动作时重设起始时间，只复制选中的执行段。
+        # Select the execution prefix without changing the real observation timestamp.
         return ActionChunk(
             plan_id=chunk.plan_id,
             request_seq=chunk.request_seq,
-            observation_time_ns=now_ns,
+            observation_time_ns=chunk.observation_time_ns,
             created_time_ns=chunk.created_time_ns,
             action_space=chunk.action_space,
             dt_ns=chunk.dt_ns,
             groups={name: values[:execution_steps].copy() for name, values in chunk.groups.items()},
+            source_offset_steps=chunk.source_offset_steps,
+            metadata=dict(chunk.metadata),
+            hold_from_step={
+                name: step for name, step in chunk.hold_from_step.items() if step < execution_steps
+            },
         )
 
     def on_plan_accepted(self, *, chunk, result, response, now_ns) -> dict[str, object]:

@@ -244,7 +244,7 @@ class EdgeRuntime:
         self._state = RuntimeState.DISCONNECTED
         logger.info(
             "runtime_config robot=%s execute=%s end_effector_control=%s worker=%s "
-            "policy_endpoint=%s strategy=%s executor=%s",
+            "policy_endpoint=%s strategy=%s executor=%s action_start_mode=%s",
             config["robot"].get("type", config["robot"].get("driver")),
             config["robot"]["options"].get("execute"),
             config["robot"]["options"].get("end_effector_control"),
@@ -252,6 +252,7 @@ class EdgeRuntime:
             config["policy"]["options"].get("server"),
             self._strategy.name,
             config["executor"]["type"],
+            config["inference"]["action_start_mode"],
         )
 
     def _build_robot(self) -> RobotBase:
@@ -271,7 +272,8 @@ class EdgeRuntime:
         return ActionTimeline(
             self._config["robot"]["group_dims"],
             max_source_steps=self._config["inference"]["max_chunk_policy_steps"],
-            start_on_commit=self._config["inference"]["inference_schedule"] == "serial",
+            action_start_mode=self._config["inference"]["action_start_mode"],
+            hold_last_step=self._config["inference"]["inference_schedule"] == "serial",
         )
 
     def _hold_command(self, now_ns: int, groups: GroupVector) -> RobotCommand:
@@ -354,6 +356,7 @@ class EdgeRuntime:
                 "horizon_steps": self._config["policy"]["horizon_policy_steps"],
                 "max_chunk_steps": self._config["inference"]["max_chunk_policy_steps"],
                 "blend_steps": self._config["inference"]["blend_policy_steps"],
+                "action_start_mode": self._config["inference"]["action_start_mode"],
                 "experiment_mode": self._config["run"]["experiment_mode"],
                 "layout_id": self._config["run"]["layout_id"],
                 "launch_mode": self._launch_mode,
@@ -756,6 +759,8 @@ class EdgeRuntime:
                             )
                             if (
                                 self._decoder is not None
+                                and self._config["inference"]["action_start_mode"]
+                                == "skip_elapsed_steps"
                                 and now_ns + commit_lead_ns > source_end_ns
                             ):
                                 result = CommitResult(False, "no_future_horizon")

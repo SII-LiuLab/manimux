@@ -2,6 +2,7 @@
 commit_lead_s: 0.0
 max_plan_age_s: 5.0
 blend_policy_steps: 0
+action_start_mode: first_step_when_ready
 aac:
   backward_beta: 0.99
   chunk_id_selector: "0"

@@ -101,13 +101,18 @@ def test_temporal_ensemble_queries_in_policy_steps_not_control_ticks() -> None:
     assert strategy.build_submission(request_seq=2, now_ns=1_200_000_000, **kwargs) is not None
 
 
-def test_temporal_ensemble_rejects_double_blending_and_nonoverlap() -> None:
+def test_temporal_ensemble_uses_configured_blending_and_requires_overlap() -> None:
     payload = deepcopy(_act_config())
     payload["inference"].pop("inference_schedule")
     payload["inference"].pop("refill_threshold_s")
     payload["inference"]["blend_policy_steps"] = 2
-    with pytest.raises(ValueError, match="blend_policy_steps=0"):
-        prepare_experiment(**payload)
+    config = prepare_experiment(**payload)
+    settings = build_inference_strategy(config).commit_settings(
+        response=None,
+        measured={"arm": np.zeros(1)},
+        last_command={"arm": np.ones(1)},
+    )
+    assert settings.blend_steps == 2
 
     payload = deepcopy(_act_config())
     payload["inference"].pop("inference_schedule")

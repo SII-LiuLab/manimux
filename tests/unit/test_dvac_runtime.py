@@ -39,11 +39,11 @@ def test_dvac_truncates_only_after_full_chunk_decode() -> None:
     prepared = strategy.prepare_chunk(chunk=_chunk(), response=response, now_ns=200)
 
     assert prepared.horizon_steps == 7
-    assert prepared.observation_time_ns == 200
+    assert prepared.observation_time_ns == 10
     np.testing.assert_array_equal(prepared.groups["left_arm"], _chunk().groups["left_arm"][:7])
 
 
-def test_dvac_rejects_invalid_metadata_and_double_blending() -> None:
+def test_dvac_rejects_invalid_metadata_and_uses_configured_blending() -> None:
     config = load_config("manimux/configs/experiments/pick_red_object/yam_pi05_dvac_step1000.yaml")
     strategy = DvacInferenceStrategy(config)
     for raw_action in ({"actions": []}, {"dvac": {"execution_steps": 0}}):
@@ -61,8 +61,13 @@ def test_dvac_rejects_invalid_metadata_and_double_blending() -> None:
     payload["inference"].pop("inference_schedule")
     payload["inference"].pop("refill_threshold_s")
     payload["inference"]["blend_policy_steps"] = 2
-    with pytest.raises(ValueError, match="blend_policy_steps=0"):
-        prepare_experiment(**payload)
+    resolved = prepare_experiment(**payload)
+    configured = DvacInferenceStrategy(resolved).commit_settings(
+        response=response,
+        measured={"left_arm": np.zeros(7), "right_arm": np.zeros(7)},
+        last_command={"left_arm": np.ones(7), "right_arm": np.ones(7)},
+    )
+    assert configured.blend_steps == 2
 
 
 def test_dvac_config_preserves_paper_defaults_and_pi05_contract() -> None:

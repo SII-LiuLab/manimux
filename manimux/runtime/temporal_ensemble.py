@@ -199,7 +199,7 @@ class ACTTemporalEnsembleStrategy:
         del response, measured
         return CommitSettings(
             current_command={name: values.copy() for name, values in last_command.items()},
-            blend_steps=0,
+            blend_steps=self._config["inference"]["blend_policy_steps"],
             anchor_source="act_temporal_ensemble",
         )
 

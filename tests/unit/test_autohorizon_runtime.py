@@ -23,7 +23,9 @@ def _chunk(horizon: int = 50) -> ActionChunk:
 
 
 def test_autohorizon_truncates_only_after_full_chunk_decode() -> None:
-    config = load_config("manimux/configs/experiments/pick_red_object/yam_pi05_autohorizon_step1000.yaml")
+    config = load_config(
+        "manimux/configs/experiments/pick_red_object/yam_pi05_autohorizon_step1000.yaml"
+    )
     strategy = AutoHorizonInferenceStrategy(config)
     response = InferenceResponse(
         session_id="session",
@@ -36,12 +38,14 @@ def test_autohorizon_truncates_only_after_full_chunk_decode() -> None:
     prepared = strategy.prepare_chunk(chunk=_chunk(), response=response, now_ns=200)
 
     assert prepared.horizon_steps == 7
-    assert prepared.observation_time_ns == 200
+    assert prepared.observation_time_ns == 10
     np.testing.assert_array_equal(prepared.groups["left_arm"], _chunk().groups["left_arm"][:7])
 
 
 def test_autohorizon_rejects_missing_or_invalid_server_horizon() -> None:
-    config = load_config("manimux/configs/experiments/pick_red_object/yam_pi05_autohorizon_step1000.yaml")
+    config = load_config(
+        "manimux/configs/experiments/pick_red_object/yam_pi05_autohorizon_step1000.yaml"
+    )
     strategy = AutoHorizonInferenceStrategy(config)
     for raw_action in ({"actions": []}, {"autohorizon": {"execution_steps": 0}}):
         response = InferenceResponse(

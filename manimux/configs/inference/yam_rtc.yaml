@@ -7,3 +7,4 @@ rtc:
 commit_lead_s: 0.0
 max_plan_age_s: 2.0
 blend_policy_steps: 4
+action_start_mode: skip_elapsed_steps

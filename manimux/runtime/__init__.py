@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 from manimux.runtime.decode_forecast import FORECAST_MODES
 from manimux.runtime.inference import build_inference_strategy
+from manimux.types import ACTION_START_MODES
 
 if TYPE_CHECKING:
     from manimux.runtime.edge import EdgeRuntime, RunResult
@@ -111,6 +112,7 @@ def inference_parameters(*, executor: dict, **options) -> dict:
         "commit_lead_s": 0.02,
         "max_plan_age_s": 1.0,
         "blend_policy_steps": 2,
+        "action_start_mode": "skip_elapsed_steps",
         "max_chunk_policy_steps": None,
         "independent_group_decoding": False,
         "decode_budget_ms": 40.0,
@@ -242,6 +244,11 @@ def validate_runtime_parameters(config: dict) -> None:
 
 def validate_inference_parameters(values: dict, executor: dict, *, provided=frozenset()) -> None:
     """检查调度和执行方式的组合；provided 仅用于识别 YAML 中明确给出的字段。"""
+    if values["action_start_mode"] not in ACTION_START_MODES:
+        raise ValueError(
+            "inference.action_start_mode must be one of "
+            f"{sorted(ACTION_START_MODES)}"
+        )
     if values["decode_forecast_mode"] not in FORECAST_MODES:
         raise ValueError(f"inference.decode_forecast_mode must be one of {FORECAST_MODES}")
     if values["inference_schedule"] == "serial":
@@ -280,9 +287,3 @@ def validate_inference_parameters(values: dict, executor: dict, *, provided=froz
         if ignored:
             fields = ", ".join(sorted(ignored))
             raise ValueError(f"inference fields are not used by {names[runtime]}: {fields}")
-        # 除 RTC 外，保留策略选定的轨迹；提交时不能再次插值改写。
-        if runtime != "rtc" and values["blend_policy_steps"] != 0:
-            raise ValueError(
-                f"{names[runtime]} requires inference.blend_policy_steps=0 "
-                "to preserve the strategy's trajectory"
-            )

@@ -1,6 +1,7 @@
 commit_lead_s: 0.0
 max_plan_age_s: 2.0
 blend_policy_steps: 0
+action_start_mode: skip_elapsed_steps
 paint:
   initial_delay_policy_steps: 10
   delay_buffer_size: 10

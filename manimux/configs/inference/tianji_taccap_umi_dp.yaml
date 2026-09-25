@@ -6,6 +6,7 @@ decode_forecast_size: 10
 decode_forecast_mode: max
 max_plan_age_s: 2.0
 blend_policy_steps: 2
+action_start_mode: skip_elapsed_steps
 history:
   period_tolerance_s: 0.04
   state_tolerance_s: 0.02

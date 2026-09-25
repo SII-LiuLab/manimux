@@ -93,6 +93,12 @@ def test_rtc_keeps_source_horizon_across_both_trims_and_conditions_committed_clo
     now += chunk.dt_ns
     submission = submit(strategy, config, timeline, now)
     assert submission.event_fields["executed_steps"] == 8
+    assert (
+        strategy.commit_settings(
+            response=SimpleNamespace(request_seq=2), measured={}, last_command={}
+        ).blend_steps
+        == config["inference"]["blend_policy_steps"]
+    )
     request = submission.request
     assert request.action_condition.shape == (16, 16)
     np.testing.assert_array_equal(request.action_condition[0], 8)

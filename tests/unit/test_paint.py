@@ -202,14 +202,19 @@ def test_paint_config_requires_feasible_s_and_d() -> None:
         prepare_experiment(**payload)
 
 
-def test_paint_config_rejects_external_seam_blending() -> None:
+def test_paint_uses_configured_seam_blending() -> None:
     payload = deepcopy(_config())
     payload["inference"].pop("inference_schedule")
     payload["inference"].pop("refill_threshold_s")
     payload["inference"]["blend_policy_steps"] = 1
 
-    with pytest.raises(ValueError, match="blend_policy_steps=0"):
-        prepare_experiment(**payload)
+    config = prepare_experiment(**payload)
+    settings = build_inference_strategy(config).commit_settings(
+        response=InferenceResponse("s", 1, 1, 1.0, raw_action=[]),
+        measured={"left_arm": np.zeros(7), "right_arm": np.zeros(7)},
+        last_command={"left_arm": np.ones(7), "right_arm": np.ones(7)},
+    )
+    assert settings.blend_steps == 1
 
 
 def test_paint_config_is_loadable_and_uses_edge_runtime(tmp_path: Path) -> None:

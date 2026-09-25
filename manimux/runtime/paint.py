@@ -159,7 +159,7 @@ class PaintInferenceStrategy:
         conditioned = response.request_seq in self._conditioned_requests
         return CommitSettings(
             current_command=copy_group_vector(last_command if conditioned else measured),
-            blend_steps=0,
+            blend_steps=self._config["inference"]["blend_policy_steps"],
             anchor_source="last_command" if conditioned else "measured_state",
         )
 
