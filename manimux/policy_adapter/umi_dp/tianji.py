@@ -6,6 +6,7 @@ import math
 import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from functools import partial
 
 import numpy as np
 
@@ -14,6 +15,7 @@ from manimux.kinematics.tianji_diff import rotation_matrix, rotation_vector
 from manimux.policies.base import action_interval
 from manimux.policies.xpolicylab.codec import matrix_pose, pose_matrix
 from manimux.policy_adapter.base import PolicyAdapter
+from manimux.policy_adapter.handoff import WaypointHandoff
 from manimux.policy_adapter.umi_dp.history import WindowSnapshot
 from manimux.runtime.rtc.request import RtcInferenceRequest
 from manimux.types import ActionChunk, RuntimeTrajectory
@@ -106,6 +108,10 @@ class UmiDpTianjiAdapter(PolicyAdapter):
                 if not config.check_j67:
                     raise ValueError("UMI differential IK requires the J6/J7 constraint")
                 self.diff_solvers[side] = TianjiDifferentialIK(arm_solver, config)
+        self.waypoint_handoff = WaypointHandoff.from_options(
+            policy["adapter"], source_dt_ns=self.dt_ns, runtime_dt_ns=self._runtime_dt_ns()
+        )
+        self.supports_waypoint_handoff = self.waypoint_handoff is not None
 
     def validate(self, robot, policy):
         if policy["worker"] != "xpolicylab_ws":
@@ -118,6 +124,8 @@ class UmiDpTianjiAdapter(PolicyAdapter):
             raise ValueError("execute_diff_ik_substeps must be boolean")
         if execute_substeps and options.get("ik_backend", "analytic") != "diff":
             raise ValueError("execute_diff_ik_substeps requires ik_backend: diff")
+        if options.get("handoff_waypoint") is not None and not execute_substeps:
+            raise ValueError("handoff_waypoint requires execute_diff_ik_substeps")
         if not np.isfinite(options.get("observation_period_s", np.nan)) or (
             options["observation_period_s"] <= 0
         ):
@@ -239,6 +247,42 @@ class UmiDpTianjiAdapter(PolicyAdapter):
             return result.converged, None if result.joints is None else result.joints[:7]
         return kin.ik(target, seed, aperture)
 
+    def _runtime_dt_ns(self):
+        """Dense runtime interval, using the same substep count as _solve_knot."""
+        step_dt = self.validation_dt
+        if self.diff_solvers:
+            step_dt = min(step_dt, next(iter(self.diff_solvers.values())).config.dt_max_s)
+        return self.dt_ns // max(1, math.ceil(self.dt_ns / 1e9 / step_dt))
+
+    def _handoff_fk(self, kin, row):
+        """kin: one arm's model; row: seven joints + aperture; returns (TCP pose, aperture)."""
+        values = state_vector(row)
+        return self._fk(kin, values[:7], float(values[-1])), float(values[-1])
+
+    def _handoff_targets(self, steps):
+        """steps: model action rows; returns per group (TCP pose, aperture) targets."""
+        targets = {}
+        for side in ("left", "right"):
+            rows = []
+            for step in steps:
+                grip = np.asarray(step[f"{side}_ee_joint_state"], dtype=float)
+                if grip.shape != (1,) or not np.isfinite(grip).all() or not 0 <= grip[0] <= 1:
+                    raise ValueError("UMI gripper action must lie in [0, 1]")
+                rows.append((pose_matrix(step[f"{side}_ee_pose"]), float(grip[0])))
+            targets[f"{side}_arm"] = rows
+        return targets
+
+    def _handoff_steps(self, targets):
+        """targets: per group speed-limited (TCP pose, aperture) rows; returns action rows."""
+        rows = []
+        for left, right in zip(targets["left_arm"], targets["right_arm"], strict=True):
+            row = {}
+            for side, (pose, grip) in (("left", left), ("right", right)):
+                row[f"{side}_ee_pose"] = matrix_pose(pose)
+                row[f"{side}_ee_joint_state"] = np.array([grip])
+            rows.append(row)
+        return rows
+
     def _diff_target(self, kin, target, aperture):
         # The shared assembly removes the tool once; the differential solver
         # operates on the same bare arm model and keeps its existing QP math.
@@ -328,7 +372,8 @@ class UmiDpTianjiAdapter(PolicyAdapter):
             raise ValueError(f"unknown UMI decode partition {partition!r}")
         return self._decode(raw, context, (partition.removesuffix("_arm"),))
 
-    def _decode_side(self, side, steps, seed_state):
+    def _decode_side(self, side, steps, seed_state, lead_in=None):
+        """steps: model rows after the lead-in; seed_state: IK seed; lead_in: handoff targets."""
         seed = state_vector(seed_state)
         current = seed[:7].copy()
         previous_grip = float(seed[-1])
@@ -340,6 +385,21 @@ class UmiDpTianjiAdapter(PolicyAdapter):
         rows = []
         runtime_rows = [] if self.execute_diff_ik_substeps else None
         samples_per_action = None
+        for pose, grip in lead_in or ():
+            # One diffIK step per runtime row; the last target is the join row.
+            current = self._solve_knot(
+                self.kin[side],
+                current,
+                pose,
+                grip,
+                self.waypoint_handoff.runtime_dt_ns / 1e9,
+                diff_solver=diff_solver,
+                lag=lag,
+            )
+            runtime_rows.append(np.r_[current, grip])
+            previous_grip = grip
+        if lead_in:
+            rows.append(np.r_[current, previous_grip])
         for step in steps:
             target = pose_matrix(step[f"{side}_ee_pose"])
             grip = np.asarray(step[f"{side}_ee_joint_state"], dtype=float)
@@ -387,6 +447,18 @@ class UmiDpTianjiAdapter(PolicyAdapter):
                 f"({context.measured_state.monotonic_ns} != {context.observation_time_ns})"
             )
         action_origin = context.observation_time_ns + self.offset_ns
+        handoff = None
+        if context.handoff_reference is not None and self.waypoint_handoff is not None:
+            handoff = self.waypoint_handoff.plan(
+                context,
+                origin_ns=action_origin,
+                targets=self._handoff_targets(steps),
+                fk={
+                    f"{side}_arm": partial(self._handoff_fk, self.kin[side])
+                    for side in ("left", "right")
+                },
+            )
+            steps = self._handoff_steps(handoff.targets)
         groups = {}
         runtime_groups = {}
         samples_per_action = None
@@ -396,7 +468,12 @@ class UmiDpTianjiAdapter(PolicyAdapter):
             groups[group], runtime_rows, side_samples, lag = self._decode_side(
                 side,
                 steps,
-                context.measured_state.groups[group],
+                (
+                    context.measured_state.groups[group]
+                    if handoff is None
+                    else handoff.start_state[group]
+                ),
+                lead_in=None if handoff is None else handoff.lead_in[group],
             )
             if runtime_rows is not None:
                 if samples_per_action is not None and side_samples != samples_per_action:
@@ -408,9 +485,13 @@ class UmiDpTianjiAdapter(PolicyAdapter):
         runtime_trajectory = None
         runtime_dt_ns = None
         if runtime_groups:
-            if samples_per_action is None:
+            if samples_per_action is None and handoff is None:
                 raise ValueError("diffIK runtime trajectory has no samples")
-            runtime_dt_ns = self.dt_ns // samples_per_action
+            runtime_dt_ns = (
+                self.waypoint_handoff.runtime_dt_ns
+                if samples_per_action is None
+                else self.dt_ns // samples_per_action
+            )
             if runtime_dt_ns <= 0:
                 raise ValueError("diffIK runtime trajectory interval rounded to zero")
             runtime_trajectory = RuntimeTrajectory(
@@ -419,7 +500,7 @@ class UmiDpTianjiAdapter(PolicyAdapter):
                 dt_ns=runtime_dt_ns,
                 groups=runtime_groups,
             )
-        return ActionChunk(
+        chunk = ActionChunk(
             plan_id=f"umi-dp-{uuid.uuid4().hex}",
             request_seq=context.request_seq,
             observation_time_ns=action_origin,
@@ -450,3 +531,4 @@ class UmiDpTianjiAdapter(PolicyAdapter):
                 **({"diff_ik_lag": lag_stats} if lag_stats else {}),
             },
         )
+        return chunk if handoff is None else self.waypoint_handoff.finish(chunk, handoff)
