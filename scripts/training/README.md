@@ -45,3 +45,9 @@ delta action convention. These launchers do not change action axes or semantics.
 The unified `train.py` entry point delegates to `XPolicyLab.training.launch` and
 defaults to a plan; `--execute` is required to execute its selected recipe. Model
 environments and base weights are separate artifacts and are not included in Git.
+
+For recorded YAM XR1 data, the standard preparation entry now lives in
+`XPolicyLab/policy/Xiaomi_Robotics_1/process_data.sh` with `XR1_SOURCE_FORMAT=yam`.
+The `xr1-yam` recipe calls it directly. The old shell launcher and dataset CLI
+remain available for compatibility; conversion implementation belongs to the
+XPolicyLab policy. See its README for the source/output/config environment fields.
