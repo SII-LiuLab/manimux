@@ -1,0 +1,38 @@
+# Public RoboDojo PI-v3 checkpoint contract for offline inference validation.
+policy_name: starVLA
+protocol: ws
+host: 127.0.0.1
+port: 8500
+env_cfg_type: arx_x5
+action_type: joint
+eval_batch: false
+
+checkpoint_path: null
+model_backend: inprocess
+action_output: chunk
+unnorm_key: arx_x5
+include_state: true
+image_size: [224, 224]
+device: cuda
+use_bf16: true
+require_runtime_contract: true
+required_pi_v3_forward: canonical_interleaved
+# RoboDojo training order already matches XPolicyLab's interleaved arm/gripper order.
+action_indices: null
+state_indices: null
+
+framework: QwenPI_v3
+backend_identity:
+  fields:
+  - policy_name
+  - framework
+  - checkpoint_path
+  - env_cfg_type
+  - action_type
+  - action_output
+  - model_backend
+  - unnorm_key
+  - include_state
+  model:
+    action_semantics: absolute_joint_position
+    action_horizon: 50

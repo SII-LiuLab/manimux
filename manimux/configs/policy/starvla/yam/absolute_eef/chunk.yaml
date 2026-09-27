@@ -1,0 +1,40 @@
+# Interface template: requires a checkpoint trained for this exact EEF contract.
+# This is not a conversion of LIBERO feedback deltas or RoboDojo joint actions.
+policy_name: starVLA
+protocol: ws
+host: 127.0.0.1
+port: 8500
+env_cfg_type: yam_dual
+action_type: ee
+eval_batch: false
+checkpoint_path: null
+model_backend: inprocess
+action_output: chunk
+unnorm_key: null
+include_state: true
+state_type: ee
+camera_names: [[cam_head], [cam_left_wrist], [cam_right_wrist]]
+image_size: [224, 224]
+device: cuda
+use_bf16: true
+require_runtime_contract: true
+eef:
+  rotation: quaternion_wxyz
+  semantics: absolute_per_arm_base_xyz_wxyz
+enabled_sampling_modes: []
+backend_identity:
+  fields:
+  - policy_name
+  - checkpoint_path
+  - env_cfg_type
+  - action_type
+  - action_output
+  - model_backend
+  - include_state
+  - state_type
+  - camera_names
+  - eef
+  model:
+    action_semantics: absolute_per_arm_base_xyz_wxyz
+    action_horizon: 50
+    sampling_modes: [default]

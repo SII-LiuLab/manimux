@@ -1,0 +1,3 @@
+config:
+  robot: arx_x5
+  sim: offline

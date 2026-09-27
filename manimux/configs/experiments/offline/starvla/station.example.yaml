@@ -1,0 +1,6 @@
+# Copy to a private file and bind the matching checkpoint. No hardware bindings.
+services:
+  policy:
+    endpoint: ws://127.0.0.1:8500
+paths:
+  checkpoint: /path/to/run/checkpoints/steps_30000_pytorch_model.pt

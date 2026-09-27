@@ -7,6 +7,9 @@ Python dependency environments are documented in [envs/](../envs/README.md).
 
 | Files | Purpose |
 | --- | --- |
+| `aloha_agilex.yml` | ALOHA-AgileX dimensions for offline RoboTwin policy validation; no hardware driver is provided |
+| `arx_x5.yml` | ARX X5 dimensions for offline RoboDojo policy validation; no hardware driver is provided |
+| `franka_single.yml` | Single-arm LIBERO metadata (seven joints and one gripper); not a Franka hardware driver |
 | `yam_dual.yml`, `tianji_dual.yml`, `tianji_umi.yml`, `droid_single.yml` | Map an `env_cfg_type` to robot and environment metadata |
 | `robot/_robot_info.json` | Joint and gripper dimensions used to pack and unpack model inputs and outputs |
 | `sim/*.yml` | Environment batch size; the `*_real` names do not open hardware |

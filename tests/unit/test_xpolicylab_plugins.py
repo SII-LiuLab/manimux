@@ -99,7 +99,7 @@ def _policy_config(**options: object) -> dict:
             },
         },
         action_dt_s=0.05,
-        horizon_steps=30,
+        horizon_policy_steps=30,
         options={
             k: v
             for k, v in merged.items()
@@ -238,8 +238,9 @@ def test_decode_rejects_non_finite_actions(bad: float) -> None:
 
 def test_adapter_produces_a_canonical_joint_position_chunk() -> None:
     adapter = build_adapter(_robot_config(), _policy_config())
+    groups = decode_action_steps(_action_steps(30), layouts=LAYOUTS)
     chunk = adapter.decode_action(
-        _action_steps(30),
+        {"format": "joint", "actions": groups},
         ActionContext(request_seq=7, observation_time_ns=11, created_time_ns=12),
     )
     assert chunk.action_space == "joint_position"
@@ -247,7 +248,7 @@ def test_adapter_produces_a_canonical_joint_position_chunk() -> None:
     assert chunk.horizon_steps == 30
     assert chunk.request_seq == 7
     assert chunk.observation_time_ns == 11
-    assert chunk.plan_id.startswith("xpolicylab-7-")
+    assert chunk.plan_id.startswith("joint-7-")
     assert set(chunk.groups) == {"left_arm", "right_arm"}
 
 
@@ -255,7 +256,7 @@ def test_adapter_rejects_an_unexpected_action_horizon() -> None:
     adapter = build_adapter(_robot_config(), _policy_config())
     with pytest.raises(ValueError, match="action horizon must be 30"):
         adapter.decode_action(
-            _action_steps(29),
+            {"format": "joint", "actions": decode_action_steps(_action_steps(29), layouts=LAYOUTS)},
             ActionContext(request_seq=7, observation_time_ns=11, created_time_ns=12),
         )
 
@@ -263,7 +264,7 @@ def test_adapter_rejects_an_unexpected_action_horizon() -> None:
 def test_adapter_accepts_aac_selected_short_horizon_when_enabled() -> None:
     adapter = build_adapter(_robot_config(), _policy_config(allow_short_horizon=True))
     chunk = adapter.decode_action(
-        _action_steps(7),
+        {"format": "joint", "actions": decode_action_steps(_action_steps(7), layouts=LAYOUTS)},
         ActionContext(request_seq=7, observation_time_ns=11, created_time_ns=12),
     )
     assert chunk.horizon_steps == 7
@@ -273,7 +274,8 @@ def test_adapter_unwraps_aac_metadata_without_changing_actions() -> None:
     adapter = build_adapter(_robot_config(), _policy_config(allow_short_horizon=True))
     chunk = adapter.decode_action(
         {
-            "actions": _action_steps(5),
+            "format": "joint",
+            "actions": decode_action_steps(_action_steps(5), layouts=LAYOUTS),
             "aac": {"chunk_id": 0, "entropy_elbow": 2, "motion_floor": 5},
         },
         ActionContext(request_seq=7, observation_time_ns=11, created_time_ns=12),
@@ -281,14 +283,14 @@ def test_adapter_unwraps_aac_metadata_without_changing_actions() -> None:
     assert chunk.horizon_steps == 5
 
 
-def test_adapter_validate_rejects_a_group_order_mismatch() -> None:
+def test_adapter_validate_rejects_a_group_dimension_mismatch() -> None:
     adapter = build_adapter(_robot_config(), _policy_config())
     swapped = robot_parameters(
         type="mock",
         control_hz=30.0,
-        group_dims={"right_arm": 7, "left_arm": 7},
+        group_dims={"right_arm": 8, "left_arm": 7},
     )
-    with pytest.raises(ValueError, match="requires robot groups in order"):
+    with pytest.raises(ValueError, match="does not match robot groups"):
         adapter.validate(swapped, _policy_config())
 
 
@@ -332,7 +334,7 @@ def test_build_layouts_rejects_an_unmapped_group() -> None:
 
 def test_single_arm_layout_drops_the_prefix() -> None:
     layout = GroupLayout(group="arm", prefix="", arm_dofs=6, gripper_dofs=1)
-    assert layout.arm_key == "arm_joint_state"
+    assert layout.arm_key == "joint_state"
     assert layout.gripper_key == "ee_joint_state"
 
 
@@ -566,7 +568,11 @@ def test_model_maps_dvac_request_to_xpolicy_sampling() -> None:
 class _LinearKinematics:
     num_arm_joints = 6
 
-    def fk(self, joints: np.ndarray, gripper: float) -> np.ndarray:
+    @property
+    def models(self):
+        return {"left_arm": self, "right_arm": self}
+
+    def fk(self, joints: np.ndarray, gripper: float = 0.0) -> np.ndarray:
         del gripper
         pose = np.eye(4)
         pose[:3, 3] = np.asarray(joints)[:3]
@@ -609,9 +615,9 @@ def test_xr1_adapter_encodes_rtc_condition_before_generic_xpolicy_transport(
         "build_kinematics",
         lambda *_args, **_kwargs: _LinearKinematics(),
     )
-    policy = _policy_config(action_codec="xr1_ee_delta", kinematics="yam")
+    policy = _policy_config(action_codec="xr1_ee_delta")
     model = build_model(policy)
-    adapter = build_xr1_adapter(_robot_config(), policy)
+    adapter = build_xr1_adapter(_robot_config(), policy, kinematics=_LinearKinematics())
     model._session_id = "session"
     captured: dict[str, object] = {}
 

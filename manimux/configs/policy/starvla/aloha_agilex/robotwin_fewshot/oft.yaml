@@ -1,0 +1,40 @@
+# Offline RoboTwin QwenOFT checkpoint contract; no hardware deployment is implied.
+policy_name: starVLA
+protocol: ws
+host: 127.0.0.1
+port: 8500
+env_cfg_type: aloha_agilex
+action_type: joint
+eval_batch: false
+
+# Supply the original run/checkpoints/*.pt file through a local override.
+checkpoint_path: null
+model_backend: inprocess
+action_output: chunk
+unnorm_key: new_embodiment
+include_state: false
+image_size: [224, 224]
+device: cuda
+use_bf16: true
+require_runtime_contract: true
+
+# Native: left joints, right joints, left gripper, right gripper.
+# XPolicyLab: left joints, left gripper, right joints, right gripper.
+action_indices: [0, 1, 2, 3, 4, 5, 12, 6, 7, 8, 9, 10, 11, 13]
+state_indices: [0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 6, 13]
+
+framework: QwenOFT
+backend_identity:
+  fields:
+  - policy_name
+  - framework
+  - checkpoint_path
+  - env_cfg_type
+  - action_type
+  - action_output
+  - model_backend
+  - unnorm_key
+  - include_state
+  model:
+    action_semantics: absolute_joint_position
+    action_horizon: 50

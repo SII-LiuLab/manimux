@@ -1,0 +1,85 @@
+# Offline test plant only; this is not an ARX hardware deployment.
+local: station.example.yaml
+run:
+  task: Pick up the red block.
+  output_dir: ./data/experiments/starvla-offline/arx_pi_v3/rtc
+  max_control_steps: 500
+robot:
+  type: tests.support.robot:build_robot
+  control_hz: 100.0
+  group_dims:
+    left_arm: 7
+    right_arm: 7
+  options:
+    cartesian_test_geometry: false
+sensors:
+- name: cam_head
+  driver: tests.support.sensor:build_sensor
+  width: 224
+  height: 224
+  fps: 30.0
+- name: cam_left_wrist
+  driver: tests.support.sensor:build_sensor
+  width: 224
+  height: 224
+  fps: 30.0
+- name: cam_right_wrist
+  driver: tests.support.sensor:build_sensor
+  width: 224
+  height: 224
+  fps: 30.0
+policy:
+  worker: xpolicylab_ws
+  service: policy
+  adapter:
+    type: manimux.policy_adapter.joint:JointAdapter
+    camera_map:
+      cam_head: cam_head
+      cam_left_wrist: cam_left_wrist
+      cam_right_wrist: cam_right_wrist
+    group_prefixes:
+      left_arm: left
+      right_arm: right
+    group_layouts:
+      left_arm:
+        arm_dofs: 6
+        gripper_dofs: 1
+      right_arm:
+        arm_dofs: 6
+        gripper_dofs: 1
+  action_dt_s: 0.03333333333333333
+  timeout_s: 30.0
+  horizon_policy_steps: 50
+  startup_timeout_s: 120.0
+  options:
+    action_format: joint
+    request_timeout_s: 30.0
+viewer:
+  enabled: false
+  robot: ''
+recording:
+  enabled: true
+  video_fps: 20.0
+inference:
+  algorithm: rtc
+  config: ../../../inference/yam_rtc.yaml
+  max_plan_age_s: 30.0
+executor:
+  type: direct
+policy_server:
+  config: ../../../policy/starvla/arx_x5/robodojo/pi_v3.yaml
+  enabled_sampling_modes:
+  - rtc
+  - paint
+  - aac
+  - autohorizon
+  - dvac
+  backend_identity:
+    model:
+      sampling_modes:
+      - default
+      - aac
+      - autohorizon
+      - dvac
+      - paint
+      - rtc

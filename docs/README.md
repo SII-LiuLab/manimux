@@ -44,15 +44,18 @@ does not mean every checkpoint or inference-method combination has passed a real
 - [SAPolicy](sapolicy-yam-runbook.md) · [Shared XPolicyLab bridge](xpolicylab-runbook.md).
 - Offline / simulation paths: [Cosmos3](cosmos3-offline-runbook.md),
   [Isaac 0.5](isaac05-offline-runbook.md).
+- [StarVLA offline integration](starvla-offline-runbook.md): OFT/PI-v3 joint and
+  GR00T/FAST EEF profiles, synthetic multi-step YAM EEF checks, shared scheduling, flow samplers, and
+  [validation evidence](starvla-validation.md).
 
 ## Support counts
 
 The README badges count integration coverage, not task success, hardware validation of every
 checkpoint, or support for every policy × embodiment × inference combination.
 
-- **10 policy integrations:** eight model families have YAM deployment configurations:
+- **11 policy integrations:** eight model families have YAM deployment configurations:
   Pi05, MolmoAct2, ABC, GR00T, LingBot-VLA2, Xiaomi XR-1, OpenWAM and SAPolicy.
-  Cosmos3 and Isaac 0.5 add two model-only / offline paths, not two more YAM-ready policies.
+  Cosmos3, Isaac 0.5 and StarVLA add three model-only / offline paths, not more YAM-ready policies.
   Checkpoint variants, the generic XPolicyLab bridge are not counted separately.
 - **Hardware assemblies:** YAM uses the component implementation; Tianji–TacCap migration
   boundaries are listed in [code organization](code-organization.md). Simulator drivers

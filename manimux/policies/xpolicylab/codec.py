@@ -60,7 +60,7 @@ class GroupLayout:
 
     @property
     def arm_key(self) -> str:
-        return f"{self.prefix}_arm_joint_state" if self.prefix else "arm_joint_state"
+        return f"{self.prefix}_arm_joint_state" if self.prefix else "joint_state"
 
     @property
     def gripper_key(self) -> str:
@@ -157,6 +157,9 @@ def decode_action_steps(
 
 
 def _step_value(step: Mapping[str, Any], key: str, dofs: int, index: int) -> FloatArray:
+    # Older single-arm servers used this alias; emit the shared helper's key.
+    if key == "joint_state" and key not in step and "arm_joint_state" in step:
+        key = "arm_joint_state"
     values = np.asarray(step[key], dtype=np.float64).reshape(-1)
     if values.size != dofs:
         raise ValueError(

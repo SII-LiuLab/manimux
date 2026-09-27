@@ -20,6 +20,7 @@ class RobotDouble(RobotBase):
             raise ValueError("tracking_gain must be in (0, 1]")
         # Joint-only runtime tests do not use FK/IK.
         self._kinematics = None
+        self.model = None
         self._clock = clock
         self._tracking_gain = tracking_gain
         self._groups = {name: np.zeros(dim, dtype=np.float64) for name, dim in group_dims.items()}
@@ -68,4 +69,34 @@ class RobotDouble(RobotBase):
 
 
 def build_robot(config, clock):
-    return RobotDouble(config["group_dims"], clock)
+    robot = RobotDouble(config["group_dims"], clock)
+    options = config.get("options", {})
+    if options.get("offline_model", False):
+        from manimux.embodiments.robot.base import RobotModel
+
+        if options.get("cartesian_test_geometry", False):
+            raise ValueError("Select either offline robot geometry or Cartesian test geometry")
+        robot.model = RobotModel.from_config(config["config"])
+        robot._kinematics = robot.model.kinematics
+        if {g: len(m.coordinates) for g, m in robot.kinematics.models.items()} != config[
+            "group_dims"
+        ]:
+            raise ValueError("Offline geometry must match the test plant dimensions")
+    elif options.get("cartesian_test_geometry", False):
+        from manimux.kinematics import RobotKinematics
+        from tests.support.cartesian_geometry import CartesianGeometry
+
+        robot._kinematics = RobotKinematics(
+            {group: CartesianGeometry(dim) for group, dim in config["group_dims"].items()}
+        )
+    initial = options.get("initial_groups")
+    if initial is not None:
+        if set(initial) != set(config["group_dims"]):
+            raise ValueError("Initial test state must specify every group")
+        for group, width in config["group_dims"].items():
+            values = np.asarray(initial[group], dtype=float)
+            if values.shape != (width,) or not np.isfinite(values).all():
+                raise ValueError("Initial test state has invalid dimensions or values")
+            robot._groups[group] = values.copy()
+        robot._target = copy_group_vector(robot._groups)
+    return robot

@@ -1,0 +1,3 @@
+config:
+  robot: aloha_agilex
+  sim: offline

@@ -1,0 +1,52 @@
+# LIBERO OSC_POSE commands: controller scaling, not raw metres/radians.
+policy_name: starVLA
+protocol: ws
+host: 127.0.0.1
+port: 8500
+env_cfg_type: franka_single
+action_type: ee
+eval_batch: false
+checkpoint_path: null
+model_backend: inprocess
+action_output: chunk
+framework: QwenFast
+unnorm_key: franka
+include_state: false
+state_type: joint
+camera_names:
+- - cam_head
+image_size:
+- 224
+- 224
+device: cuda
+use_bf16: true
+require_runtime_contract: true
+eef:
+  rotation: axis_angle
+  semantics: delta_step_base_xyz_wxyz
+  translation_scale:
+  - 0.05
+  - 0.05
+  - 0.05
+  rotation_scale:
+  - 0.5
+  - 0.5
+  - 0.5
+  clip_input: 1.0
+  gripper_threshold: 0.5
+backend_identity:
+  fields:
+  - policy_name
+  - framework
+  - checkpoint_path
+  - env_cfg_type
+  - action_type
+  - action_output
+  - model_backend
+  - unnorm_key
+  - include_state
+  - camera_names
+  - eef
+  model:
+    action_semantics: delta_step_base_xyz_wxyz
+    action_horizon: 8

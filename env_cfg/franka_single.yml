@@ -1,0 +1,5 @@
+config:
+  robot: franka_single
+  sim: offline
+scene:
+  num_envs: 1

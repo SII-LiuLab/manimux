@@ -1,0 +1,69 @@
+# EEF interface template. Tests substitute synthetic model outputs explicitly.
+# No released checkpoint has been validated for this YAM absolute-pose contract.
+local: station.example.yaml
+run:
+  task: Follow the offline EEF reference.
+  output_dir: ./data/experiments/starvla-offline/yam_eef_contract
+  max_control_steps: 500
+robot:
+  type: tests.support.robot:build_robot
+  config: ../../../embodiment/robot/yam_dual.yaml
+  control_hz: 100.0
+  options:
+    offline_model: true
+    initial_groups: &offline_seed
+      left_arm: [0.15, 0.47, 0.8, -1.0, -0.33, 0.27, 0.5]
+      right_arm: [-0.2, 0.6, 0.75, -1.1, -0.25, 0.15, 0.65]
+sensors:
+- name: cam_head
+  driver: tests.support.sensor:build_sensor
+  width: 224
+  height: 224
+  fps: 30.0
+- name: cam_left_wrist
+  driver: tests.support.sensor:build_sensor
+  width: 224
+  height: 224
+  fps: 30.0
+- name: cam_right_wrist
+  driver: tests.support.sensor:build_sensor
+  width: 224
+  height: 224
+  fps: 30.0
+policy:
+  worker: xpolicylab_ws
+  service: policy
+  action_decoding: process
+  adapter:
+    type: manimux.policy_adapter.pose:PoseAdapter
+    action_semantics: absolute_per_arm_base_xyz_wxyz
+    decode_policy_steps: 20
+    parallel_ik: true
+    # Offline FK/IK only. Prevent lazy solver imports from expiring the first chunk.
+    ik_warmup_joints: *offline_seed
+    camera_map:
+      cam_head: cam_head
+      cam_left_wrist: cam_left_wrist
+      cam_right_wrist: cam_right_wrist
+  action_dt_s: 0.03333333333333333
+  horizon_policy_steps: 50
+  timeout_s: 10.0
+  startup_timeout_s: 120.0
+  options:
+    action_format: pose
+    request_timeout_s: 10.0
+viewer:
+  enabled: false
+  robot: yam
+recording:
+  enabled: true
+  video_fps: 20.0
+inference:
+  algorithm: manimux
+  config: ../../../inference/yam_manimux_chunk20.yaml
+  expected_decode_s: 0.05
+executor:
+  type: smooth
+  config: ../../../executor/yam_smooth_standard.yaml
+policy_server:
+  config: ../../../policy/starvla/yam/absolute_eef/chunk.yaml

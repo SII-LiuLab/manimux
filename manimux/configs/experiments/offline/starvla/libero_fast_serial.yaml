@@ -1,0 +1,61 @@
+# Offline only: synthetic RGB and a test plant; no physical robot driver.
+local: station.example.yaml
+run:
+  task: Pick up the red block.
+  output_dir: ./data/experiments/starvla-offline/libero_fast
+  max_control_steps: 500
+robot:
+  type: tests.support.robot:build_robot
+  control_hz: 100.0
+  group_dims:
+    arm: 8
+  options:
+    cartesian_test_geometry: true
+sensors:
+- name: cam_head
+  driver: tests.support.sensor:build_sensor
+  pattern: spatial_gradient
+  width: 224
+  height: 224
+  fps: 30.0
+policy:
+  worker: xpolicylab_ws
+  service: policy
+  adapter:
+    type: manimux.policy_adapter.pose:PoseAdapter
+    camera_map:
+      cam_head: cam_head
+    group_prefixes:
+      arm: ''
+    group_layouts:
+      arm:
+        arm_dofs: 7
+        gripper_dofs: 1
+    action_semantics: delta_step_base_xyz_wxyz
+    decode_policy_steps: 1
+  action_dt_s: 0.05
+  timeout_s: 30.0
+  horizon_policy_steps: 8
+  startup_timeout_s: 120.0
+  options:
+    action_format: pose
+    request_timeout_s: 30.0
+viewer:
+  enabled: false
+  robot: ''
+recording:
+  enabled: true
+  video_fps: 20.0
+inference:
+  algorithm: manimux
+  inference_schedule: serial
+  commit_lead_s: 0.0
+  max_plan_age_s: 30.0
+  blend_policy_steps: 0
+  action_start_mode: first_step_when_ready
+  # One decoded command plus its hold endpoint: one 50 ms interval.
+  chunk_policy_steps: 2
+executor:
+  type: direct
+policy_server:
+  config: ../../../policy/starvla/franka_single/libero/fast.yaml
