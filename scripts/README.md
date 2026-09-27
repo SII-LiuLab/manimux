@@ -1,12 +1,13 @@
 # Utility scripts
 
-Private training recipes, launchers and notes live in the root `training/`
+Private training recipes, machine configuration and notes live in the root `training/`
 directory, which is ignored by Git and absent from a fresh clone. Model training
 implementations remain in XPolicyLab or their upstream frameworks.
 
 The scripts are grouped by responsibility:
 
 - `datasets/`: convert datasets, compute statistics, and prepare model assets.
+- `training/`: portable launchers for the existing XPolicyLab training implementations.
 - `validation/`: offline probes, configuration checks, and diagnostic audits.
 - `media/`: viewer recording and other presentation helpers.
 

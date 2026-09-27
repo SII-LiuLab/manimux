@@ -12,13 +12,20 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import yaml
 
-from manimux.integrations.xr1_yam.mibot.utils.io import (
+# Import the pinned native implementation without loading the serving adapter.
+XR1_SOURCE = (
+    Path(__file__).resolve().parents[2]
+    / "XPolicyLab/policy/Xiaomi_Robotics_1/xiaomi_robotics_1/xr1"
+)
+sys.path.insert(0, str(XR1_SOURCE))
+from mibot.utils.io import (
     ACTION_DIM,
     ACTION_PARTS,
     STATE_DIM,
