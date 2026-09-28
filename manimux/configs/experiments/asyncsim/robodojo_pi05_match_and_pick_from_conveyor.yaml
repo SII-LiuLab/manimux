@@ -55,3 +55,4 @@ executor:
 
 policy_server:
   config: ../../policy/pi05/robodojo/sim_arx_x5_joint_59999.yaml
+  task_name: match_and_pick_from_conveyor

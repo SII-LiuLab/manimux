@@ -1,0 +1,3 @@
+config:
+  robot: dual_x5
+  sim: sim_config

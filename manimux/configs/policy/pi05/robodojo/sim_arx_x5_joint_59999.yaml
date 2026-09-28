@@ -10,12 +10,17 @@ seed: 0
 eval_batch: true
 checkpoint_num: 59999
 model_path: checkpoints/RoboDojo-sim-arx_x5-joint-0/59999
-checkpoint_id: RoboDojo-sim-arx_x5-joint-0/59999
+norm_stats_path: checkpoints/RoboDojo-sim-arx_x5-joint-0/59999/assets/arx_x5_sim
 train_config_name: pi05_base_aloha_full_sim_arx-x5_seed_0
 repo_id: arx_x5_sim
+observation_profile: aloha
+use_delta_joint_actions: true
+adapt_to_pi: false
+num_steps: 10
 
 backend_identity:
-  fields: [checkpoint_id, checkpoint_num, train_config_name, repo_id, action_type, env_cfg_type, action_horizon]
+  fields: [task_name, train_config_name, repo_id, action_type, observation_profile, action_horizon, num_steps]
+  aliases: {model_root: model_path, norm_stats_path: norm_stats_path}
   model: {policy_family: pi05}
 
 action_horizon: 50

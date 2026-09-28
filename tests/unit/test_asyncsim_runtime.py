@@ -265,6 +265,8 @@ class AsyncSimRuntimeTests(unittest.TestCase):
                 self.assertEqual(configured["policy"]["horizon_policy_steps"], 50)
                 self.assertEqual(configured["inference"]["inference_schedule"], "single_inflight")
                 self.assertEqual(configured["policy_server"]["checkpoint_num"], 59999)
+                self.assertEqual(configured["policy_server"]["task_name"], task)
+                self.assertEqual(configured["policy"]["expected_backend"]["model"]["task_name"], task)
                 self.assertEqual(configured["policy"]["expected_backend"]["model"]["repo_id"], "arx_x5_sim")
                 backend = build_policy_model(configured["policy"])
                 self.assertIsInstance(backend, XPolicyLabWsPolicyModel)
@@ -353,6 +355,42 @@ class AsyncSimRuntimeTests(unittest.TestCase):
             runtime.run_policy(max_steps=2)
         self.assertFalse(worker.submitted)
         self.assertTrue(backend.closed)
+
+    def test_pi05_station_resolves_read_only_robodojo_checkpoint(self):
+        base = Path(__file__).resolve().parents[2]
+        source = base / "manimux/configs/experiments/asyncsim/robodojo_pi05_insert_key.yaml"
+        local = base / "manimux/configs/local/asyncsim_pi05.example.yaml"
+        configured = load_config(source, local=local)
+        expected = configured["policy"]["expected_backend"]["model"]
+        self.assertEqual(expected["model_root"], configured["policy_server"]["model_path"])
+        self.assertEqual(expected["norm_stats_path"], configured["policy_server"]["norm_stats_path"])
+        self.assertTrue(Path(expected["model_root"]).joinpath("params").is_dir())
+        self.assertTrue(Path(expected["norm_stats_path"]).joinpath("norm_stats.json").is_file())
+        from manimux.servers.asyncsim_pi05 import resolve_server
+
+        self.assertEqual(resolve_server(source, local)["model_path"], expected["model_root"])
+
+    def test_wrong_pi05_checkpoint_aborts_before_command(self):
+        source = Path(__file__).resolve().parents[2] / (
+            "manimux/configs/experiments/asyncsim/robodojo_pi05_insert_key.yaml"
+        )
+        local = source.parents[2] / "local/asyncsim_pi05.example.yaml"
+        configured = load_config(source, local=local)
+        clock = FixedClock()
+        expected = configured["policy"]["expected_backend"]
+        reported = {"server": expected["server"], "model": {
+            **expected["model"], "model_root": "/another-checkpoint/59999",
+        }}
+        worker = FakeWorker(clock, PolicyCapabilities(backend_metadata=reported))
+        backend = FakeAsyncSim()
+        backend.health = lambda: {
+            "episode": {"sim_ts": backend.sim_ts, "state": "running"},
+            "canonical_group_dims": {"left_arm": 7, "right_arm": 7},
+        }
+        with self.assertRaisesRegex(RuntimeError, "model_root"):
+            AsyncSimRuntime(configured, client=backend, clock=clock, worker=worker).run_policy(max_steps=2)
+        self.assertFalse(worker.submitted)
+        self.assertFalse(backend.commands)
 
     def test_fake_backend_uses_one_snapshot_and_one_command_per_tick(self):
         backend = FakeAsyncSim()

@@ -1,0 +1,4 @@
+decimation: 1
+dt: 0.004
+scene:
+  num_envs: 10

@@ -7,7 +7,7 @@ Python dependency environments are documented in [envs/](../envs/README.md).
 
 | Files | Purpose |
 | --- | --- |
-| `yam_dual.yml`, `tianji_dual.yml`, `tianji_umi.yml`, `droid_single.yml` | Map an `env_cfg_type` to robot and environment metadata |
+| `yam_dual.yml`, `tianji_dual.yml`, `tianji_umi.yml`, `droid_single.yml`, `arx_x5.yml` | Map an `env_cfg_type` to robot and environment metadata |
 | `robot/_robot_info.json` | Joint and gripper dimensions used to pack and unpack model inputs and outputs |
 | `sim/*.yml` | Environment batch size; the `*_real` names do not open hardware |
 
@@ -17,6 +17,8 @@ the `tianji_dual` robot description. The pinned XPolicyLab provider also accepts
 `tianji_dual` directly and uses `droid_single` for its Cosmos3 default recipe.
 Those files are not all selected by the current ManiMux experiments, but they
 have provider consumers.
+The AsyncSim Pi05 experiment selects `arx_x5`, matching RoboDojo's `dual_x5`
+six-joint arms and one normalized gripper value per arm.
 
 ## Why this directory remains at the repository root
 

@@ -1,0 +1,6 @@
+# Paths are relative to this file in the AsyncSim workspace checkout.
+services:
+  policy:
+    endpoint: ws://127.0.0.1:18766
+paths:
+  checkpoints: ../../../../RoboDojo/XPolicyLab/policy/Pi_05
