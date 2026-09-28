@@ -4,6 +4,7 @@ run:
   output_dir: ./data/asyncsim-pi05-match-and-pick-from-conveyor
   max_control_steps: 700
   skip_unplanned_commands: true
+  simulation_time_timeline: true
 
 robot:
   type: asyncsim
@@ -44,7 +45,7 @@ policy:
 inference:
   algorithm: manimux
   inference_schedule: single_inflight
-  refill_threshold_s: 0.2
+  refill_threshold_s: 0.08
   action_start_mode: first_step_when_ready
   commit_lead_s: 0.0
   max_plan_age_s: 30.0

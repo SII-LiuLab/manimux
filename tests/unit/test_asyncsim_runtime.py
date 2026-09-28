@@ -166,6 +166,48 @@ def config():
 
 
 class AsyncSimRuntimeTests(unittest.TestCase):
+    def test_slow_simulation_retains_chunk_with_wall_clock_deadlines(self):
+        class SlowClock(FixedClock):
+            def sleep_until_ns(self, target_ns):
+                self.time_ns = max(self.time_ns, target_ns)
+
+        class SlowAsyncSim(FakeAsyncSim):
+            def __init__(self, clock):
+                super().__init__(clock_ns=clock.now_ns)
+                self.clock = clock
+
+            def read_snapshot(self, streams):
+                self.clock.time_ns += 200_000_000
+                self.sim_ts += 0.02
+                return super().read_snapshot(streams)
+
+        clock = SlowClock()
+        backend = SlowAsyncSim(clock)
+        worker = FakeWorker(clock)
+        configured = config()
+        configured["run"]["simulation_time_timeline"] = True
+        configured["inference"]["inference_schedule"] = "single_inflight"
+        configured["inference"]["refill_threshold_s"] = 0.02
+        configured["policy"]["adapter"]["type"] = "manimux.policy_adapter.joint:JointAdapter"
+        run = AsyncSimRuntime(configured, client=backend, clock=clock, worker=worker).run_policy(max_steps=8)
+        planned = [item["plan_id"] for item in backend.commands if item["plan_id"].startswith("joint-")]
+        self.assertGreater(len(planned), len(set(planned)), planned)
+        self.assertGreater(run["accepted_plans"], 1)
+        self.assertTrue(all(request.deadline_ns > request.observation_time_ns for request in worker.submitted))
+        events = run["audit"]["manimux_events"]
+        overlap = False
+        for index, event in enumerate(events):
+            if event["kind"] != "inference_submitted" or event["request_seq"] <= 1:
+                continue
+            response_index = next((offset for offset in range(index + 1, len(events))
+                                   if events[offset]["kind"] == "inference_response"
+                                   and events[offset]["request_seq"] == event["request_seq"]), None)
+            if response_index is None:
+                continue
+            overlap |= any(item["kind"] == "command_ack" and item["plan_id"].startswith("joint-")
+                           for item in events[index + 1:response_index])
+        self.assertTrue(overlap)
+
     def test_specialized_strategies_use_their_requests_and_canonical_timeline(self):
         for mode, request_type in (
             ("rtc", RtcInferenceRequest),

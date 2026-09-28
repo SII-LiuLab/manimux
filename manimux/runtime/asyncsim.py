@@ -100,6 +100,11 @@ class AsyncSimRuntime:
         self._snapshot_audit: list[dict[str, Any]] = []
         self._instruction: str | None = None
         self._skip_unplanned_commands = bool(config["run"].get("skip_unplanned_commands", False))
+        self._simulation_timeline = bool(config["run"].get("simulation_time_timeline", False))
+        if self._simulation_timeline and config["inference"]["algorithm"] != "manimux":
+            raise ValueError("simulation-time timeline currently requires default ManiMux inference")
+        self._timeline_origin_ns: int | None = None
+        self._timeline_now_ns: int | None = None
 
     def start(self, *, seed: int | None = None) -> dict[str, Any]:
         if self._started:
@@ -118,6 +123,8 @@ class AsyncSimRuntime:
             self._selected_packets = {}
             self._snapshot_audit = []
             self._instruction = None
+            self._timeline_origin_ns = None
+            self._timeline_now_ns = None
             self.client.subscribe(self.streams)
             self.sensor.start()
             self._started = True
@@ -130,6 +137,11 @@ class AsyncSimRuntime:
         if not self._started:
             raise RuntimeError("start the AsyncSim runtime before observing")
         snapshot = self.client.read_snapshot(self.streams)
+        if self._simulation_timeline:
+            sim_ns = round(snapshot["sim_ts"] * 1_000_000_000)
+            if self._timeline_origin_ns is None:
+                self._timeline_origin_ns = self.clock.now_ns() - sim_ns
+            self._timeline_now_ns = self._timeline_origin_ns + sim_ns
         selections = []
         for stream, entry in snapshot["packets"].items():
             packet = entry.get("packet")
@@ -165,6 +177,16 @@ class AsyncSimRuntime:
                 self._instruction = value
         state = self.robot.use_snapshot(snapshot)
         frames = self.sensor.use_snapshot(snapshot)
+        if self._simulation_timeline:
+            assert self._timeline_origin_ns is not None
+            state_packet = snapshot["packets"][self.robot.state_stream]["packet"]
+            state.monotonic_ns = self._timeline_origin_ns + round(state_packet["capture_ts"] * 1_000_000_000)
+            for name, stream in self.sensor.streams.items():
+                if name in frames:
+                    packet = snapshot["packets"][stream]["packet"]
+                    frames[name].capture_monotonic_ns = (
+                        self._timeline_origin_ns + round(packet["capture_ts"] * 1_000_000_000)
+                    )
         self.safety.validate_state(state)
         if self._last_command is None:
             self._last_command = copy_group_vector(state.groups)
@@ -181,7 +203,7 @@ class AsyncSimRuntime:
         self, observation: ObservationSnapshot, chunk: ActionChunk | None = None,
         *, commit_settings: CommitSettings | None = None,
     ) -> tuple[CommitResult | None, dict]:
-        now_ns = self.clock.now_ns()
+        now_ns = self._timeline_now_ns if self._simulation_timeline else self.clock.now_ns()
         state = observation.state
         result = None
         if chunk is not None:
@@ -269,6 +291,38 @@ class AsyncSimRuntime:
             self.strategy.reset()
             control_steps = 0
             loop_ticks = 0
+
+            def submit_if_ready(observation: ObservationSnapshot, now_ns: int) -> bool:
+                nonlocal request_seq, last_submitted, last_deadline, pending_observation_ns, in_flight
+                submission = self.strategy.build_submission(
+                    session_id=self.session_id, request_seq=request_seq + 1, now_ns=now_ns,
+                    snapshot=observation, adapter=self.adapter, timeline=self.timeline,
+                    request_state=RequestState(in_flight, last_submitted, last_deadline),
+                    runtime_state=RuntimeState.RUNNING,
+                )
+                if submission is None:
+                    return False
+                if self.instruction_stream is not None:
+                    if self._instruction is None:
+                        raise RuntimeError("AsyncSim instruction stream has no visible packet")
+                    submission.request.instruction = self._instruction
+                prepared = self.adapter.prepare_request(submission.request)
+                if self._simulation_timeline:
+                    prepared.deadline_ns = self.clock.now_ns() + round(
+                        self.config["policy"]["timeout_s"] * 1_000_000_000
+                    )
+                worker.submit_latest(prepared)
+                request_seq = prepared.request_seq
+                last_submitted = request_seq
+                last_deadline = prepared.deadline_ns
+                pending_observation_ns = {request_seq: prepared.observation_time_ns}
+                in_flight = True
+                events.append({"kind": "inference_submitted", "request_seq": request_seq,
+                               "instruction": prepared.instruction,
+                               "observation_time_ns": prepared.observation_time_ns,
+                               "deadline_ns": prepared.deadline_ns, **submission.event_fields})
+                return True
+
             while control_steps < max_steps:
                 loop_ticks += 1
                 if timeout_s is not None and time.monotonic() - started_wall > timeout_s:
@@ -276,7 +330,7 @@ class AsyncSimRuntime:
                 if not worker.is_alive:
                     raise RuntimeError("policy worker stopped")
                 observation = self.observe()
-                now_ns = self.clock.now_ns()
+                now_ns = self._timeline_now_ns if self._simulation_timeline else self.clock.now_ns()
                 response: InferenceResponse | None = worker.poll()
                 chunk = None
                 settings = None
@@ -296,7 +350,7 @@ class AsyncSimRuntime:
                         or ("stale_session" if response.session_id != self.session_id else None)
                         or ("stale_request" if response.request_seq != last_submitted else None)
                         or ("observation_mismatch" if response.observation_time_ns != observation_ns else None)
-                        or ("deadline_exceeded" if response.finished_time_ns > last_deadline or now_ns > last_deadline else None)
+                        or ("deadline_exceeded" if response.finished_time_ns > last_deadline or self.clock.now_ns() > last_deadline else None)
                         or ("empty_action" if response.raw_action is None else None)
                     )
                     if invalid_reason is not None:
@@ -332,6 +386,10 @@ class AsyncSimRuntime:
                             events.append({"kind": "plan_rejected", "request_seq": response.request_seq,
                                            "reason": f"invalid_action:{exc}"})
                             chunk = None
+                submitted_early = (
+                    submit_if_ready(observation, now_ns)
+                    if self._simulation_timeline and chunk is None else False
+                )
                 if self._skip_unplanned_commands and chunk is None and self.timeline.sample(now_ns) is None:
                     result = None
                 else:
@@ -343,7 +401,8 @@ class AsyncSimRuntime:
                     if result.accepted:
                         accepted += 1
                         strategy_fields = self.strategy.on_plan_accepted(
-                            chunk=chunk, result=result, response=response, now_ns=self.clock.now_ns(),
+                            chunk=chunk, result=result, response=response,
+                            now_ns=(self._timeline_now_ns if self._simulation_timeline else self.clock.now_ns()),
                         )
                         events.append({
                             "kind": "plan_committed", "request_seq": response.request_seq,
@@ -357,29 +416,9 @@ class AsyncSimRuntime:
                         self.strategy.on_response_rejected(response)
                         events.append({"kind": "plan_rejected", "request_seq": response.request_seq,
                                        "plan_id": chunk.plan_id, "reason": result.reason})
-                now_ns = self.clock.now_ns()
-                submission = self.strategy.build_submission(
-                    session_id=self.session_id, request_seq=request_seq + 1, now_ns=now_ns,
-                    snapshot=observation, adapter=self.adapter, timeline=self.timeline,
-                    request_state=RequestState(in_flight, last_submitted, last_deadline),
-                    runtime_state=RuntimeState.RUNNING,
-                )
-                if submission is not None:
-                    if self.instruction_stream is not None:
-                        if self._instruction is None:
-                            raise RuntimeError("AsyncSim instruction stream has no visible packet")
-                        submission.request.instruction = self._instruction
-                    prepared = self.adapter.prepare_request(submission.request)
-                    worker.submit_latest(prepared)
-                    request_seq = prepared.request_seq
-                    last_submitted = request_seq
-                    last_deadline = prepared.deadline_ns
-                    pending_observation_ns = {request_seq: prepared.observation_time_ns}
-                    in_flight = True
-                    events.append({"kind": "inference_submitted", "request_seq": request_seq,
-                                   "instruction": prepared.instruction,
-                                   "observation_time_ns": prepared.observation_time_ns,
-                                   "deadline_ns": prepared.deadline_ns, **submission.event_fields})
+                if not submitted_early:
+                    now_ns = self._timeline_now_ns if self._simulation_timeline else self.clock.now_ns()
+                    submit_if_ready(observation, now_ns)
                 for kind, fields in self.strategy.take_runtime_events(step=loop_ticks):
                     events.append({"kind": kind, **fields})
                 self.strategy.on_tick(steps=loop_ticks, loop_ms=0.0, control_dt_ns=self.dt_ns)
