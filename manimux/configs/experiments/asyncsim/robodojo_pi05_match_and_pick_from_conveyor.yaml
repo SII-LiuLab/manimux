@@ -31,7 +31,7 @@ policy:
     action_format: joint
     request_timeout_s: 30.0
   adapter:
-    type: manimux.policy_adapter.joint:JointAdapter
+    type: manimux.policy_adapter.robodojo_joint:RoboDojoJointAdapter
     group_layouts:
       left_arm: {arm_dofs: 6, gripper_dofs: 1}
       right_arm: {arm_dofs: 6, gripper_dofs: 1}
