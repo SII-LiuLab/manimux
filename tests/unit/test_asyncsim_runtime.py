@@ -2,22 +2,27 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
+import time
 
 import numpy as np
 
 from manimux.embodiments.asyncsim import AsyncSimRobot, AsyncSimSensor
 from manimux.cli import load_config
+from manimux.policies import build_policy_model
+from manimux.policies.capabilities import PolicyCapabilities
+from manimux.policies.xpolicylab.client import XPolicyLabWsPolicyModel
 from manimux.runtime.asyncsim import AsyncSimRuntime
-from manimux.types import ActionChunk, RobotCommand
+from manimux.types import ActionChunk, InferenceResponse, RobotCommand
 
 
 class FakeAsyncSim:
-    def __init__(self) -> None:
+    def __init__(self, clock_ns=lambda: 1_000_000_000) -> None:
         self.episode_id = None
         self.commands = []
         self.streams = []
         self.closed = False
         self.sim_ts = 0.0
+        self.clock_ns = clock_ns
 
     def connect(self) -> None:
         self.closed = False
@@ -45,11 +50,11 @@ class FakeAsyncSim:
             },
         }
         return {"episode_id": self.episode_id, "sim_ts": self.sim_ts,
-                "clock_anchor": {"sim_ts": self.sim_ts, "monotonic_ns": 1_000_000_000},
+                "clock_anchor": {"sim_ts": self.sim_ts, "monotonic_ns": self.clock_ns()},
                 "packets": {name: packets[name] for name in streams}}
 
     def health(self):
-        return {"episode": {"sim_ts": self.sim_ts}}
+        return {"episode": {"sim_ts": self.sim_ts, "state": "running"}}
 
     def submit_command(self, command):
         self.commands.append(command)
@@ -70,12 +75,106 @@ class FixedClock:
         self.time_ns = target_ns
 
 
+class FakeWorker:
+    def __init__(self, clock, capabilities=None):
+        self.clock = clock
+        self.capabilities = capabilities or PolicyCapabilities()
+        self.is_alive = False
+        self.submitted = []
+        self._pending = None
+
+    def start(self):
+        self.is_alive = True
+
+    def submit_latest(self, request):
+        self.submitted.append(request)
+        self._pending = request
+
+    def poll(self):
+        request, self._pending = self._pending, None
+        if request is None:
+            return None
+        actions = {name: np.ones((4, 2)) for name in request.observation.state.groups}
+        return InferenceResponse(
+            request.session_id, request.request_seq, self.clock.now_ns(), 1.0,
+            {"format": "joint", "actions": actions,
+             "action_semantics": "absolute_joint_position"},
+            observation_time_ns=request.observation_time_ns,
+        )
+
+    def close(self):
+        self.is_alive = False
+
+
+class StaleWorker(FakeWorker):
+    def poll(self):
+        response = super().poll()
+        if response is not None:
+            response.session_id = "another-session"
+        return response
+
+
 def config():
     source = Path(__file__).resolve().parents[2] / "manimux/configs/experiments/asyncsim/fake_joint.yaml"
     return load_config(source)
 
 
 class AsyncSimRuntimeTests(unittest.TestCase):
+    def test_xpolicylab_template_loads_client_without_network(self):
+        source = Path(__file__).resolve().parents[2] / (
+            "manimux/configs/experiments/asyncsim/xpolicylab_joint_template.yaml"
+        )
+        configured = load_config(source)
+        backend = build_policy_model(configured["policy"])
+        self.assertIsInstance(backend, XPolicyLabWsPolicyModel)
+        backend.close()
+
+    def test_stale_policy_response_is_rejected(self):
+        backend = FakeAsyncSim()
+        clock = FixedClock()
+        worker = StaleWorker(clock)
+        runtime = AsyncSimRuntime(config(), client=backend, clock=clock, worker=worker)
+        result = runtime.run_policy(max_steps=3)
+        self.assertEqual(result["accepted_plans"], 0)
+        self.assertIn("stale_session", result["rejection_reasons"])
+
+    def test_policy_worker_adapter_and_timeline_pipeline(self):
+        backend = FakeAsyncSim()
+        clock = FixedClock()
+        worker = FakeWorker(clock)
+        configured = config()
+        configured["policy"]["adapter"]["type"] = "manimux.policy_adapter.joint:JointAdapter"
+        runtime = AsyncSimRuntime(configured, client=backend, clock=clock, worker=worker)
+        result = runtime.run_policy(max_steps=3)
+        self.assertGreaterEqual(result["accepted_plans"], 1, result)
+        self.assertTrue(worker.submitted)
+        self.assertEqual(worker.submitted[0].observation.frames["head"].sequence, 1)
+        self.assertTrue(any(command["plan_id"].startswith("joint-") for command in backend.commands))
+        self.assertEqual(len(backend.commands), 3)
+        self.assertTrue(backend.closed)
+
+    def test_real_fake_policy_worker_process(self):
+        backend = FakeAsyncSim(time.monotonic_ns)
+        configured = config()
+        configured["policy"]["timeout_s"] = 3.0
+        configured["inference"]["max_plan_age_s"] = 3.0
+        runtime = AsyncSimRuntime(configured, client=backend)
+        result = runtime.run_policy(max_steps=20)
+        self.assertGreaterEqual(result["accepted_plans"], 1, result)
+        self.assertTrue(any(item["plan_id"].startswith("plan-") for item in backend.commands))
+
+    def test_policy_backend_identity_mismatch_aborts(self):
+        backend = FakeAsyncSim()
+        clock = FixedClock()
+        configured = config()
+        configured["policy"]["expected_backend"] = {"server": "expected"}
+        worker = FakeWorker(clock, PolicyCapabilities(backend_metadata={"server": "other"}))
+        runtime = AsyncSimRuntime(configured, client=backend, clock=clock, worker=worker)
+        with self.assertRaisesRegex(RuntimeError, "identity mismatch"):
+            runtime.run_policy(max_steps=2)
+        self.assertFalse(worker.submitted)
+        self.assertTrue(backend.closed)
+
     def test_fake_backend_uses_one_snapshot_and_one_command_per_tick(self):
         backend = FakeAsyncSim()
         runtime = AsyncSimRuntime(config(), client=backend, clock=FixedClock())

@@ -1,8 +1,8 @@
-# Offline contract example; state keys and group widths are synthetic.
+# Contract template only. Replace state layout, endpoint and model identity before rollout.
 run:
-  task: fake AsyncSim joint policy
-  output_dir: ./data/asyncsim-fake
-  max_control_steps: 20
+  task: configure a RoboDojo task
+  output_dir: ./data/asyncsim-policy
+  max_control_steps: 500
 
 robot:
   type: asyncsim
@@ -21,16 +21,20 @@ sensors:
     streams: {head: camera.head.rgb}
 
 policy:
-  worker: fake
+  worker: xpolicylab_ws
+  options:
+    server: ws://127.0.0.1:18766
+    action_format: joint
+  expected_backend:
+    server: xpolicylab_policy_server
   adapter:
-    type: manimux.policies.fake:FakePolicyAdapter
+    type: manimux.policy_adapter.joint:JointAdapter
     group_layouts:
       left_arm: {arm_dofs: 1, gripper_dofs: 1}
       right_arm: {arm_dofs: 1, gripper_dofs: 1}
     camera_map: {head: head}
   action_dt_s: 0.02
   horizon_policy_steps: 4
-  inference_delay_s: 0.0
 
 inference:
   algorithm: manimux
