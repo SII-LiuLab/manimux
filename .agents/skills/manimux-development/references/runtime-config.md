@@ -8,12 +8,14 @@ Paths are relative to the repository root.
 AsyncSim WebSocket session, reads a single atomic snapshot, and sends one
 canonical joint target per control step. Its robot proxy is structural rather
 than a `RobotBase` subclass, because `RobotBase` assembles physical arms,
-controllers and kinematics. The current offline fake-policy path supports only
-the default chunk timeline and direct executor. `run_policy()` now composes the
-existing policy worker, policy adapter and inference strategy; the
+controllers and kinematics. The offline fake-policy path supports direct and
+smooth execution and the default, ACT, RTC, PAINT and DVAC strategies.
+`run_policy()` composes the existing policy worker, adapter and strategy; the
 `xpolicylab_joint_template.yaml` is not runnable with a real task until the
-RoboDojo state/control layout and checkpoint identity are verified. Advanced
-inference algorithms and RoboDojo-specific control mapping are not yet enabled.
+RoboDojo state/control layout and checkpoint identity are verified. Specialized
+sampling hooks have only been exercised with fake policy capabilities; AAC and
+process/independent decoding remain unsupported by this runtime. RoboDojo's
+actual rollout has not been verified against a checkpoint.
 Do not route an `asyncsim` experiment through
 `EdgeRuntime` or the physical robot factory.
 

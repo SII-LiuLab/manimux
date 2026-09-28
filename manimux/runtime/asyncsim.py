@@ -32,8 +32,12 @@ class AsyncSimRuntime:
     ) -> None:
         if config["executor"]["type"] not in {"direct", "smooth"}:
             raise ValueError("AsyncSim currently supports direct and smooth executors")
-        if config["inference"]["algorithm"] not in {"manimux", "act_temporal_ensemble"}:
-            raise ValueError("AsyncSim supports default chunks and ACT temporal ensemble")
+        if config["inference"]["algorithm"] not in {
+            "manimux", "act_temporal_ensemble", "rtc", "paint", "dvac",
+        }:
+            raise ValueError("AsyncSim inference strategy is not supported")
+        if config["policy"]["action_decoding"] != "inline" or config["inference"]["independent_group_decoding"]:
+            raise ValueError("AsyncSim requires inline, non-independent action decoding")
         self.config = config
         self.clock = clock or SystemClock()
         self.session_id = f"asyncsim-{uuid.uuid4().hex}"
@@ -187,7 +191,7 @@ class AsyncSimRuntime:
             compare(deepcopy(expected), capabilities.backend_metadata, "backend")
 
     def run_policy(self, *, seed: int | None = None, max_steps: int | None = None) -> dict[str, Any]:
-        """Execute ManiMux's worker, adapter, strategy, timeline and direct executor."""
+        """Execute ManiMux's worker, adapter, strategy, timeline and executor."""
         worker = self.worker or PolicyWorkerClient(self.config["policy"], self.session_id)
         max_steps = max_steps or self.config["run"]["max_control_steps"]
         if max_steps <= 0:

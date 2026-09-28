@@ -12,6 +12,9 @@ from manimux.policies import build_policy_model
 from manimux.policies.capabilities import PolicyCapabilities
 from manimux.policies.xpolicylab.client import XPolicyLabWsPolicyModel
 from manimux.runtime.asyncsim import AsyncSimRuntime
+from manimux.runtime.dvac import DvacInferenceRequest
+from manimux.runtime.paint import PaintInferenceRequest
+from manimux.runtime.rtc.request import RtcInferenceRequest
 from manimux.types import ActionChunk, InferenceResponse, RobotCommand
 
 
@@ -118,12 +121,69 @@ class StaleWorker(FakeWorker):
         return response
 
 
+class SamplingWorker(FakeWorker):
+    def __init__(self, clock, mode):
+        super().__init__(clock, PolicyCapabilities(sampling_modes=frozenset({mode})))
+        self.mode = mode
+
+    def poll(self):
+        response = super().poll()
+        if response is not None and self.mode == "dvac":
+            response.raw_action["dvac"] = {"execution_steps": 2}
+        return response
+
+
 def config():
     source = Path(__file__).resolve().parents[2] / "manimux/configs/experiments/asyncsim/fake_joint.yaml"
     return load_config(source)
 
 
 class AsyncSimRuntimeTests(unittest.TestCase):
+    def test_specialized_strategies_use_their_requests_and_canonical_timeline(self):
+        for mode, request_type in (
+            ("rtc", RtcInferenceRequest),
+            ("paint", PaintInferenceRequest),
+            ("dvac", DvacInferenceRequest),
+        ):
+            with self.subTest(mode=mode):
+                configured = config()
+                configured["inference"]["algorithm"] = mode
+                configured["policy"]["adapter"]["type"] = "manimux.policy_adapter.joint:JointAdapter"
+                configured["inference"]["rtc"].update(
+                    initial_delay_policy_steps=1, min_execute_policy_steps=1,
+                )
+                configured["inference"]["paint"].update(
+                    initial_delay_policy_steps=1, execution_policy_steps=1,
+                )
+                backend = FakeAsyncSim()
+                clock = FixedClock()
+                worker = SamplingWorker(clock, mode)
+                result = AsyncSimRuntime(configured, client=backend, clock=clock, worker=worker).run_policy(max_steps=8)
+                self.assertGreaterEqual(result["accepted_plans"], 1, result)
+                if mode == "paint":
+                    self.assertNotIsInstance(worker.submitted[0], PaintInferenceRequest)
+                    self.assertTrue(any(isinstance(item, request_type) for item in worker.submitted[1:]))
+                else:
+                    self.assertIsInstance(worker.submitted[0], request_type)
+                self.assertTrue(all(item["action_space"] == "joint_position" for item in backend.commands))
+                if mode == "dvac":
+                    self.assertTrue(any(item["plan_id"].startswith("joint-") for item in backend.commands))
+
+    def test_sampling_mode_mismatch_fails_before_request(self):
+        configured = config()
+        configured["inference"]["algorithm"] = "rtc"
+        worker = FakeWorker(FixedClock())
+        runtime = AsyncSimRuntime(configured, client=FakeAsyncSim(), clock=worker.clock, worker=worker)
+        with self.assertRaisesRegex(RuntimeError, "sampling modes"):
+            runtime.run_policy(max_steps=2)
+        self.assertFalse(worker.submitted)
+
+    def test_process_decoding_remains_explicitly_unsupported(self):
+        configured = config()
+        configured["policy"]["action_decoding"] = "process"
+        with self.assertRaisesRegex(ValueError, "inline"):
+            AsyncSimRuntime(configured, client=FakeAsyncSim())
+
     def test_act_aggregation_uses_manimux_strategy(self):
         backend = FakeAsyncSim()
         clock = FixedClock()
