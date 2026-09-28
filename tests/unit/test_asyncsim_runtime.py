@@ -304,6 +304,20 @@ class AsyncSimRuntimeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "non-empty string"):
             AsyncSimRuntime(configured, client=backend, clock=FixedClock()).run_policy(max_steps=2)
 
+    def test_model_wait_does_not_consume_robodojo_action_limit(self):
+        configured = config()
+        configured["run"]["skip_unplanned_commands"] = True
+        configured["policy"]["adapter"]["type"] = "manimux.policy_adapter.joint:JointAdapter"
+        configured["inference"].update(inference_schedule="single_inflight", refill_threshold_s=0.08)
+        backend = FakeAsyncSim()
+        clock = FixedClock()
+        result = AsyncSimRuntime(configured, client=backend, clock=clock, worker=DelayedWorker(clock)).run_policy(max_steps=3)
+        self.assertEqual(result["steps"], 3)
+        self.assertGreater(result["loop_ticks"], result["steps"])
+        self.assertEqual(len(backend.commands), 3)
+        self.assertTrue(all(command["plan_id"].startswith("joint-") for command in backend.commands))
+        self.assertEqual(result["asyncsim_result"]["result"]["action_count"], 3)
+
     def test_stale_policy_response_is_rejected(self):
         backend = FakeAsyncSim()
         clock = FixedClock()

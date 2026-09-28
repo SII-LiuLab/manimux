@@ -3,6 +3,7 @@ run:
   instruction_stream: language.instruction
   output_dir: ./data/asyncsim-pi05-match-and-pick-from-conveyor
   max_control_steps: 700
+  skip_unplanned_commands: true
 
 robot:
   type: asyncsim
@@ -12,7 +13,7 @@ robot:
     endpoint: ws://127.0.0.1:18765
     state_stream: proprio.canonical_joint_state
     state_keys: {left_arm: left_arm, right_arm: right_arm}
-    command_ttl_s: 0.2
+    command_ttl_s: 35.0
 
 sensors:
 - name: robodojo_cameras

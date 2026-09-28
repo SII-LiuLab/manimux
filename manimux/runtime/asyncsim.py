@@ -99,6 +99,7 @@ class AsyncSimRuntime:
         self._selected_packets: dict[tuple[str, int], dict[str, Any]] = {}
         self._snapshot_audit: list[dict[str, Any]] = []
         self._instruction: str | None = None
+        self._skip_unplanned_commands = bool(config["run"].get("skip_unplanned_commands", False))
 
     def start(self, *, seed: int | None = None) -> dict[str, Any]:
         if self._started:
@@ -266,7 +267,10 @@ class AsyncSimRuntime:
             worker.start()
             self._check_capabilities(worker)
             self.strategy.reset()
-            for step_index in range(max_steps):
+            control_steps = 0
+            loop_ticks = 0
+            while control_steps < max_steps:
+                loop_ticks += 1
                 if timeout_s is not None and time.monotonic() - started_wall > timeout_s:
                     raise TimeoutError("AsyncSim policy rollout exceeded its wall time limit")
                 if not worker.is_alive:
@@ -328,9 +332,13 @@ class AsyncSimRuntime:
                             events.append({"kind": "plan_rejected", "request_seq": response.request_seq,
                                            "reason": f"invalid_action:{exc}"})
                             chunk = None
-                result, ack = self.execute(observation, chunk, commit_settings=settings)
-                command_acks.append(ack)
-                events.append({"kind": "command_ack", **ack})
+                if self._skip_unplanned_commands and chunk is None and self.timeline.sample(now_ns) is None:
+                    result = None
+                else:
+                    result, ack = self.execute(observation, chunk, commit_settings=settings)
+                    command_acks.append(ack)
+                    events.append({"kind": "command_ack", **ack})
+                    control_steps += 1
                 if result is not None and response is not None and chunk is not None:
                     if result.accepted:
                         accepted += 1
@@ -372,9 +380,9 @@ class AsyncSimRuntime:
                                    "instruction": prepared.instruction,
                                    "observation_time_ns": prepared.observation_time_ns,
                                    "deadline_ns": prepared.deadline_ns, **submission.event_fields})
-                for kind, fields in self.strategy.take_runtime_events(step=step_index + 1):
+                for kind, fields in self.strategy.take_runtime_events(step=loop_ticks):
                     events.append({"kind": kind, **fields})
-                self.strategy.on_tick(steps=step_index + 1, loop_ms=0.0, control_dt_ns=self.dt_ns)
+                self.strategy.on_tick(steps=loop_ticks, loop_ms=0.0, control_dt_ns=self.dt_ns)
                 health = self.client.health()
                 if health["episode"]["state"] not in {"ready", "running"}:
                     break
@@ -382,7 +390,7 @@ class AsyncSimRuntime:
                 self.clock.sleep_until_ns(next_tick)
             return {
                 "session_id": self.session_id, "episode_id": episode["episode_id"],
-                "steps": step_index + 1, "responses": responses,
+                "steps": control_steps, "loop_ticks": loop_ticks, "responses": responses,
                 "accepted_plans": accepted, "rejected_plans": rejected,
                 "rejection_reasons": rejection_reasons,
                 "command_acks": command_acks,
