@@ -4,6 +4,16 @@ Paths are relative to the repository root.
 
 ## Inference algorithm versus executor
 
+`manimux/runtime/asyncsim.py` is a separate simulation runtime. It owns one
+AsyncSim WebSocket session, reads a single atomic snapshot, and sends one
+canonical joint target per control step. Its robot proxy is structural rather
+than a `RobotBase` subclass, because `RobotBase` assembles physical arms,
+controllers and kinematics. The current offline fake-policy path supports only
+the default chunk timeline and direct executor; the separate policy worker,
+advanced inference algorithms and RoboDojo-specific state/control mapping are
+not yet enabled by this path. Do not route an `asyncsim` experiment through
+`EdgeRuntime` or the physical robot factory.
+
 Read `manimux/runtime/inference.py` (`InferenceStrategy`,
 `build_inference_strategy`) and the selected strategy, such as
 `runtime/rtc/strategy.py`. A new inference algorithm controls when to submit,
