@@ -34,6 +34,9 @@ class AsyncSimRobot:
 
     def connect(self) -> None:
         self.client.connect()
+        declared = self.client.health().get("canonical_group_dims")
+        if declared != self.group_dims:
+            raise ValueError("AsyncSim canonical group layout does not match ManiMux configuration")
 
     def reset(self) -> None:
         self._sequence = 0
@@ -58,7 +61,7 @@ class AsyncSimRobot:
                 raise ValueError(f"invalid AsyncSim state group {name!r}")
             groups[name] = values
         anchor = snapshot["clock_anchor"]
-        capture_ns = anchor["monotonic_ns"] + round(
+        capture_ns = packet.get("wall_ts_ns") or anchor["monotonic_ns"] + round(
             (packet["capture_ts"] - anchor["sim_ts"]) * 1_000_000_000
         )
         self._sequence = packet["seq"]

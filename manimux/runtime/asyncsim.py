@@ -182,6 +182,7 @@ class AsyncSimRuntime:
         accepted = rejected = 0
         rejection_reasons: list[str] = []
         responses = 0
+        command_acks: list[dict[str, Any]] = []
         request_seq = 0
         last_submitted = -1
         last_deadline = 0
@@ -243,7 +244,8 @@ class AsyncSimRuntime:
                             rejected += 1
                             rejection_reasons.append(f"invalid_action:{exc}")
                             chunk = None
-                result, _ack = self.execute(observation, chunk, commit_settings=settings)
+                result, ack = self.execute(observation, chunk, commit_settings=settings)
+                command_acks.append(ack)
                 if result is not None and response is not None and chunk is not None:
                     if result.accepted:
                         accepted += 1
@@ -279,6 +281,8 @@ class AsyncSimRuntime:
                 "steps": step_index + 1, "responses": responses,
                 "accepted_plans": accepted, "rejected_plans": rejected,
                 "rejection_reasons": rejection_reasons,
+                "command_acks": command_acks,
+                "asyncsim_result": self.client.result(),
             }
         finally:
             worker.close()

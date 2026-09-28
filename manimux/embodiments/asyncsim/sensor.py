@@ -40,7 +40,7 @@ class AsyncSimSensor(SensorBase):
             image = np.asarray(image)
             if image.dtype != np.uint8:
                 raise ValueError(f"camera {stream!r} must be RGB uint8")
-            capture_ns = anchor["monotonic_ns"] + round(
+            capture_ns = packet.get("wall_ts_ns") or anchor["monotonic_ns"] + round(
                 (packet["capture_ts"] - anchor["sim_ts"]) * 1_000_000_000
             )
             result[name] = SensorFrame(name, image, capture_ns, packet["seq"])

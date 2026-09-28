@@ -1,4 +1,4 @@
-# Contract template only. Replace state layout, endpoint and model identity before rollout.
+# X5 joint contract template. Bind a matching checkpoint and endpoint before rollout.
 run:
   task: configure a RoboDojo task
   output_dir: ./data/asyncsim-policy
@@ -7,18 +7,21 @@ run:
 robot:
   type: asyncsim
   control_hz: 50
-  group_dims: {left_arm: 2, right_arm: 2}
+  group_dims: {left_arm: 7, right_arm: 7}
   options:
     endpoint: ws://127.0.0.1:18765
-    state_stream: proprio.joint_state
-    state_keys: {left_arm: left_joints, right_arm: right_joints}
+    state_stream: proprio.canonical_joint_state
+    state_keys: {left_arm: left_arm, right_arm: right_arm}
     command_ttl_s: 0.2
 
 sensors:
 - name: asyncsim_cameras
   driver: asyncsim
   options:
-    streams: {head: camera.head.rgb}
+    streams:
+      head: camera.cam_head.rgb
+      left_wrist: camera.cam_left_wrist.rgb
+      right_wrist: camera.cam_right_wrist.rgb
 
 policy:
   worker: xpolicylab_ws
@@ -30,9 +33,9 @@ policy:
   adapter:
     type: manimux.policy_adapter.joint:JointAdapter
     group_layouts:
-      left_arm: {arm_dofs: 1, gripper_dofs: 1}
-      right_arm: {arm_dofs: 1, gripper_dofs: 1}
-    camera_map: {head: head}
+      left_arm: {arm_dofs: 6, gripper_dofs: 1}
+      right_arm: {arm_dofs: 6, gripper_dofs: 1}
+    camera_map: {head: head, left_wrist: left_wrist, right_wrist: right_wrist}
   action_dt_s: 0.02
   horizon_policy_steps: 4
 

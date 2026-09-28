@@ -54,11 +54,15 @@ class FakeAsyncSim:
                 "packets": {name: packets[name] for name in streams}}
 
     def health(self):
-        return {"episode": {"sim_ts": self.sim_ts, "state": "running"}}
+        return {"episode": {"sim_ts": self.sim_ts, "state": "running"},
+                "canonical_group_dims": {"left_arm": 2, "right_arm": 2}}
 
     def submit_command(self, command):
         self.commands.append(command)
         return {"accepted": True, "reason": "accepted"}
+
+    def result(self):
+        return {"episode_id": self.episode_id, "result": {"action_count": len(self.commands)}}
 
     def close(self):
         self.closed = True
@@ -125,6 +129,8 @@ class AsyncSimRuntimeTests(unittest.TestCase):
             "manimux/configs/experiments/asyncsim/xpolicylab_joint_template.yaml"
         )
         configured = load_config(source)
+        self.assertEqual(configured["robot"]["group_dims"], {"left_arm": 7, "right_arm": 7})
+        self.assertEqual(configured["robot"]["options"]["state_stream"], "proprio.canonical_joint_state")
         backend = build_policy_model(configured["policy"])
         self.assertIsInstance(backend, XPolicyLabWsPolicyModel)
         backend.close()
@@ -151,6 +157,8 @@ class AsyncSimRuntimeTests(unittest.TestCase):
         self.assertEqual(worker.submitted[0].observation.frames["head"].sequence, 1)
         self.assertTrue(any(command["plan_id"].startswith("joint-") for command in backend.commands))
         self.assertEqual(len(backend.commands), 3)
+        self.assertEqual(len(result["command_acks"]), 3)
+        self.assertEqual(result["asyncsim_result"]["result"]["action_count"], 3)
         self.assertTrue(backend.closed)
 
     def test_real_fake_policy_worker_process(self):
