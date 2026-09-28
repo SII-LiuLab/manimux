@@ -12,7 +12,7 @@ from manimux.embodiments.asyncsim import AsyncSimClient, AsyncSimRobot, AsyncSim
 from manimux.policies import PolicyCapabilities
 from manimux.policies.worker import PolicyWorkerClient
 from manimux.policy_adapter import build_policy_adapter
-from manimux.runtime.executors import DirectExecutor
+from manimux.runtime.executors import DirectExecutor, SmoothExecutor
 from manimux.runtime.inference import (
     CommitSettings, RequestState, build_inference_strategy, prepare_strategy_chunk,
 )
@@ -30,10 +30,10 @@ class AsyncSimRuntime:
     def __init__(
         self, config: dict, *, client: Any = None, clock: Clock | None = None, worker: Any = None,
     ) -> None:
-        if config["executor"]["type"] != "direct":
-            raise ValueError("AsyncSim currently supports only direct executor")
-        if config["inference"]["algorithm"] != "manimux":
-            raise ValueError("AsyncSim currently supports only the default inference strategy")
+        if config["executor"]["type"] not in {"direct", "smooth"}:
+            raise ValueError("AsyncSim currently supports direct and smooth executors")
+        if config["inference"]["algorithm"] not in {"manimux", "act_temporal_ensemble"}:
+            raise ValueError("AsyncSim supports default chunks and ACT temporal ensemble")
         self.config = config
         self.clock = clock or SystemClock()
         self.session_id = f"asyncsim-{uuid.uuid4().hex}"
@@ -67,10 +67,17 @@ class AsyncSimRuntime:
             max_source_steps=inference["max_chunk_policy_steps"],
             action_start_mode=inference["action_start_mode"],
         )
-        self.executor = DirectExecutor(config["executor"]["motion_limits"], self.dt_ns / 1e9)
+        self.executor = (
+            SmoothExecutor(config["executor"]["smooth"], self.dt_ns / 1e9)
+            if config["executor"]["type"] == "smooth"
+            else DirectExecutor(config["executor"]["motion_limits"], self.dt_ns / 1e9)
+        )
         limits = config["executor"]["command_safety"]
         self.safety = SafetyGuard(
-            robot["group_dims"], None,
+            robot["group_dims"], (
+                config["executor"]["smooth"]["position_limit_abs"]
+                if config["executor"]["type"] == "smooth" else None
+            ),
             position_lower=limits["position_lower"], position_upper=limits["position_upper"],
             max_velocity=limits["max_velocity"], max_acceleration=limits["max_acceleration"],
             control_dt_s=self.dt_ns / 1e9,
@@ -144,7 +151,13 @@ class AsyncSimRuntime:
             now_ns=now_ns, dt_ns=self.dt_ns, horizon_steps=self.executor.horizon_steps
         )
         if horizon is None:
-            command = RobotCommand(copy_group_vector(self._last_command), now_ns, "hold")
+            if isinstance(self.executor, SmoothExecutor) and self.executor.braking_tracking:
+                command = self.executor.brake_hold(now_ns, state)
+            elif isinstance(self.executor, SmoothExecutor):
+                held_state = type(state)(copy_group_vector(self._last_command), now_ns, state.sequence)
+                command = self.executor.hold(now_ns, held_state)
+            else:
+                command = RobotCommand(copy_group_vector(self._last_command), now_ns, "hold")
         else:
             command = self.executor.step(now_ns, state, horizon)
         self.safety.validate_command(command)

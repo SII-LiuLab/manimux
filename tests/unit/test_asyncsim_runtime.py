@@ -124,6 +124,36 @@ def config():
 
 
 class AsyncSimRuntimeTests(unittest.TestCase):
+    def test_act_aggregation_uses_manimux_strategy(self):
+        backend = FakeAsyncSim()
+        clock = FixedClock()
+        configured = config()
+        configured["inference"]["algorithm"] = "act_temporal_ensemble"
+        configured["policy"]["adapter"]["type"] = "manimux.policy_adapter.joint:JointAdapter"
+        runtime = AsyncSimRuntime(configured, client=backend, clock=clock, worker=FakeWorker(clock))
+        result = runtime.run_policy(max_steps=4)
+        self.assertEqual(runtime.strategy.name, "act_temporal_ensemble")
+        self.assertGreaterEqual(result["accepted_plans"], 1, result)
+        self.assertTrue(all(item["action_space"] == "joint_position" for item in backend.commands))
+
+    def test_smooth_executor_filters_canonical_command(self):
+        backend = FakeAsyncSim()
+        configured = config()
+        configured["executor"]["type"] = "smooth"
+        runtime = AsyncSimRuntime(configured, client=backend, clock=FixedClock())
+        runtime.start()
+        runtime.step()
+        chunk = ActionChunk("plan-smooth", 0, runtime.clock.now_ns(), runtime.clock.now_ns(),
+                            "joint_position", 20_000_000, {
+                                "left_arm": np.ones((3, 2)),
+                                "right_arm": np.ones((3, 2)),
+                            })
+        _, result, _ = runtime.step(chunk)
+        self.assertTrue(result.accepted)
+        self.assertGreater(backend.commands[-1]["groups"]["left_arm"][0], 0.0)
+        self.assertLess(backend.commands[-1]["groups"]["left_arm"][0], 1.0)
+        runtime.close()
+
     def test_xpolicylab_template_loads_client_without_network(self):
         source = Path(__file__).resolve().parents[2] / (
             "manimux/configs/experiments/asyncsim/xpolicylab_joint_template.yaml"
