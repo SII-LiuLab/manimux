@@ -10,6 +10,12 @@ import numpy as np
 from manimux.types import RobotCommand, RobotState
 
 
+class AsyncSimCommandRejected(RuntimeError):
+    def __init__(self, reason: str):
+        self.reason = reason
+        super().__init__(f"AsyncSim command rejected: {reason}")
+
+
 class AsyncSimRobot:
     """Structural robot interface; RobotBase itself owns physical arm assemblies."""
 
@@ -93,7 +99,7 @@ class AsyncSimRobot:
         }
         ack = self.client.submit_command(issued)
         if not ack["accepted"]:
-            raise RuntimeError(f"AsyncSim command rejected: {ack['reason']}")
+            raise AsyncSimCommandRejected(ack["reason"])
         return {**ack, **{key: issued[key] for key in (
             "issued_sim_ts", "apply_after_sim_ts", "expires_at_sim_ts",
         )}}

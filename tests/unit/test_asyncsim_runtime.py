@@ -166,6 +166,56 @@ def config():
 
 
 class AsyncSimRuntimeTests(unittest.TestCase):
+    def test_terminal_episode_rejection_preserves_result(self):
+        class TerminatingAsyncSim(FakeAsyncSim):
+            state = "running"
+
+            def health(self):
+                health = super().health()
+                health["episode"]["state"] = self.state
+                return health
+
+            def submit_command(self, command):
+                if self.commands:
+                    self.state = "failed"
+                    return {"accepted": False, "reason": "episode_not_accepting_commands"}
+                return super().submit_command(command)
+
+            def result(self):
+                result = super().result()
+                result["state"] = self.state
+                return result
+
+        backend = TerminatingAsyncSim()
+        clock = FixedClock()
+        configured = config()
+        configured["policy"]["adapter"]["type"] = "manimux.policy_adapter.joint:JointAdapter"
+        run = AsyncSimRuntime(configured, client=backend, clock=clock, worker=FakeWorker(clock)).run_policy(max_steps=4)
+        self.assertEqual(run["asyncsim_result"]["state"], "failed")
+        self.assertEqual(len(run["command_acks"]), 1)
+        self.assertTrue(any(event["kind"] == "command_rejected" for event in run["audit"]["manimux_events"]))
+
+    def test_delayed_initial_camera_waits_before_inference(self):
+        class DelayedCamera(FakeAsyncSim):
+            reads = 0
+
+            def read_snapshot(self, streams):
+                self.reads += 1
+                snapshot = super().read_snapshot(streams)
+                if self.reads <= 2:
+                    snapshot["packets"]["camera.head.rgb"]["packet"] = None
+                return snapshot
+
+        backend = DelayedCamera()
+        clock = FixedClock()
+        worker = FakeWorker(clock)
+        configured = config()
+        configured["policy"]["adapter"]["type"] = "manimux.policy_adapter.joint:JointAdapter"
+        result = AsyncSimRuntime(configured, client=backend, clock=clock, worker=worker).run_policy(max_steps=2)
+        self.assertGreaterEqual(backend.reads, 4)
+        self.assertGreaterEqual(result["accepted_plans"], 1)
+        self.assertEqual(len(worker.submitted[0].observation.frames), 1)
+
     def test_slow_simulation_retains_chunk_with_wall_clock_deadlines(self):
         class SlowClock(FixedClock):
             def sleep_until_ns(self, target_ns):

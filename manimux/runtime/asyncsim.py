@@ -10,6 +10,7 @@ import uuid
 
 from manimux.clock import Clock, SystemClock
 from manimux.embodiments.asyncsim import AsyncSimClient, AsyncSimRobot, AsyncSimSensor
+from manimux.embodiments.asyncsim.robot import AsyncSimCommandRejected
 from manimux.policies import PolicyCapabilities
 from manimux.policies.worker import PolicyWorkerClient
 from manimux.policy_adapter import build_policy_adapter
@@ -289,6 +290,13 @@ class AsyncSimRuntime:
             worker.start()
             self._check_capabilities(worker)
             self.strategy.reset()
+            while True:
+                initial = self.client.read_snapshot(self.streams)
+                if all(entry["packet"] is not None for entry in initial["packets"].values()):
+                    break
+                if timeout_s is not None and time.monotonic() - started_wall > timeout_s:
+                    raise TimeoutError("AsyncSim initial observation streams did not become available")
+                self.clock.sleep_until_ns(self.clock.now_ns() + self.dt_ns)
             control_steps = 0
             loop_ticks = 0
 
@@ -393,7 +401,17 @@ class AsyncSimRuntime:
                 if self._skip_unplanned_commands and chunk is None and self.timeline.sample(now_ns) is None:
                     result = None
                 else:
-                    result, ack = self.execute(observation, chunk, commit_settings=settings)
+                    try:
+                        result, ack = self.execute(observation, chunk, commit_settings=settings)
+                    except AsyncSimCommandRejected as exc:
+                        state = self.client.health()["episode"]["state"]
+                        if exc.reason != "episode_not_accepting_commands" or state not in {
+                            "succeeded", "failed", "finished",
+                        }:
+                            raise
+                        events.append({"kind": "command_rejected", "reason": exc.reason,
+                                       "episode_state": state})
+                        break
                     command_acks.append(ack)
                     events.append({"kind": "command_ack", **ack})
                     control_steps += 1

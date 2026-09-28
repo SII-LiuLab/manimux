@@ -3,6 +3,7 @@ run:
   instruction_stream: language.instruction
   output_dir: ./data/asyncsim-pi05-match-and-pick-from-conveyor
   max_control_steps: 700
+  max_command_submissions: 1400
   skip_unplanned_commands: true
   simulation_time_timeline: true
 

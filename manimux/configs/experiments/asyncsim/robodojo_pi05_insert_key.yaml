@@ -3,6 +3,7 @@ run:
   instruction_stream: language.instruction
   output_dir: ./data/asyncsim-pi05-insert-key
   max_control_steps: 300
+  max_command_submissions: 600
   skip_unplanned_commands: true
   simulation_time_timeline: true
 
