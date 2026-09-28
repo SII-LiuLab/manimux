@@ -65,6 +65,13 @@ class AsyncSimRuntime:
             env_index=options.get("env_index", 0),
         )
         self.streams = [self.robot.state_stream, *self.sensor.streams.values()]
+        self.instruction_stream = config["run"].get("instruction_stream")
+        if self.instruction_stream is not None:
+            if not isinstance(self.instruction_stream, str) or not self.instruction_stream:
+                raise ValueError("run.instruction_stream must be a non-empty stream name")
+            if self.instruction_stream in self.streams:
+                raise ValueError("instruction stream must differ from state and camera streams")
+            self.streams.append(self.instruction_stream)
         self.dt_ns = round(1_000_000_000 / robot["control_hz"])
         inference = config["inference"]
         self.timeline = ActionTimeline(
@@ -91,6 +98,7 @@ class AsyncSimRuntime:
         self._started = False
         self._selected_packets: dict[tuple[str, int], dict[str, Any]] = {}
         self._snapshot_audit: list[dict[str, Any]] = []
+        self._instruction: str | None = None
 
     def start(self, *, seed: int | None = None) -> dict[str, Any]:
         if self._started:
@@ -108,6 +116,7 @@ class AsyncSimRuntime:
             self._last_command = None
             self._selected_packets = {}
             self._snapshot_audit = []
+            self._instruction = None
             self.client.subscribe(self.streams)
             self.sensor.start()
             self._started = True
@@ -143,6 +152,16 @@ class AsyncSimRuntime:
             "episode_id": snapshot["episode_id"], "snapshot_ts": snapshot["sim_ts"],
             "selections": selections,
         })
+        if self.instruction_stream is not None:
+            packet = snapshot["packets"][self.instruction_stream]["packet"]
+            if packet is not None:
+                if packet["episode_id"] != self.client.episode_id:
+                    raise RuntimeError("instruction packet belongs to another episode")
+                payload = packet["payload"]
+                value = payload.get(self.robot.env_index, payload.get(str(self.robot.env_index)))
+                if not isinstance(value, str) or not value.strip():
+                    raise ValueError("AsyncSim instruction must be a non-empty string")
+                self._instruction = value
         state = self.robot.use_snapshot(snapshot)
         frames = self.sensor.use_snapshot(snapshot)
         self.safety.validate_state(state)
@@ -338,6 +357,10 @@ class AsyncSimRuntime:
                     runtime_state=RuntimeState.RUNNING,
                 )
                 if submission is not None:
+                    if self.instruction_stream is not None:
+                        if self._instruction is None:
+                            raise RuntimeError("AsyncSim instruction stream has no visible packet")
+                        submission.request.instruction = self._instruction
                     prepared = self.adapter.prepare_request(submission.request)
                     worker.submit_latest(prepared)
                     request_seq = prepared.request_seq
@@ -346,6 +369,7 @@ class AsyncSimRuntime:
                     pending_observation_ns = {request_seq: prepared.observation_time_ns}
                     in_flight = True
                     events.append({"kind": "inference_submitted", "request_seq": request_seq,
+                                   "instruction": prepared.instruction,
                                    "observation_time_ns": prepared.observation_time_ns,
                                    "deadline_ns": prepared.deadline_ns, **submission.event_fields})
                 for kind, fields in self.strategy.take_runtime_events(step=step_index + 1):

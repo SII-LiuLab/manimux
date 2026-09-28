@@ -81,7 +81,7 @@ class AsyncSimRobot:
             raise ValueError("command layout does not match AsyncSim robot")
         now = self.client.health()["episode"]["sim_ts"]
         self._command_seq += 1
-        ack = self.client.submit_command({
+        issued = {
             "episode_id": self.client.episode_id,
             "command_seq": self._command_seq,
             "issued_sim_ts": now,
@@ -90,10 +90,13 @@ class AsyncSimRobot:
             "plan_id": command.plan_id or "hold",
             "action_space": "joint_position",
             "groups": {name: values.tolist() for name, values in command.groups.items()},
-        })
+        }
+        ack = self.client.submit_command(issued)
         if not ack["accepted"]:
             raise RuntimeError(f"AsyncSim command rejected: {ack['reason']}")
-        return ack
+        return {**ack, **{key: issued[key] for key in (
+            "issued_sim_ts", "apply_after_sim_ts", "expires_at_sim_ts",
+        )}}
 
     def home(self) -> None:
         raise NotImplementedError("AsyncSim homing requires a configured simulator reset")

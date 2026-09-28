@@ -1,0 +1,21 @@
+policy_name: Pi_05
+protocol: ws
+host: 127.0.0.1
+port: 18766
+bench_name: RoboDojo
+ckpt_name: RoboDojo-sim-arx_x5-joint-0
+env_cfg_type: arx_x5
+action_type: joint
+seed: 0
+eval_batch: true
+checkpoint_num: 59999
+model_path: checkpoints/RoboDojo-sim-arx_x5-joint-0/59999
+checkpoint_id: RoboDojo-sim-arx_x5-joint-0/59999
+train_config_name: pi05_base_aloha_full_sim_arx-x5_seed_0
+repo_id: arx_x5_sim
+
+backend_identity:
+  fields: [checkpoint_id, checkpoint_num, train_config_name, repo_id, action_type, env_cfg_type, action_horizon]
+  model: {policy_family: pi05}
+
+action_horizon: 50

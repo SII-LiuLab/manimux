@@ -26,6 +26,7 @@ class FakeAsyncSim:
         self.closed = False
         self.sim_ts = 0.0
         self.clock_ns = clock_ns
+        self.instruction = "Pick up the key and insert it."
 
     def connect(self) -> None:
         self.closed = False
@@ -51,6 +52,10 @@ class FakeAsyncSim:
                 "packet": {"episode_id": self.episode_id, "seq": 1,
                            "capture_ts": self.sim_ts, "payload": {0: np.zeros((2, 3, 3), dtype=np.uint8)}}
             },
+            "language.instruction": {
+                "packet": {"episode_id": self.episode_id, "seq": 1,
+                           "capture_ts": self.sim_ts, "payload": {0: self.instruction}}
+            },
         }
         return {"episode_id": self.episode_id, "sim_ts": self.sim_ts,
                 "clock_anchor": {"sim_ts": self.sim_ts, "monotonic_ns": self.clock_ns()},
@@ -62,7 +67,8 @@ class FakeAsyncSim:
 
     def submit_command(self, command):
         self.commands.append(command)
-        return {"accepted": True, "reason": "accepted"}
+        return {"accepted": True, "reason": "accepted", "plan_id": command["plan_id"],
+                "command_seq": command["command_seq"]}
 
     def result(self):
         return {"episode_id": self.episode_id, "sim_ts": self.sim_ts, "state": "running",
@@ -124,6 +130,22 @@ class StaleWorker(FakeWorker):
         if response is not None:
             response.session_id = "another-session"
         return response
+
+
+class DelayedWorker(FakeWorker):
+    def __init__(self, clock):
+        super().__init__(clock)
+        self._wait = 0
+
+    def submit_latest(self, request):
+        super().submit_latest(request)
+        self._wait = 2
+
+    def poll(self):
+        if self._pending is not None and self._wait:
+            self._wait -= 1
+            return None
+        return super().poll()
 
 
 class SamplingWorker(FakeWorker):
@@ -229,6 +251,56 @@ class AsyncSimRuntimeTests(unittest.TestCase):
         backend = build_policy_model(configured["policy"])
         self.assertIsInstance(backend, XPolicyLabWsPolicyModel)
         backend.close()
+
+    def test_robodojo_pi05_experiments_match_official_joint_contract(self):
+        base = Path(__file__).resolve().parents[2] / "manimux/configs/experiments/asyncsim"
+        for task, steps in (("insert_key", 300), ("match_and_pick_from_conveyor", 700)):
+            with self.subTest(task=task):
+                configured = load_config(base / f"robodojo_pi05_{task}.yaml")
+                self.assertEqual(configured["run"]["task"], task)
+                self.assertEqual(configured["run"]["instruction_stream"], "language.instruction")
+                self.assertEqual(configured["run"]["max_control_steps"], steps)
+                self.assertEqual(configured["robot"]["control_hz"], 250)
+                self.assertEqual(configured["policy"]["action_dt_s"], 0.004)
+                self.assertEqual(configured["policy"]["horizon_policy_steps"], 50)
+                self.assertEqual(configured["inference"]["inference_schedule"], "single_inflight")
+                self.assertEqual(configured["policy_server"]["checkpoint_num"], 59999)
+                self.assertEqual(configured["policy"]["expected_backend"]["model"]["repo_id"], "arx_x5_sim")
+                backend = build_policy_model(configured["policy"])
+                self.assertIsInstance(backend, XPolicyLabWsPolicyModel)
+                backend.close()
+
+    def test_instruction_stream_and_inflight_action_replacement(self):
+        backend = FakeAsyncSim()
+        clock = FixedClock()
+        configured = config()
+        configured["run"]["instruction_stream"] = "language.instruction"
+        configured["policy"]["adapter"]["type"] = "manimux.policy_adapter.joint:JointAdapter"
+        configured["inference"].update(inference_schedule="single_inflight", refill_threshold_s=0.08)
+        worker = DelayedWorker(clock)
+        result = AsyncSimRuntime(configured, client=backend, clock=clock, worker=worker).run_policy(max_steps=12)
+        events = result["audit"]["manimux_events"]
+        self.assertIn("language.instruction", backend.streams)
+        self.assertEqual(worker.submitted[0].instruction, backend.instruction)
+        commits = [item for item in events if item["kind"] == "plan_committed"]
+        self.assertGreaterEqual(len(commits), 2)
+        first, second = commits[:2]
+        submitted = next(index for index, item in enumerate(events)
+                         if item["kind"] == "inference_submitted" and item["request_seq"] == second["request_seq"])
+        second_commit = events.index(second)
+        self.assertTrue(any(item["kind"] == "command_ack" and item["plan_id"] == first["plan_id"]
+                            for item in events[submitted:second_commit]))
+        self.assertTrue(any(item["kind"] == "command_ack" and item["plan_id"] == second["plan_id"]
+                            for item in events[second_commit:]))
+        self.assertIn("issued_sim_ts", result["command_acks"][0])
+
+    def test_missing_instruction_does_not_fall_back_to_task_id(self):
+        configured = config()
+        configured["run"]["instruction_stream"] = "language.instruction"
+        backend = FakeAsyncSim()
+        backend.instruction = ""
+        with self.assertRaisesRegex(ValueError, "non-empty string"):
+            AsyncSimRuntime(configured, client=backend, clock=FixedClock()).run_policy(max_steps=2)
 
     def test_stale_policy_response_is_rejected(self):
         backend = FakeAsyncSim()
