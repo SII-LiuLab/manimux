@@ -65,7 +65,12 @@ class FakeAsyncSim:
         return {"accepted": True, "reason": "accepted"}
 
     def result(self):
-        return {"episode_id": self.episode_id, "result": {"action_count": len(self.commands)}}
+        return {"episode_id": self.episode_id, "sim_ts": self.sim_ts, "state": "running",
+                "result": {"action_count": len(self.commands), "success_rate": 0.0, "score": 0.0}}
+
+    def metrics(self):
+        return {"episode_id": self.episode_id, "sim_ts": self.sim_ts,
+                "runtime": {"ticks": len(self.commands)}}
 
     def close(self):
         self.closed = True
@@ -249,6 +254,10 @@ class AsyncSimRuntimeTests(unittest.TestCase):
         self.assertEqual(len(backend.commands), 3)
         self.assertEqual(len(result["command_acks"]), 3)
         self.assertEqual(result["asyncsim_result"]["result"]["action_count"], 3)
+        self.assertEqual(result["asyncsim_metrics"]["episode_id"], result["episode_id"])
+        self.assertTrue(any(item["kind"] == "plan_committed" for item in result["audit"]["manimux_events"]))
+        self.assertEqual(len(result["audit"]["actions"]), 3)
+        self.assertEqual(len(result["packets"]), 2)
         self.assertTrue(backend.closed)
 
     def test_real_fake_policy_worker_process(self):

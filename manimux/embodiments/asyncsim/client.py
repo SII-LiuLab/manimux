@@ -14,6 +14,7 @@ class AsyncSimClient:
         self.timeout_s = timeout_s
         self.episode_id: str | None = None
         self._connection: Any = None
+        self._connection_context: Any = None
         self._ids = itertools.count(1)
 
     def connect(self) -> None:
@@ -23,7 +24,9 @@ class AsyncSimClient:
             from websockets.sync.client import connect
         except ImportError as exc:
             raise RuntimeError("AsyncSim requires the xpolicylab WebSocket extra") from exc
-        self._connection = connect(self.endpoint, open_timeout=self.timeout_s, max_size=64 * 1024 * 1024)
+        context = connect(self.endpoint, open_timeout=self.timeout_s, max_size=64 * 1024 * 1024)
+        self._connection = context.__enter__()
+        self._connection_context = context
 
     def request(self, op: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         if self._connection is None:
@@ -68,6 +71,9 @@ class AsyncSimClient:
     def result(self) -> dict[str, Any]:
         return self.request("get_result")
 
+    def metrics(self) -> dict[str, Any]:
+        return self.request("get_metrics")
+
     def close(self) -> None:
         connection = self._connection
         if connection is not None:
@@ -77,5 +83,6 @@ class AsyncSimClient:
                 pass
             finally:
                 self._connection = None
-                connection.close()
+                context, self._connection_context = self._connection_context, None
+                context.__exit__(None, None, None)
         self.episode_id = None

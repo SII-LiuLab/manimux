@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from copy import deepcopy
+import time
 from typing import Any
 import uuid
 
@@ -88,6 +89,8 @@ class AsyncSimRuntime:
         )
         self._last_command = None
         self._started = False
+        self._selected_packets: dict[tuple[str, int], dict[str, Any]] = {}
+        self._snapshot_audit: list[dict[str, Any]] = []
 
     def start(self, *, seed: int | None = None) -> dict[str, Any]:
         if self._started:
@@ -103,6 +106,8 @@ class AsyncSimRuntime:
                 action_start_mode=inference["action_start_mode"],
             )
             self._last_command = None
+            self._selected_packets = {}
+            self._snapshot_audit = []
             self.client.subscribe(self.streams)
             self.sensor.start()
             self._started = True
@@ -115,6 +120,29 @@ class AsyncSimRuntime:
         if not self._started:
             raise RuntimeError("start the AsyncSim runtime before observing")
         snapshot = self.client.read_snapshot(self.streams)
+        selections = []
+        for stream, entry in snapshot["packets"].items():
+            packet = entry.get("packet")
+            selections.append({
+                "stream": stream,
+                "source": "fresh" if packet is not None else "missing",
+                "seq": None if packet is None else packet["seq"],
+                "age_s": entry.get("age_s"),
+                "capture_ts": None if packet is None else packet["capture_ts"],
+                "available_ts": None if packet is None else packet.get("available_ts"),
+            })
+            if packet is not None:
+                self._selected_packets[(stream, packet["seq"])] = {
+                    "episode_id": packet["episode_id"], "stream": stream,
+                    "seq": packet["seq"], "capture_ts": packet["capture_ts"],
+                    "available_ts": packet.get("available_ts", packet["capture_ts"]),
+                    "payload": None,
+                }
+        self._snapshot_audit.append({
+            "snapshot_id": len(self._snapshot_audit),
+            "episode_id": snapshot["episode_id"], "snapshot_ts": snapshot["sim_ts"],
+            "selections": selections,
+        })
         state = self.robot.use_snapshot(snapshot)
         frames = self.sensor.use_snapshot(snapshot)
         self.safety.validate_state(state)
@@ -190,28 +218,38 @@ class AsyncSimRuntime:
                         raise RuntimeError(f"policy backend identity mismatch at {path}.{key}")
             compare(deepcopy(expected), capabilities.backend_metadata, "backend")
 
-    def run_policy(self, *, seed: int | None = None, max_steps: int | None = None) -> dict[str, Any]:
+    def run_policy(
+        self, *, seed: int | None = None, max_steps: int | None = None,
+        timeout_s: float | None = None,
+    ) -> dict[str, Any]:
         """Execute ManiMux's worker, adapter, strategy, timeline and executor."""
         worker = self.worker or PolicyWorkerClient(self.config["policy"], self.session_id)
         max_steps = max_steps or self.config["run"]["max_control_steps"]
         if max_steps <= 0:
             raise ValueError("max_steps must be positive")
+        if timeout_s is not None and timeout_s <= 0:
+            raise ValueError("timeout_s must be positive")
+        started_wall = time.monotonic()
         accepted = rejected = 0
         rejection_reasons: list[str] = []
         responses = 0
         command_acks: list[dict[str, Any]] = []
+        events: list[dict[str, Any]] = []
+        inference_ms = 0.0
         request_seq = 0
         last_submitted = -1
         last_deadline = 0
         in_flight = False
         pending_observation_ns: dict[int, int] = {}
         next_tick = self.clock.now_ns()
-        self.start(seed=seed)
+        episode = self.start(seed=seed)
         try:
             worker.start()
             self._check_capabilities(worker)
             self.strategy.reset()
             for step_index in range(max_steps):
+                if timeout_s is not None and time.monotonic() - started_wall > timeout_s:
+                    raise TimeoutError("AsyncSim policy rollout exceeded its wall time limit")
                 if not worker.is_alive:
                     raise RuntimeError("policy worker stopped")
                 observation = self.observe()
@@ -221,6 +259,12 @@ class AsyncSimRuntime:
                 settings = None
                 if response is not None:
                     responses += 1
+                    inference_ms += response.inference_ms
+                    events.append({
+                        "kind": "inference_response", "request_seq": response.request_seq,
+                        "finished_time_ns": response.finished_time_ns,
+                        "inference_ms": response.inference_ms,
+                    })
                     if response.request_seq == last_submitted:
                         in_flight = False
                     observation_ns = pending_observation_ns.pop(response.request_seq, None)
@@ -236,6 +280,8 @@ class AsyncSimRuntime:
                         self.strategy.on_response_rejected(response)
                         rejected += 1
                         rejection_reasons.append(invalid_reason)
+                        events.append({"kind": "inference_rejected", "request_seq": response.request_seq,
+                                       "reason": invalid_reason})
                     else:
                         try:
                             chunk = self.adapter.decode_action(
@@ -260,19 +306,30 @@ class AsyncSimRuntime:
                             self.strategy.on_response_rejected(response)
                             rejected += 1
                             rejection_reasons.append(f"invalid_action:{exc}")
+                            events.append({"kind": "plan_rejected", "request_seq": response.request_seq,
+                                           "reason": f"invalid_action:{exc}"})
                             chunk = None
                 result, ack = self.execute(observation, chunk, commit_settings=settings)
                 command_acks.append(ack)
+                events.append({"kind": "command_ack", **ack})
                 if result is not None and response is not None and chunk is not None:
                     if result.accepted:
                         accepted += 1
-                        self.strategy.on_plan_accepted(
+                        strategy_fields = self.strategy.on_plan_accepted(
                             chunk=chunk, result=result, response=response, now_ns=self.clock.now_ns(),
                         )
+                        events.append({
+                            "kind": "plan_committed", "request_seq": response.request_seq,
+                            "plan_id": chunk.plan_id, "trimmed_steps": result.trimmed_steps,
+                            "groups": {name: values.tolist() for name, values in chunk.groups.items()},
+                            "strategy": strategy_fields,
+                        })
                     else:
                         rejected += 1
                         rejection_reasons.append(result.reason)
                         self.strategy.on_response_rejected(response)
+                        events.append({"kind": "plan_rejected", "request_seq": response.request_seq,
+                                       "plan_id": chunk.plan_id, "reason": result.reason})
                 now_ns = self.clock.now_ns()
                 submission = self.strategy.build_submission(
                     session_id=self.session_id, request_seq=request_seq + 1, now_ns=now_ns,
@@ -288,6 +345,11 @@ class AsyncSimRuntime:
                     last_deadline = prepared.deadline_ns
                     pending_observation_ns = {request_seq: prepared.observation_time_ns}
                     in_flight = True
+                    events.append({"kind": "inference_submitted", "request_seq": request_seq,
+                                   "observation_time_ns": prepared.observation_time_ns,
+                                   "deadline_ns": prepared.deadline_ns, **submission.event_fields})
+                for kind, fields in self.strategy.take_runtime_events(step=step_index + 1):
+                    events.append({"kind": kind, **fields})
                 self.strategy.on_tick(steps=step_index + 1, loop_ms=0.0, control_dt_ns=self.dt_ns)
                 health = self.client.health()
                 if health["episode"]["state"] not in {"ready", "running"}:
@@ -295,11 +357,19 @@ class AsyncSimRuntime:
                 next_tick += self.dt_ns
                 self.clock.sleep_until_ns(next_tick)
             return {
+                "session_id": self.session_id, "episode_id": episode["episode_id"],
                 "steps": step_index + 1, "responses": responses,
                 "accepted_plans": accepted, "rejected_plans": rejected,
                 "rejection_reasons": rejection_reasons,
                 "command_acks": command_acks,
                 "asyncsim_result": self.client.result(),
+                "asyncsim_metrics": self.client.metrics(),
+                "backend_metadata": getattr(worker, "capabilities", PolicyCapabilities()).backend_metadata,
+                "inference_time_s": inference_ms / 1000.0,
+                "wall_elapsed_s": time.monotonic() - started_wall,
+                "audit": {"episode_id": episode["episode_id"], "snapshots": self._snapshot_audit,
+                          "actions": command_acks, "manimux_events": events},
+                "packets": tuple(self._selected_packets.values()),
             }
         finally:
             worker.close()
