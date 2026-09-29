@@ -9,7 +9,7 @@ run:
 
 robot:
   type: asyncsim
-  control_hz: 250
+  control_hz: 25
   group_dims: {left_arm: 7, right_arm: 7}
   options:
     endpoint: ws://127.0.0.1:18765
@@ -38,7 +38,7 @@ policy:
       left_arm: {arm_dofs: 6, gripper_dofs: 1}
       right_arm: {arm_dofs: 6, gripper_dofs: 1}
     camera_map: {cam_head: head, cam_left_wrist: left_wrist, cam_right_wrist: right_wrist}
-  action_dt_s: 0.004
+  action_dt_s: 0.04
   horizon_policy_steps: 50
   timeout_s: 30.0
   startup_timeout_s: 1200.0
