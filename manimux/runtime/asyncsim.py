@@ -103,8 +103,8 @@ class AsyncSimRuntime:
         self._instruction: str | None = None
         self._skip_unplanned_commands = bool(config["run"].get("skip_unplanned_commands", False))
         self._simulation_timeline = bool(config["run"].get("simulation_time_timeline", False))
-        if self._simulation_timeline and config["inference"]["algorithm"] != "manimux":
-            raise ValueError("simulation-time timeline currently requires default ManiMux inference")
+        if self._simulation_timeline and config["inference"]["algorithm"] not in {"manimux", "rtc"}:
+            raise ValueError("simulation-time timeline currently requires ManiMux or RTC inference")
         self._timeline_origin_ns: int | None = None
         self._timeline_now_ns: int | None = None
 

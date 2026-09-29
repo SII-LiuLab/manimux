@@ -288,6 +288,40 @@ class AsyncSimRuntimeTests(unittest.TestCase):
                 if mode == "dvac":
                     self.assertTrue(any(item["plan_id"].startswith("joint-") for item in backend.commands))
 
+    def test_rtc_uses_simulation_time_for_conditioned_overlap(self):
+        class SlowClock(FixedClock):
+            def sleep_until_ns(self, target_ns):
+                self.time_ns = max(self.time_ns, target_ns)
+
+        class SlowAsyncSim(FakeAsyncSim):
+            def __init__(self, clock):
+                super().__init__(clock_ns=clock.now_ns)
+                self.clock = clock
+
+            def read_snapshot(self, streams):
+                self.clock.time_ns += 200_000_000
+                self.sim_ts += 0.04
+                return super().read_snapshot(streams)
+
+        clock = SlowClock()
+        backend = SlowAsyncSim(clock)
+        configured = config()
+        configured["run"].update(simulation_time_timeline=True, instruction_stream="language.instruction")
+        configured["robot"]["control_hz"] = 25
+        configured["policy"]["action_dt_s"] = 0.04
+        configured["policy"]["adapter"]["type"] = "manimux.policy_adapter.joint:JointAdapter"
+        configured["inference"]["algorithm"] = "rtc"
+        configured["inference"]["rtc"].update(
+            initial_delay_policy_steps=1, min_execute_policy_steps=1,
+        )
+        worker = SamplingWorker(clock, "rtc")
+        result = AsyncSimRuntime(configured, client=backend, clock=clock, worker=worker).run_policy(max_steps=9)
+        self.assertGreaterEqual(result["accepted_plans"], 2, result)
+        self.assertTrue(any(request.condition_weights is not None for request in worker.submitted[1:]))
+        self.assertTrue(all(request.instruction == backend.instruction for request in worker.submitted))
+        self.assertTrue(all(request.deadline_ns > request.observation_time_ns for request in worker.submitted))
+        self.assertTrue(all(command["action_space"] == "joint_position" for command in backend.commands))
+
     def test_sampling_mode_mismatch_fails_before_request(self):
         configured = config()
         configured["inference"]["algorithm"] = "rtc"
@@ -383,8 +417,8 @@ class AsyncSimRuntimeTests(unittest.TestCase):
                 self.assertEqual(configured["run"]["task"], task)
                 self.assertEqual(configured["run"]["instruction_stream"], "language.instruction")
                 self.assertEqual(configured["run"]["max_control_steps"], steps)
-                self.assertEqual(configured["robot"]["control_hz"], 250)
-                self.assertEqual(configured["policy"]["action_dt_s"], 0.004)
+                self.assertEqual(configured["robot"]["control_hz"], 25)
+                self.assertEqual(configured["policy"]["action_dt_s"], 0.04)
                 self.assertEqual(configured["policy"]["horizon_policy_steps"], 50)
                 self.assertEqual(configured["inference"]["inference_schedule"], "single_inflight")
                 self.assertEqual(configured["inference"]["action_start_mode"], "skip_elapsed_steps")
@@ -395,6 +429,16 @@ class AsyncSimRuntimeTests(unittest.TestCase):
                 backend = build_policy_model(configured["policy"])
                 self.assertIsInstance(backend, XPolicyLabWsPolicyModel)
                 backend.close()
+
+        rtc = load_config(base / "robodojo_pi05_match_and_pick_from_conveyor_rtc.yaml")
+        self.assertEqual(rtc["robot"]["control_hz"], 25)
+        self.assertEqual(rtc["policy"]["action_dt_s"], 0.04)
+        self.assertEqual(rtc["policy"]["horizon_policy_steps"], 50)
+        self.assertEqual(rtc["inference"]["algorithm"], "rtc")
+        self.assertEqual(rtc["inference"]["rtc"]["min_execute_policy_steps"], 12)
+        self.assertEqual(rtc["inference"]["rtc"]["initial_delay_policy_steps"], 4)
+        self.assertIsNone(rtc["inference"]["max_chunk_policy_steps"])
+        self.assertTrue(rtc["run"]["simulation_time_timeline"])
 
     def test_instruction_stream_and_inflight_action_replacement(self):
         backend = FakeAsyncSim()
