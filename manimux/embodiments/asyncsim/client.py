@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import itertools
+from pathlib import Path
 from typing import Any
 
 
@@ -48,8 +49,13 @@ class AsyncSimClient:
             raise RuntimeError(f"AsyncSim {error.get('code', 'error')}: {error.get('message', '')}")
         return response["payload"]
 
-    def reset(self, *, seed: int | None = None) -> dict[str, Any]:
-        result = self.request("reset", {} if seed is None else {"seed": seed})
+    def reset(
+        self, *, seed: int | None = None, recording_directory: str | Path | None = None,
+    ) -> dict[str, Any]:
+        payload = {} if seed is None else {"seed": seed}
+        if recording_directory is not None:
+            payload["recording_directory"] = str(Path(recording_directory).resolve())
+        result = self.request("reset", payload)
         self.episode_id = result["episode_id"]
         return result
 

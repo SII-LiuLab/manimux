@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from copy import deepcopy
 import time
+from pathlib import Path
 from typing import Any
 import uuid
 
@@ -107,12 +108,17 @@ class AsyncSimRuntime:
         self._timeline_origin_ns: int | None = None
         self._timeline_now_ns: int | None = None
 
-    def start(self, *, seed: int | None = None) -> dict[str, Any]:
+    def start(
+        self, *, seed: int | None = None, recording_directory: str | Path | None = None,
+    ) -> dict[str, Any]:
         if self._started:
             raise RuntimeError("AsyncSim runtime already started")
         self.robot.connect()
         try:
-            episode = self.client.reset(seed=seed)
+            if recording_directory is None:
+                episode = self.client.reset(seed=seed)
+            else:
+                episode = self.client.reset(seed=seed, recording_directory=recording_directory)
             self.robot.reset()
             inference = self.config["inference"]
             self.timeline = ActionTimeline(
@@ -263,7 +269,7 @@ class AsyncSimRuntime:
 
     def run_policy(
         self, *, seed: int | None = None, max_steps: int | None = None,
-        timeout_s: float | None = None,
+        timeout_s: float | None = None, recording_directory: str | Path | None = None,
     ) -> dict[str, Any]:
         """Execute ManiMux's worker, adapter, strategy, timeline and executor."""
         worker = self.worker or PolicyWorkerClient(self.config["policy"], self.session_id)
@@ -285,7 +291,7 @@ class AsyncSimRuntime:
         in_flight = False
         pending_observation_ns: dict[int, int] = {}
         next_tick = self.clock.now_ns()
-        episode = self.start(seed=seed)
+        episode = self.start(seed=seed, recording_directory=recording_directory)
         try:
             worker.start()
             self._check_capabilities(worker)
