@@ -333,6 +333,37 @@ class AsyncSimRuntimeTests(unittest.TestCase):
         self.assertLess(backend.commands[-1]["groups"]["left_arm"][0], 1.0)
         runtime.close()
 
+    def test_skip_elapsed_steps_reuses_one_chunk_for_multiple_commands(self):
+        backend = FakeAsyncSim()
+        clock = FixedClock()
+        configured = config()
+        configured["run"]["simulation_time_timeline"] = True
+        configured["inference"]["action_start_mode"] = "skip_elapsed_steps"
+        runtime = AsyncSimRuntime(configured, client=backend, clock=clock)
+        runtime.start()
+        try:
+            runtime.observe()
+            backend.sim_ts = 0.04
+            observation = runtime.observe()
+            groups = {name: np.repeat(np.arange(4)[:, None], 2, axis=1)
+                      for name in ("left_arm", "right_arm")}
+            chunk = ActionChunk(
+                "plan-trimmed", 0, clock.now_ns(), clock.now_ns(),
+                "joint_position", 20_000_000, groups,
+            )
+            result, _ = runtime.execute(observation, chunk)
+            self.assertTrue(result.accepted)
+            self.assertEqual(result.trimmed_steps, 2)
+            self.assertEqual(backend.commands[-1]["groups"]["left_arm"], [2.0, 2.0])
+
+            backend.sim_ts = 0.06
+            observation = runtime.observe()
+            runtime.execute(observation)
+            self.assertEqual(backend.commands[-1]["groups"]["left_arm"], [3.0, 3.0])
+            self.assertEqual([cmd["plan_id"] for cmd in backend.commands], ["plan-trimmed"] * 2)
+        finally:
+            runtime.close()
+
     def test_xpolicylab_template_loads_client_without_network(self):
         source = Path(__file__).resolve().parents[2] / (
             "manimux/configs/experiments/asyncsim/xpolicylab_joint_template.yaml"
@@ -356,6 +387,7 @@ class AsyncSimRuntimeTests(unittest.TestCase):
                 self.assertEqual(configured["policy"]["action_dt_s"], 0.004)
                 self.assertEqual(configured["policy"]["horizon_policy_steps"], 50)
                 self.assertEqual(configured["inference"]["inference_schedule"], "single_inflight")
+                self.assertEqual(configured["inference"]["action_start_mode"], "skip_elapsed_steps")
                 self.assertEqual(configured["policy_server"]["checkpoint_num"], 59999)
                 self.assertEqual(configured["policy_server"]["task_name"], task)
                 self.assertEqual(configured["policy"]["expected_backend"]["model"]["task_name"], task)
