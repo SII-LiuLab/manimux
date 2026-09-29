@@ -7,6 +7,12 @@ from pathlib import Path
 from typing import Any
 
 
+class AsyncSimRemoteError(RuntimeError):
+    def __init__(self, code: str, message: str) -> None:
+        self.code = code
+        super().__init__(f"AsyncSim {code}: {message}")
+
+
 class AsyncSimClient:
     def __init__(self, endpoint: str, *, timeout_s: float = 10.0) -> None:
         if not endpoint.startswith(("ws://", "wss://")) or timeout_s <= 0:
@@ -46,7 +52,7 @@ class AsyncSimClient:
             raise RuntimeError("AsyncSim response version or request id mismatch")
         if not response.get("ok"):
             error = response.get("error") or {}
-            raise RuntimeError(f"AsyncSim {error.get('code', 'error')}: {error.get('message', '')}")
+            raise AsyncSimRemoteError(error.get("code", "error"), error.get("message", ""))
         return response["payload"]
 
     def reset(
@@ -85,10 +91,14 @@ class AsyncSimClient:
         if connection is not None:
             try:
                 self.request("close")
-            except (OSError, RuntimeError, TimeoutError):
+            except Exception:
+                # Closing a broken WebSocket is best effort; keep the original error.
                 pass
             finally:
                 self._connection = None
                 context, self._connection_context = self._connection_context, None
-                context.__exit__(None, None, None)
+                try:
+                    context.__exit__(None, None, None)
+                except Exception:
+                    pass
         self.episode_id = None

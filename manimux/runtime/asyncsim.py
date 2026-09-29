@@ -137,7 +137,10 @@ class AsyncSimRuntime:
             self._started = True
             return episode
         except BaseException:
-            self.close()
+            try:
+                self.close()
+            except Exception:
+                pass
             raise
 
     def observe(self) -> ObservationSnapshot:

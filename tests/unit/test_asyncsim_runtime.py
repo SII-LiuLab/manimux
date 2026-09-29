@@ -7,6 +7,7 @@ import time
 import numpy as np
 
 from manimux.embodiments.asyncsim import AsyncSimRobot, AsyncSimSensor
+from manimux.embodiments.asyncsim.client import AsyncSimRemoteError
 from manimux.cli import load_config
 from manimux.policies import build_policy_model
 from manimux.policies.capabilities import PolicyCapabilities
@@ -166,6 +167,21 @@ def config():
 
 
 class AsyncSimRuntimeTests(unittest.TestCase):
+    def test_reset_error_survives_cleanup_failure(self):
+        class FailedReset(FakeAsyncSim):
+            def reset(self, *, seed=None, recording_directory=None):
+                raise AsyncSimRemoteError("unstable_layout", "saved scene is unstable")
+
+            def close(self):
+                super().close()
+                raise ConnectionError("connection already closed")
+
+        backend = FailedReset()
+        with self.assertRaises(AsyncSimRemoteError) as caught:
+            AsyncSimRuntime(config(), client=backend, clock=FixedClock()).run_policy(seed=2)
+        self.assertEqual(caught.exception.code, "unstable_layout")
+        self.assertTrue(backend.closed)
+
     def test_terminal_episode_rejection_preserves_result(self):
         class TerminatingAsyncSim(FakeAsyncSim):
             state = "running"
