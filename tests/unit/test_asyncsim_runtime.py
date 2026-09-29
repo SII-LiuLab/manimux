@@ -430,15 +430,20 @@ class AsyncSimRuntimeTests(unittest.TestCase):
                 self.assertIsInstance(backend, XPolicyLabWsPolicyModel)
                 backend.close()
 
-        rtc = load_config(base / "robodojo_pi05_match_and_pick_from_conveyor_rtc.yaml")
-        self.assertEqual(rtc["robot"]["control_hz"], 25)
-        self.assertEqual(rtc["policy"]["action_dt_s"], 0.04)
-        self.assertEqual(rtc["policy"]["horizon_policy_steps"], 50)
-        self.assertEqual(rtc["inference"]["algorithm"], "rtc")
-        self.assertEqual(rtc["inference"]["rtc"]["min_execute_policy_steps"], 12)
-        self.assertEqual(rtc["inference"]["rtc"]["initial_delay_policy_steps"], 4)
-        self.assertIsNone(rtc["inference"]["max_chunk_policy_steps"])
-        self.assertTrue(rtc["run"]["simulation_time_timeline"])
+        for task, steps in (("insert_key", 300), ("match_and_pick_from_conveyor", 700)):
+            with self.subTest(rtc_task=task):
+                rtc = load_config(base / f"robodojo_pi05_{task}_rtc.yaml")
+                self.assertEqual(rtc["run"]["task"], task)
+                self.assertEqual(rtc["run"]["max_control_steps"], steps)
+                self.assertEqual(rtc["policy_server"]["task_name"], task)
+                self.assertEqual(rtc["robot"]["control_hz"], 25)
+                self.assertEqual(rtc["policy"]["action_dt_s"], 0.04)
+                self.assertEqual(rtc["policy"]["horizon_policy_steps"], 50)
+                self.assertEqual(rtc["inference"]["algorithm"], "rtc")
+                self.assertEqual(rtc["inference"]["rtc"]["min_execute_policy_steps"], 12)
+                self.assertEqual(rtc["inference"]["rtc"]["initial_delay_policy_steps"], 4)
+                self.assertIsNone(rtc["inference"]["max_chunk_policy_steps"])
+                self.assertTrue(rtc["run"]["simulation_time_timeline"])
 
     def test_instruction_stream_and_inflight_action_replacement(self):
         backend = FakeAsyncSim()
