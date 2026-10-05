@@ -158,7 +158,15 @@ def bind_station(config: dict, local: str | Path) -> dict:
         # Provider field names differ; station paths do not change the selected
         # checkpoint variant, normalization identity, horizon or action contract.
         pi05 = server.get("policy_name") == "Pi_05"
-        if pi05:
+        if pi05 and server.get("observation_profile") == "tianji_taccap_pi05_zero_pose":
+            # New EE profile: explicit checkpoint directories or a station storage root.
+            if "checkpoints" in paths:
+                for key in ("model_path", "norm_stats_path"):
+                    server[key] = str((paths["checkpoints"] / server[key]).resolve())
+            elif "checkpoint" in paths:
+                server["model_path"] = str(paths["checkpoint"])
+                server["norm_stats_path"] = str(paths["checkpoint"].parent.parent / "normalization")
+        elif pi05:
             # The experiment selects a checkpoint; the station only supplies
             # its storage root, so switching tasks cannot reuse one fixed model.
             for key in ("model_path", "norm_stats_path"):

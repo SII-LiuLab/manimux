@@ -39,6 +39,7 @@ Use each runbook's checkpoint, environment and action contract together. An avai
 does not mean every checkpoint or inference-method combination has passed a real-robot trial.
 
 - [Pi05 / OpenPI](pi05-yam-runbook.md), including paired put-bottles joint / joint+EE 30k configurations.
+- [Pi05 pack-plate on Tianji–TacCap](pi05-tianji-pack-plate-runbook.md), using the isolated wrist-only step-59999 checkpoint.
 - [UMI DP on Tianji–TacCap](umi-dp-tianji-taccap-runbook.md), including checkpoint binding,
   TacCap camera service, Viewer and hardware runtime commands.
 - [MolmoAct2](molmoact-yam-runbook.md) · [ABC](abc-yam-runbook.md).

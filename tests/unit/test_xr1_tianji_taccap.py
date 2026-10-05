@@ -14,6 +14,7 @@ from manimux.kinematics.robot import RobotKinematics
 from manimux.kinematics.tianji_diff import rotation_matrix, rotation_vector
 from manimux.policies.decoder import ActionDecoderClient
 from manimux.policies.xpolicylab.codec import matrix_pose
+from manimux.policy_adapter.pi05.tianji import Pi05PackPlateTacCapAdapter
 from manimux.policy_adapter.xr1.tianji import XR1TianjiRequest, XR1TianjiTacCapAdapter
 from manimux.runtime.rtc.request import RtcInferenceRequest
 from manimux.types import (
@@ -27,6 +28,12 @@ from manimux.types import (
 
 ROOT = Path(__file__).resolve().parents[2]
 EXPERIMENT = ROOT / "manimux/configs/experiments/pass_ball/tianji_taccap_xiaomi_xr1_step50000.yaml"
+PACK_PLATE_EXPERIMENT = (
+    ROOT / "manimux/configs/experiments/pack_plate/tianji_taccap_pi05_wrist_only_step59999.yaml"
+)
+PACK_PLATE_RTC_EXPERIMENT = (
+    ROOT / "manimux/configs/experiments/pack_plate/tianji_taccap_pi05_wrist_only_step59999_rtc.yaml"
+)
 START = np.radians([50.0, -40.0, -30.0, -100.0, -65.0, 0.0, 40.0])
 
 
@@ -70,6 +77,18 @@ def _adapter(*, fail=False):
     adapter = XR1TianjiTacCapAdapter(config["robot"], policy, kinematics=kinematics)
     adapter.validate(config["robot"], policy)
     return config, adapter
+
+
+def _pack_plate_adapter(policy=None):
+    config = load_config(PACK_PLATE_EXPERIMENT)
+    policy = deepcopy(config["policy"] if policy is None else policy)
+    policy["action_decoding"] = "inline"
+    policy["adapter"]["ik_backend"] = "analytic"
+    policy["adapter"].pop("diff_ik", None)
+    kinematics = RobotKinematics(
+        {name: FakeManipulator() for name in ("left_arm", "right_arm")}
+    )
+    return config, Pi05PackPlateTacCapAdapter(config["robot"], policy, kinematics=kinematics)
 
 
 def _request(adapter, request_seq=4):
@@ -266,6 +285,94 @@ def test_small_gripper_boundary_overshoot_is_clipped():
     np.testing.assert_allclose(chunk.groups["right_arm"][:, -1], 0.0)
     assert chunk.metadata["gripper_clip_tolerance"] == 0.1
     assert chunk.metadata["gripper_clip_max_abs"] == pytest.approx(0.05, abs=1e-6)
+
+
+def test_pi05_pack_plate_gripper_deadzone_and_exponent_reach_decoded_chunk():
+    _, adapter = _pack_plate_adapter()
+    assert adapter._gripper_output_deadzone == 0.05
+    assert adapter._gripper_output_exponent == 1.1
+    _, context = _request(adapter)
+    values = np.full(32, 0.5)
+    values[:7] = [0.0, 0.025, 0.05, 0.1, 0.5, 1.0, 1.05]
+    steps = _steps(
+        {"left": _pose(), "right": _pose()},
+        {"left": values, "right": 0.5},
+        horizon=32,
+    )
+
+    chunk = adapter.decode_action(steps, context)
+
+    expected = np.maximum(0.0, (np.clip(values, 0.0, 1.0) - 0.05) / 0.95) ** 1.1
+    np.testing.assert_allclose(chunk.groups["left_arm"][:, -1], expected, atol=1e-8)
+    np.testing.assert_allclose(chunk.groups["right_arm"][:, -1], expected[4])
+    assert chunk.metadata["gripper_clip_max_abs"] == pytest.approx(0.05)
+    assert chunk.metadata["gripper_output_deadzone"] == 0.05
+    assert chunk.metadata["gripper_output_exponent"] == 1.1
+
+
+@pytest.mark.parametrize(
+    ("option", "value"),
+    [
+        ("gripper_output_deadzone", -0.01),
+        ("gripper_output_deadzone", 1.0),
+        ("gripper_output_exponent", 0.0),
+        ("gripper_output_exponent", float("nan")),
+    ],
+)
+def test_pi05_pack_plate_invalid_gripper_output_mapping_is_rejected(option, value):
+    config = load_config(PACK_PLATE_EXPERIMENT)
+    config["policy"]["adapter"][option] = value
+    with pytest.raises(ValueError, match=option):
+        _pack_plate_adapter(config["policy"])
+
+
+def test_pi05_pack_plate_rtc_condition_inverts_gripper_output_mapping():
+    _, adapter = _pack_plate_adapter()
+    request, context = _request(adapter)
+    condition = np.tile(
+        np.concatenate([request.observation.state.groups[name] for name in ("left_arm", "right_arm")]),
+        (32, 1),
+    )
+    condition[:10, 7] = 0.25
+    condition[:10, 15] = 0.75
+    weights = np.zeros(32)
+    weights[:10] = 1.0
+
+    prepared = adapter.prepare_request(_rtc_request(request, condition, weights))
+
+    assert prepared.action_condition.shape == (32, 16)
+    np.testing.assert_allclose(prepared.action_condition[10:], 0.0)
+    assert prepared.rtc_beta == 4.0
+    expected_left = 0.05 + 0.95 * 0.25 ** (1 / 1.1)
+    expected_right = 0.05 + 0.95 * 0.75 ** (1 / 1.1)
+    np.testing.assert_allclose(prepared.action_condition[:10, 7], expected_left)
+    np.testing.assert_allclose(prepared.action_condition[:10, 15], expected_right)
+    steps = _steps(
+        {"left": _pose(), "right": _pose()},
+        {"left": expected_left, "right": expected_right},
+        horizon=32,
+    )
+    decoded = adapter.decode_action(steps, context)
+    np.testing.assert_allclose(decoded.groups["left_arm"][:10, 7], 0.25)
+    np.testing.assert_allclose(decoded.groups["right_arm"][:10, 7], 0.75)
+
+
+def test_pi05_pack_plate_rtc_experiment_preserves_the_default_contract():
+    original = load_config(PACK_PLATE_EXPERIMENT)
+    rtc = load_config(PACK_PLATE_RTC_EXPERIMENT)
+    assert original["inference"]["algorithm"] == "manimux"
+    assert rtc["inference"]["algorithm"] == "rtc"
+    assert rtc["inference"]["rtc"] == {
+        "min_execute_steps": 12,
+        "initial_delay_steps": 8,
+        "delay_buffer_size": 10,
+        "beta": 5.0,
+    }
+    assert rtc["policy"] == original["policy"]
+    assert rtc["policy_server"] == original["policy_server"]
+    assert rtc["executor"] == original["executor"]
+    assert rtc["robot"] == original["robot"]
+    assert rtc["robot"]["options"]["execute"] is False
 
 
 def test_left_and_right_partition_decode_matches_full_chunk():
