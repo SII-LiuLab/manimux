@@ -69,11 +69,19 @@ class Plan:
     dt_ns: int
     canonical: dict[str, np.ndarray]
     committed: dict[str, np.ndarray]
+    recorded_time_trim_steps: int | None = None
+    handoff_skip_steps: int = 0
+
+    @property
+    def time_trim_steps(self) -> int:
+        if self.recorded_time_trim_steps is not None:
+            return self.recorded_time_trim_steps
+        lag = max(0, self.committed_start_ns - self.source_start_ns)
+        return math.ceil(lag / self.dt_ns) if lag else 0
 
     @property
     def trim_steps(self) -> int:
-        lag = max(0, self.committed_start_ns - self.source_start_ns)
-        return math.ceil(lag / self.dt_ns) if lag else 0
+        return self.time_trim_steps + self.handoff_skip_steps
 
 
 def load_plans(episode: Path) -> list[Plan]:
@@ -99,6 +107,12 @@ def load_plans(episode: Path) -> list[Plan]:
                     arm: np.asarray(committed[arm][:], dtype=np.float64)
                     for arm in ("left_arm", "right_arm")
                 },
+                recorded_time_trim_steps=(
+                    int(committed.attrs["time_trimmed_steps"])
+                    if "time_trimmed_steps" in committed.attrs
+                    else None
+                ),
+                handoff_skip_steps=int(committed.attrs.get("handoff_skipped_steps", 0)),
             )
         )
     return loaded
@@ -294,7 +308,8 @@ def plot_handoff(
     subtitle = (
         f"requests {old.request_seq}→{new.request_seq} · "
         f"{old_steps}/{new_steps} source points · "
-        f"incoming trim={new.trim_steps} · actual position seam: "
+        f"incoming trim={new.time_trim_steps}+{new.handoff_skip_steps} skip · "
+        "actual position seam: "
         f"L {jumps_mm['left_arm']:.1f} mm, R {jumps_mm['right_arm']:.1f} mm · "
         f"Y grid={Y_GRID_M * 100:.0f} cm × {Y_GRID_INTERVALS} (seam-centred)"
     )
@@ -335,8 +350,9 @@ def plot_handoff(
             )
 
     footer = (
-        f"Overlap: 0.000 to {overlap_end:.3f}s · incoming rows 0–{new.trim_steps - 1} expired · "
-        f"row {new.trim_steps} first retained · ○ outgoing Timeline reference · "
+        f"Overlap: 0.000 to {overlap_end:.3f}s · incoming {new.time_trim_steps} expired "
+        f"+ {new.handoff_skip_steps} intentionally skipped · row {new.trim_steps} first retained · "
+        "○ outgoing Timeline reference · "
         "● incoming committed first row"
     )
     text_center(draw, (WIDTH / 2, HEIGHT - 58), footer, F_NOTE, MUTED)
@@ -354,6 +370,8 @@ def plot_handoff(
         "new_request_seq": new.request_seq,
         "switch_s_from_new_row0": switch_t,
         "incoming_trim_steps": new.trim_steps,
+        "incoming_time_trim_steps": new.time_trim_steps,
+        "incoming_handoff_skip_steps": new.handoff_skip_steps,
         "overlap_end_s": overlap_end,
         "left_position_seam_mm": jumps_mm["left_arm"],
         "right_position_seam_mm": jumps_mm["right_arm"],

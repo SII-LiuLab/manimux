@@ -219,6 +219,7 @@ additional server fields are allowed.
 | `inference.refill_threshold_s` | Default strategy: request another chunk when the timeline has less remaining duration. |
 | `inference.inference_schedule` | Default strategy: `deadline` or `single_inflight`. |
 | `inference.commit_lead_s` | Time added to now before a newly accepted chunk takes effect. |
+| `inference.handoff_skip_steps` | Additional leading source rows skipped at a chunk handoff without delaying its start; defaults to `0` and does not affect the first chunk. Skipped rows shorten the remaining horizon and may increase the handoff jump. |
 | `inference.max_plan_age_s` | Maximum age measured from the chunk's observation time. |
 | `inference.blend_steps` | Number of leading accepted points blended from the measured command; zero disables it. |
 

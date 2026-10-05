@@ -223,6 +223,10 @@ class EpisodeRecorder:
                     "dt_ns": record.committed.dt_ns,
                     "plan_id": record.committed.plan_id,
                     "action_space": record.infra_output.action_space,
+                    "time_trimmed_steps": record.infra_output.metadata.get("time_trimmed_steps", 0),
+                    "handoff_skipped_steps": record.infra_output.metadata.get(
+                        "handoff_skipped_steps", 0
+                    ),
                 }
             )
             for name, plan_values in record.committed.groups.items():

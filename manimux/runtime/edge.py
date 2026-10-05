@@ -790,12 +790,17 @@ class EdgeRuntime:
                                     ),
                                     current_command=commit.current_command,
                                     blend_steps=commit.blend_steps,
+                                    handoff_skip_steps=self._config["inference"]["handoff_skip_steps"],
                                 )
                             if result.accepted:
                                 accepted_plans += 1
                                 last_inference_ms = response.inference_ms
                                 chunk.metadata["timeline_latency_ms"] = (
                                     result.timeline_latency_ns / 1_000_000
+                                )
+                                chunk.metadata["time_trimmed_steps"] = result.time_trimmed_steps
+                                chunk.metadata["handoff_skipped_steps"] = (
+                                    result.handoff_skipped_steps
                                 )
                                 committed = self._timeline.active_horizon()
                                 if committed is None:
@@ -852,6 +857,8 @@ class EdgeRuntime:
                                         "raw_horizon_steps": chunk.horizon_steps,
                                         "committed_horizon_steps": committed.horizon_steps,
                                         "trimmed_steps": result.trimmed_steps,
+                                        "time_trimmed_steps": result.time_trimmed_steps,
+                                        "handoff_skipped_steps": result.handoff_skipped_steps,
                                         "timeline_latency_ms": (
                                             result.timeline_latency_ns / 1_000_000
                                         ),

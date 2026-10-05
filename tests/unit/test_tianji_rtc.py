@@ -95,6 +95,48 @@ def test_rtc_keeps_source_horizon_across_both_trims_and_conditions_committed_clo
     np.testing.assert_array_equal(request.condition_weights[8:], 0)
 
 
+def test_rtc_source_offset_includes_handoff_skip_without_inflating_delay():
+    config, strategy, timeline, first, response, result, _ = setup_plan()
+    strategy.on_plan_accepted(chunk=first, result=result, response=response, now_ns=1_650_000_000)
+    observation_ns = 1_300_000_000
+    second = ActionChunk(
+        "second",
+        2,
+        observation_ns,
+        observation_ns + 200_000_000,
+        "joint_position",
+        100_000_000,
+        {name: np.tile(np.arange(5, 16)[:, None], (1, 8)).astype(float)
+         for name in config["robot"]["group_dims"]},
+        source_offset_steps=5,
+    )
+    now_ns = 1_950_000_000
+    committed = timeline.commit(
+        second,
+        now_ns=now_ns,
+        commit_lead_ns=0,
+        max_plan_age_ns=2_000_000_000,
+        current_command={name: np.zeros(8) for name in second.groups},
+        blend_steps=0,
+        handoff_skip_steps=2,
+    )
+    assert committed.accepted
+    assert (committed.time_trimmed_steps, committed.handoff_skipped_steps) == (2, 2)
+    strategy._request_started_ns[2] = observation_ns
+    strategy._request_observation_ns[2] = observation_ns
+    event = strategy.on_plan_accepted(
+        chunk=second,
+        result=committed,
+        response=InferenceResponse(
+            "test", 2, now_ns, 20.0, None, observation_time_ns=observation_ns
+        ),
+        now_ns=now_ns,
+    )
+    assert event["rtc_source_horizon"] == 16
+    assert event["rtc_executed_steps_at_commit"] == 9
+    assert event["measured_delay"] == 7
+
+
 def test_rtc_delay_includes_observation_age_decode_and_commit_lead_rounding_up():
     config, strategy, timeline, chunk, response, result, now = setup_plan(commit_lead_s=0.02)
     strategy._request_started_ns[1] = now - 120_000_000

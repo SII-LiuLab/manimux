@@ -4,6 +4,7 @@ from copy import deepcopy
 from pathlib import Path
 
 import numpy as np
+import pytest
 import yaml
 
 from manimux.cli import load_config
@@ -71,3 +72,28 @@ def test_algorithm_and_executor_presets_are_independent_and_relative(tmp_path, m
     assert "execution" not in rtc
     assert "config" not in rtc["inference"]
     assert "config" not in rtc["executor"]
+
+
+@pytest.mark.parametrize("algorithm", ["manimux", "rtc"])
+def test_handoff_skip_is_a_shared_experiment_parameter(tmp_path, algorithm):
+    recipe = yaml.safe_load(Path("tests/fixtures/runtime.yaml").read_text())
+    recipe["inference"]["algorithm"] = algorithm
+    recipe["inference"]["handoff_skip_steps"] = 5
+    path = tmp_path / "experiment.yaml"
+    path.write_text(yaml.safe_dump(recipe))
+
+    config = load_config(path)
+
+    assert config["inference"]["handoff_skip_steps"] == 5
+    assert config["inference"]["rtc"]["initial_delay_steps"] == 4
+
+
+@pytest.mark.parametrize("invalid", [-1, 1.5, True, "5"])
+def test_handoff_skip_requires_nonnegative_integer(tmp_path, invalid):
+    recipe = yaml.safe_load(Path("tests/fixtures/runtime.yaml").read_text())
+    recipe["inference"]["handoff_skip_steps"] = invalid
+    path = tmp_path / "experiment.yaml"
+    path.write_text(yaml.safe_dump(recipe))
+
+    with pytest.raises(ValueError, match="handoff_skip_steps"):
+        load_config(path)

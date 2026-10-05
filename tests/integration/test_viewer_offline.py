@@ -43,6 +43,34 @@ def test_chunk_summary_uses_timeline_latency_matching_trimmed_cells() -> None:
     assert "handoff wait" in rendered
 
 
+def test_chunk_handoff_skip_is_not_displayed_as_latency() -> None:
+    timeline = ChunkTimelineView()
+    timeline.update(
+        {
+            "kind": "plan",
+            "chunk_id": 9,
+            "groups": {"arm": [[0.0]] * 52},
+            "inference_ms": 96.7,
+            "metadata": {
+                "raw_horizon_steps": 64,
+                "trimmed_steps": 12,
+                "time_trimmed_steps": 7,
+                "handoff_skipped_steps": 5,
+                "timeline_latency_ms": 230.0,
+            },
+        }
+    )
+
+    lane = next(lane for lane in timeline.lanes if lane.chunk_id == 9)
+    assert lane.time_trimmed_steps == 7
+    assert lane.handoff_skipped_steps == 5
+    rendered = timeline.render_html()
+    assert rendered.count('class="manimux-chunk-cell latency-trimmed"') == 7
+    assert rendered.count('class="manimux-chunk-cell handoff-skipped"') == 5
+    assert "Timeline latency: 230.0 ms" in rendered
+    assert "Handoff skip: 5 steps" in rendered
+
+
 def test_chunk_summary_falls_back_for_old_plan_messages() -> None:
     timeline = ChunkTimelineView()
     timeline.update(

@@ -100,6 +100,7 @@ def inference_parameters(*, executor: dict, **options) -> dict:
         "inference_schedule": "deadline",
         "refill_threshold_s": 0.4,
         "commit_lead_s": 0.02,
+        "handoff_skip_steps": 0,
         "max_plan_age_s": 1.0,
         "blend_steps": 2,
         # Chunk handoff: blend joints at commit, or an adapter EE waypoint before dense IK.
@@ -233,6 +234,9 @@ def validate_runtime_parameters(config: dict) -> None:
 
 def validate_inference_parameters(values: dict, executor: dict, *, provided=frozenset()) -> None:
     """检查调度和执行方式的组合；provided 仅用于识别 YAML 中明确给出的字段。"""
+    skip_steps = values["handoff_skip_steps"]
+    if type(skip_steps) is not int or skip_steps < 0:
+        raise ValueError("inference.handoff_skip_steps must be a non-negative integer")
     if values["decode_forecast_mode"] not in FORECAST_MODES:
         raise ValueError(f"inference.decode_forecast_mode must be one of {FORECAST_MODES}")
     if values["handoff"] not in {"blend", "waypoint"}:
@@ -245,6 +249,8 @@ def validate_inference_parameters(values: dict, executor: dict, *, provided=froz
         raise ValueError(
             "inference.handoff=waypoint requires the manimux or rtc algorithm and blend_steps=0"
         )
+    if values["handoff"] == "waypoint" and skip_steps:
+        raise ValueError("inference.handoff_skip_steps cannot skip a waypoint handoff")
     if values["inference_schedule"] == "serial":
         if values["algorithm"] != "manimux":
             raise ValueError("serial scheduling requires inference.algorithm=manimux")

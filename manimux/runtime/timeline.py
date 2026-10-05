@@ -19,6 +19,8 @@ class CommitResult:
     reason: str
     trimmed_steps: int = 0
     timeline_latency_ns: int = 0
+    time_trimmed_steps: int = 0
+    handoff_skipped_steps: int = 0
 
 
 @dataclass(slots=True)
@@ -123,8 +125,11 @@ class ActionTimeline:
         max_plan_age_ns: int,
         current_command: GroupVector,
         blend_steps: int,
+        handoff_skip_steps: int = 0,
     ) -> CommitResult:
         """Validate, time-align, trim, and activate a new action chunk."""
+        if type(handoff_skip_steps) is not int or handoff_skip_steps < 0:
+            raise ValueError("handoff_skip_steps must be a non-negative integer")
         if chunk.request_seq <= self._accepted_request_seq:
             return CommitResult(False, "stale_request_seq")
         if now_ns - chunk.observation_time_ns > max_plan_age_ns:
@@ -149,6 +154,8 @@ class ActionTimeline:
         # Earliest wall-clock time at which the committed plan may start.
         earliest_ns = now_ns + commit_lead_ns
         if chunk.handoff is not None:
+            if handoff_skip_steps:
+                return CommitResult(False, "handoff_skip_waypoint_unsupported")
             # A waypoint handoff already replaced the blend before embodiment decoding.
             if blend_steps:
                 raise ValueError("waypoint handoff chunks must not be blended again")
@@ -166,26 +173,26 @@ class ActionTimeline:
             else 0
         )
         # Rows to remove from this chunk, excluding rows already removed upstream.
-        trimmed_steps = (
+        time_trimmed_steps = (
             0 if self._start_on_commit else max(0, source_cursor - chunk.source_offset_steps)
         )
+        # Skip source actions without moving the time at which the new plan starts.
+        # The first plan has no outgoing chunk to hand off from.
+        handoff_skipped_steps = handoff_skip_steps if self._active is not None else 0
+        trimmed_steps = time_trimmed_steps + handoff_skipped_steps
         end = chunk.horizon_steps
         if self._max_source_steps is not None:
             end = min(end, self._max_source_steps - chunk.source_offset_steps)
         if trimmed_steps >= end:
             return CommitResult(False, "no_future_horizon")
 
-        # Anchor row 0 at its own source timestamp. earliest_ns is wherever the
-        # decode happened to finish, so re-pinning row 0 to it shifts the whole
-        # plan off the source grid by up to one dt -- a phase error the executor
-        # cannot distinguish from the policy changing its mind. Anchoring here
-        # delays the start by less than one dt, which _outgoing covers. Serial
-        # scheduling means "start on commit", so it keeps the wall-clock anchor.
-        first_source_step = chunk.source_offset_steps + trimmed_steps
+        # Time trim determines the handoff instant. The intentional skip changes
+        # only which source row occupies that instant, not the handoff clock.
+        first_time_step = chunk.source_offset_steps + time_trimmed_steps
         start_time_ns = (
             earliest_ns
             if self._start_on_commit
-            else chunk.observation_time_ns + first_source_step * chunk.dt_ns
+            else chunk.observation_time_ns + first_time_step * chunk.dt_ns
         )
 
         groups = {name: values[trimmed_steps:end].copy() for name, values in chunk.groups.items()}
@@ -224,12 +231,12 @@ class ActionTimeline:
                 + (chunk.source_offset_steps + end - 1) * chunk.dt_ns
             )
             if self._start_on_commit:
-                runtime_start_index = 0
+                runtime_time_index = 0
                 runtime_end_index = runtime.horizon_steps
                 runtime_start_time_ns = earliest_ns
             else:
                 runtime_age_ns = max(0, earliest_ns - runtime.start_time_ns)
-                runtime_start_index = int(
+                runtime_time_index = int(
                     (runtime_age_ns + runtime.dt_ns - 1) // runtime.dt_ns
                     if runtime_age_ns
                     else 0
@@ -239,8 +246,12 @@ class ActionTimeline:
                     int((source_end_time_ns - runtime.start_time_ns) // runtime.dt_ns) + 1,
                 )
                 runtime_start_time_ns = (
-                    runtime.start_time_ns + runtime_start_index * runtime.dt_ns
+                    runtime.start_time_ns + runtime_time_index * runtime.dt_ns
                 )
+            runtime_skip_steps = round(
+                handoff_skipped_steps * chunk.dt_ns / runtime.dt_ns
+            )
+            runtime_start_index = runtime_time_index + runtime_skip_steps
             if runtime_start_index >= runtime_end_index:
                 return CommitResult(False, "no_future_runtime_horizon")
 
@@ -272,7 +283,7 @@ class ActionTimeline:
                     start_time_ns + max(0, step - trimmed_steps) * chunk.dt_ns
                     if self._start_on_commit
                     else chunk.observation_time_ns
-                    + (chunk.source_offset_steps + step) * chunk.dt_ns
+                    + (chunk.source_offset_steps + step - handoff_skipped_steps) * chunk.dt_ns
                 )
                 relative_ns = invalid_time_ns - runtime_start_time_ns
                 first_invalid = max(
@@ -303,6 +314,8 @@ class ActionTimeline:
             "accepted",
             trimmed_steps=trimmed_steps,
             timeline_latency_ns=age_at_commit_ns,
+            time_trimmed_steps=time_trimmed_steps,
+            handoff_skipped_steps=handoff_skipped_steps,
         )
 
     def handoff_reference(self, time_ns: int, window_ns: int) -> ActionHorizon | None:

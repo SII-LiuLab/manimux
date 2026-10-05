@@ -14,6 +14,8 @@ class ChunkLane:
     committed_steps: int = 0
     cursor: int = 0
     trimmed_steps: int = 0
+    time_trimmed_steps: int = 0
+    handoff_skipped_steps: int = 0
     overlap_steps: int = 0
     frozen_steps: int = 0
     superseded_steps: int = 0
@@ -203,6 +205,10 @@ class ChunkTimelineView:
             int(metadata.get("raw_horizon_steps", committed_steps)),
         )
         trimmed = min(raw_horizon, max(0, int(metadata.get("trimmed_steps", 0))))
+        time_trimmed = min(
+            trimmed, max(0, int(metadata.get("time_trimmed_steps", trimmed)))
+        )
+        handoff_skipped = trimmed - time_trimmed
         overlap = min(
             raw_horizon,
             max(0, int(metadata.get("conditioned_overlap_steps", 0))),
@@ -233,6 +239,8 @@ class ChunkTimelineView:
             committed_steps=committed_steps,
             cursor=0,
             trimmed_steps=trimmed,
+            time_trimmed_steps=time_trimmed,
+            handoff_skipped_steps=handoff_skipped,
             overlap_steps=overlap,
             frozen_steps=frozen,
             inference_ms=float(message.get("inference_ms", 0.0)),
@@ -275,8 +283,10 @@ class ChunkTimelineView:
             return "pending"
         if lane.state == "rejected":
             return "rejected"
-        if index < lane.trimmed_steps:
+        if index < lane.time_trimmed_steps:
             return "latency-trimmed"
+        if index < lane.trimmed_steps:
+            return "handoff-skipped"
         committed_index = index - lane.trimmed_steps
         raw_cursor = lane.trimmed_steps + lane.cursor
         if lane.latency_from_index is not None and lane.latency_from_index <= index < raw_cursor:
@@ -324,6 +334,8 @@ class ChunkTimelineView:
             details.append(f"Decode: {lane.decode_stage_ms:.1f} ms")
         if lane.commit_lead_ms is not None:
             details.append(f"Commit lead: {lane.commit_lead_ms:.1f} ms")
+        if lane.handoff_skipped_steps:
+            details.append(f"Handoff skip: {lane.handoff_skipped_steps} steps")
         return " · ".join(details)
 
     def _handoff_html(self) -> str:
@@ -539,6 +551,9 @@ class ChunkTimelineView:
   .manimux-chunk-cell.latency-trimmed {{
     background:repeating-linear-gradient(135deg,#f59e0b 0 3px,#9a5d08 3px 6px);
   }}
+  .manimux-chunk-cell.handoff-skipped {{
+    background:repeating-linear-gradient(135deg,#38bdf8 0 3px,#075985 3px 6px);
+  }}
   .manimux-chunk-cell.superseded,
   .manimux-chunk-cell.rejected {{
     background:repeating-linear-gradient(135deg,#303746 0 3px,#1d222c 3px 6px);
@@ -628,6 +643,9 @@ class ChunkTimelineView:
     <span><i
       style="background:repeating-linear-gradient(135deg,#f59e0b 0 3px,#9a5d08 3px 6px)"
     ></i>trimmed latency</span>
+    <span><i
+      style="background:repeating-linear-gradient(135deg,#38bdf8 0 3px,#075985 3px 6px)"
+    ></i>handoff skip</span>
     <span><i style="background:#f59e0b"></i>handoff wait</span>
     <span><i style="border:2px solid #94a3b8;background:transparent"></i>condition</span>
     <span><i style="border:1px solid #4b5565"></i>future</span>
