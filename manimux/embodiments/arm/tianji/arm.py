@@ -6,7 +6,7 @@ import importlib
 import ipaddress
 import threading
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
@@ -20,15 +20,23 @@ from manimux.kinematics.base import FlangeKinematicsBase, FloatArray, KinematicC
 
 _CONTROL_SESSION = threading.Lock()
 _ARM = {"left": ("A", 0), "right": ("B", 1)}
+_TORQUE_MODE = 3
+_DRAG_HZ = 250.0
+_DRAG_TRACK_RATE_DEG_S = 15.0
 
 
 @dataclass(frozen=True, slots=True)
 class TianjiArmSettings:
-    """Seven joint bounds in radians and official controller speed percentages."""
+    """Seven joint bounds in radians and official controller speed percentages.
+
+    drag_tool is the mounted tool's Marvin load, {kine: XYZABC mm/deg (6),
+    dynamic: mass, centre of mass and inertia (10)}; drag() requires it.
+    """
 
     joint_limits: tuple[FloatArray, FloatArray]
     velocity_ratio: int
     acceleration_ratio: int
+    drag_tool: Mapping[str, tuple[float, ...]] | None = None
 
     def __post_init__(self) -> None:
         for ratio in (self.velocity_ratio, self.acceleration_ratio):
@@ -46,6 +54,17 @@ class TianjiArmSettings:
         lower.setflags(write=False)
         upper.setflags(write=False)
         object.__setattr__(self, "joint_limits", (lower, upper))
+        if self.drag_tool is not None:
+            if set(self.drag_tool) != {"kine", "dynamic"}:
+                raise ValueError("drag_tool must contain exactly kine and dynamic")
+            tool = {key: tuple(float(v) for v in values) for key, values in self.drag_tool.items()}
+            if (
+                len(tool["kine"]) != 6
+                or len(tool["dynamic"]) != 10
+                or not np.isfinite(tool["kine"] + tool["dynamic"]).all()
+            ):
+                raise ValueError("drag_tool must contain six finite kine and ten dynamic values")
+            object.__setattr__(self, "drag_tool", MappingProxyType(tool))
 
 
 class TianjiController(ArmController):
@@ -128,6 +147,53 @@ class TianjiController(ArmController):
                         "connect and cleanup failed", [error, cleanup_error]
                     ) from None
                 raise
+
+    def clear_errors(self) -> None:
+        """Clear configured arms' controller faults; call while disconnected.
+
+        connect() rejects faulted arms, so recovery clears them over a short
+        session first. Marvin can return false while accepting an asynchronous
+        clear; fresh feedback, not that return value, is the confirmation. An
+        engaged physical E-stop keeps the fault and fails after four attempts.
+        """
+        with self._lock:
+            if self._owns_session:
+                raise RuntimeError("clear_errors requires a disconnected controller")
+            ipaddress.IPv4Address(self._ip)
+            if not _CONTROL_SESSION.acquire(blocking=False):
+                raise RuntimeError("another TianjiController owns the process-wide SDK session")
+            try:
+                sdk = importlib.import_module("manimux.embodiments.arm.tianji.sdk.marvin.fx_robot")
+                robot, buffer = sdk.Marvin_Robot(), sdk.DCSS()
+                self._check(robot.connect(self._ip), "connect")
+                try:
+                    for attempt in range(4):
+                        data = robot.subscribe(buffer)
+                        if not data:
+                            raise RuntimeError("Marvin feedback unavailable")
+                        faults = {}
+                        for name in self.settings:
+                            status = data["states"][_ARM[name][1]]
+                            if int(status["err_code"]) or int(status["cur_state"]) == 100:
+                                faults[name] = (int(status["err_code"]), int(status["cur_state"]))
+                        if not faults:
+                            return
+                        if attempt == 3:
+                            details = ", ".join(
+                                f"{name}: fault {error}, state {state}"
+                                for name, (error, state) in faults.items()
+                            )
+                            raise RuntimeError(
+                                "controller did not confirm errors cleared; release the "
+                                f"physical E-stop and retry ({details})"
+                            )
+                        for name in faults:
+                            robot.clear_error(_ARM[name][0])
+                        time.sleep(0.2)
+                finally:
+                    self._check(robot.release_robot(), "release_robot")
+            finally:
+                _CONTROL_SESSION.release()
 
     def _read(self, *, allow_fault: bool = False):
         data = self._robot.subscribe(self._buffer)
@@ -261,6 +327,96 @@ class TianjiController(ArmController):
                 except Exception as stop_error:
                     raise ExceptionGroup("command and stop failed", [error, stop_error]) from None
                 raise
+
+    def drag(
+        self,
+        sides: tuple[str, ...],
+        stop: threading.Event,
+        on_active: Callable[[], None] | None = None,
+    ) -> None:
+        """Hand-guide disabled arms in joint-space drag until stop is set.
+
+        on_active is called once drag is confirmed and the arms may be moved by hand.
+        Uses torque mode with joint impedance and each arm's drag_tool load. Joint
+        commands follow feedback at a bounded rate so leaving drag causes no jump.
+        The arms count as enabled from the first mode write: after return or a
+        failure, drag space is exited here and stop()/close() disables them.
+        """
+        with self._lock:
+            self._require_ready()
+            sides = tuple(dict.fromkeys(sides))
+            if not sides or set(sides) - self.settings.keys():
+                raise ValueError("drag sides must name configured arms")
+            if self._enabled.intersection(sides):
+                raise RuntimeError("drag requires disabled arms")
+            for name in sides:
+                if self.settings[name].drag_tool is None:
+                    raise ValueError(f"{name}: drag_tool is not configured")
+            self._enabled.update(sides)
+            try:
+                self._check(self._robot.clear_set(), "clear_set")
+                for name in sides:
+                    arm, tool = _ARM[name][0], self.settings[name].drag_tool
+                    # Feedback readback below, not these return values, confirms the mode.
+                    self._robot.set_state(arm, _TORQUE_MODE)
+                    self._robot.set_impedance_type(arm, 1)
+                    self._robot.set_tool(arm, list(tool["kine"]), list(tool["dynamic"]))
+                    self._robot.set_joint_kd_params(arm, [1.0] * 7, [0.3] * 7)
+                self._check(self._robot.send_cmd(), "send_cmd")
+                time.sleep(0.5)
+                _, modes, _ = self._read()
+                for name in sides:
+                    if modes[name] != _TORQUE_MODE:
+                        raise RuntimeError(
+                            f"{name}: failed to enter torque mode (state {modes[name]})"
+                        )
+
+                self._check(self._robot.clear_set(), "clear_set")
+                for name in sides:
+                    self._robot.set_drag_space(_ARM[name][0], 1)
+                self._check(self._robot.send_cmd(), "send_cmd")
+                time.sleep(0.2)
+                measured, _, data = self._read()
+                for name in sides:
+                    if int(data["inputs"][_ARM[name][1]]["drag_sp_type"]) != 1:
+                        raise RuntimeError(f"{name}: joint-drag readback failed")
+
+                period_s = 1.0 / _DRAG_HZ
+                max_step = _DRAG_TRACK_RATE_DEG_S * period_s
+                commands = {name: np.degrees(measured[name]) for name in sides}
+                if on_active is not None:
+                    on_active()
+                while not stop.is_set():
+                    # _read also rejects faults and stale feedback.
+                    measured, modes, _ = self._read()
+                    self._check(self._robot.clear_set(), "clear_set")
+                    for name in sides:
+                        if modes[name] != _TORQUE_MODE:
+                            raise RuntimeError(f"{name}: left drag torque mode")
+                        step = np.degrees(measured[name]) - commands[name]
+                        commands[name] += np.clip(step, -max_step, max_step)
+                        self._check(
+                            self._robot.set_joint_cmd_pose(
+                                _ARM[name][0], commands[name].tolist()
+                            ),
+                            "joint target",
+                        )
+                    self._check(self._robot.send_cmd(), "send_cmd")
+                    time.sleep(period_s)
+            except Exception as error:
+                try:
+                    self._exit_drag(sides)
+                except Exception as exit_error:
+                    raise ExceptionGroup("drag and drag exit failed", [error, exit_error]) from None
+                raise
+            self._exit_drag(sides)
+
+    def _exit_drag(self, sides: tuple[str, ...]) -> None:
+        self._check(self._robot.clear_set(), "clear_set")
+        for name in sides:
+            self._robot.set_drag_space(_ARM[name][0], 0)
+        self._check(self._robot.send_cmd(), "send_cmd")
+        time.sleep(0.5)
 
     def stop(self) -> None:
         with self._lock:

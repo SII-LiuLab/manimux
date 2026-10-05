@@ -427,6 +427,11 @@ class EdgeRuntime:
             }
             # 当前整机未提供手动拖动恢复；Viewer 不展示已退役的驱动能力。
             viewer_episode_metadata["recovery_available"] = False
+            # The active runtime owns Home; idle recovery remains service-owned.
+            viewer_episode_metadata["home_available"] = bool(
+                self._config["robot"].get("options", {}).get("execute", False)
+                and self._config["robot"]["type"] == "tianji_taccap"
+            )
             self._viewer.set_state_metadata(viewer_episode_metadata)
             self._viewer.publish_event(
                 "episode_started",

@@ -1,12 +1,17 @@
 """Fake hardware assembly tests; no control library loaded or device connected."""
 
-from types import SimpleNamespace
+import threading
+import time
+from dataclasses import replace
+from types import MappingProxyType, SimpleNamespace
 
 import numpy as np
 import pytest
 
+from manimux.embodiments.arm.tianji import arm as tianji_arm
 from manimux.embodiments.end_effector import GripperBase, GripperState
 from manimux.embodiments.robot.tianji_taccap import TianjiArmConfig, TianjiTaccapRobot
+from manimux.embodiments.robot.tianji_taccap import robot as tianji_robot
 from manimux.kinematics import IKResult, KinematicCoordinate, ManipulatorKinematicsBase
 from manimux.types import RobotCommand, SensorFrame
 
@@ -23,15 +28,19 @@ class Gripper(GripperBase):
         self.clock = clock
         self.calls = []
         self.fail = False
+        self.opening = 0.4
+        self.track = False
 
     def connect(self):
         self.calls.append("connect")
 
     def get_state(self):
-        return GripperState(0.4, self.clock.now_ns() / 1e9)
+        return GripperState(self.opening, self.clock.now_ns() / 1e9)
 
     def send_command(self, command):
         self.calls.append(command.opening)
+        if self.track:
+            self.opening = command.opening
         if self.fail:
             raise RuntimeError("gripper failed")
 
@@ -80,7 +89,13 @@ class SDK:
         self.advance = True
         self.modes = [0, 0]
         self.faults = [0, 0]
-        self.ratios = [{"joint_vel_ratio": 0, "joint_acc_ratio": 0} for _ in range(2)]
+        self.ratios = [
+            {"joint_vel_ratio": 0, "joint_acc_ratio": 0, "drag_sp_type": 0} for _ in range(2)
+        ]
+        self.joints = [[10.0] * 7, [20.0] * 7]
+        self.track_targets = False
+        self.fail_torque = set()
+        self.persistent_faults = False
         self.pending = []
         self.batches = []
         self.connects = self.releases = 0
@@ -96,7 +111,7 @@ class SDK:
             self.frames = [n + 1 for n in self.frames]
         return {
             "outputs": [
-                {"frame_serial": self.frames[i], "fb_joint_pos": [10.0 * (i + 1)] * 7}
+                {"frame_serial": self.frames[i], "fb_joint_pos": list(self.joints[i])}
                 for i in range(2)
             ],
             "states": [{"cur_state": self.modes[i], "err_code": self.faults[i]} for i in range(2)],
@@ -118,8 +133,32 @@ class SDK:
     def set_state(self, arm, mode):
         if mode == 0 and arm in self.fail_disable:
             return False
+        if mode == 3 and arm in self.fail_torque:
+            return True  # accepted but never reached, as seen on real faults
         self.pending.append(("mode", arm, mode))
         return True
+
+    def set_impedance_type(self, arm, kind):
+        self.pending.append(("impedance", arm, kind))
+        return True
+
+    def set_tool(self, arm, kine, dynamic):
+        self.pending.append(("tool", arm, kine, dynamic))
+        return True
+
+    def set_joint_kd_params(self, arm, k, d):
+        self.pending.append(("kd", arm, k, d))
+        return True
+
+    def set_drag_space(self, arm, kind):
+        self.pending.append(("drag", arm, kind))
+        return True
+
+    def clear_error(self, arm):
+        if not self.persistent_faults:
+            index = 0 if arm == "A" else 1
+            self.faults[index] = self.modes[index] = 0
+        return False  # Marvin may report false for an accepted asynchronous clear.
 
     def send_cmd(self):
         self.batches.append(list(self.pending))
@@ -128,7 +167,11 @@ class SDK:
             if entry[0] == "mode":
                 self.modes[index] = entry[2]
             if entry[0] == "ratio":
-                self.ratios[index] = {"joint_vel_ratio": entry[2], "joint_acc_ratio": entry[3]}
+                self.ratios[index].update(joint_vel_ratio=entry[2], joint_acc_ratio=entry[3])
+            if entry[0] == "drag":
+                self.ratios[index]["drag_sp_type"] = entry[2]
+            if entry[0] == "target" and self.track_targets:
+                self.joints[index] = list(entry[2])
         return True
 
     def release_robot(self):
@@ -300,9 +343,154 @@ def test_layout_and_side_mismatch_rejected(setup):
         TianjiArmConfig(Model("left"), (np.full(7, -2.0), np.full(7, 2.0)), 10, 20)
 
 
-def test_home_explicitly_unsupported(setup):
-    with pytest.raises(NotImplementedError):
-        setup[0].home()
+def _no_sleep(monkeypatch, module, sleep=lambda _: None):
+    monkeypatch.setattr(module, "time", SimpleNamespace(sleep=sleep, monotonic=time.monotonic))
+
+
+def test_home_requires_configured_target(setup):
+    robot = setup[0]
+    robot.connect()
+    with pytest.raises(RuntimeError, match="Home target"):
+        robot.home()
+
+
+def test_home_follows_profile_settles_then_opens_grippers(setup, monkeypatch):
+    robot, sdk, _, cfg = setup
+    _no_sleep(monkeypatch, tianji_robot)
+    targets = {"left": np.radians(np.full(7, 12.0)), "right": np.radians(np.full(7, 17.0))}
+    robot.model = SimpleNamespace(home_joints=targets)
+    sdk.track_targets = True
+    for c in cfg.values():
+        c.gripper.track = True
+    robot.connect()
+
+    robot.home()
+
+    left = [
+        entry[2][0] for batch in sdk.batches for entry in batch if entry[:2] == ("target", "A")
+    ]
+    # The right arm's 3 degrees at a 6 deg/s cosine peak: about 0.79 s at 100 Hz.
+    assert 75 <= len(left) <= 90
+    assert np.all(np.diff(left) >= -1e-9) and max(left) == pytest.approx(12.0)
+    state = robot.get_state()
+    np.testing.assert_allclose(state.groups["left"][:7], targets["left"])
+    np.testing.assert_allclose(state.groups["right"][:7], targets["right"])
+    assert all(c.gripper.calls[-1] == 1.0 for c in cfg.values())
+    assert state.groups["left"][-1] == 1.0
+
+
+def test_home_without_execute_is_a_no_op(setup):
+    _, sdk, clock, cfg = setup
+    robot = TianjiTaccapRobot(ip="192.168.1.10", arms=cfg, clock=clock, execute=False)
+    robot.model = SimpleNamespace(home_joints={})
+    robot.home()
+    assert sdk.connects == 0
+
+
+def test_clear_errors_confirms_with_fresh_feedback_and_releases(setup, monkeypatch):
+    robot, sdk, _, _ = setup
+    _no_sleep(monkeypatch, tianji_arm)
+    sdk.faults, sdk.modes = [13, 0], [100, 0]
+
+    robot.clear_errors()
+
+    assert sdk.faults == [0, 0] and sdk.modes == [0, 0]
+    assert sdk.connects == sdk.releases == 1 and sdk.batches == []
+    robot.connect()
+    with pytest.raises(RuntimeError, match="disconnected"):
+        robot.clear_errors()
+
+
+def test_clear_errors_reports_engaged_estop_and_still_releases(setup, monkeypatch):
+    robot, sdk, _, _ = setup
+    _no_sleep(monkeypatch, tianji_arm)
+    sdk.faults, sdk.modes = [0, 13], [0, 100]
+    sdk.persistent_faults = True
+
+    with pytest.raises(RuntimeError, match="E-stop.*right: fault 13, state 100"):
+        robot.clear_errors()
+    assert sdk.releases == 1
+    sdk.persistent_faults = False
+
+
+_DRAG_TOOL = {"kine": [1.0, 2.0, 3.0, 0.0, -90.0, 180.0], "dynamic": [0.7] + [0.0] * 9}
+
+
+def _with_drag_tool(robot):
+    robot.controller.settings = MappingProxyType(
+        {n: replace(s, drag_tool=_DRAG_TOOL) for n, s in robot.controller.settings.items()}
+    )
+
+
+def _run_drag(robot, sides):
+    stop, active, errors = threading.Event(), threading.Event(), []
+
+    def run():
+        try:
+            robot.drag(sides, stop, active.set)
+        except Exception as error:  # noqa: BLE001 - asserted by the test
+            errors.append(error)
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    return stop, active, errors, thread
+
+
+@pytest.fixture
+def fast_sleep(monkeypatch):
+    _no_sleep(monkeypatch, tianji_arm, lambda s: time.sleep(min(s, 0.001)))
+
+
+def test_drag_enters_joint_drag_follows_and_disables_on_stop(setup, fast_sleep):
+    robot, sdk, _, cfg = setup
+    _with_drag_tool(robot)
+    stop, active, errors, thread = _run_drag(robot, ("left", "right"))
+    assert active.wait(2.0)
+    assert sdk.modes == [3, 3]
+    setup_batch = sdk.batches[0]
+    for arm in "AB":
+        assert ("mode", arm, 3) in setup_batch
+        assert ("impedance", arm, 1) in setup_batch
+        assert ("tool", arm, _DRAG_TOOL["kine"], _DRAG_TOOL["dynamic"]) in setup_batch
+        assert ("kd", arm, [1.0] * 7, [0.3] * 7) in setup_batch
+        assert ("drag", arm, 1) in sdk.batches[1]
+
+    stop.set()
+    thread.join(2.0)
+
+    assert not thread.is_alive() and errors == []
+    exit_batch = sdk.batches.index([("drag", "A", 0), ("drag", "B", 0)])
+    servo_off = sorted(sdk.batches[exit_batch + 1 :])
+    assert servo_off == [[("mode", "A", 0)], [("mode", "B", 0)]]
+    assert sdk.modes == [0, 0] and sdk.releases == 1
+    # Only the arm controller was opened; grippers stay closed during drag.
+    assert all(c.gripper.calls == [] for c in cfg.values())
+
+
+def test_drag_partial_torque_failure_exits_drag_and_disables(setup, fast_sleep):
+    robot, sdk, _, _ = setup
+    _with_drag_tool(robot)
+    sdk.fail_torque.add("B")
+    stop, active, errors, thread = _run_drag(robot, ("left", "right"))
+    thread.join(2.0)
+
+    assert not active.is_set()
+    assert len(errors) == 1 and "right: failed to enter torque mode" in str(errors[0])
+    assert [("drag", "A", 0), ("drag", "B", 0)] in sdk.batches
+    assert sdk.modes == [0, 0] and sdk.releases == 1
+
+
+def test_drag_requires_tool_load_execute_and_disconnected_robot(setup, fast_sleep):
+    robot, sdk, clock, cfg = setup
+    with pytest.raises(ValueError, match="drag_tool"):
+        robot.drag(("left",), threading.Event())
+    assert sdk.batches == [] and sdk.releases == 1
+    read_only = TianjiTaccapRobot(ip="192.168.1.10", arms=cfg, clock=clock, execute=False)
+    with pytest.raises(RuntimeError, match="execute"):
+        read_only.drag(("left",), threading.Event())
+    robot.connect()
+    with pytest.raises(RuntimeError, match="disconnected"):
+        robot.drag(("left",), threading.Event())
 
 
 def test_speed_change_stops_owned_arms(setup):

@@ -82,7 +82,14 @@ robot = TianjiTaccapRobot.from_config("manimux/configs/embodiment/robot/tianji_t
 `connect()` 读取机械臂和夹爪反馈；当前组件接口要求机械臂已禁用，首次执行命令时
 才在实测关节处使能。左右臂共享一次目标批次，夹爪随后独立下发，跨设备不具有原子性。
 配置中的关节限位、跟踪误差、反馈过期和控制器故障检查保留。
-`stop()` 请求停止已拥有的组件，`close()` 失败后可重试。`home()` 尚未实现；没有后台轨迹规划。
+`stop()` 请求停止已拥有的组件，`close()` 失败后可重试。
+
+Recovery lives on the assembly, not in the session. `clear_errors()` clears latched
+controller faults over a short SDK session before `connect()`. `home()` moves the
+connected arms to `home.joints_deg` on a 6 deg/s cosine profile, settles within 0.5
+degrees and then fully opens the grippers when end-effector control is enabled.
+`drag(sides, stop)` opens only the arm controller, enters Marvin joint-space drag with
+each arm's `drag_tool` load from the assembly YAML, and disables the arms on exit.
 
 相机启动独立于 `connect()`。新 UMI 实验仍订阅现有 camera server，未自动调用
 `robot.start_sensors()`。订阅层把 `left_wrist/right_wrist` 映射为

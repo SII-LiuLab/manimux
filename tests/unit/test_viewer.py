@@ -1467,3 +1467,33 @@ def test_republished_instructions_do_not_erase_an_operator_mid_edit() -> None:
 
     assert _prefill_task("", "  fold the towel  ") == "fold the towel"
     assert _prefill_task("my own comm", "fold the towel") == "my own comm"
+
+
+def test_tianji_home_requires_paused_executing_runtime_capability() -> None:
+    viewer = PolicyViewer.__new__(PolicyViewer)
+    viewer.robot = SimpleNamespace(name="tianji-taccap")
+    viewer.observe_only = False
+    viewer.rollout_started = False
+    viewer.start_btn = SimpleNamespace(disabled=True, label="")
+    viewer.pause_btn = SimpleNamespace(disabled=True)
+    viewer.home_btn = SimpleNamespace(disabled=True)
+    viewer.finish_btn = SimpleNamespace(disabled=True)
+    viewer._update_recovery_controls = lambda: None
+
+    viewer.paused = True
+    viewer.active_home_available = False
+    viewer._set_policy_controls_enabled(True)
+    assert viewer.home_btn.disabled
+
+    viewer.active_home_available = True
+    viewer._set_policy_controls_enabled(True)
+    assert not viewer.home_btn.disabled
+
+    viewer.paused = False
+    viewer._set_policy_controls_enabled(True)
+    assert viewer.home_btn.disabled
+
+    viewer.paused = True
+    viewer.observe_only = True
+    viewer._set_policy_controls_enabled(True)
+    assert viewer.home_btn.disabled

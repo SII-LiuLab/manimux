@@ -2,17 +2,28 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import math
+import threading
+import time
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
+
+import numpy as np
 
 from manimux.clock import Clock, SystemClock
 from manimux.embodiments.arm.tianji.arm import TianjiArm, TianjiArmSettings, TianjiController
 from manimux.embodiments.end_effector.gripper import GripperBase
 from manimux.embodiments.robot.base import RobotBase, RobotModel
 from manimux.kinematics.base import KinematicCoordinate, ManipulatorKinematicsBase
-from manimux.types import FloatArray
+from manimux.types import FloatArray, RobotCommand
+
+# Same Home profile as the previous Viewer recovery: 6 deg/s peak cosine at 100 Hz.
+_HOME_HZ = 100.0
+_HOME_SPEED_DEG_S = 6.0
+_HOME_TOLERANCE_DEG = 0.5
+_SETTLE_TIMEOUT_S = 5.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,6 +119,109 @@ class TianjiTaccapRobot(RobotBase):
             execute=execute,
             end_effector_control=end_effector_control,
         )
+
+    def clear_errors(self) -> None:
+        """Clear arm controller faults; call before connect(), which rejects faults."""
+        with self._lock:
+            if self._controller_open:
+                raise RuntimeError("clear_errors requires a disconnected robot")
+            self.controller.clear_errors()
+
+    def drag(
+        self,
+        sides: Sequence[str],
+        stop: threading.Event,
+        on_active: Callable[[], None] | None = None,
+    ) -> None:
+        """Hand-guide arm sides ("left"/"right") until stop is set.
+
+        on_active is called once the arms are in drag and may be moved by hand.
+        Opens only the shared arm controller; grippers and sensors stay closed.
+        Requires execute and a disconnected robot; the arms are disabled on return.
+        """
+        with self._lock:
+            if not self._execute:
+                raise RuntimeError("drag requires execute=true")
+            if self._controller_open or self._end_effector_open:
+                raise RuntimeError("drag requires a disconnected robot")
+            self.controller.connect()
+            try:
+                self.controller.drag(tuple(sides), stop, on_active)
+            except Exception as error:
+                try:
+                    self.controller.close()
+                except Exception as cleanup_error:
+                    raise ExceptionGroup(
+                        "drag and cleanup failed", [error, cleanup_error]
+                    ) from None
+                raise
+            self.controller.close()
+
+    def home(self) -> None:
+        """Move connected arms to model.home_joints, then fully open the grippers.
+
+        The arms follow one cosine profile peaking at 6 deg/s and must settle within
+        0.5 degrees. Grippers open only with end-effector control. No-op without execute.
+        """
+        if not self._execute:
+            return
+        targets = {} if self.model is None else dict(self.model.home_joints)
+        if not targets:
+            raise RuntimeError("Tianji-TacCap Home target is not configured")
+        period_s = 1.0 / _HOME_HZ
+        with self._lock:
+            state = self.get_state()
+            if set(targets) != set(state.groups):
+                raise RuntimeError("Home targets do not match the robot groups")
+            start = {name: state.groups[name][: len(q)].copy() for name, q in targets.items()}
+            distance = max(float(np.max(np.abs(q - start[name]))) for name, q in targets.items())
+            duration_s = (math.pi / 2.0) * distance / math.radians(_HOME_SPEED_DEG_S)
+            deadline = time.monotonic() + duration_s * 2.0 + _SETTLE_TIMEOUT_S
+            groups = {name: values.copy() for name, values in state.groups.items()}
+            tick = 0
+            while True:
+                elapsed = tick * period_s
+                fraction = (
+                    1.0
+                    if elapsed >= duration_s
+                    else 0.5 * (1.0 - math.cos(math.pi * elapsed / duration_s))
+                )
+                for name, q in targets.items():
+                    groups[name][: len(q)] = start[name] + (q - start[name]) * fraction
+                self.send_command(RobotCommand(groups, self._clock.now_ns(), None))
+                if fraction >= 1.0:
+                    break
+                if time.monotonic() > deadline:
+                    raise TimeoutError("Tianji-TacCap Home trajectory timed out")
+                tick += 1
+                time.sleep(period_s)
+
+            deadline = time.monotonic() + _SETTLE_TIMEOUT_S
+            tolerance = math.radians(_HOME_TOLERANCE_DEG)
+            while True:
+                state = self.get_state()
+                if all(
+                    np.max(np.abs(state.groups[name][: len(q)] - q)) <= tolerance
+                    for name, q in targets.items()
+                ):
+                    break
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("Tianji-TacCap did not reach Home within 0.5 degrees")
+                self.send_command(RobotCommand(groups, self._clock.now_ns(), None))
+                time.sleep(period_s)
+
+            if not (self.end_effectors and self._end_effector_control):
+                return
+            for name in self.end_effectors:
+                groups[name][-1] = 1.0
+            self.send_command(RobotCommand(groups, self._clock.now_ns(), None))
+            deadline = time.monotonic() + _SETTLE_TIMEOUT_S
+            while not all(
+                self.get_state().groups[name][-1] >= 0.98 for name in self.end_effectors
+            ):
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("Tianji-TacCap grippers did not fully open")
+                time.sleep(period_s)
 
     @property
     def arms(self) -> Mapping[str, TianjiArmConfig]:

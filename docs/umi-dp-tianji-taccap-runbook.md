@@ -154,9 +154,10 @@ envs/umi_dp/.venv/bin/python -m manimux.servers.umi_dp \
 The experiment defaults to `robot.options.execute: false` and
 `robot.options.end_effector_control: false`. Runtime still connects and reads feedback.
 Execution settings belong to the experiment, not the station. Tianji connection does
-not Home; the existing controller enables on the first executed command. The component
-assembly does not implement Home or manual drag recovery. See [Viewer](viewer.md) for
-its separate display and control interface.
+not Home; the existing controller enables on the first executed command. Clear error,
+Return Home and manual drag are implemented by the robot assembly
+(`TianjiTaccapRobot.clear_errors/home/drag`); the idle Viewer session only schedules
+them. See [Viewer](viewer.md) for its separate display and control interface.
 
 ## Preserved action and timing conventions
 

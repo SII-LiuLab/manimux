@@ -1,18 +1,16 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
+from copy import deepcopy
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
-
-import numpy as np
 
 from manimux.cli import _create_run_dir, _handle_termination, build_parser, load_config
 from manimux.runtime import RunResult
 from manimux.runtime.edge import _next_rollout_id
 from manimux.session import RuntimeSessionService, _TianjiRecovery
-from manimux.types import RobotState
 
 
 class _FakeControl:
@@ -54,155 +52,55 @@ class _FailingRuntime:
         raise RuntimeError("model unavailable")
 
 
-class _FakeMarvin:
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, str | None]] = []
-        self.faults = [13, 0]
-        self.modes = [100, 0]
+class _FakeRecoveryRobot:
+    """Records the robot-level recovery calls; hardware behaviour is tested with the robot."""
 
-    def connect(self, ip: str) -> bool:
-        self.calls.append(("connect", ip))
-        return True
+    def __init__(self, *, fail: str = "") -> None:
+        self.calls: list[tuple] = []
+        self.fail = fail
+        self.drag_started = threading.Event()
 
-    def clear_error(self, arm: str) -> bool:
-        self.calls.append(("clear_error", arm))
-        index = 0 if arm == "A" else 1
-        self.faults[index] = 0
-        self.modes[index] = 0
-        return False
-
-    def subscribe(self, _buffer) -> dict:
-        self.calls.append(("subscribe", None))
-        return {
-            "states": [
-                {"err_code": self.faults[index], "cur_state": self.modes[index]}
-                for index in range(2)
-            ]
-        }
-
-    def release_robot(self) -> bool:
-        self.calls.append(("release_robot", None))
-        return True
-
-
-class _FakeTime:
-    def __init__(self) -> None:
-        self.value = 0.0
-
-    def monotonic(self) -> float:
-        return self.value
-
-    def sleep(self, duration: float) -> None:
-        self.value += duration
-
-
-class _FakeHomeRobot:
-    def __init__(self) -> None:
-        self.model = SimpleNamespace(
-            home_joints={
-                "left_arm": np.full(7, 0.02),
-                "right_arm": np.full(7, -0.02),
-            }
-        )
-        self.groups = {
-            "left_arm": np.r_[np.zeros(7), 0.3],
-            "right_arm": np.r_[np.zeros(7), 0.4],
-        }
-        self.calls: list[str] = []
-        self.commands = []
+    def clear_errors(self) -> None:
+        self.calls.append(("clear_errors",))
+        if self.fail == "clear_errors":
+            raise RuntimeError("E-stop still engaged")
 
     def connect(self) -> None:
-        self.calls.append("connect")
+        self.calls.append(("connect",))
 
-    def get_state(self) -> RobotState:
-        return RobotState(
-            {name: values.copy() for name, values in self.groups.items()},
-            0,
-            len(self.commands),
-        )
+    def home(self) -> None:
+        self.calls.append(("home",))
+        if self.fail == "home":
+            raise RuntimeError("home timed out")
 
-    def send_command(self, command) -> None:
-        self.commands.append(command)
-        self.groups = {name: values.copy() for name, values in command.groups.items()}
+    def drag(self, sides, stop, on_active) -> None:
+        self.calls.append(("drag", tuple(sides)))
+        if self.fail == "drag":
+            raise RuntimeError("right: failed to enter torque mode")
+        on_active()
+        self.drag_started.set()
+        stop.wait(2.0)
+        self.calls.append(("drag_exit",))
 
     def close(self) -> None:
-        self.calls.append("close")
+        self.calls.append(("close",))
 
 
-class _FakeDragMarvin:
-    def __init__(self, *, failed_arm: str | None = None) -> None:
-        self.calls: list[tuple] = []
-        self.modes = [0, 0]
-        self.faults = [0, 0]
-        self.drag_types = [0, 0]
-        self.frames = [0, 0]
-        self.joints = [[0.0] * 7, [0.0] * 7]
-        self.failed_arm = failed_arm
+_TIANJI_CONFIG = {
+    "robot": {
+        "type": "tianji_taccap",
+        "options": {"execute": True, "hardware": {"ip": "192.168.1.190"}},
+    }
+}
 
-    def connect(self, ip: str) -> bool:
-        self.calls.append(("connect", ip))
-        return True
 
-    def subscribe(self, _buffer) -> dict:
-        self.frames = [frame + 1 for frame in self.frames]
-        return {
-            "states": [
-                {"err_code": self.faults[index], "cur_state": self.modes[index]}
-                for index in range(2)
-            ],
-            "outputs": [
-                {"frame_serial": self.frames[index], "fb_joint_pos": self.joints[index]}
-                for index in range(2)
-            ],
-            "inputs": [
-                {"drag_sp_type": self.drag_types[index]} for index in range(2)
-            ],
-        }
+def _recovery(robot: _FakeRecoveryRobot, built: list[dict] | None = None) -> _TianjiRecovery:
+    def factory(robot_config, _clock):
+        if built is not None:
+            built.append(robot_config)
+        return robot
 
-    def clear_error(self, arm: str) -> bool:
-        self.calls.append(("clear_error", arm))
-        index = 0 if arm == "A" else 1
-        self.faults[index] = self.modes[index] = 0
-        return True
-
-    def clear_set(self) -> bool:
-        self.calls.append(("clear_set",))
-        return True
-
-    def set_state(self, *, arm: str, state: int) -> bool:
-        self.calls.append(("state", arm, state))
-        if not (state == 3 and arm == self.failed_arm):
-            self.modes[0 if arm == "A" else 1] = state
-        return True
-
-    def set_impedance_type(self, **kwargs) -> bool:
-        self.calls.append(("impedance", kwargs))
-        return True
-
-    def set_tool(self, **kwargs) -> bool:
-        self.calls.append(("tool", kwargs))
-        return True
-
-    def set_joint_kd_params(self, **kwargs) -> bool:
-        self.calls.append(("kd", kwargs))
-        return True
-
-    def set_drag_space(self, *, arm: str, dgType: int) -> bool:
-        self.calls.append(("drag", arm, dgType))
-        self.drag_types[0 if arm == "A" else 1] = dgType
-        return True
-
-    def set_joint_cmd_pose(self, *, arm: str, joints: list[float]) -> bool:
-        self.calls.append(("joints", arm, list(joints)))
-        return True
-
-    def send_cmd(self) -> bool:
-        self.calls.append(("send",))
-        return True
-
-    def release_robot(self) -> bool:
-        self.calls.append(("release",))
-        return True
+    return _TianjiRecovery(deepcopy(_TIANJI_CONFIG), robot_factory=factory)
 
 
 def test_session_service_waits_for_viewer_then_runs_one_isolated_episode(tmp_path: Path) -> None:
@@ -423,36 +321,15 @@ def test_repeated_failures_have_distinct_ids_republished_in_idle_heartbeats(tmp_
         assert heartbeat["last_failure_id"] == failure["last_failure_id"]
 
 
-def test_tianji_clear_error_recovery_acknowledges_selected_controller() -> None:
-    sdk = _FakeMarvin()
-    config = {
-        "robot": {
-            "type": "tianji_taccap",
-            "options": {"execute": True, "hardware": {"ip": "192.168.1.190"}},
-        }
-    }
-    clock = _FakeTime()
-    recovery = _TianjiRecovery(
-        config,
-        sdk_factory=lambda: (sdk, object()),
-        monotonic=clock.monotonic,
-        sleep=clock.sleep,
-    )
+def test_tianji_clear_error_recovery_only_clears_faults() -> None:
+    robot = _FakeRecoveryRobot()
+    built: list[dict] = []
+    recovery = _recovery(robot, built)
 
-    recovery.update(
-        {
-            "recovery_request": "clear_error",
-            "recovery_request_id": "request-1",
-        }
-    )
+    recovery.update({"recovery_request": "clear_error", "recovery_request_id": "request-1"})
 
-    assert sdk.calls == [
-        ("connect", "192.168.1.190"),
-        ("subscribe", None),
-        ("clear_error", "A"),
-        ("subscribe", None),
-        ("release_robot", None),
-    ]
+    assert robot.calls == [("clear_errors",)]
+    assert built[0]["options"]["end_effector_control"] is False
     assert recovery.metadata() == {
         "available": True,
         "actions": ["clear_error", "home", "drag"],
@@ -464,43 +341,41 @@ def test_tianji_clear_error_recovery_acknowledges_selected_controller() -> None:
     }
 
 
-def test_tianji_recovery_moves_home_then_fully_opens_grippers() -> None:
-    sdk = _FakeMarvin()
-    sdk.faults = [0, 0]
-    sdk.modes = [0, 0]
-    robot = _FakeHomeRobot()
-    clock = _FakeTime()
-    built_configs = []
-    config = {
-        "robot": {
-            "type": "tianji_taccap",
-            "control_hz": 10.0,
-            "options": {"execute": True, "hardware": {"ip": "192.168.1.190"}},
-        }
-    }
-    recovery = _TianjiRecovery(
-        config,
-        sdk_factory=lambda: (sdk, object()),
-        robot_factory=lambda robot_config, _clock: built_configs.append(robot_config) or robot,
-        monotonic=clock.monotonic,
-        sleep=clock.sleep,
-    )
+def test_tianji_clear_error_failure_is_reported() -> None:
+    recovery = _recovery(_FakeRecoveryRobot(fail="clear_errors"))
+
+    recovery.update({"recovery_request": "clear_error", "recovery_request_id": "request-1"})
+
+    metadata = recovery.metadata()
+    assert metadata["state"] == "error"
+    assert metadata["error"] == "RuntimeError: E-stop still engaged"
+
+
+def test_tianji_recovery_home_clears_connects_homes_and_closes() -> None:
+    robot = _FakeRecoveryRobot()
+    built: list[dict] = []
+    recovery = _recovery(robot, built)
 
     recovery.update({"recovery_request": "home", "recovery_request_id": "home-1"})
-    while recovery.metadata()["busy"]:
-        time.sleep(0.001)
+    _wait_for_recovery(recovery, "idle")
     recovery.close()
 
-    assert robot.calls == ["connect", "close"]
-    assert robot.commands
-    np.testing.assert_allclose(robot.groups["left_arm"][:7], 0.02)
-    np.testing.assert_allclose(robot.groups["right_arm"][:7], -0.02)
-    assert robot.groups["left_arm"][7] == 1.0
-    assert robot.groups["right_arm"][7] == 1.0
-    assert built_configs[0]["options"]["end_effector_control"] is True
-    assert "end_effector_control" not in config["robot"]["options"]
+    assert robot.calls == [("clear_errors",), ("connect",), ("home",), ("close",)]
+    assert built[0]["options"]["end_effector_control"] is True
+    assert "end_effector_control" not in _TIANJI_CONFIG["robot"]["options"]
     assert recovery.metadata()["error"] == ""
     assert recovery.metadata()["ack"] == "home-1"
+
+
+def test_tianji_recovery_home_failure_still_closes_robot() -> None:
+    robot = _FakeRecoveryRobot(fail="home")
+    recovery = _recovery(robot)
+
+    recovery.update({"recovery_request": "home", "recovery_request_id": "home-1"})
+    failed = _wait_for_recovery(recovery, "error")
+
+    assert failed["error"] == "RuntimeError: home timed out"
+    assert robot.calls[-1] == ("close",)
 
 
 def test_executing_tianji_session_advertises_recovery_actions(tmp_path: Path) -> None:
@@ -527,19 +402,10 @@ def _wait_for_recovery(recovery: _TianjiRecovery, state: str, timeout_s: float =
     raise AssertionError(f"recovery did not reach {state}: {recovery.metadata()}")
 
 
-def test_tianji_drag_runs_teleop_sdk_sequence_and_stops_on_request() -> None:
-    sdk = _FakeDragMarvin()
-    config = {
-        "robot": {
-            "type": "tianji_taccap",
-            "options": {"execute": True, "hardware": {"ip": "192.168.1.190"}},
-        }
-    }
-    recovery = _TianjiRecovery(
-        config,
-        sdk_factory=lambda: (sdk, object()),
-        sleep=lambda duration: time.sleep(min(duration, 0.001)),
-    )
+def test_tianji_drag_maps_viewer_arms_and_stops_on_request() -> None:
+    robot = _FakeRecoveryRobot()
+    built: list[dict] = []
+    recovery = _recovery(robot, built)
 
     recovery.update(
         {
@@ -551,13 +417,8 @@ def test_tianji_drag_runs_teleop_sdk_sequence_and_stops_on_request() -> None:
     active = _wait_for_recovery(recovery, "active")
     assert active["busy"] is True
     assert active["arm"] == "AB"
-    for arm, expected_mass in (("A", 0.7592901345868115), ("B", 0.7388190421557731)):
-        assert ("state", arm, 3) in sdk.calls
-        assert ("drag", arm, 1) in sdk.calls
-        assert ("kd", {"arm": arm, "K": [1.0] * 7, "D": [0.3] * 7}) in sdk.calls
-        tool = next(call[1] for call in sdk.calls if call[0] == "tool" and call[1]["arm"] == arm)
-        assert tool["dynamicParams"][0] == expected_mass
-        assert tool["kineParams"] == [-36.745, 0.0, 169.45, 0.0, -90.0, 180.0]
+    assert robot.calls == [("clear_errors",), ("drag", ("left", "right"))]
+    assert built[0]["options"]["end_effector_control"] is False
 
     recovery.update(
         {
@@ -569,25 +430,13 @@ def test_tianji_drag_runs_teleop_sdk_sequence_and_stops_on_request() -> None:
     stopped = _wait_for_recovery(recovery, "idle")
     assert stopped["error"] == ""
     assert stopped["ack"] == "stop-1"
-    for arm in "AB":
-        assert ("drag", arm, 0) in sdk.calls
-        assert ("state", arm, 0) in sdk.calls
-    assert sdk.calls[-1] == ("release",)
+    assert stopped["arm"] == ""
+    assert robot.calls[-1] == ("drag_exit",)
 
 
-def test_tianji_drag_lost_viewer_lease_exits_and_disables() -> None:
-    sdk = _FakeDragMarvin()
-    config = {
-        "robot": {
-            "type": "tianji_taccap",
-            "options": {"execute": True, "hardware": {"ip": "192.168.1.190"}},
-        }
-    }
-    recovery = _TianjiRecovery(
-        config,
-        sdk_factory=lambda: (sdk, object()),
-        sleep=lambda duration: time.sleep(min(duration, 0.001)),
-    )
+def test_tianji_drag_lost_viewer_lease_exits() -> None:
+    robot = _FakeRecoveryRobot()
+    recovery = _recovery(robot)
     recovery.update(
         {
             "recovery_request": "drag:A",
@@ -596,31 +445,20 @@ def test_tianji_drag_lost_viewer_lease_exits_and_disables() -> None:
         }
     )
     _wait_for_recovery(recovery, "active")
+    assert ("drag", ("left",)) in robot.calls
 
     recovery.update({})
 
     _wait_for_recovery(recovery, "idle")
-    assert ("drag", "A", 0) in sdk.calls
-    assert ("state", "A", 0) in sdk.calls
-    assert sdk.calls[-1] == ("release",)
+    assert robot.calls[-1] == ("drag_exit",)
 
 
-def test_tianji_drag_partial_start_failure_still_disables_and_releases() -> None:
-    sdk = _FakeDragMarvin(failed_arm="B")
-    config = {
-        "robot": {
-            "type": "tianji_taccap",
-            "options": {"execute": True, "hardware": {"ip": "192.168.1.190"}},
-        }
-    }
-    recovery = _TianjiRecovery(
-        config,
-        sdk_factory=lambda: (sdk, object()),
-        sleep=lambda duration: time.sleep(min(duration, 0.001)),
-    )
+def test_tianji_drag_failure_is_reported_and_rejects_parallel_requests() -> None:
+    robot = _FakeRecoveryRobot(fail="drag")
+    recovery = _recovery(robot)
     recovery.update(
         {
-            "recovery_request": "drag:AB",
+            "recovery_request": "drag:B",
             "recovery_request_id": "drag-1",
             "recovery_lease": True,
         }
@@ -628,8 +466,7 @@ def test_tianji_drag_partial_start_failure_still_disables_and_releases() -> None
 
     failed = _wait_for_recovery(recovery, "error")
 
-    assert "Arm B failed to enter torque mode" in failed["error"]
-    for arm in "AB":
-        assert ("drag", arm, 0) in sdk.calls
-        assert ("state", arm, 0) in sdk.calls
-    assert sdk.calls[-1] == ("release",)
+    assert "right: failed to enter torque mode" in failed["error"]
+    assert failed["arm"] == "B"
+    recovery.update({"recovery_request": "drag:C", "recovery_request_id": "drag-2"})
+    assert recovery.metadata()["error"] == "Unsupported drag arm: C"
