@@ -1,0 +1,115 @@
+# Pack-plate counterpart of the local pass-ball DP deployment.
+# Bind a checkpoint before using this template with a real station.
+run:
+  task: pack the plate
+  output_dir: ./data/experiments/umi-dp-tianji-pack-plate-tracker-fixed-diff
+  max_steps: 2400
+robot:
+  type: tianji_taccap
+  config: ../../embodiment/robot/tianji_taccap.yaml
+  control_hz: 100.0
+  group_dims:
+    left_arm: 8
+    right_arm: 8
+  options:
+    execute: false
+    end_effector_control: false
+    hardware:
+      stale_timeout_s: 0.1
+    component_hardware:
+      left_arm:
+        velocity_ratio: 20
+      right_arm:
+        velocity_ratio: 20
+sensors:
+  - name: tianji_wrist_history
+    driver: manimux.embodiments.sensor.camera_server.timestamped:build_sensor
+    service: camera
+    options:
+      camera_names: [left_wrist, right_wrist]
+      max_frame_age_sec: 0.15
+      clock_jump_tolerance_s: 0.02
+      output_names:
+        left_wrist: left_wrist_camera
+        right_wrist: right_wrist_camera
+viewer:
+  enabled: true
+  robot: tianji-taccap
+  policy_label: UMI DP / Tianji-TacCap / pack plate / tracker fixed epoch20 / async
+recording:
+  enabled: true
+policy:
+  worker: xpolicylab_ws
+  action_decoding: process
+  action_dt_s: 0.03333333333333333
+  horizon_steps: 16
+  timeout_s: 30.0
+  startup_timeout_s: 120.0
+  adapter:
+    type: manimux.policy_adapter.umi_dp.tianji:UmiDpTianjiAdapter
+    deployment_bound: false
+    group_order: [left_arm, right_arm]
+    group_prefixes:
+      left_arm: left
+      right_arm: right
+    gripper_dofs: 1
+    camera_map:
+      cam_left_wrist: left_wrist_camera
+      cam_right_wrist: right_wrist_camera
+      cam_left_wrist_prev: left_wrist_camera_prev
+      cam_right_wrist_prev: right_wrist_camera_prev
+    observation_period_s: 0.1
+    observation_tolerance_s: 0.04
+    # Match row 0 to the checkpoint's first action, one source frame after observation.
+    first_action_offset_s: 0.03333333333333333
+    state_tolerance_s: 0.02
+    camera_skew_s: 0.04
+    ik_validation_dt_s: 0.004
+    ik_backend: diff
+    execute_diff_ik_substeps: false
+    diff_ik:
+      max_velocity_rad_s: 0.5654866776461628
+      dt_max_s: 0.016
+      w_pos: 1.0
+      w_rot: 1.0
+      lam: 0.001
+      check_j67: true
+      mu_nullspace: 1000.0
+      nullspace_activation_deg: 25.0
+      limit_margin_deg: null
+      j67_margin_deg: null
+      max_lag_mm: 5.0
+      max_lag_deg: null
+      lag_policy: report
+  expected_backend:
+    server: xpolicylab_policy_server
+    model:
+      policy_family: umi_dp
+      observation_profile: tianji_umi_relative2
+      action_semantics: absolute_per_arm_base_xyz_wxyz
+  options:
+    connect_timeout_s: 30.0
+    request_timeout_s: 30.0
+policy_server:
+  config: ../../policy/umi_dp/tianji/pack_plate/default.yaml
+camera_server:
+  cameras:
+    left_wrist: {component: left_wrist_camera, type: taccap}
+    right_wrist: {component: right_wrist_camera, type: taccap}
+inference:
+  algorithm: manimux
+  inference_schedule: single_inflight
+  refill_threshold_s: 0.25
+  strategy: manimux.policy_adapter.umi_dp.history:build_strategy
+  commit_lead_s: 0.02
+  expected_decode_s: 0.08
+  decode_forecast_size: 10
+  decode_forecast_mode: max
+  max_plan_age_s: 2.0
+  blend_steps: 2
+executor:
+  type: smooth
+  config: ../../executor/tianji_taccap_smooth.yaml
+  motion_limits:
+    arm:
+      max_velocity: 0.5654866776461628
