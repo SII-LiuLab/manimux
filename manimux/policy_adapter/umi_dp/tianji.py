@@ -59,6 +59,12 @@ class UmiDpTianjiAdapter(PolicyAdapter):
         self.horizon = policy["horizon_steps"]
         self.dt_ns = round(action_interval(policy) * 1e9)
         self.offset_ns = round(float(policy["adapter"]["first_action_offset_s"]) * 1e9)
+        self.gripper_output_deadzone = float(
+            policy["adapter"].get("gripper_output_deadzone", 0.0)
+        )
+        self.gripper_output_exponent = float(
+            policy["adapter"].get("gripper_output_exponent", 1.0)
+        )
         self.execute_diff_ik_substeps = policy["adapter"].get(
             "execute_diff_ik_substeps", False
         )
@@ -139,6 +145,12 @@ class UmiDpTianjiAdapter(PolicyAdapter):
             options["first_action_offset_s"] < 0
         ):
             raise ValueError("adapter.first_action_offset_s must be finite and non-negative")
+        deadzone = float(options.get("gripper_output_deadzone", 0.0))
+        exponent = float(options.get("gripper_output_exponent", 1.0))
+        if not math.isfinite(deadzone) or not 0 <= deadzone < 1:
+            raise ValueError("adapter.gripper_output_deadzone must be in [0, 1)")
+        if not math.isfinite(exponent) or exponent <= 0:
+            raise ValueError("adapter.gripper_output_exponent must be positive and finite")
         identity = {} if policy["expected_backend"] is None else policy["expected_backend"]["model"]
         if identity.get("action_semantics") != SEMANTICS:
             raise ValueError(
@@ -271,6 +283,27 @@ class UmiDpTianjiAdapter(PolicyAdapter):
                 rows.append((pose_matrix(step[f"{side}_ee_pose"]), float(grip[0])))
             targets[f"{side}_arm"] = rows
         return targets
+
+    def _map_gripper_steps(self, steps):
+        """Map model apertures to robot apertures before IK and timeline handoff."""
+        if self.gripper_output_deadzone == 0.0 and self.gripper_output_exponent == 1.0:
+            return steps
+        mapped_steps = []
+        for step in steps:
+            mapped = dict(step)
+            for side in ("left", "right"):
+                key = f"{side}_ee_joint_state"
+                grip = np.asarray(step[key], dtype=float)
+                if grip.shape != (1,) or not np.isfinite(grip).all() or not 0 <= grip[0] <= 1:
+                    raise ValueError("UMI gripper action must lie in [0, 1]")
+                scaled = max(
+                    0.0,
+                    (float(grip[0]) - self.gripper_output_deadzone)
+                    / (1.0 - self.gripper_output_deadzone),
+                )
+                mapped[key] = np.array([scaled**self.gripper_output_exponent])
+            mapped_steps.append(mapped)
+        return mapped_steps
 
     def _handoff_steps(self, targets):
         """targets: per group speed-limited (TCP pose, aperture) rows; returns action rows."""
@@ -446,6 +479,7 @@ class UmiDpTianjiAdapter(PolicyAdapter):
                 "UMI-DP IK seed time must equal the request observation time "
                 f"({context.measured_state.monotonic_ns} != {context.observation_time_ns})"
             )
+        steps = self._map_gripper_steps(steps)
         action_origin = context.observation_time_ns + self.offset_ns
         handoff = None
         if context.handoff_reference is not None and self.waypoint_handoff is not None:
@@ -517,6 +551,8 @@ class UmiDpTianjiAdapter(PolicyAdapter):
                 "ik_backend": self.ik_backend,
                 "ik_seed_source": self.decode_seed_source,
                 "ik_seed_time_ns": context.measured_state.monotonic_ns,
+                "gripper_output_deadzone": self.gripper_output_deadzone,
+                "gripper_output_exponent": self.gripper_output_exponent,
                 **(
                     {
                         "execute_diff_ik_substeps": True,

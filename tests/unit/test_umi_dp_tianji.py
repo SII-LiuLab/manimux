@@ -309,6 +309,34 @@ def test_adapter_decodes_both_arms_from_observation_state(adapter):
         model.decode_action_partition(raw, context, "middle_arm")
 
 
+def test_gripper_output_curve_is_task_scoped_and_matches_process_partitions(adapter):
+    default_model, _, config = adapter
+    request = request_for(default_model)
+    raw = actions_for(request, default_model.horizon)
+    inputs = [0.0, 0.1, 0.55, 1.0]
+    for row, opening in enumerate(inputs):
+        for side in ("left", "right"):
+            raw["actions"][row][f"{side}_ee_joint_state"][0] = opening
+    context = ActionContext(1, 10**9, 10**9, measured_state=request.observation.state)
+
+    unchanged = default_model.decode_action(raw, context)
+    np.testing.assert_allclose(unchanged.groups["left_arm"][:4, 7], inputs)
+
+    config["policy"]["adapter"].update(
+        gripper_output_deadzone=0.1,
+        gripper_output_exponent=2.0,
+    )
+    curved_model = policy_plugin.UmiDpTianjiAdapter(config["robot"], config["policy"])
+    curved = curved_model.decode_action(raw, context)
+    for group in ("left_arm", "right_arm"):
+        np.testing.assert_allclose(curved.groups[group][:4, 7], [0.0, 0.0, 0.25, 1.0])
+        partition = curved_model.decode_action_partition(raw, context, group)
+        np.testing.assert_array_equal(partition.groups[group], curved.groups[group])
+    assert raw["actions"][2]["left_ee_joint_state"][0] == 0.55
+    assert curved.metadata["gripper_output_deadzone"] == 0.1
+    assert curved.metadata["gripper_output_exponent"] == 2.0
+
+
 @pytest.mark.parametrize("failure", ["horizon", "quaternion", "gripper", "missing_history"])
 def test_adapter_rejects_contract_errors(adapter, failure):
     model, _, _ = adapter

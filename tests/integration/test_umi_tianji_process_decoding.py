@@ -341,6 +341,8 @@ def test_umi_tianji_per_arm_processes_match_inline_diff_decode():
     config["policy"]["horizon_steps"] = 64
     config["policy"]["adapter"]["ik_backend"] = "diff"
     config["policy"]["adapter"]["execute_diff_ik_substeps"] = True
+    config["policy"]["adapter"]["gripper_output_deadzone"] = 0.1
+    config["policy"]["adapter"]["gripper_output_exponent"] = 2.0
     bind_diff_ik_profile(config)
     adapter = UmiDpTianjiAdapter(config["robot"], config["policy"])
     actions = []
@@ -391,6 +393,9 @@ def test_umi_tianji_per_arm_processes_match_inline_diff_decode():
         for side in ("left", "right"):
             np.testing.assert_allclose(
                 chunk.groups[side + "_arm"], inline.groups[side + "_arm"], atol=1e-9, rtol=0
+            )
+            np.testing.assert_allclose(
+                chunk.groups[side + "_arm"][:, 7], ((0.8 - 0.1) / 0.9) ** 2
             )
             np.testing.assert_allclose(
                 chunk.runtime_trajectory.groups[side + "_arm"],
