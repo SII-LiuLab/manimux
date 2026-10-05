@@ -8,8 +8,10 @@ name: tianji-taccap
 home:
   name: dp_start_20260910
   joints_deg:
-    left_arm: [102.5, -35.41, -66.17, -113.35, -48.69, -3.29, 28.56]
-    right_arm: [-91.29, -33.98, 58.55, -103.75, 45.36, -7.94, -11.5]
+    # left_arm: [102.5, -35.41, -66.17, -113.35, -48.69, -3.29, 28.56]
+    # right_arm: [-91.29, -33.98, 58.55, -103.75, 45.36, -7.94, -11.5] #pass-ball
+    left_arm: [89.549, -32.95, -52.6334, -127.1007, -54.3386, 4.6073, 54.6561]
+    right_arm: [-88.6985, -13.1926, 37.6683, -117.9514, 50.1699, -34.0801, -32.0042] #pack-plate
   # Recording metadata from the source; these are not current controller states.
   recorded_state:
     left_arm: {state: disabled, error: 0}

@@ -1,0 +1,114 @@
+# Task-specific Home from the documented pass-ball joints in tianji_taccap.yaml.
+# Confirm physical clearance before any Home/Prepare operation.
+name: tianji-taccap
+home:
+  name: pass_ball_dp_start
+  joints_deg:
+    left_arm:
+    - 102.5
+    - -35.41
+    - -66.17
+    - -113.35
+    - -48.69
+    - -3.29
+    - 28.56
+    right_arm:
+    - -91.29
+    - -33.98
+    - 58.55
+    - -103.75
+    - 45.36
+    - -7.94
+    - -11.5
+hardware:
+  stale_timeout_s: 0.2
+  ready_timeout_s: 3.0
+  max_tracking_error_deg: 10
+components:
+  left_arm:
+    config: ../arm/tianji_left.yaml
+    hardware:
+      drag_tool:
+        kine:
+        - -36.745
+        - 0.0
+        - 169.45
+        - 0.0
+        - -90.0
+        - 180.0
+        dynamic:
+        - 0.7592901345868115
+        - -26.297010972083665
+        - -5.114926721017194
+        - 79.87115777180252
+        - 0.008816778161434263
+        - 0.0
+        - 0.0
+        - 0.001
+        - 0.0
+        - 0.0008785353008534495
+  right_arm:
+    config: ../arm/tianji_right.yaml
+    hardware:
+      drag_tool:
+        kine:
+        - -36.745
+        - 0.0
+        - 169.45
+        - 0.0
+        - -90.0
+        - 180.0
+        dynamic:
+        - 0.7388190421557731
+        - -31.69050032486985
+        - -7.5863175968931635
+        - 82.72853176515602
+        - 0.004192653302493302
+        - 0.0
+        - 0.0
+        - 0.001
+        - 0.0
+        - 0.0026402611847252235
+  left_end_effector:
+    config: ../end_effector/taccap.yaml
+    hardware:
+      side: left
+    parent: left_arm.flange
+    mount:
+      xyz:
+      - -0.01575
+      - 0.0
+      - 0.0505
+      rpy:
+      - 3.141592653589793
+      - -1.5707963267948966
+      - 0.0
+  right_end_effector:
+    config: ../end_effector/taccap.yaml
+    hardware:
+      side: right
+    parent: right_arm.flange
+    mount:
+      xyz:
+      - -0.01575
+      - 0.0
+      - 0.0505
+      rpy:
+      - 3.141592653589793
+      - -1.5707963267948966
+      - 0.0
+  left_wrist_camera:
+    config: ../sensor/taccap.yaml
+    parent: left_end_effector.base
+    mount: null
+  right_wrist_camera:
+    config: ../sensor/taccap.yaml
+    parent: right_end_effector.base
+    mount: null
+groups:
+  left_arm:
+    arm: left_arm
+    end_effector: left_end_effector
+  right_arm:
+    arm: right_arm
+    end_effector: right_end_effector

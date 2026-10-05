@@ -165,7 +165,7 @@ class TacCapGripper(GripperBase):
                     opening,
                     kp_nm_per_rad=self._kp,
                     kd_nm_s_per_rad=self._kd,
-                    feedforward_torque_nm=0.0,
+                    feedforward_torque_nm=0.0
                 )
             except Exception as error:
                 try:

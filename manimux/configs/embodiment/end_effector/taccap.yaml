@@ -3,5 +3,5 @@ type: end_effector
 implementation: manimux.embodiments.end_effector.taccap:TacCapGripper
 options: {}
 hardware:
-  kp: 8.0
+  kp: 16.0
   kd: 0.3
