@@ -221,3 +221,77 @@ def test_server_rejects_unknown_types_and_keys(by_id: Path, tmp_path: Path) -> N
     with pytest.raises(ValueError, match="device_id"):
         camera_server._build_cameras_from_config(bad_key, by_id_root=by_id)
     assert FakeCamera.instances == []
+
+
+class RecordingSocket:
+    def __init__(self) -> None:
+        self.messages: list[dict] = []
+
+    def send(self, data: bytes, copy: bool = True) -> None:
+        import pickle
+
+        self.messages.append(pickle.loads(data))
+
+
+def _taccap_with_frame(timestamp: float) -> TacCapCamera:
+    camera = object.__new__(TacCapCamera)
+    camera._camera_serial = "test"
+    camera._max_frame_age_sec = 5.0
+    camera._frame_lock = threading.Lock()
+    camera._latest_color_image = np.zeros((2, 2, 3), dtype=np.uint8)
+    camera._latest_frame_timestamp = timestamp
+    return camera
+
+
+def _run_pub_loop(server: camera_server.CameraServer, seconds: float) -> None:
+    thread = threading.Thread(target=server._pub_loop, daemon=True)
+    thread.start()
+    time.sleep(seconds)
+    server._stop_event.set()
+    thread.join(timeout=1.0)
+    assert not thread.is_alive()
+
+
+def test_taccap_server_publishes_each_new_frame_once() -> None:
+    start = time.time()
+    left, right = _taccap_with_frame(start), _taccap_with_frame(start + 0.01)
+    server = camera_server.CameraServer({"left_wrist": left, "right_wrist": right})
+    server._pub = RecordingSocket()
+    thread = threading.Thread(target=server._pub_loop, daemon=True)
+    thread.start()
+    try:
+        time.sleep(0.05)
+        # Unchanged frames are published once, not at the PUB period.
+        assert len(server._pub.messages) == 1
+        with left._frame_lock:
+            left._latest_frame_timestamp = start + 0.02
+        time.sleep(0.05)
+        assert len(server._pub.messages) == 2
+        latest = server._pub.messages[-1]["timestamps"]
+        assert latest == {"left_wrist": start + 0.02, "right_wrist": start + 0.01}
+    finally:
+        server._stop_event.set()
+        thread.join(timeout=1.0)
+    assert not thread.is_alive()
+
+
+def test_taccap_server_waits_for_first_frames() -> None:
+    camera = _taccap_with_frame(time.time())
+    camera._latest_frame_timestamp = None
+    server = camera_server.CameraServer({"left_wrist": camera})
+    server._pub = RecordingSocket()
+    _run_pub_loop(server, 0.03)
+    assert server._pub.messages == []
+
+
+def test_other_camera_types_keep_fixed_period_stream() -> None:
+    class FixedCamera:
+        def read_with_timestamp(self):  # type: ignore[no-untyped-def]
+            return np.zeros((2, 2, 3), dtype=np.uint8), None, 10.0
+
+    server = camera_server.CameraServer({"front": FixedCamera()}, pub_period_sec=0.01)
+    server._pub = RecordingSocket()
+    _run_pub_loop(server, 0.1)
+    # The same frame is republished every period, as before.
+    assert len(server._pub.messages) >= 3
+    assert {message["timestamps"]["front"] for message in server._pub.messages} == {10.0}

@@ -11,9 +11,10 @@ REP  ``tcp://127.0.0.1:5555``  (default)
     pickled response dict. Used by the policy for on-demand obs.
 
 PUB  ``tcp://127.0.0.1:5556``  (default, optional)
-    Push semantics. Server publishes the latest obs every ``pub_period_sec``.
-    Intended for the cv2 live viewer so it can render at camera rate without
-    burning policy-side requests.
+    Push semantics. Server publishes the latest obs every ``pub_period_sec``;
+    a server whose cameras are all TacCap publishes as soon as any camera has a
+    new frame instead. Used by the cv2 live viewer and by timestamped runtime
+    sensors.
 
 Request protocol
 ----------------
@@ -46,7 +47,7 @@ import yaml
 import zmq
 
 from manimux.cli import read_experiment, read_yaml, resolve_local_path
-from manimux.embodiments.sensor.taccap.sensor import V4L_BY_ID
+from manimux.embodiments.sensor.taccap.sensor import V4L_BY_ID, TacCapCamera
 
 logger = logging.getLogger("camera_server")
 
@@ -59,6 +60,8 @@ TACCAP_KEYS = frozenset(
 DEFAULT_REP_ENDPOINT = "tcp://127.0.0.1:5555"
 DEFAULT_PUB_ENDPOINT = "tcp://127.0.0.1:5556"
 DEFAULT_PUB_PERIOD_SEC = 1.0 / 30.0
+# TacCap-only servers check for new frames at this interval instead of the PUB period.
+NEW_FRAME_POLL_SEC = 0.001
 DEFAULT_HEARTBEAT_SEC = 10.0
 
 
@@ -171,6 +174,11 @@ class CameraServer:
 
     def _pub_loop(self) -> None:
         assert self._pub is not None
+        # Every TacCap frame carries its own receipt time, so publish each new
+        # frame immediately; other camera types keep the fixed-period stream.
+        if self.cameras and all(isinstance(cam, TacCapCamera) for cam in self.cameras.values()):
+            self._pub_new_frames()
+            return
         next_tick = time.time()
         while not self._stop_event.is_set():
             now = time.time()
@@ -184,6 +192,24 @@ class CameraServer:
                 self._pub.send(pickle.dumps(resp), copy=False)
             except Exception as exc:  # noqa: BLE001 — pub is best-effort
                 logger.warning("PUB tick failed: %s", exc)
+
+    def _pub_new_frames(self) -> None:
+        """Publish the bundle whenever any camera's latest frame timestamp changes."""
+        assert self._pub is not None
+        published = None
+        while not self._stop_event.is_set():
+            stamps = tuple(cam._latest_frame_timestamp for cam in self.cameras.values())
+            if None in stamps or stamps == published:
+                time.sleep(NEW_FRAME_POLL_SEC)
+                continue
+            try:
+                resp = self._snapshot()
+                self._pub.send(pickle.dumps(resp), copy=False)
+                published = tuple(resp["timestamps"][name] for name in self.cameras)
+            except Exception as exc:  # noqa: BLE001 — pub is best-effort
+                # Retry only after another frame arrives, not every poll.
+                published = stamps
+                logger.warning("PUB new frame failed: %s", exc)
 
     def _maybe_heartbeat(self) -> None:
         now = time.time()
