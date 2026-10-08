@@ -21,6 +21,10 @@ robot:
         velocity_ratio: 20
       right_arm:
         velocity_ratio: 20
+      left_end_effector:
+        read_hz: 100.0
+      right_end_effector:
+        read_hz: 100.0
 sensors:
   - name: tianji_wrist_history
     driver: manimux.embodiments.sensor.camera_server.timestamped:build_sensor

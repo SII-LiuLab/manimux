@@ -16,6 +16,11 @@ robot:
     end_effector_control: false
     hardware:
       stale_timeout_s: 0.1
+    component_hardware:
+      left_end_effector:
+        read_hz: 100.0
+      right_end_effector:
+        read_hz: 100.0
 sensors:
 - name: tianji_wrist_cameras
   driver: manimux.embodiments.sensor.camera_server.timestamped:build_sensor
