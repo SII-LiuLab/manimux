@@ -17,9 +17,11 @@ from manimux.types import (
 class CommitResult:
     accepted: bool
     reason: str
-    trimmed_steps: int = 0
+    trimmed_steps: int = 0  # Rows removed from this chunk at commit.
     timeline_latency_ns: int = 0
     time_trimmed_steps: int = 0
+    # Intentional skip. A waypoint chunk skipped these rows before decoding,
+    # so they are not part of trimmed_steps.
     handoff_skipped_steps: int = 0
 
 
@@ -154,8 +156,9 @@ class ActionTimeline:
         # Earliest wall-clock time at which the committed plan may start.
         earliest_ns = now_ns + commit_lead_ns
         if chunk.handoff is not None:
-            if handoff_skip_steps:
-                return CommitResult(False, "handoff_skip_waypoint_unsupported")
+            # The adapter planned the lead-in to the skipped row; it cannot be trimmed here.
+            if chunk.handoff.skipped_steps != handoff_skip_steps:
+                return CommitResult(False, "handoff_skip_mismatch")
             # A waypoint handoff already replaced the blend before embodiment decoding.
             if blend_steps:
                 raise ValueError("waypoint handoff chunks must not be blended again")
@@ -179,7 +182,9 @@ class ActionTimeline:
         # Skip source actions without moving the time at which the new plan starts.
         # The first plan has no outgoing chunk to hand off from.
         handoff_skipped_steps = handoff_skip_steps if self._active is not None else 0
-        trimmed_steps = time_trimmed_steps + handoff_skipped_steps
+        # Rows this commit removes for the skip; a waypoint chunk arrives already skipped.
+        row_skip_steps = 0 if chunk.handoff is not None else handoff_skipped_steps
+        trimmed_steps = time_trimmed_steps + row_skip_steps
         end = chunk.horizon_steps
         if self._max_source_steps is not None:
             end = min(end, self._max_source_steps - chunk.source_offset_steps)
@@ -248,9 +253,7 @@ class ActionTimeline:
                 runtime_start_time_ns = (
                     runtime.start_time_ns + runtime_time_index * runtime.dt_ns
                 )
-            runtime_skip_steps = round(
-                handoff_skipped_steps * chunk.dt_ns / runtime.dt_ns
-            )
+            runtime_skip_steps = round(row_skip_steps * chunk.dt_ns / runtime.dt_ns)
             runtime_start_index = runtime_time_index + runtime_skip_steps
             if runtime_start_index >= runtime_end_index:
                 return CommitResult(False, "no_future_runtime_horizon")
@@ -283,7 +286,7 @@ class ActionTimeline:
                     start_time_ns + max(0, step - trimmed_steps) * chunk.dt_ns
                     if self._start_on_commit
                     else chunk.observation_time_ns
-                    + (chunk.source_offset_steps + step - handoff_skipped_steps) * chunk.dt_ns
+                    + (chunk.source_offset_steps + step - row_skip_steps) * chunk.dt_ns
                 )
                 relative_ns = invalid_time_ns - runtime_start_time_ns
                 first_invalid = max(

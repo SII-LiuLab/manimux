@@ -563,6 +563,13 @@ class EdgeRuntime:
                                         execution_time_ns=start_ns,
                                         measured_state=seed,
                                         handoff_reference=handoff_reference,
+                                        # A waypoint lead-in is planned to the skipped row,
+                                        # so the skip happens here instead of at commit.
+                                        handoff_skip_steps=(
+                                            0
+                                            if handoff_reference is None
+                                            else self._config["inference"]["handoff_skip_steps"]
+                                        ),
                                         max_source_steps=self._config["inference"][
                                             "max_chunk_steps"
                                         ],

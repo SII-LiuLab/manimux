@@ -34,11 +34,12 @@ class WaypointHandoffConfig(BaseModel):
 class HandoffPlan:
     plan_id: str  # Outgoing runtime plan the handoff starts from.
     time_ns: int  # Handoff time t_s', on the new runtime grid.
-    join_row: int  # First source row after the handoff time; earlier rows are dropped.
+    join_row: int  # First source time slot after the handoff time; earlier slots are dropped.
     start_state: GroupVector  # Outgoing command at time_ns, the dense IK seed.
     lead_in: dict[str, list[PoseTarget]]  # Per group, one target per runtime_dt up to join_row.
     targets: dict[str, list[PoseTarget]]  # Per group, speed-limited rows after join_row.
     limited_rows: int  # Rows (all groups) whose target was not reached by its row time.
+    skipped_steps: int  # Source rows skipped: slot k holds row k + skipped_steps.
 
 
 class WaypointHandoff:
@@ -120,14 +121,19 @@ class WaypointHandoff:
         targets: Mapping[str, Sequence[PoseTarget]],
         fk: Mapping[str, Callable[[np.ndarray], PoseTarget]],
     ) -> HandoffPlan:
-        """context: carries handoff_reference and execution_time_ns; origin_ns: time of source
-        row 0; targets: per group model rows as (pose, gripper); fk: per group, state row ->
-        (pose, gripper). All groups share one join row so decode partitions agree."""
+        """context: carries handoff_reference, execution_time_ns and handoff_skip_steps;
+        origin_ns: time of source row 0; targets: per group model rows as (pose, gripper); fk:
+        per group, state row -> (pose, gripper). All groups share one join row so decode
+        partitions agree. A skip moves later rows up without moving the handoff time."""
         reference = context.handoff_reference
         earliest_ns = context.execution_time_ns
+        skip = context.handoff_skip_steps
         if reference is None or earliest_ns is None:
             raise ValueError("waypoint handoff requires a reference and an execution time")
-        horizon = len(next(iter(targets.values())))
+        if type(skip) is not int or skip < 0:
+            raise ValueError("waypoint handoff skip must be a non-negative integer")
+        # Time slots on the source grid; slot k holds row k + skip, so the tail loses skip slots.
+        horizon = len(next(iter(targets.values()))) - skip
         for row in range(horizon):
             row_ns = origin_ns + row * self.source_dt_ns
             steps = (row_ns - earliest_ns) // self.runtime_dt_ns
@@ -143,7 +149,7 @@ class WaypointHandoff:
             start_pose, start_grip = fk[group](state[group])
             pose, previous_ns, rows = start_pose, time_ns, []
             for index in range(row, horizon):
-                target, grip = targets[group][index]
+                target, grip = targets[group][index + skip]
                 index_ns = origin_ns + index * self.source_dt_ns
                 pose, limited = self.limit_step(pose, target, index_ns - previous_ns)
                 limited_rows += limited
@@ -159,7 +165,7 @@ class WaypointHandoff:
             ]
             limited_targets[group] = rows[1:]
         return HandoffPlan(
-            reference.plan_id, time_ns, row, state, lead_in, limited_targets, limited_rows
+            reference.plan_id, time_ns, row, state, lead_in, limited_targets, limited_rows, skip
         )
 
     def finish(self, chunk: ActionChunk, plan: HandoffPlan) -> ActionChunk:
@@ -175,7 +181,9 @@ class WaypointHandoff:
         }
         runtime.start_time_ns = plan.time_ns
         chunk.source_offset_steps = plan.join_row
-        chunk.handoff = AppliedHandoff(plan.plan_id, plan.time_ns, plan.start_state)
+        chunk.handoff = AppliedHandoff(
+            plan.plan_id, plan.time_ns, plan.start_state, plan.skipped_steps
+        )
         chunk.metadata.update(
             handoff_mode="waypoint",
             handoff_time_ns=plan.time_ns,

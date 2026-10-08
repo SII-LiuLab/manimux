@@ -111,6 +111,9 @@ class ActionContext:
     independent_groups: bool = False
     # Outgoing runtime rows around execution_time_ns for a waypoint handoff.
     handoff_reference: ActionHorizon | None = None
+    # Source rows a waypoint handoff skips: row join+skip occupies the join row's
+    # time and later rows move up with it; the handoff time does not change.
+    handoff_skip_steps: int = 0
 
 
 @dataclass(slots=True)
@@ -138,6 +141,7 @@ class AppliedHandoff:
     plan_id: str  # Runtime plan the handoff starts from.
     time_ns: int  # Handoff time; the outgoing plan runs until then.
     reference: GroupVector  # Outgoing command at time_ns used as the decode seed.
+    skipped_steps: int = 0  # Source rows the adapter skipped before planning the lead-in.
 
 
 @dataclass(slots=True)

@@ -249,8 +249,10 @@ def validate_inference_parameters(values: dict, executor: dict, *, provided=froz
         raise ValueError(
             "inference.handoff=waypoint requires the manimux or rtc algorithm and blend_steps=0"
         )
-    if values["handoff"] == "waypoint" and skip_steps:
-        raise ValueError("inference.handoff_skip_steps cannot skip a waypoint handoff")
+    # RTC conditions the new chunk on the unshifted time grid; a waypoint skip would
+    # move that guided prefix by whole rows.
+    if values["handoff"] == "waypoint" and skip_steps and values["algorithm"] != "manimux":
+        raise ValueError("inference.handoff_skip_steps with a waypoint handoff requires manimux")
     if values["inference_schedule"] == "serial":
         if values["algorithm"] != "manimux":
             raise ValueError("serial scheduling requires inference.algorithm=manimux")
