@@ -766,9 +766,13 @@ class EdgeRuntime:
                                             request_seq=response.request_seq,
                                             observation_time_ns=response.observation_time_ns,
                                             created_time_ns=response.finished_time_ns,
+                                            # Only latency-trimming timelines may let the
+                                            # adapter drop elapsed rows before decoding.
                                             execution_time_ns=(
                                                 now_ns
                                                 if self._strategy.name in {"manimux", "rtc"}
+                                                and self._config["inference"]["action_start_mode"]
+                                                == "drop_infer_latency"
                                                 else None
                                             ),
                                             measured_state=(
