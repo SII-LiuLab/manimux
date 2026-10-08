@@ -39,7 +39,7 @@ when `initial_pose` is omitted, but cannot override a selected Home pose.
 
 The assembly config supplies the shared target. `TianjiTaccapRobot.home()` remains
 unsupported, while the idle `manimux serve` recovery path executes Viewer **Return Home**
-as a 6 deg/s cosine joint trajectory. It preserves measured gripper apertures, confirms
+as a 9 deg/s cosine joint trajectory. It preserves measured gripper apertures, confirms
 arrival within 0.5 degrees, then disables and releases the robot. Loading or displaying
 Home alone never moves hardware.
 

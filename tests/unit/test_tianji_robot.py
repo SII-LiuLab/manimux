@@ -369,8 +369,8 @@ def test_home_follows_profile_settles_then_opens_grippers(setup, monkeypatch):
     left = [
         entry[2][0] for batch in sdk.batches for entry in batch if entry[:2] == ("target", "A")
     ]
-    # The right arm's 3 degrees at a 6 deg/s cosine peak: about 0.79 s at 100 Hz.
-    assert 75 <= len(left) <= 90
+    # The right arm's 3 degrees at a 9 deg/s cosine peak: about 0.52 s at 100 Hz.
+    assert 50 <= len(left) <= 62
     assert np.all(np.diff(left) >= -1e-9) and max(left) == pytest.approx(12.0)
     state = robot.get_state()
     np.testing.assert_allclose(state.groups["left"][:7], targets["left"])

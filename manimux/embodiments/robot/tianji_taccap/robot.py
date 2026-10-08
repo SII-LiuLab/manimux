@@ -19,9 +19,9 @@ from manimux.embodiments.robot.base import RobotBase, RobotModel
 from manimux.kinematics.base import KinematicCoordinate, ManipulatorKinematicsBase
 from manimux.types import FloatArray, RobotCommand
 
-# Same Home profile as the previous Viewer recovery: 6 deg/s peak cosine at 100 Hz.
+# Home profile: 9 deg/s peak cosine at 100 Hz.
 _HOME_HZ = 100.0
-_HOME_SPEED_DEG_S = 6.0
+_HOME_SPEED_DEG_S = 9.0
 _HOME_TOLERANCE_DEG = 0.5
 _SETTLE_TIMEOUT_S = 5.0
 
@@ -160,7 +160,7 @@ class TianjiTaccapRobot(RobotBase):
     def home(self) -> None:
         """Move connected arms to model.home_joints, then fully open the grippers.
 
-        The arms follow one cosine profile peaking at 6 deg/s and must settle within
+        The arms follow one cosine profile peaking at 9 deg/s and must settle within
         0.5 degrees. Grippers open only with end-effector control. No-op without execute.
         """
         if not self._execute:
