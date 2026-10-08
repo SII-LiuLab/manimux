@@ -60,6 +60,7 @@ feedback, calibration and lifecycle limitations.
 | Pi05 / OpenPI on YAM | [Joint](../deployment/pi05-yam.md) · [EEF](../deployment/pi05-yam-eef.md) |
 | DP on YAM | [Absolute EEF](../deployment/dp-yam.md) |
 | SAPolicy on YAM | [Joint/EEF and camera mapping](../deployment/sapolicy-yam.md) |
+| ABC-DiT on YAM | [Pretrained 200k, Serial/RTC](../deployment/abc-dit-yam.md) |
 | GR00T N1.7 on YAM | [Deployment and RTC](../deployment/gr00t-yam.md) |
 | LingBot-VLA2 on YAM | [Action semantics and deployment](../deployment/lingbot-vla2-yam.md) |
 | Xiaomi XR-1 | [YAM](../deployment/xiaomi-xr1-yam.md) · [Tianji–TacCap](../deployment/xiaomi-xr1-tianji-taccap.md) |

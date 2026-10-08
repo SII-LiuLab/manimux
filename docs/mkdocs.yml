@@ -91,6 +91,7 @@ nav:
       - Pi05 EEF / YAM: deployment/pi05-yam-eef.md
       - DP / YAM: deployment/dp-yam.md
       - SAPolicy / YAM: deployment/sapolicy-yam.md
+      - ABC-DiT / YAM: deployment/abc-dit-yam.md
       - GR00T / YAM: deployment/gr00t-yam.md
       - LingBot-VLA2 / YAM: deployment/lingbot-vla2-yam.md
       - XR-1 / YAM: deployment/xiaomi-xr1-yam.md

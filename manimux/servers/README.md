@@ -6,7 +6,7 @@
 | --- | --- |
 | `manimux.servers.camera.server` | 打开配置的相机，提供 ZMQ 图像服务 |
 | `manimux.servers.pi05` | 读取 Pi05 配置，启动 XPolicyLab 服务 |
-| `manimux.servers.groot` / `xr1` / `sapolicy` / `isaac05` | 各模型已有的 XPolicyLab 启动与配置入口 |
+| `manimux.servers.groot` / `xr1` / `sapolicy` / `abc_dit` / `isaac05` | 各模型已有的 XPolicyLab 启动与配置入口 |
 | `manimux.servers.openwam` / `umi_dp` | 启动 XPolicyLab，也支持已有的 checkpoint 配置绑定流程 |
 
 模型网络、权重加载、归一化和采样代码仍在 `XPolicyLab/policy/`；这里没有另一套模型实现。

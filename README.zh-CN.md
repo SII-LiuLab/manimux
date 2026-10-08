@@ -52,7 +52,7 @@ ManiMux 是一个**可扩展的 real-world manipulation harness（真机操作�
 
 ## 已接入内容
 
-- **有机器人部署配置的策略（8 类）：** Pi05、DP、SAPolicy、GR00T N1.7、LingBot-VLA2、Xiaomi XR-1、UMI DP、OpenWAM。
+- **有机器人部署配置的策略（9 类）：** Pi05、DP、SAPolicy、ABC-DiT、GR00T N1.7、LingBot-VLA2、Xiaomi XR-1、UMI DP、OpenWAM。
 - **有离线配置的策略（5 类）：** Isaac 0.5，以及 StarVLA 的 QwenOFT、QwenPI-v3、QwenGR00T、QwenFast。
 - **推理模式（8 种）：** Serial、异步 chunk、RTC、ACT temporal ensembling、AAC、PAINT、AutoHorizon、DVAC。
 - **硬件接入（4 种）：** YAM、Tianji–TacCap，以及实验性的 ARX X5 / PiPER。**执行器：** Direct、Smooth、MPC。

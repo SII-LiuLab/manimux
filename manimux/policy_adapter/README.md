@@ -34,6 +34,8 @@ by this directory migration; consolidating them must preserve their TCP/IK behav
 
 - `base.py`: one interface, identity observation/request hooks and abstract
   `decode_action(raw, context)`. The base assumes no joint action format.
+- `joint_mount.py`: `JointAdapter` for a joint-space model trained with its arm bases at a
+  different mount (`base_offset_m`); converts state, RTC/PAINT rows and actions by FK/translate/IK.
 - `joint.py`: canonical grouped absolute joint targets to timed trajectories. Arm values
   precede gripper values; units remain unchanged. No normalization, delta recovery,
   IK or smoothing is performed here.
