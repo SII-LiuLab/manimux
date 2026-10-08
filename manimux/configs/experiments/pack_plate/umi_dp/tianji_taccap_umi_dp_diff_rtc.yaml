@@ -50,7 +50,14 @@ policy:
       cam_right_wrist_prev: right_wrist_camera_prev
     ik_validation_dt_s: 0.004
     ik_backend: diff
-    execute_diff_ik_substeps: false
+    # Execute the joint samples already produced by differential IK instead of
+    # reconstructing each 30 Hz model segment with joint-space interpolation.
+    execute_diff_ik_substeps: true
+    # Per-segment EE speed limits for inference.handoff: waypoint (unused while
+    # handoff: blend); values from the pack-plate deployment validated on 2026-10-08.
+    handoff_waypoint:
+      max_pos_speed_m_s: 0.4
+      max_rot_speed_rad_s: 1.2
     diff_ik:
       config: ../../../embodiment/arm/tianji_diff_ik.yaml
   horizon_policy_steps: 16
