@@ -152,6 +152,11 @@ class TianjiController(ArmController):
         self._received: dict[str, int] = {}
         self._lock = threading.RLock()
 
+    @property
+    def ip(self) -> str | None:
+        """Controller address from the station binding; None while unbound."""
+        return self._ip
+
     @staticmethod
     def _check(result: object, operation: str) -> None:
         if not result:

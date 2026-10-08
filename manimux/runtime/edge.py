@@ -457,9 +457,8 @@ class EdgeRuntime:
             # 当前整机未提供手动拖动恢复；RoboGUI 不展示已退役的驱动能力。
             robogui_episode_metadata["recovery_available"] = False
             # The active runtime owns Home; idle recovery remains service-owned.
-            robogui_episode_metadata["home_available"] = bool(
-                self._config["robot"].get("options", {}).get("execute", False)
-                and self._config["robot"]["type"] == "tianji_taccap"
+            robogui_episode_metadata["home_available"] = (
+                "home" in self._robot.recovery_actions
             )
             self._robogui.set_state_metadata(robogui_episode_metadata)
             with stage("robogui_publish_event"):

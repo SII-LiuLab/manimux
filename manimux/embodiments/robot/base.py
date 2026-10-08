@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import MappingProxyType
@@ -220,6 +220,54 @@ class RobotBase(ABC):
 
     def home(self) -> None:
         raise NotImplementedError("home trajectory not configured; use the runtime motion planner")
+
+    # Idle recovery: RoboGUI may request these between rollouts. Each request builds
+    # a fresh, disconnected assembly and calls the matching method below.
+
+    @property
+    def recovery_actions(self) -> tuple[str, ...]:
+        """Supported idle recovery actions: any of "clear_error", "home" and "drag"."""
+        return ()
+
+    @property
+    def drag_selections(self) -> Mapping[str, tuple[str, ...]]:
+        """RoboGUI drag choices, mapping each label to the robot groups it moves."""
+        return MappingProxyType({})
+
+    def clear_errors(self) -> None:
+        """Reset latched controller faults; call on a disconnected assembly."""
+        raise NotImplementedError("this robot does not support clearing controller faults")
+
+    def drag(
+        self,
+        groups: Sequence[str],
+        stop: threading.Event,
+        on_active: Callable[[], None] | None = None,
+    ) -> None:
+        """Hand-guide the named groups until stop is set; on_active marks drag entry."""
+        raise NotImplementedError("this robot does not support hand-guided drag")
+
+    def recover_home(self) -> None:
+        """Idle Return Home: connect this disconnected assembly, run home(), then close."""
+        self.connect()
+        try:
+            self.home()
+        except Exception as error:
+            try:
+                self.close()
+            except Exception as cleanup_error:
+                raise ExceptionGroup("home and cleanup failed", [error, cleanup_error]) from None
+            raise
+        self.close()
+
+    def recover_drag(
+        self,
+        groups: Sequence[str],
+        stop: threading.Event,
+        on_active: Callable[[], None] | None = None,
+    ) -> None:
+        """Idle drag on a disconnected assembly; robots add any preparation they need."""
+        self.drag(groups, stop, on_active)
 
     def sent_command_snapshots(self) -> dict:
         """Read optional controller send evidence without issuing hardware reads."""

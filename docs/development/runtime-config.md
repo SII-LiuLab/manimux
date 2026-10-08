@@ -110,11 +110,14 @@ Record runtime evidence under `manimux/recording/`. Distinguish predicted action
 sent commands and measured motion; RoboGUI refresh rate is not control frequency.
 Do not reintroduce teleoperation or demonstration collection as part of replay.
 
-Tianji **Return Home** and **Start drag** are scheduled by the idle `manimux serve`
-session and executed by the robot assembly (`TianjiTaccapRobot.home()` / `drag()`).
-Home moves the arms to `home.joints_deg` on a 9 deg/s cosine joint profile, confirms
-arrival within 0.5 degrees, then opens the grippers when end-effector control is enabled.
-Loading or displaying Home never moves hardware.
+Idle recovery between rollouts (**Clear error**, **Return Home**, **Start drag**) is
+scheduled by the `manimux serve` session and implemented by the robot assembly. The
+session reads the assembly's `recovery_actions` and `drag_selections` and calls
+`clear_errors()`, `recover_home()` or `recover_drag()` on a fresh, disconnected assembly;
+it contains no robot-specific code. For Tianji-TacCap, Home moves the arms to
+`home.joints_deg` on a 9 deg/s cosine joint profile, confirms arrival within 0.5 degrees,
+then opens the grippers when end-effector control is enabled. Loading or displaying
+Home never moves hardware.
 
 ## Which YAML owns the setting?
 

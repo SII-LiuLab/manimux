@@ -39,25 +39,28 @@ def _build_served_runtime(config: dict, run_dir: Path) -> _Runtime:
     return build_runtime(config, run_dir, launch_mode="serve")
 
 
-# RoboGUI drag choices use the Marvin arm labels.
-_DRAG_SIDES = {"A": ("left",), "B": ("right",), "AB": ("left", "right")}
-
-
 def _error_text(error: BaseException) -> str:
     if isinstance(error, BaseExceptionGroup):
         return "; ".join(_error_text(inner) for inner in error.exceptions)
     return f"{type(error).__name__}: {error}"
 
 
-class _TianjiRecovery:
-    """Idle RoboGUI recovery protocol; the robot assembly owns every hardware action."""
+class _IdleRecovery:
+    """Idle RoboGUI recovery protocol; the robot assembly implements every action.
+
+    The assembly's recovery_actions and drag_selections decide what RoboGUI may
+    request. Each request builds a fresh, disconnected assembly from the config.
+    """
 
     def __init__(self, config: dict, *, robot_factory: Callable = build_robot) -> None:
-        options = config["robot"].get("options", {})
         self._robot_factory = robot_factory
         self._robot_config = deepcopy(config["robot"])
-        ip = options.get("hardware", {}).get("ip")
-        self.available = bool(options.get("execute", False) and ip)
+        # Reading capabilities constructs the assembly without opening any device.
+        robot = self._build(end_effector_control=False)
+        executing = bool(self._robot_config.get("options", {}).get("execute", False))
+        self.actions = tuple(robot.recovery_actions) if executing else ()
+        self._drag_selections = dict(robot.drag_selections)
+        self.available = bool(self.actions)
         self._busy = False
         self._task = ""  # "home" or "drag" while the worker thread runs.
         self._thread: threading.Thread | None = None
@@ -90,7 +93,7 @@ class _TianjiRecovery:
         self._poll()
         return {
             "available": self.available,
-            "actions": ["clear_error", "home", "drag"] if self.available else [],
+            "actions": list(self.actions),
             "busy": self.busy,
             "state": self._state,
             "ack": self._ack,
@@ -128,29 +131,36 @@ class _TianjiRecovery:
             self._error = "Recovery is already running"
             self._state = "error"
             return
-        if request.startswith("drag:"):
-            arm = request.partition(":")[2]
-            if arm not in _DRAG_SIDES:
-                self._error = f"Unsupported drag arm: {arm}"
+        action, _, selection = request.partition(":")
+        if action not in self.actions:
+            self._error = f"Unsupported recovery request: {request}"
+            self._state = "error"
+            return
+        if action == "drag":
+            if selection not in self._drag_selections:
+                self._error = f"Unsupported drag arm: {selection}"
                 self._state = "error"
                 return
-            self._arm = arm
+            self._arm = selection
             self._state = "starting"
-            self._start("drag", self._drag, _DRAG_SIDES[arm])
+            self._start("drag", self._drag, self._drag_selections[selection])
             return
-        if request == "home":
+        if action == "home":
             self._state = "homing"
             self._start("home", self._home)
             return
         self._busy = True
         self._state = "clearing"
-        self._arm = "AB"
+        # Clearing faults affects every arm: report the selection covering the most arms.
+        self._arm = max(
+            self._drag_selections,
+            key=lambda label: len(self._drag_selections[label]),
+            default="",
+        )
         try:
-            if request != "clear_error":
-                raise ValueError(f"unsupported recovery request: {request}")
             self._build(end_effector_control=False).clear_errors()
             self._state = "cleared"
-        except Exception as exc:  # noqa: BLE001 - report the SDK error in RoboGUI
+        except Exception as exc:  # noqa: BLE001 - report the robot error in RoboGUI
             self._state = "error"
             self._error = _error_text(exc)
         finally:
@@ -166,33 +176,21 @@ class _TianjiRecovery:
         self._task = task
         self._thread_error = ""
         self._drag_stop.clear()
-        self._thread = threading.Thread(target=run, name=f"tianji-robogui-{task}", daemon=True)
+        self._thread = threading.Thread(target=run, name=f"robogui-recovery-{task}", daemon=True)
         self._thread.start()
 
     def _drag_active(self) -> None:
         if not self._drag_stop.is_set():
             self._state = "active"
 
-    def _drag(self, sides: tuple[str, ...]) -> None:
-        # connect() inside drag rejects faulted arms, so latched errors are cleared first.
+    def _drag(self, groups: tuple[str, ...]) -> None:
+        # Drag uses only the arms, so grippers stay closed.
         robot = self._build(end_effector_control=False)
-        robot.clear_errors()
-        robot.drag(sides, self._drag_stop, self._drag_active)
+        robot.recover_drag(groups, self._drag_stop, self._drag_active)
 
     def _home(self) -> None:
-        # Return Home is also the recovery path after an E-stop.
-        robot = self._build(end_effector_control=True)
-        robot.clear_errors()
-        robot.connect()
-        try:
-            robot.home()
-        except Exception as error:
-            try:
-                robot.close()
-            except Exception as cleanup_error:
-                raise ExceptionGroup("home and cleanup failed", [error, cleanup_error]) from None
-            raise
-        robot.close()
+        # Home also restores the grippers, so they are opened for this assembly.
+        self._build(end_effector_control=True).recover_home()
 
     def close(self) -> None:
         if self._thread is not None:
@@ -231,10 +229,9 @@ class RuntimeSessionService:
         self._last_error = ""
         self._last_failure_id = ""
         self._recovery = None
-        if config["robot"]["type"] == "tianji_taccap" and config["robot"].get("options", {}).get(
-            "execute", False
-        ):
-            self._recovery = _TianjiRecovery(config)
+        if config["robot"].get("options", {}).get("execute", False):
+            recovery = _IdleRecovery(config)
+            self._recovery = recovery if recovery.available else None
 
     def _ready_metadata(self) -> dict[str, object]:
         return {

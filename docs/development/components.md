@@ -18,6 +18,7 @@ drivers against the interfaces and callers; do not copy a vendor exception as a 
 | `send_commands()` / controller; `send_command()` / assembly | Accept the declared absolute joint-position targets. Tool coordinates retain their declared meaning. Returning means submission, not arrival. Surface dispatch failure. | SDK command encoding, configured limits and mode preparation; document internal interpolation and batch dispatch guarantees. |
 | `stop()` / session owner | Stop ongoing execution on owned channels; attempt all owned channels and report failures. Document completion and the state required for subsequent commands. | Vendor stop/hold and mode transitions. Do not silently equate stop with homing or releasing actuator torque. |
 | `home()` / robot assembly | Perform the explicitly defined home operation when supported. State the destination, tool behavior, completion guarantee and post-home control state. | Configured joint trajectory or a documented vendor Home operation. A RoboGUI initial pose does not define hardware Home. |
+| `recovery_actions`, `drag_selections` / robot assembly; `clear_errors()`, `drag()`, `recover_home()`, `recover_drag()` | Optional idle recovery that RoboGUI may request between rollouts. `recovery_actions` declares the supported actions (`clear_error`, `home`, `drag`; none by default) and `drag_selections` maps each drag label to robot groups. The serving session only schedules them, each on a fresh, disconnected assembly. | Vendor fault reset, hand-guiding mode and any preparation, such as clearing faults before connecting. |
 | `close()` / resource owner | Release owned resources, including after partial startup. Repeated cleanup must be safe; incomplete cleanup remains visible and retryable. Borrowers do not close shared sessions. | SDK shutdown, worker termination and connection release. |
 
 Document these lifecycle details in the integration's runbook:
@@ -40,8 +41,10 @@ Document these lifecycle details in the integration's runbook:
 
 Required operations cannot be stubbed out. Optional unsupported capabilities must
 be declared and unavailable to normal callers/UI; an unexpected direct call should
-fail explicitly. The current base `home()` raises `NotImplementedError`, and some
-RoboGUI controls still branch on robot names. These are existing integration gaps,
+fail explicitly. The current base `home()` raises `NotImplementedError`. Idle recovery
+is declared through `recovery_actions`, which the serving session and the runtime read
+instead of a robot type; some RoboGUI layouts still branch on robot names. These are
+existing integration gaps,
 not a complete generic capability mechanism. Resolve the affected caller contract
 when adding a capability; do not invent a `supports_home` field that nobody reads.
 

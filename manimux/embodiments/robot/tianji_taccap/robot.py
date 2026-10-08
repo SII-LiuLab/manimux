@@ -120,6 +120,24 @@ class TianjiTaccapRobot(RobotBase):
             end_effector_control=end_effector_control,
         )
 
+    @property
+    def recovery_actions(self) -> tuple[str, ...]:
+        # Each action opens the controller itself, so it needs the bound address.
+        if not (self._execute and self.controller.ip):
+            return ()
+        return ("clear_error", "home", "drag")
+
+    @property
+    def drag_selections(self) -> Mapping[str, tuple[str, ...]]:
+        # RoboGUI uses the Marvin arm labels: A is the left arm, B the right arm.
+        by_side = {arm.channel: name for name, arm in self.arm_components.items()}
+        selections = {
+            label: tuple(by_side[side] for side in sides)
+            for label, sides in (("A", ("left",)), ("B", ("right",)), ("AB", ("left", "right")))
+            if all(side in by_side for side in sides)
+        }
+        return MappingProxyType(selections)
+
     def clear_errors(self) -> None:
         """Clear arm controller faults; call before connect(), which rejects faults."""
         with self._lock:
@@ -129,16 +147,20 @@ class TianjiTaccapRobot(RobotBase):
 
     def drag(
         self,
-        sides: Sequence[str],
+        groups: Sequence[str],
         stop: threading.Event,
         on_active: Callable[[], None] | None = None,
     ) -> None:
-        """Hand-guide arm sides ("left"/"right") until stop is set.
+        """Hand-guide the named arm groups until stop is set.
 
         on_active is called once the arms are in drag and may be moved by hand.
         Opens only the shared arm controller; grippers and sensors stay closed.
         Requires execute and a disconnected robot; the arms are disabled on return.
         """
+        groups = tuple(dict.fromkeys(groups))
+        if not groups or set(groups) - set(self.arm_components):
+            raise ValueError("drag groups must name configured arms")
+        sides = tuple(self.arm_components[name].channel for name in groups)
         with self._lock:
             if not self._execute:
                 raise RuntimeError("drag requires execute=true")
@@ -156,6 +178,23 @@ class TianjiTaccapRobot(RobotBase):
                     ) from None
                 raise
             self.controller.close()
+
+    def recover_drag(
+        self,
+        groups: Sequence[str],
+        stop: threading.Event,
+        on_active: Callable[[], None] | None = None,
+    ) -> None:
+        """Idle drag; latched faults are cleared first because connect() rejects them."""
+        if not self._execute:
+            raise RuntimeError("drag requires execute=true")
+        self.clear_errors()
+        self.drag(groups, stop, on_active)
+
+    def recover_home(self) -> None:
+        """Idle Return Home, also the path after an E-stop: clear faults, then home."""
+        self.clear_errors()
+        super().recover_home()
 
     def home(self) -> None:
         """Move connected arms to model.home_joints, then fully open the grippers.

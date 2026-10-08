@@ -88,8 +88,13 @@ Recovery lives on the assembly, not in the session. `clear_errors()` clears latc
 controller faults over a short SDK session before `connect()`. `home()` moves the
 connected arms to `home.joints_deg` on a 9 deg/s cosine profile, settles within 0.5
 degrees and then fully opens the grippers when end-effector control is enabled.
-`drag(sides, stop)` opens only the arm controller, enters Marvin joint-space drag with
+`drag(groups, stop)` opens only the arm controller, enters Marvin joint-space drag with
 each arm's `drag_tool` load from the assembly YAML, and disables the arms on exit.
+With execution enabled and a bound controller IP, `recovery_actions` offers
+`clear_error`, `home` and `drag`; `drag_selections` maps the Marvin labels A, B and AB
+to the left, right and both arm groups. The idle recovery entry points
+`recover_home()` and `recover_drag()` clear latched faults first, because `connect()`
+rejects faulted arms.
 
 相机启动独立于 `connect()`。新 UMI 实验仍订阅现有 camera server，未自动调用
 `robot.start_sensors()`。订阅层把 `left_wrist/right_wrist` 映射为
