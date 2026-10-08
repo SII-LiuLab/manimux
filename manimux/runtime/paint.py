@@ -42,8 +42,8 @@ class PaintInferenceStrategy:
         self._config = config
         paint = config["inference"]["paint"]
         self._group_order = tuple(config["robot"]["group_dims"])
-        self._execution_steps = int(paint["execution_steps"])
-        self._initial_delay_steps = int(paint["initial_delay_steps"])
+        self._execution_steps = int(paint["execution_policy_steps"])
+        self._initial_delay_steps = int(paint["initial_delay_policy_steps"])
         self._delay_buffer_size = int(paint["delay_buffer_size"])
         self._active_rows: np.ndarray | None
         self._active_offset: int
@@ -164,13 +164,12 @@ class PaintInferenceStrategy:
         conditioned = response.request_seq in self._conditioned_requests
         return CommitSettings(
             current_command=copy_group_vector(last_command if conditioned else measured),
-            blend_steps=0,
+            blend_steps=self._config["inference"]["blend_policy_steps"],
             anchor_source="last_command" if conditioned else "measured_state",
         )
 
     def _actual_trimmed_steps(self, chunk: ActionChunk, now_ns: int) -> int:
-        commit_time_ns = now_ns + int(self._config["inference"]["commit_lead_s"] * 1_000_000_000)
-        age_ns = max(0, commit_time_ns - chunk.observation_time_ns)
+        age_ns = max(0, now_ns - chunk.observation_time_ns)
         return int(age_ns // chunk.dt_ns)
 
     def prepare_chunk(
@@ -294,9 +293,12 @@ class PaintInferenceStrategy:
 def paint_parameters(**options) -> dict:
     """保留 PAINT 执行前缀与延迟估计的默认步数。"""
 
+    unsupported = {"execution_steps", "initial_delay_steps"}.intersection(options)
+    if unsupported:
+        raise ValueError(f"unsupported PAINT fields: {sorted(unsupported)}")
     values = {
-        "execution_steps": 10,
-        "initial_delay_steps": 4,
+        "execution_policy_steps": 10,
+        "initial_delay_policy_steps": 4,
         "delay_buffer_size": 10,
         **options,
     }

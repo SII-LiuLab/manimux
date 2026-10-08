@@ -1,0 +1,121 @@
+site_name: ManiMux Guide
+site_description: An extensible real-world manipulation harness that standardizes deployment and experiment workflows across embodiments, policies, and inference strategies.
+site_url: https://sii-liulab.github.io/manimux/
+repo_url: https://github.com/SII-LiuLab/manimux
+repo_name: SII-LiuLab / ManiMux
+edit_uri: edit/main/docs/
+docs_dir: .
+site_dir: ../site
+theme:
+  name: material
+  logo: assets/manimux-icon.png
+  favicon: assets/manimux-icon.png
+  font: false
+  palette:
+    scheme: default
+    primary: custom
+    accent: custom
+  icon:
+    repo: fontawesome/brands/github
+  features:
+    - navigation.indexes
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+plugins:
+  - search
+hooks:
+  - _build/hooks.py
+extra_css:
+  - assets/guide.css
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+exclude_docs: |
+  /README.md
+  /experiments.md
+  /mkdocs.yml
+  /requirements.txt
+  /_build/
+validation:
+  nav:
+    omitted_files: warn
+  links:
+    not_found: warn
+    anchors: warn
+nav:
+  - Overview: index.md
+  - Start here:
+      - Python environments: usage/environments.md
+      - ALOHA assets: usage/aloha.md
+      - PiPER assets: usage/piper.md
+      - Robot SDK installation: usage/robot-sdks.md
+      - ARX and PiPER adapters: usage/can-arms.md
+      - First experiment: usage/getting-started.md
+      - Bind your station: usage/station.md
+      - Configure a deployment: usage/configuration.md
+      - Choose a policy: usage/deployments.md
+  - Use RoboGUI:
+      - Free and study rollouts: usage/research.md
+      - Records and their meaning: usage/records.md
+      - Offline replay: usage/replay.md
+      - Reference images: usage/reference-images.md
+      - Optional video evaluation: usage/evaluation.md
+  - Develop with your agent:
+      - Integration map: development/README.md
+      - Repository guide: development/agent-guide.md
+      - Architecture: development/architecture.md
+      - Robots, tools and cameras: development/components.md
+      - Models, clients and adapters: development/policies.md
+      - Runtime, RoboGUI and YAML: development/runtime-config.md
+  - Deployment recipes:
+      - XPolicyLab bridge: deployment/xpolicylab.md
+      - Pi05 / YAM: deployment/pi05-yam.md
+      - Pi05 EEF / YAM: deployment/pi05-yam-eef.md
+      - DP / YAM: deployment/dp-yam.md
+      - SAPolicy / YAM: deployment/sapolicy-yam.md
+      - GR00T / YAM: deployment/gr00t-yam.md
+      - LingBot-VLA2 / YAM: deployment/lingbot-vla2-yam.md
+      - XR-1 / YAM: deployment/xiaomi-xr1-yam.md
+      - XR-1 / Tianji: deployment/xiaomi-xr1-tianji-taccap.md
+      - Pi05 / Tianji pass ball: deployment/pi05-tianji-taccap.md
+      - Pi05 / Tianji pack plate: deployment/pi05-tianji-pack-plate.md
+      - UMI DP / Tianji: deployment/umi-dp-tianji-taccap.md
+      - OpenWAM / YAM: deployment/openwam-yam.md
+      - StarVLA offline: deployment/starvla-offline.md
+      - Cosmos3 offline: deployment/cosmos3-offline.md
+      - Isaac 0.5 offline: deployment/isaac05-offline.md
+  - Algorithms and technical reference:
+      - Scheduling and action clocks: advanced/inference.md
+      - Execution and IK: advanced/execution.md
+      - Control-loop timing: advanced/control-timing.md
+      - Submitted and sent commands: advanced/sent-command-recording.md
+      - Tianji control: advanced/tianji-control.md
+      - Tianji differential IK: advanced/tianji-diff-ik.md
+      - Evaluation reports: advanced/evaluation-reports.md
+      - Reproduction records:
+          - Overview: advanced/reproductions/README.md
+          - AAC: advanced/reproductions/aac.md
+          - AAC / Pi05: advanced/reproductions/aac-pi05.md
+          - PAINT / Pi05: advanced/reproductions/paint-pi05.md
+          - AutoHorizon / Pi05: advanced/reproductions/autohorizon-pi05.md
+          - DVAC / Pi05: advanced/reproductions/dvac-pi05.md
+          - Record template: advanced/reproductions/TEMPLATE.md
+copyright: Copyright &copy; 2026 ManiMux contributors

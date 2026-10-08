@@ -260,7 +260,20 @@ class TianjiTaccapRobot(RobotBase):
     ) -> None:
         clock = clock if clock is not None else SystemClock()
         control = {**model.hardware, **(hardware or {})}
+        shared_arm_hardware = {
+            name: control.pop(name) for name in ("velocity_ratio", "acceleration_ratio")
+        }
+        # Runtime shaping consumes the rated capability; the SDK only needs percentages.
+        control.pop("rated_joint_velocity_rad_s")
         overrides = dict(component_hardware or {})
+        for name, options in overrides.items():
+            # The rate contract derives runtime limits from the shared ratio only.
+            shared = {"velocity_ratio", "acceleration_ratio"}.intersection(options)
+            if shared:
+                raise ValueError(
+                    f"component_hardware.{name} cannot set {sorted(shared)}; set them in "
+                    "robot.options.hardware so the runtime limits use the same ratio"
+                )
         bound = {name: dict(entry["hardware"]) for name, entry in model.components.items()}
         # 按组件名应用本地绑定；拼错名称时由字典索引直接报错。
         for name, options in overrides.items():
@@ -273,7 +286,9 @@ class TianjiTaccapRobot(RobotBase):
             if side in settings:
                 raise ValueError("one controller side cannot be used by multiple groups")
             sides[name] = side
-            settings[side] = TianjiArmSettings(**bound[group.arm_name])
+            settings[side] = TianjiArmSettings(
+                **{**shared_arm_hardware, **bound[group.arm_name]}
+            )
         controller = TianjiController(settings=settings, clock=clock, **control)
         arms, end_effectors, sensors = {}, {}, {}
         configs = {}

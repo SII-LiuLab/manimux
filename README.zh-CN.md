@@ -1,122 +1,95 @@
 <div align="center">
 
-# ManiMux
-**统一控制底座，自由组合策略、推理与本体的真机实验平台。**
+<p><img src="docs/assets/manimux-logo.png" alt="ManiMux" width="560"></p>
 
-Policy × Runtime × Embodiment
+**任何本体，任何策略，任何推理算法。**
 
-[![Platform](https://img.shields.io/badge/Platform-7C3AED?style=flat-square)](#features)
-[![Robo GUI](https://img.shields.io/badge/Robo%20GUI-0891B2?style=flat-square)](docs/viewer-tutorial.html)
-<br/>
-[![组件：XPolicyLab](https://img.shields.io/badge/Component-XPolicyLab-4F46E5?style=flat-square&logo=github&logoColor=white)](XPolicyLab/)
-[![组件：PRM-as-a-Judge](https://img.shields.io/badge/Component-PRM--as--a--Judge-9333EA?style=flat-square&logo=github&logoColor=white)](PRM-as-a-Judge/)
-[![Python 3.11 和 3.12](https://img.shields.io/badge/Python-3.11%20%7C%203.12-3776AB?style=flat-square&logo=python&logoColor=white)](pyproject.toml)
-<br/>
-[![Policy：10 个接入，含 2 个仅模型路径](https://img.shields.io/badge/Policies-10%20Integrations-2EA043?style=flat-square)](docs/README.md#support-counts)
-[![本体：硬件组件](https://img.shields.io/badge/Embodiments-Hardware%20Components-2563EB?style=flat-square)](docs/README.md#support-counts)
-[![推理：8 种模式](https://img.shields.io/badge/Inference-8%20Modes-F97316?style=flat-square)](docs/README.md#support-counts)
-<br/>
-[![数采：Teleop、UMI、DAgger；实现状态见路线图](https://img.shields.io/badge/Collection-Teleop%20%7C%20UMI%20%7C%20DAgger-D97706?style=flat-square)](docs/README.md#collection-status)
-[![评测：人工反馈与 LLM Judge](https://img.shields.io/badge/Evaluation-Human%20%2B%20LLM%20Judge-DB2777?style=flat-square)](docs/prm-as-a-judge.md)
+ManiMux 是一个**可扩展的 real-world manipulation harness（真机操作运行与实验框架）**，
+让不同本体、策略和推理算法的部署与实验流程**标准化**。
+以 **RoboGUI** 为操作入口，结合**实时数字孪生可视化**，
+运行时的设计目标是在实时可视化的同时支持 **100–200 Hz 命令执行**。
+
+**Policy × Runtime × Embodiment**
+
+[![Documentation](https://img.shields.io/badge/Documentation-Guide-2563EB?style=flat-square)](https://sii-liulab.github.io/manimux/)
+[![Demo video](https://img.shields.io/badge/Demo-Watch%20video-EF4444?style=flat-square)](https://sii-liulab.github.io/manimux/#manimux)
+[![Agent skills](https://img.shields.io/badge/Develop-Agent%20skills-8B5CF6?style=flat-square)](.agents/skills/manimux-development/SKILL.md)
+
+[![Policy recipes: 13](https://img.shields.io/badge/Policy%20recipes-13-F59E0B?style=flat-square)](#included-integrations)
+[![Inference modes: 8](https://img.shields.io/badge/Inference%20modes-8-EC4899?style=flat-square)](#included-integrations)
+[![Embodiments: 4](https://img.shields.io/badge/Embodiments-4-06B6D4?style=flat-square)](#included-integrations)
+[![Actively maintained](https://img.shields.io/badge/Status-Actively%20maintained-14B8A6?style=flat-square)](https://github.com/SII-LiuLab/manimux/commits/main/)
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
-[**Features**](#features) · [**视频**](#demo) · [**架构**](#architecture) · [**快速启动**](#quick-start) · [**文档**](docs/README.md) · [**引用**](#citation)
+[快速开始](#quick-start) · [架构](#architecture) · [接入开发](#integrate) · [文档](https://sii-liulab.github.io/manimux/) · [引用](#citation)
 
 </div>
 
-**ManiMux 将数采、策略部署与评测放在同一套真机控制底座上。**
-换模型、换算法、换本体，不必从头搭建部署流程：通过配置组合 **Policy、Runtime 策略、
-Executor 与本体**。标准接口分离模型推理与硬件控制，让接入能力跨本体复用，
-而不是为每个“模型 × 机器人”单独维护一套代码。
+> **[阅读 ManiMux 使用与开发指南 →](https://sii-liulab.github.io/manimux/) · [Markdown 文档](docs/index.md)**
+> 安装、工作站配置、模型部署、RoboGUI 使用，以及各组件的接入 protocol。
+> 让 agent 开发时，从 [development skill](.agents/skills/manimux-development/SKILL.md) 开始。
 
-**用 Robo GUI 管理实验，看清每一步执行。** 从准备、启动 rollout，到实时相机、3D 状态、
-轨迹与 chunk 切换，再到回看模型预测、下发命令和机器人反馈，形成统一的实验流程。
-**XPolicyLab** 负责模型接入，人工标注与 **PRM-as-a-Judge** 支持实验记录的评测。
+## 最新动态
 
-**怎么采，就按同样的控制语义去执行。** 主从臂数采复用 ManiMux 的硬件接口与公共控制配置，
-对齐动作时间、关节/夹爪约定和运动限幅，从控制层减少训推差异。
-推理端需要的 smooth 等处理仍可显式选择，不再藏在另一套部署代码里。
+- **2026-10-02** — 新增 [ALOHA-AgileX](docs/usage/aloha.md) 和 [PiPER](docs/usage/piper.md) RoboGUI 演示，以及实验性的 [ARX X5 / PiPER 控制器](docs/usage/can-arms.md)，真机验证尚未完成。
+- **2026-10-01** — [ManiMux 在线指南](https://sii-liulab.github.io/manimux/)上线，覆盖安装配置、部署、RoboGUI 使用与接入 protocol。
+- **2026-10-01** — 更新[实验流程](docs/usage/research.md)与 [agent 接入指南](docs/development/README.md)，支持自由探索、模板研究与组件开发。
 
-> 📖 想把自己的 YAM 或 Tianji–TacCap 接到 ManiMux？第一步看[本地工位接入](manimux/configs/local/README.md)。安装与启动见[使用指南](docs/guideline.md)，模型、算法与接口细节见[文档索引](docs/README.md)。
+<a id="robogui"></a>
 
-## 第一步：接入自己的同型号真机
+## RoboGUI
 
-同型号机器人复用现有组件实现。用户和 agent 都从[本地工位接入说明](manimux/configs/local/README.md)开始：
+![RoboGUI: live cameras, robot state, trajectories and action chunks](assets/manimux-robogui-demo.webp)
 
-1. 选择 [YAM](manimux/configs/local/yam.example.yaml) 或
-   [Tianji–TacCap](manimux/configs/local/tianji_taccap.example.yaml) 模板，复制到 `manimux/configs/local/station.yaml`。
-2. 填写本机 CAN 接口、控制器 IP、设备序列号和服务地址。`can_left` 是开发工位的
-   Linux 接口名；自己的机器叫 `can0` 就填 `can0`。组件名保持与本体装配一致。
-3. 按说明只读取合并后的配置，再进入对应本体和模型的运行手册。
-   设备绑定与实验的动作格式、控制频率、执行开关分别管理。
+[▶ Watch the real-robot demo](assets/manimux_2026-09-05_23-17-35-00.00.03.144-00.00.34.914-seg1-00.00.02.596-00.00.34.966.mp4)
 
-实际工位文件由 Git 忽略，不随安装包发布。runtime 启动，以及相机、Pi05 和 UMI_DP
-的 `--experiment` 入口会默认读取它；只有切换另一套工位时才需要传 `--local <路径>`。
-Viewer 的网络选项、数采和其他模型启动器仍有独立入口，具体范围见
-[本地工位说明](manimux/configs/local/README.md#scope-and-remaining-independent-entry-points)。
-通用 README 和新增代码注释使用英文，本页保留中文。
+**准备 → 开始 → 暂停／结束 → 查看记录。** 自由实验不要求评分；模板研究按需启用
+布局、重复次数和评价。轨迹在独立的离线页面回放，不发送机器人命令。
+[使用流程 →](docs/usage/research.md)
 
-## News
+<a id="included-integrations"></a>
 
-- **[2026-09-13] Initial 版本正在开发。** 正在完善可组合的策略部署、主从臂数采与 GUI 实验管理，共用统一的真机控制底座。
+## 已接入内容
 
-<a id="features"></a>
+- **有机器人部署配置的策略（8 类）：** Pi05、DP、SAPolicy、GR00T N1.7、LingBot-VLA2、Xiaomi XR-1、UMI DP、OpenWAM。
+- **有离线配置的策略（5 类）：** Isaac 0.5，以及 StarVLA 的 QwenOFT、QwenPI-v3、QwenGR00T、QwenFast。
+- **推理模式（8 种）：** Serial、异步 chunk、RTC、ACT temporal ensembling、AAC、PAINT、AutoHorizon、DVAC。
+- **硬件接入（4 种）：** YAM、Tianji–TacCap，以及实验性的 ARX X5 / PiPER。**执行器：** Direct、Smooth、MPC。
 
-## ✨ Features
+另提供 [ALOHA-AgileX 从臂资产](docs/usage/aloha.md)和[标准 PiPER 资产](docs/usage/piper.md)，
+用于离线 RoboGUI 展示和回放，
+并提供实验性的 [ARX X5 / PiPER SDK 控制接口](docs/usage/can-arms.md)及本地配置模板。
+目前完成离线接口验证，尚未进行真机部署验证。
+依赖安装参见 [SDK 安装指南](docs/usage/robot-sdks.md)。
 
-| 功能 | 状态 | 提供什么 |
-|---|:---:|---|
-| 组合式部署 | ✅ | 配置驱动 Policy × Runtime 策略 × Executor × 本体 |
-| 跨本体接口 | ✅ | 统一契约；按组件装配真实本体 |
-| 可插拔推理 | ✅ | 异步、串行、RTC、PAINT 与自适应 chunking |
-| Robo GUI | ✅ | 实验控制、相机、3D 状态、轨迹和 chunk 时间线 |
-| Teleop 数采 | ✅ | 主臂 Policy + YAM GUI，从臂统一走 ManiMux |
-| 采集—部署一致性 | ✅ | 共享硬件接口、动作时间与手臂 / 夹爪限幅 |
-| 执行记录 | ✅ | 配置、观测、预测动作、下发命令、反馈、事件和视频 |
-| 实验评测 | ✅ | 人工标注 + 离线 PRM / LLM Judge |
-| UMI / DAgger 数采 | — | [采集路线图](docs/README.md#collection-status) |
-
-✅ 表示已有实现，不代表所有模型 / 本体组合均已验证。
-[接入数量](docs/README.md#support-counts)也包含仅模型路径。
-
-<a id="demo"></a>
-
-## 🎬 演示视频
-
-双臂 YAM 真机 rollout：实时相机、3D 机器人状态与 action-chunk 切换。
-
-![ManiMux 真机 rollout：实时相机、机器人状态与 action-chunk 可视化](assets/manimux-viewer-demo.webp)
-
-[**▶ 打开 MP4 录屏**](assets/manimux_2026-09-05_23-17-35-00.00.03.144-00.00.34.914-seg1-00.00.02.596-00.00.34.966.mp4)
+策略通过 **XPolicyLab** 或 **StarVLA** 提供服务。以上统计已有接入，
+不代表所有模型 × 算法 × 本体组合都可用或已通过真机验证。
+具体配置与范围见[支持目录](docs/usage/deployments.md#integration-counts)。评价是可选能力，实验设计和指标由研究者决定。
 
 <a id="architecture"></a>
 
-## 🧩 架构
+## 架构
 
-**模型推理与硬件执行各司其职。** 推理策略决定何时生成、如何接续 chunk；
-Executor 将目标动作变成机器人命令。
+模型框架负责推理；ManiMux 负责观测与动作适配、调度、执行和实验操作。
+推理策略决定请求与 chunk 交接，执行器根据时间线参考生成命令。
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 180, "curve": "basis", "nodeSpacing": 24, "rankSpacing": 28, "padding": 14}}}%%
 flowchart LR
     OBS["<b>OBSERVE</b><br/>Cameras · robot state<br/>Build policy inputs"]:::stage
 
-    subgraph THINK["<b>PREDICT</b>"]
-        direction TB
-        XPOLICY["<b>XPolicyLab</b><br/>Pi05 · XR-1 · GR00T<br/>LingBot · OpenWAM"]:::xpolicy
-        NATIVE["<b>Legacy native</b><br/>MolmoAct2 · ABC"]:::native
-        XPOLICY ~~~ NATIVE
-    end
+    XPOLICY["<b>PREDICT · XPolicyLab</b><br/>Pi05 · XR-1 · GR00T<br/>LingBot · OpenWAM"]:::xpolicy
+
+    STARVLA["<b>PREDICT · StarVLA</b><br/>OFT · PI-v3 · GR00T · FAST"]:::xpolicy
 
     PLAN["<b>ADAPT & SCHEDULE</b><br/>Async · RTC · PAINT<br/>Serial · adaptive<br/><br/>Adapter → Timeline"]:::handoff
     ACT["<b>EXECUTE</b><br/>Direct · Smooth · MPC<br/><br/>Executor + Safety<br/>Control profile"]:::stage
     ROBOT(["<b>ROBOT</b><br/>RobotBase<br/>Hardware"]):::robot
-    TELEOP["<b>COLLECT</b><br/>YAM GUI<br/>LeaderPolicy"]:::collection
-    REVIEW(["<b>REVIEW</b><br/>Robo GUI · records<br/>Human labels<br/>PRM-as-a-Judge"]):::side
+    REVIEW(["<b>OPERATE & REVIEW</b><br/>RoboGUI · records · replay<br/>Optional evaluation"]):::side
 
-    OBS --> THINK --> PLAN --> ACT --> ROBOT
-    TELEOP --> ACT
+    OBS --> XPOLICY --> PLAN --> ACT --> ROBOT
+    OBS --> STARVLA --> PLAN
     ACT -.-> REVIEW
 
     classDef stage fill:#F6F8FA,stroke:#8C959F,stroke-width:1px,color:#1F2328
@@ -124,88 +97,160 @@ flowchart LR
     classDef side fill:#FFFFFF,stroke:#8C959F,stroke-dasharray:4 3,color:#57606A
     classDef robot fill:#1F2328,stroke:#1F2328,color:#FFFFFF
     classDef xpolicy fill:#8957E5,stroke:#6633B8,color:#FFFFFF
-    classDef native fill:#2F6FEB,stroke:#1B4DB1,color:#FFFFFF
-    classDef collection fill:#1A7F55,stroke:#125C3D,color:#FFFFFF
-    style THINK fill:#FFFFFF,stroke:#8C959F,stroke-dasharray:5 4,color:#1F2328
 ```
 
-模型 server 不直接控制硬件。数采绕过 chunk 推理调度、复用执行接口，
-同时保留自己的采集 GUI 与保存格式。
-新模型必须走 [XPolicyLab 统一接入路径](AGENTS.md#model-integration-xpolicylab-only)；
-图中的 native 仅为迁移前保留的兼容入口。
-
-**GitHub：**[ManiMux](https://github.com/SII-LiuLab/manimux) · [XPolicyLab](https://github.com/Cuzyoung/XPolicyLab) · [PRM-as-a-Judge](https://github.com/YuyangLiu2003/PRM-as-a-Judge)
+XPolicyLab 和 StarVLA 使用独立的服务环境，通过各自的 ManiMux client 接入。
+新框架复用同一 client protocol；新本体按组件和装配接口接入。
+[接入地图 →](docs/development/README.md)
 
 <a id="quick-start"></a>
 
-## 🚀 快速启动 · Pi05 on YAM
+## 快速开始
 
-以下示例使用 **Pi05 纯 joint、step-30000、放瓶子任务与 RTC**。
-需要先准备好 YAM / OpenPI 环境、checkpoint 和本机设备配置，见[环境指南](docs/guideline.md#pi05-30k-on-yam)。
-没有硬件可先运行 [Viewer 演示](docs/guideline.md#hardware-free-start)。
+### 无硬件体验
 
-先完成[本地工位接入](manimux/configs/local/README.md)。下列相机、Pi05 和 runtime 命令
-使用同一份实验配置，并默认读取同一份 local。该 RTC 配方的下发频率为 **30 Hz**，
-模型动作点间隔为 **1/30 秒**。
-
-从仓库根目录，在**四个独立终端**运行。已有匹配的相机或 Viewer 服务时可复用；
-数采与推理不要同时控制同一个机器人。
+准备 Python 3.11 或 3.12，以及 [uv](https://docs.astral.sh/uv/)：
 
 ```bash
-# Terminal 1: cameras
-envs/yam/.venv/bin/python -m manimux.servers.camera.server \
-  --experiment manimux/configs/experiments/put_bottles/yam_pi05_rtc_joint_step30000.yaml
-
-# Terminal 2: Viewer
-envs/yam/.venv/bin/python -m manimux.viewer.dashboard --robot yam --host 127.0.0.1 --port 8086
-
-# Terminal 3: pure-joint 30k model server
-XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
-  -m manimux.servers.pi05 \
-  --experiment manimux/configs/experiments/put_bottles/yam_pi05_rtc_joint_step30000.yaml
-
-# Terminal 4: matching RTC runtime
-envs/yam/.venv/bin/python -m manimux serve \
-  --config manimux/configs/experiments/put_bottles/yam_pi05_rtc_joint_step30000.yaml
+git clone https://github.com/SII-LiuLab/manimux.git
+cd manimux
+uv sync --dev
+uv run manimux-robogui --robot yam --demo --host 127.0.0.1 --port 8086
 ```
 
-打开 **http://127.0.0.1:8086**，按 **Prepare → Start rollout → Finish & Home** 操作。
-正常 rollout 不强制打分，实验 rollout 需人工标注后再进入下一条。
-server 与 runtime 的配置必须配套：这里是 **joint**，不是 **joint+EE**。
+打开 **http://127.0.0.1:8086**。示例使用合成数据和随项目提供的 YAM 模型，不连接机器人。
+只有选择真实模型部署时，才需要对应的框架子模块和 checkpoint。
 
-## 📚 使用指南
+同一环境下，可以直接预览新接入的臂：
 
-- **开始运行：**[完整指南](docs/guideline.md) · [配置说明](manimux/configs/README.md)。
-- **模型与算法：**[组件和模型手册](docs/README.md) · [推理方法](docs/README.md#inference-and-execution)。
-- **采集与评测：**[YAM 数采](docs/yam-collection.md) · [实验流程](docs/experiment-infra.md) · [PRM 评测](docs/prm-as-a-judge.md)。
-- **扩展开发：**[架构与接口](docs/architecture.md)。
+```bash
+uv run manimux-robogui --robot piper --demo --host 127.0.0.1 --port 8087
+```
+
+打开 **http://127.0.0.1:8087**；将 `--robot piper` 换成 `--robot aloha` 可预览 ALOHA-AgileX。
+两者均用合成数据展示手臂与夹爪运动，不需要设备 SDK。
+ARX X5 目前提供运动学模型和实验性控制器，尚无随项目打包的 RoboGUI 网格预设。
+
+更新已有安装时，参见 [RoboGUI 接口迁移说明](docs/usage/getting-started.md#updating-older-installations)。
+
+### 使用自己的机器人
+
+1. 选择[模型／本体指南](docs/usage/deployments.md)，安装相应的硬件和模型环境。
+2. 在私有 [station 文件](docs/usage/station.md)中绑定设备、服务地址与 checkpoint 路径。
+3. 按照[完整 Pi05/YAM 示例](docs/usage/getting-started.md#pi05-30k-on-yam)或对应模型指南，启动相机、RoboGUI、模型服务和 runtime。
+4. 之后在 RoboGUI 填写任务、准备、运行、结束和查看记录。
+
+`manimux serve` 保持服务运行，供 GUI 连续开展多次实验；`manimux run` 运行一次 rollout。
+Prepare 可能根据配置连接机器人并移动到起始姿态，请使用与你的设备匹配的指南。
+
+[配置说明](manimux/configs/README.md) · [带注释的实验示例](manimux/configs/examples/README.md)
+
+<a id="integrate"></a>
+
+## 接入开发
+
+**用户**通过配置和 RoboGUI 使用项目；**用户的 agent** 按任务读取
+[开发 skill](.agents/skills/manimux-development/SKILL.md)或下方对应 skill。
+如果使用的工具不会自动发现仓库 skill，直接让它读取链接中的 `SKILL.md`。
+
+| 要做的事 | 文档入口 |
+| --- | --- |
+| 接入机械臂、夹爪、相机或新本体 | [组件 protocol](docs/development/components.md) |
+| 接入模型、上层框架或动作 adapter | [Policy protocol](docs/development/policies.md) |
+| 接入推理算法、执行器或 GUI 功能 | [Runtime protocol](docs/development/runtime-config.md) |
+| 在新实验室连接已有本体 | [Station skill](.agents/skills/manimux-station-setup/SKILL.md) |
+| 分析自己的实验记录 | [Experiment skill](.agents/skills/manimux-experiments/SKILL.md) |
+
+每种接入都应说明数据语义、代码归属、YAML 选择方式和验证结果。
+
+**欢迎一起建设 ManiMux。** 无论是新本体、策略、推理算法，还是文档完善与问题修复，都欢迎贡献。
+请从[接入指南](docs/development/README.md)开始，遵循共享 protocol，并参考[贡献指南](docs/development/README.md#contributing)完成交付。
+
+## 支持情况
+
+[支持目录](docs/usage/deployments.md)列出模型、本体、算法和验证记录。
+能力取决于实际 checkpoint 与 backend；已接入不代表每一种组合都通过了真机验证。
+项目仍在持续开发，各部署指南说明对应配置的验证范围。
 
 <a id="citation"></a>
 
-## 📝 引用
+## 引用
 
-如果 ManiMux 帮助了你的实验，欢迎引用本仓库。
-使用 XPolicyLab 接入模型时，也请引用 [XPolicyLab 论文](https://arxiv.org/abs/2608.09892)。
+如果 ManiMux 支持了你的研究，请引用：
+
+**ManiMux: An Extensible Real-World Manipulation Harness**
 
 ```bibtex
 @misc{manimux2026,
-  title = {{ManiMux}: A Composable Platform for Real-Robot Experiments},
+  title = {{ManiMux}: An Extensible Real-World Manipulation Harness},
   year = {2026},
   howpublished = {GitHub repository},
   url = {https://github.com/SII-LiuLab/manimux}
 }
+```
 
+使用相关组件时，也请引用对应项目及实际使用的模型或算法：
+[XPolicyLab](https://github.com/XPolicyLab/XPolicyLab)、[StarVLA](https://github.com/starVLA/starVLA)、[PRM-as-a-Judge](https://github.com/YuyangLiu2003/PRM-as-a-Judge)。
+
+<details>
+<summary>相关项目的官方 BibTeX（按实际使用选择）</summary>
+
+[XPolicyLab](https://arxiv.org/abs/2608.09892)
+
+```bibtex
 @article{community2026xpolicylab,
-  title = {{XPolicyLab}: A Unified Standard and Open Ecosystem for Robot Policy Evaluation and Deployment},
-  author = {{XPolicyLab Community} and Chen, Tianxing and Chen, Yue and Nian, Tian and others},
-  journal = {arXiv preprint arXiv:2608.09892},
-  year = {2026},
-  doi = {10.48550/arXiv.2608.09892},
-  url = {https://arxiv.org/abs/2608.09892}
+  title={{XPolicyLab}: A Unified Standard and Open Ecosystem for Robot Policy Evaluation and Deployment},
+  author={Community, XPolicyLab and Chen, Tianxing and Chen, Yue and Nian, Tian and Cai, Zijian and Chen, Guangyu and Lin, Wenwei and Liang, Qiwei and Xiang, Peicheng and Su, Kailun and others},
+  journal={arXiv preprint arXiv:2608.09892},
+  year={2026}
 }
 ```
 
----
+[StarVLA](https://arxiv.org/abs/2604.05014)
 
-真机需要匹配的模型契约与硬件安全措施；软件检查不等于安全认证或任务成功。
-上游来源：[声明](THIRD_PARTY_NOTICES.md) · [许可](licenses)。
+```bibtex
+@article{community2026starvla,
+  title={StarVLA: A Lego-like Codebase for Vision-Language-Action Model Developing},
+  author={Community, StarVLA},
+  journal={arXiv preprint arXiv:2604.05014},
+  year={2026},
+  eprint={2604.05014},
+  archivePrefix={arXiv},
+  primaryClass={cs.RO}
+}
+```
+
+[PRM-as-a-Judge 1.5 — 工具包技术报告](https://arxiv.org/pdf/2608.14284)
+
+```bibtex
+@article{liu2026prmjudge15,
+  title   = {PRM-as-a-Judge 1.5: A Toolkit for Robot Process Assessment},
+  author  = {Liu, Yuyang and Shen, Yanqing and Chen, Ruike and Zhao, Jifan and Tian, Yuxuan and Zhang, Yichi and Long, Tianfeng and Yin, Zixuan and Wang, Yipu and Qin, Ziheng and Tan, Wenxing and Shi, Yang and Cao, Mingyu and Xiao, Runze and Wang, Ziqi and Yin, Zhixin and Chu, Shiwei and Zhang, Yi-Fan and Mu, Yao and Ji, Yuheng and Wang, Yihao and Yan, Jun and Wang, Zhongyuan and Wang, Pengwei and Zheng, Xiaolong},
+  journal = {arXiv preprint arXiv:2608.14284},
+  year    = {2026},
+  url     = {https://arxiv.org/pdf/2608.14284}
+}
+```
+
+[PRM-as-a-Judge — 原始方法论文](https://arxiv.org/abs/2603.21669)
+
+```bibtex
+@article{ji2026prmjudge,
+  title   = {PRM-as-a-Judge: A Dense Evaluation Paradigm for Fine-Grained Robotic Auditing},
+  author  = {Ji, Yuheng and Liu, Yuyang and Tan, Huajie and Huang, Xuchuan and Huang, Fanding and Xu, Yijie and Chi, Cheng and Zhao, Yuting and Lyu, Huaihai and Co, Peterson and others},
+  journal = {arXiv preprint arXiv:2603.21669},
+  year    = {2026}
+}
+```
+
+</details>
+
+[第三方声明](licenses/THIRD_PARTY_NOTICES.md) · [上游许可证](licenses) · [完整文档](docs/index.md)
+
+## 许可证
+
+[![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-3776AB?style=flat-square)](pyproject.toml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-22C55E?style=flat-square)](LICENSE)
+
+ManiMux 使用 [MIT](LICENSE) 许可证。第三方框架、SDK 与资产保留各自的许可证，
+详见[第三方声明](licenses/THIRD_PARTY_NOTICES.md)。

@@ -1,14 +1,12 @@
-# 推理调度参数；algorithm 在实验入口显式选择。动作间隔由 policy.action_dt_s 指定。
+# Tianji-TacCap inline-decode scheduling. The experiment selects the algorithm.
 inference_schedule: single_inflight
 refill_threshold_s: 0.25
-# Initial process-decode estimate and forecast lower bound.
-expected_decode_s: 0.06
-decode_forecast_size: 10
-decode_forecast_mode: max
 max_plan_age_s: 2.0
-blend_steps: 2
+blend_policy_steps: 2
+action_start_mode: drop_infer_latency
 # Chunk handoff. waypoint joins new chunks in EE space before dense IK; it requires
-# blend_steps: 0 and an adapter with policy.adapter.handoff_waypoint.
+# blend_policy_steps: 0 and an adapter with policy.adapter.handoff_waypoint.
 handoff: blend
-handoff_margin_s: 0.01
-strategy: manimux.policy_adapter.umi_dp.history:build_strategy
+# 0.01 s margin plus the 0.02 s commit lead that main removed, so a waypoint
+# handoff keeps its previous distance from the expected decode finish.
+handoff_margin_s: 0.03

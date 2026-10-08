@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Protocol
 
@@ -169,7 +169,7 @@ class DefaultChunkStrategy:
         del response, last_command
         return CommitSettings(
             current_command=copy_group_vector(measured),
-            blend_steps=self._config["inference"]["blend_steps"],
+            blend_steps=self._config["inference"]["blend_policy_steps"],
             anchor_source="measured_state",
         )
 
@@ -231,6 +231,52 @@ def build_inference_strategy(config: dict) -> InferenceStrategy:
         builtins=_STRATEGY_BUILTINS,
     )
     return factory(config)
+
+
+def build_warmup_submission(
+    strategy: InferenceStrategy,
+    config: dict,
+    *,
+    session_id: str,
+    request_seq: int,
+    now_ns: int,
+    snapshot: ObservationSnapshot,
+    adapter: PolicyAdapter,
+    conditioned: bool = False,
+) -> InferenceSubmission:
+    """Build an inference-only request without advancing the formal scheduler."""
+    method = getattr(strategy, "build_warmup_submission", None)
+    if callable(method):
+        return method(
+            session_id=session_id,
+            request_seq=request_seq,
+            now_ns=now_ns,
+            snapshot=snapshot,
+            adapter=adapter,
+            conditioned=conditioned,
+        )
+    return InferenceSubmission(
+        request=InferenceRequest(
+            session_id=session_id,
+            request_seq=request_seq,
+            observation_time_ns=snapshot.state.monotonic_ns,
+            deadline_ns=now_ns + int(config["policy"]["timeout_s"] * 1_000_000_000),
+            observation=adapter.build_observation(snapshot),
+            instruction=config["run"]["task"],
+        ),
+        event_fields={"conditioned": False},
+    )
+
+
+def seed_strategy_warmup(
+    strategy: InferenceStrategy,
+    *,
+    latency_ns: Sequence[int],
+) -> None:
+    """Pass successful E2E warmup durations to an optional strategy estimator."""
+    method = getattr(strategy, "seed_warmup", None)
+    if callable(method):
+        method(latency_ns=latency_ns)
 
 
 def prepare_strategy_chunk(

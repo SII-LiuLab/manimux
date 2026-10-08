@@ -18,6 +18,7 @@ XR1_ROOT = XPOLICY_ROOT / "policy/Xiaomi_Robotics_1/xiaomi_robotics_1/xr1"
 DEFAULT_CONFIG = REPO_ROOT / "manimux/configs/policy/xiaomi-xr1/yam/base.yaml"
 MODEL_PYTHON = REPO_ROOT / "envs/xr1/.venv/bin/python"
 YAM_FINETUNED_VARIANTS = {
+    "xiaomi_xr1_yam_put_bottles_step_30000",
     "xiaomi_xr1_yam_assemble_screwdriver_step_12000",
     "xiaomi_xr1_yam_assemble_screwdriver_step_15000",
 }

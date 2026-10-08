@@ -11,7 +11,7 @@ from typing import Any, Protocol
 from manimux.clock import SystemClock
 from manimux.embodiments.robot import build_robot
 from manimux.runtime import RunResult, build_runtime
-from manimux.viewer.communication import ControlClient, RuntimeEvent, ViewerPublisher
+from manimux.robogui.communication import ControlClient, RuntimeEvent, RoboGUIPublisher
 
 
 class _Runtime(Protocol):
@@ -39,7 +39,7 @@ def _build_served_runtime(config: dict, run_dir: Path) -> _Runtime:
     return build_runtime(config, run_dir, launch_mode="serve")
 
 
-# Viewer drag choices use the Marvin arm labels.
+# RoboGUI drag choices use the Marvin arm labels.
 _DRAG_SIDES = {"A": ("left",), "B": ("right",), "AB": ("left", "right")}
 
 
@@ -50,7 +50,7 @@ def _error_text(error: BaseException) -> str:
 
 
 class _TianjiRecovery:
-    """Idle Viewer recovery protocol; the robot assembly owns every hardware action."""
+    """Idle RoboGUI recovery protocol; the robot assembly owns every hardware action."""
 
     def __init__(self, config: dict, *, robot_factory: Callable = build_robot) -> None:
         options = config["robot"].get("options", {})
@@ -115,7 +115,7 @@ class _TianjiRecovery:
                 self._state = "stopping"
             elif self._thread_error:
                 # A late Stop acknowledgement must not hide a cleanup failure
-                # that completed between the Viewer click and this poll.
+                # that completed between the RoboGUI click and this poll.
                 self._error = self._thread_error
                 self._state = "error"
             else:
@@ -150,7 +150,7 @@ class _TianjiRecovery:
                 raise ValueError(f"unsupported recovery request: {request}")
             self._build(end_effector_control=False).clear_errors()
             self._state = "cleared"
-        except Exception as exc:  # noqa: BLE001 - report the SDK error in Viewer
+        except Exception as exc:  # noqa: BLE001 - report the SDK error in RoboGUI
             self._state = "error"
             self._error = _error_text(exc)
         finally:
@@ -160,13 +160,13 @@ class _TianjiRecovery:
         def run() -> None:
             try:
                 job(*args)
-            except Exception as exc:  # noqa: BLE001 - surface hardware failures in Viewer
+            except Exception as exc:  # noqa: BLE001 - surface hardware failures in RoboGUI
                 self._thread_error = _error_text(exc)
 
         self._task = task
         self._thread_error = ""
         self._drag_stop.clear()
-        self._thread = threading.Thread(target=run, name=f"tianji-viewer-{task}", daemon=True)
+        self._thread = threading.Thread(target=run, name=f"tianji-robogui-{task}", daemon=True)
         self._thread.start()
 
     def _drag_active(self) -> None:
@@ -214,12 +214,12 @@ class RuntimeSessionService:
         *,
         runtime_factory: RuntimeFactory | None = None,
         control_factory: ControlFactory = ControlClient,
-        publisher_factory: PublisherFactory = ViewerPublisher,
+        publisher_factory: PublisherFactory = RoboGUIPublisher,
         poll_interval_s: float = 0.1,
         announcement_interval_s: float = 1.0,
     ) -> None:
-        if not config["viewer"]["enabled"]:
-            raise ValueError("manimux serve requires viewer.enabled=true")
+        if not config["robogui"]["enabled"]:
+            raise ValueError("manimux serve requires robogui.enabled=true")
         self._config = config
         self._run_dir = run_dir
         self._runtime_factory = runtime_factory or _build_served_runtime
@@ -240,12 +240,17 @@ class RuntimeSessionService:
         return {
             "run_dir": str(self._run_dir.resolve()),
             "task": self._config["run"]["task"],
+            "evaluation": deepcopy(self._config.get("evaluation", {"kind": "binary"})),
             "runtime": self._config["inference"]["algorithm"],
             "executor": self._config["executor"]["type"],
-            "policy_label": self._config["viewer"]["policy_label"],
+            "policy_label": self._config["robogui"]["policy_label"],
             "camera_map": self._config["policy"]["adapter"].get("camera_map", {}),
+            "experiment_template": deepcopy(self._config["run"].get("experiment_template")),
+            "research_defaults": {
+                key: self._config["run"].get(key, "")
+                for key in ("experiment_name", "condition", "notes")
+            },
             "default_experiment_mode": self._config["run"]["experiment_mode"],
-            "default_layout_id": self._config["run"]["layout_id"],
             "last_episode_dir": (
                 "" if self._last_episode_dir is None else str(self._last_episode_dir.resolve())
             ),
@@ -264,8 +269,8 @@ class RuntimeSessionService:
             publisher.publish(
                 RuntimeEvent(
                     event,
-                    robot=self._config["viewer"]["robot"],
-                    policy=self._config["viewer"]["policy_label"],
+                    robot=self._config["robogui"]["robot"],
+                    policy=self._config["robogui"]["policy_label"],
                     metadata=metadata,
                 )
             )
@@ -291,8 +296,8 @@ class RuntimeSessionService:
                     publisher.publish(
                         RuntimeEvent(
                             "runtime_service_ready",
-                            robot=self._config["viewer"]["robot"],
-                            policy=self._config["viewer"]["policy_label"],
+                            robot=self._config["robogui"]["robot"],
+                            policy=self._config["robogui"]["policy_label"],
                             metadata=self._ready_metadata(),
                         )
                     )
@@ -317,31 +322,35 @@ class RuntimeSessionService:
         attempts = 0
         print(f"runtime service ready; run_dir={self._run_dir.resolve()}")
         print(
-            "Viewer flow: Prepare normal/experiment rollout -> Start rollout -> "
+            "RoboGUI flow: Prepare free/study rollout -> Start rollout -> "
             "Finish & Home / Finish without homing"
         )
         if self._recovery is not None and self._recovery.available:
             print("Manual recovery is always visible: stop a rollout, drag A/B/AB, or Return Home")
         print(
-            "Normal rollouts require no reward; experiment rollouts require a human "
-            "label before the next rollout"
+            "Free rollouts need no scoring; study rollouts offer evaluation "
+            "that can be saved or skipped"
         )
         while max_rollout_attempts is None or attempts < max_rollout_attempts:
             request = self._wait_for_rollout_request()
             attempts += 1
             self._last_error = ""
             self._last_failure_id = ""
-            rollout_config = deepcopy(self._config)
-            task_command = str(request.get("task_command", "")).strip()
-            if task_command:
-                rollout_config["run"]["task"] = task_command
-            rollout_config["run"]["experiment_mode"] = bool(
-                request.get("experiment_mode", self._config["run"]["experiment_mode"])
-            )
-            rollout_config["run"]["layout_id"] = str(
-                request.get("layout_id", self._config["run"]["layout_id"])
-            ).strip()
             try:
+                rollout_config = deepcopy(self._config)
+                task_command = str(request.get("task_command", "")).strip()
+                if task_command:
+                    rollout_config["run"]["task"] = task_command
+                # Identity comes only from this Prepare, never the preceding attempt.
+                rollout_config["run"].update(
+                    experiment_name=request.get("experiment_name", ""),
+                    condition=request.get("condition", ""),
+                    notes=request.get("notes", ""),
+                    experiment_mode=request.get("experiment_mode", False),
+                    layout_id=request.get("layout_id", ""),
+                    repeat_id=request.get("repeat_id"),
+                    reference_layout=deepcopy(request.get("reference_layout")),
+                )
                 result = self._runtime_factory(rollout_config, self._run_dir).run()
             except KeyboardInterrupt:
                 raise

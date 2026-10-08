@@ -1,86 +1,90 @@
 ---
 name: manimux-development
-description: Develop or review ManiMux robot drivers, cameras, policy adapters, runtime strategies, collection and Viewer features. Use to locate the right extension point and preserve collection, training and deployment compatibility.
+description: Integrate or review ManiMux robot components, policy frameworks, action adapters, inference strategies, executors and RoboGUI features using the existing protocols.
 ---
 
 # ManiMux Development
 
-Paths below are relative to the ManiMux root. Read its `AGENTS.md` first.
-YAM and RealSense component READMEs describe their current installation and interfaces.
-Implement the requested feature at the existing extension point; do not turn an
-integration into a framework rewrite or add unrelated checks.
+ManiMux provides shared real-robot inference, execution and experiment operation.
+Users choose their research and optional evaluation; integrations reuse the common
+runtime and RoboGUI. Read the [repository guide](../../../docs/development/agent-guide.md)
+before editing, plus relevant nested or framework `AGENTS.md` instructions.
 
-## Choose the layer
+## Choose the extension point
 
-| Work | Implementation and interface |
-|---|---|
-| Learned model, preprocessing, normalization, training, sampling | `XPolicyLab/policy/`; follow `XPolicyLab/AGENTS.md` and its model-integration skill |
-| Robot SDK and hardware commands | `manimux/embodiments/robot/base.py` defines `connect`, `get_state`, `send_command`, `home`, `stop`, `close`; assemblies live alongside it |
-| Camera device and runtime sensor | `manimux/embodiments/sensor/` owns `SensorBase`, `build_sensor` and device implementations; `read` returns one frame or a named bundle |
-| Observation mapping and model actions to robot actions | `manimux/policy_adapter/base.py`, `manimux/policy_adapter/` |
-| FK/IK and robot geometry | `manimux/kinematics/base.py`, `manimux/viewer/robots/base.py` and their body-specific implementations |
-| Chunk scheduling and command generation | `manimux/runtime/inference.py`, `manimux/runtime/executors/base.py` |
-| Collection GUI and recording | `manimux/collection/`; retain separate implementations per embodiment |
-| Experiment UI, timelines and rollout evidence | `manimux/viewer/`, `manimux/recording/` |
+Trace the selected YAML through its loader, interface, one working implementation
+and caller. Inspect upstream code before classifying a model versus a reusable
+framework. A new checkpoint usually needs configuration, not a new backend.
 
-Shared state, frame, request and action structures live in `manimux/types.py`.
-Adapters inherit the default `prepare_request` hook from `PolicyAdapter`; runtime
-calls `prepare_request(request)` and `decode_action(raw, context)` directly.
+Read only the matching public protocol guide (paths are relative to repository root):
 
-## Add or change an embodiment
+- [Hardware components](../../../docs/development/components.md): arms/controllers,
+  tools, assembled robots, offline FK/IK, cameras and sensors.
+- [Policies](../../../docs/development/policies.md): models, peer frameworks,
+  clients, wire codecs and observation/action adapters.
+- [Runtime and configuration](../../../docs/development/runtime-config.md):
+  scheduling, timelines, executors, display, records/replay and YAML ownership.
+- [Integration map](../../../docs/development/README.md): entry points and concrete recipes.
 
-- Put arms under `manimux/embodiments/arm/` and assemblies under
-  `manimux/embodiments/robot/`. Use installed SDKs directly where possible. Vendored SDK source
-  and native bindings are acceptable there; a separately published package is not required.
-- The robot factory takes a plain parameter dictionary and a `Clock`. The main
-  loader is `manimux.cli.load_config()`; the old top-level configuration classes
-  have been removed. See `docs/code-organization.md` for migration boundaries.
-  `manimux/plugins.py` currently supports
-  a `module:factory` reference in `robot.type`, as well as built-ins and entry points.
-  Robot factories return `RobotBase` and use the `manimux.embodiments.robot` entry-point group.
-  Sensor factories live in `embodiments.sensor` and use `manimux.embodiments.sensor`.
-  Import components directly; do not restore the removed top-level hardware namespaces.
-  Follow the corresponding loader for kinematics and Viewer plugins.
-- Specify named groups, joint ordering, units, gripper convention and any base/TCP
-  transform in the implementation/config. Body-specific DOFs and SDK mappings belong
-  in that body module, not in the shared scheduler. The current hardware runtime consumes
-  joint-position commands; EE policies need an appropriate action adapter.
-- Explain plainly whether connecting moves the robot, and what stop/home do.
-  Do not assume another driver's defaults apply to the new one.
-- Use a matching fake SDK or mock driver for the changed behavior. For a new body,
-  exercise its actual group names and dimensions rather than copying a dual-arm fixture.
+Binding an existing supported robot to another workstation uses
+`manimux-station-setup`. Studying saved rollouts uses `manimux-experiments`.
 
-## Keep collection, training and deployment consistent
+## Plan around ownership
 
-Collection does not need a cross-body GUI or a universal teleoperation implementation.
-YAM's example is `manimux/configs/collection/yam/station.yaml` → `manimux/configs/collection/yam/control.yaml`
-→ `manimux/configs/embodiment/robot/yam_control.yaml`; inference recipes reference that same control profile.
-Declare action_dt_s in each experiment policy; the shared body profile supplies layout and limits.
-Keep joint/gripper conventions and shared motion parameters
-consistent across its collection and deployment. Preserve those meanings in training
-conversion and checkpoint normalization. Executor smoothing is a separate choice.
+Preserve unrelated work and explain the affected files and data path before a
+structural change. Resolve ambiguous ownership with the user; continue within an
+already approved scope without asking again at every stage.
 
-Put complete experiments under `manimux/configs/experiments/<task>/` and deployment recipes
-under `manimux/configs/policy/<model>/<embodiment>/`, without a `server/` layer. XPolicyLab
-owns model defaults and serving. Private training configurations, launchers and notes
-belong to the root's ignored `training/` workspace. Select the adapter class and its mappings
-inline in `policy.adapter`; select inference and executor independently. Do not add
-hand-written parameter validation or another configuration framework during refactors.
-Document conversion units, reference frames, delta anchors and timing in code.
-For learned-model work, use
-`XPolicyLab/.agents/skills/xpolicylab-model-integration/SKILL.md`; use
-`XPolicyLab/.agents/skills/xpolicylab-adapter-check/SKILL.md` when an adapter review is
-actually requested. Do not duplicate those instructions.
+## Preserve the base-class contract
 
-## Camera and UI changes
+Implementations of the same interface must give each operation the same public
+meaning. Matching method names is insufficient: preserve input/output types,
+shapes, group order, units, frames, action meanings, timestamp semantics,
+completion guarantees, lifecycle and failure behavior. Different component kinds
+retain their own interfaces; an arm and a camera need not share one base class.
 
-Trace physical serial → camera-server name → `policy.adapter.camera_map` → model input.
-The shared `SensorFrame` image is RGB uint8. Preserve a frame's image and timestamp
-together; reading the same cached image again does not make it a new capture.
-Inspect `manimux/embodiments/sensor/camera_server/driver.py` and
-`manimux/embodiments/sensor/camera_server/timestamped.py` before assuming their timestamps
-or frame sequences mean the same thing.
+Vendor SDK/RDK calls, wire formats and device mode transitions may differ inside
+each implementation. Callers must not need vendor-name branches to compensate for
+those differences. For embodiment work, read the operation table and review steps
+in [the component contract](../../../docs/development/components.md#shared-behavior-across-embodiments).
 
-When editing generic UI, derive group displays from supplied data rather than assuming
-left/right grippers. Existing fixed layouts are not templates for every body.
-Run focused existing tests for the changed layer and report what was not exercised.
+Review existing drivers, including YAM and Tianji, against that contract; their
+presence in the repository is not proof of compliance. Report mismatches as
+implementation gaps rather than redefining the protocol around an SDK. Required
+operations must work; optional unsupported operations must be explicit to callers,
+never silent no-ops or fabricated success. If the current capability declaration
+or caller behavior is insufficient, identify the gap before changing the interface.
+
+XPolicyLab deployment recipes own explicit `robot_action_dim_info` and `num_envs`;
+pass the resolved policy config to the shared framework helpers. Do not recreate a
+parent `env_cfg/` registry. Model representation and physical joint layout remain
+separate responsibilities connected by the action adapter.
+
+Use the existing loader and factory for each layer. Do not create a parallel main
+loop, registry or config framework. Do not spread SDK calls, model codecs or
+experiment constants into unrelated components. Validate data at the boundary
+that owns its meaning, rather than repeatedly checking it throughout the stack.
+
+If a capability does not fit an existing interface, identify that limitation and
+propose the smallest explicit extension. Never hide extra tool coordinates, replace
+specialized bounded IK with a weaker solver, or report sampling support without
+model-side hooks. Compatibility paths are not templates for new integrations.
+
+For an embodiment review, show the affected operation, required behavior, actual
+SDK mapping, owning file and focused verification. Distinguish documented requirements
+from verified implementation behavior. Keep unrelated drivers and ongoing migrations
+outside the edit scope.
+
+## Complete one usable integration
+
+Deliver implementation, selecting YAML, a short launch/config example, and focused
+validation through the actual loader or public interface. Use fake devices for
+lifecycle/dispatch tests and synthetic chunks for scheduling tests. Separate offline
+checks, actual model inference and physical task success. Tests remain local under
+this repository's ignore policy; do not force-add them.
+
+Update the matching public protocol guide when the interface changes. Keep one
+maintained explanation, referenced by skills and user docs. Write new comments and
+general documentation in English; update the Chinese homepage alongside English.
+Development authorization does not authorize robot motion or stopping live services.
+Commit/push only when requested.

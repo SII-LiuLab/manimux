@@ -8,13 +8,15 @@ port: 8500
 bench_name: RoboDojo_real
 task_name: pick_place
 env_cfg_type: yam_dual
+robot_action_dim_info: {arm_dim: [6, 6], ee_dim: [1, 1]}
+num_envs: 1
 action_type: ee
 eval_batch: false
 checkpoint_variant: xiaomi_robotics_1_5b_base_with_yam_stats
 
 checkpoint_path: /home/ubuntu/manimux/checkpoints/pretrained/xiaomi/model_states.pt
 checkpoint_source: XiaomiRobotics/Xiaomi-Robotics-1-5B
-norm_stats_path: /home/ubuntu/manimux/manimux/integrations/xr1_yam/norm_stats/yam.json
+norm_stats_path: /home/ubuntu/manimux/manimux/configs/policy/xiaomi-xr1/yam/assets/base_projection_norm_stats.json
 norm_stats_role: yam_projection_only_not_checkpoint_matched
 vlm_processor_path: /home/ubuntu/manimux/checkpoints/pretrained/qwen3_vl_4b_processor
 output_format: packed_ee_delta

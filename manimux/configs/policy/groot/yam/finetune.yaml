@@ -6,6 +6,8 @@ port: 8500
 
 task_name: pick_place
 env_cfg_type: yam_dual
+robot_action_dim_info: {arm_dim: [6, 6], ee_dim: [1, 1]}
+num_envs: 1
 action_type: joint
 eval_batch: false
 

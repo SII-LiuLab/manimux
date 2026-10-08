@@ -1,0 +1,7 @@
+# Standard single-inflight ManiMux schedule with a 12-policy-step execution prefix.
+inference_schedule: single_inflight
+refill_threshold_s: 0.4
+max_plan_age_s: 2.0
+blend_policy_steps: 4
+action_start_mode: drop_infer_latency
+chunk_policy_steps: 12

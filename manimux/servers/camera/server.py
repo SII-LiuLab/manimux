@@ -1,6 +1,6 @@
 """ZMQ-based camera server.
 
-Hosts the RealSense cameras in a long-lived process so eval clients can pull
+Hosts camera components in a long-lived process so eval clients can pull
 the latest frames on demand without paying for pipeline startup, fighting the
 policy loop for camera I/O, or coupling robot-control timing to camera I/O.
 
@@ -13,7 +13,7 @@ REP  ``tcp://127.0.0.1:5555``  (default)
 PUB  ``tcp://127.0.0.1:5556``  (default, optional)
     Push semantics. Server publishes the latest obs every ``pub_period_sec``;
     a server whose cameras are all TacCap publishes as soon as any camera has a
-    new frame instead. Used by the cv2 live viewer and by timestamped runtime
+    new frame instead. Used by the cv2 live preview and by timestamped runtime
     sensors.
 
 Request protocol
@@ -43,19 +43,20 @@ import time
 from pathlib import Path
 from typing import Any
 
-import yaml
 import zmq
 
-from manimux.cli import read_experiment, read_yaml, resolve_local_path
-from manimux.embodiments.sensor.taccap.sensor import V4L_BY_ID, TacCapCamera
+from manimux.cli import (
+    bind_station,
+    read_camera_recipe,
+    read_experiment,
+    read_yaml,
+    resolve_local_path,
+)
+from manimux.embodiments.sensor import SensorBase, build_camera
+from manimux.embodiments.sensor.taccap.sensor import TacCapSensor
+from manimux.types import SensorFrame
 
 logger = logging.getLogger("camera_server")
-
-CAMERA_TYPES = ("realsense", "orbbec", "taccap")
-TACCAP_KEYS = frozenset(
-    {"type", "camera_serial", "width", "height", "fps", "max_frame_age_sec", "startup_timeout_sec"}
-)
-
 
 DEFAULT_REP_ENDPOINT = "tcp://127.0.0.1:5555"
 DEFAULT_PUB_ENDPOINT = "tcp://127.0.0.1:5556"
@@ -66,22 +67,17 @@ DEFAULT_HEARTBEAT_SEC = 10.0
 
 
 def camera_config(experiment: dict) -> dict:
-    """将实验中的相机流名绑定到整机组件，复用 runtime 的设备参数。"""
-    assembly_path = Path(experiment["robot"]["config"])
-    assembly = read_yaml(assembly_path)
-    overrides = experiment["robot"].get("options", {}).get("component_hardware", {})
+    """Resolve camera components and per-stream overrides without loading a robot."""
+    overrides = experiment.get("robot", {}).get("options", {}).get("component_hardware", {})
     cameras = {}
     for stream_name, camera in experiment["camera_server"]["cameras"].items():
         name = camera["component"]
-        entry = assembly["components"][name]
-        component = read_yaml(assembly_path.parent / entry["config"])
-        # 明确按组件名绑定，不依靠字典顺序或设备扫描顺序推断左右。
+        component = read_yaml(camera["config"])
         cameras[stream_name] = {
-            "type": camera["type"],
+            "implementation": component["implementation"],
             **component.get("options", {}),
-            **entry.get("options", {}),
             **component.get("hardware", {}),
-            **entry.get("hardware", {}),
+            **camera.get("options", {}),
             **overrides.get(name, {}),
         }
     return {"sensors": {"cameras": cameras}}
@@ -92,7 +88,7 @@ class CameraServer:
 
     def __init__(
         self,
-        cameras: dict[str, Any],
+        cameras: dict[str, SensorBase],
         rep_endpoint: str = DEFAULT_REP_ENDPOINT,
         pub_endpoint: str | None = None,
         pub_period_sec: float = DEFAULT_PUB_PERIOD_SEC,
@@ -114,34 +110,42 @@ class CameraServer:
         self._req_total = 0
         self._req_window = 0
         self._last_heartbeat = time.time()
+        # Keep the existing Unix-seconds wire format using the host capture clock.
+        self._unix_offset_s = time.time() - time.monotonic_ns() / 1e9
 
     # ------------------------------------------------------------------
     # Frame sourcing
     # ------------------------------------------------------------------
 
-    def _snapshot(self, camera_names: list[str] | None = None) -> dict[str, Any]:
-        """Snapshot the latest color frame from every camera (RGB uint8)."""
-        frames: dict[str, Any] = {}
-        timestamps: dict[str, float] = {}
+    def _read_frames(self, camera_names: list[str] | None = None) -> dict[str, SensorFrame]:
+        """Read the latest frame from each named camera, or from every camera."""
         names = list(self.cameras) if camera_names is None else camera_names
         if not isinstance(names, list) or not names or not all(isinstance(n, str) for n in names):
             raise ValueError("camera_names must be a nonempty list of names")
         missing = set(names) - self.cameras.keys()
         if missing:
             raise ValueError(f"Unknown cameras: {sorted(missing)}")
+        frames: dict[str, SensorFrame] = {}
         for name in names:
-            cam = self.cameras[name]
-            read_with_timestamp = getattr(cam, "read_with_timestamp", None)
-            if callable(read_with_timestamp):
-                image, _depth, ts = read_with_timestamp()
-            else:
-                image, _depth = cam.read()
-                ts = getattr(cam, "_latest_frame_timestamp", None) or 0.0
-            frames[name] = image
-            # Timestamp must belong to the returned image even if the capture
-            # thread has already advanced to its next frame.
-            timestamps[name] = float(ts)
-        return {"ok": True, "frames": frames, "timestamps": timestamps}
+            frame = self.cameras[name].read()
+            if not isinstance(frame, SensorFrame):
+                raise TypeError(f"Camera {name!r} must return one SensorFrame")
+            frames[name] = frame
+        return frames
+
+    def _response(self, frames: dict[str, SensorFrame]) -> dict[str, Any]:
+        return {
+            "ok": True,
+            "frames": {name: frame.data for name, frame in frames.items()},
+            "timestamps": {
+                name: frame.capture_monotonic_ns / 1e9 + self._unix_offset_s
+                for name, frame in frames.items()
+            },
+        }
+
+    def _snapshot(self, camera_names: list[str] | None = None) -> dict[str, Any]:
+        """Snapshot the latest color frame from every camera (RGB uint8)."""
+        return self._response(self._read_frames(camera_names))
 
     # ------------------------------------------------------------------
     # Request handling
@@ -176,7 +180,7 @@ class CameraServer:
         assert self._pub is not None
         # Every TacCap frame carries its own receipt time, so publish each new
         # frame immediately; other camera types keep the fixed-period stream.
-        if self.cameras and all(isinstance(cam, TacCapCamera) for cam in self.cameras.values()):
+        if self.cameras and all(isinstance(cam, TacCapSensor) for cam in self.cameras.values()):
             self._pub_new_frames()
             return
         next_tick = time.time()
@@ -194,18 +198,20 @@ class CameraServer:
                 logger.warning("PUB tick failed: %s", exc)
 
     def _pub_new_frames(self) -> None:
-        """Publish the bundle whenever any camera's latest frame timestamp changes."""
+        """Publish the bundle whenever any camera's latest capture time changes."""
         assert self._pub is not None
         published = None
         while not self._stop_event.is_set():
-            stamps = tuple(cam._latest_frame_timestamp for cam in self.cameras.values())
+            # Capture times on the monotonic clock that the published frames carry.
+            stamps = tuple(cam.latest_frame_ns() for cam in self.cameras.values())
             if None in stamps or stamps == published:
                 time.sleep(NEW_FRAME_POLL_SEC)
                 continue
             try:
-                resp = self._snapshot()
-                self._pub.send(pickle.dumps(resp), copy=False)
-                published = tuple(resp["timestamps"][name] for name in self.cameras)
+                frames = self._read_frames()
+                self._pub.send(pickle.dumps(self._response(frames)), copy=False)
+                # A frame that arrived after polling is already in this bundle.
+                published = tuple(frames[name].capture_monotonic_ns for name in self.cameras)
             except Exception as exc:  # noqa: BLE001 — pub is best-effort
                 # Retry only after another frame arrives, not every poll.
                 published = stamps
@@ -291,98 +297,32 @@ class CameraServer:
 # --------------------------------------------------------------------------
 
 
-def _build_cameras_from_config(cfg_path: Path, *, by_id_root: Path = V4L_BY_ID) -> dict[str, Any]:
-    """Open every camera in ``sensors.cameras``; ``type`` selects the backend (default realsense).
-
-    Each backend's SDK is imported only when a camera of that type is configured,
-    and a configured camera that cannot be found fails the server start.
-    """
-    with Path(cfg_path).open(encoding="utf-8") as handle:
-        cfg = yaml.safe_load(handle)
-    return _build_cameras(cfg, by_id_root=by_id_root)
+def _build_cameras_from_config(cfg_path: Path, local: Path | None = None) -> dict[str, SensorBase]:
+    """Use the same camera recipes and station bindings as experiment startup."""
+    config = bind_station(
+        {"camera_server": read_camera_recipe(cfg_path)}, resolve_local_path(cfg_path, local)
+    )
+    return _build_cameras(camera_config(config))
 
 
-def _build_cameras(cfg: dict, *, by_id_root: Path = V4L_BY_ID) -> dict[str, Any]:
-    """旧相机 YAML 和新实验/local 入口共用原有采集实现。"""
-    camera_cfg = cfg["sensors"]["cameras"]
-    kinds: dict[str, str] = {}
-    for name, spec in camera_cfg.items():
-        kind = spec.get("type", "realsense")
-        if kind not in CAMERA_TYPES:
-            raise ValueError(
-                f"camera {name!r}: unknown camera type {kind!r}; expected one of {CAMERA_TYPES}"
-            )
-        if kind == "taccap":
-            unknown = sorted(set(spec) - TACCAP_KEYS)
-            if unknown:
-                raise ValueError(f"camera {name!r}: unknown taccap keys {unknown}")
-        kinds[name] = kind
-    if "realsense" in kinds.values():
-        from manimux.embodiments.sensor.realsense import get_device_ids
-
-        logger.info("Discovering RealSense devices...")
-        ids = get_device_ids()
-        logger.info("Found %d RealSense devices: %s", len(ids), ids)
-    cameras: dict[str, Any] = {}
+def _build_cameras(cfg: dict) -> dict[str, SensorBase]:
+    """Construct every component before starting any device; clean up failed starts."""
+    cameras = {
+        name: build_camera(name, spec)
+        for name, spec in cfg["sensors"]["cameras"].items()
+    }
     try:
-        for name, spec in camera_cfg.items():
-            if kinds[name] == "taccap":
-                cameras[name] = _open_taccap(name, spec, by_id_root)
-            else:
-                cameras[name] = _open_rgbd(name, spec)
-    except Exception:
+        for name, camera in cameras.items():
+            logger.info("Starting camera %s", name)
+            camera.start()
+    except BaseException:
         for camera in cameras.values():
-            camera.close()
+            try:
+                camera.close()
+            except Exception:
+                logger.exception("Camera cleanup failed after startup error")
         raise
     return cameras
-
-
-def _open_taccap(name: str, spec: dict[str, Any], by_id_root: Path) -> Any:
-    from manimux.embodiments.sensor.taccap import TacCapCamera
-
-    if not spec.get("camera_serial"):
-        raise ValueError(f"camera {name!r}: taccap cameras need camera_serial")
-    logger.info("Opening TacCap camera %s (serial=%s)", name, spec["camera_serial"])
-    return TacCapCamera(
-        str(spec["camera_serial"]),
-        width=int(spec.get("width", 640)),
-        height=int(spec.get("height", 480)),
-        fps=int(spec.get("fps", 30)),
-        max_frame_age_sec=float(spec.get("max_frame_age_sec", 0.30)),
-        startup_timeout_sec=float(spec.get("startup_timeout_sec", 3.0)),
-        by_id_root=by_id_root,
-    )
-
-
-def _open_rgbd(name: str, spec: dict[str, Any]) -> Any:
-    if spec.get("type", "realsense") == "realsense":
-        from manimux.embodiments.sensor.realsense import RealSenseSensor
-
-        # 旧相机服务使用 640x360、RGB+对齐深度；组件 YAML 可以显式覆盖。
-        options = {
-            "width": 640,
-            "height": 360,
-            "enable_depth": True,
-            "align_depth": True,
-            "warmup_frames": 15,
-            **spec,
-        }
-        options.pop("type", None)
-        serial = options.pop("camera_serial", options.pop("device_id", None))
-        camera = RealSenseSensor(name=name, camera_serial=serial, **options)
-        camera.start()
-        return camera
-    from manimux.embodiments.sensor.orbbec import OrbbecCamera
-
-    return OrbbecCamera(
-        spec["device_id"],
-        flip=bool(spec.get("flip", False)),
-        width=int(spec.get("width", 640)),
-        height=int(spec.get("height", 360)),
-        fps=int(spec.get("fps", 30)),
-        max_frame_age_sec=float(spec.get("max_frame_age_sec", 0.30)),
-        enable_depth=spec.get("enable_depth", True),
-    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -391,13 +331,12 @@ def main(argv: list[str] | None = None) -> int:
     source.add_argument(
         "--config",
         type=Path,
-        help="Path to a cameras YAML whose sensors.cameras block lists the devices "
-        "(type: realsense by default, or orbbec/taccap).",
+        help="Camera recipe with cameras.<stream>.config, component and options",
     )
     source.add_argument("--experiment", type=Path, help="Experiment with named camera components")
     parser.add_argument(
         "--local", type=Path,
-        help="Station bindings (default with --experiment: manimux/configs/local/station.yaml)",
+        help="Station bindings (default: manimux/configs/local/station.yaml)",
     )
     parser.add_argument("--rep-endpoint")
     parser.add_argument(
@@ -408,15 +347,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--heartbeat-sec", type=float, default=DEFAULT_HEARTBEAT_SEC)
     parser.add_argument("--log-level", default="INFO")
     args = parser.parse_args(argv)
-    if args.local is not None and args.experiment is None:
-        parser.error("--local requires --experiment")
-    resolved_cameras = None
-    service = {}
+    local = resolve_local_path(args.experiment or args.config, args.local)
     if args.experiment is not None:
-        local = resolve_local_path(args.experiment, args.local)
         experiment = read_experiment(args.experiment, local=local)
-        resolved_cameras = camera_config(experiment)
-        service = experiment["camera_server"]
+    else:
+        experiment = bind_station({"camera_server": read_camera_recipe(args.config)}, local)
+    resolved_cameras = camera_config(experiment)
+    service = experiment["camera_server"]
     # Explicit CLI addresses override the station's shared service bindings.
     args.rep_endpoint = args.rep_endpoint or service.get("rep_endpoint", DEFAULT_REP_ENDPOINT)
     if args.pub_endpoint is None:
@@ -455,11 +392,7 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         signal.signal(signal.SIGINT, _handle)
         signal.signal(signal.SIGTERM, _handle)
-        server.cameras = (
-            _build_cameras(resolved_cameras)
-            if resolved_cameras is not None
-            else _build_cameras_from_config(args.config)
-        )
+        server.cameras = _build_cameras(resolved_cameras)
         server.run()
     finally:
         server.shutdown()

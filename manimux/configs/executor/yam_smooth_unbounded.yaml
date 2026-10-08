@@ -1,0 +1,14 @@
+# Low-pass tracking with explicit null rate caps for the SAPolicy MV51 runs.
+smooth:
+  cutoff_hz: 8.0
+  tracking_mode: legacy
+  max_velocity: null
+  max_acceleration: null
+  position_limit_abs: 3.14
+  gripper:
+    mode: continuous
+    max_velocity: null
+    max_acceleration: null
+    max_closing_velocity: null
+    closed_value: 0.0
+    open_value: 1.0

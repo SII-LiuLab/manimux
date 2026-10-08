@@ -16,7 +16,7 @@ from manimux.policies.base import action_interval
 from manimux.policies.xpolicylab.codec import matrix_pose, pose_matrix
 from manimux.policy_adapter.base import PolicyAdapter
 from manimux.policy_adapter.handoff import WaypointHandoff
-from manimux.policy_adapter.umi_dp.history import WindowSnapshot
+from manimux.policy_adapter.umi_dp.history import WindowSnapshot, execution_offset_s
 from manimux.runtime.rtc.request import RtcInferenceRequest
 from manimux.types import ActionChunk, RuntimeTrajectory
 
@@ -45,6 +45,7 @@ def state_vector(value):
 
 
 class UmiDpTianjiAdapter(PolicyAdapter):
+    uses_motion_limits = True
     supports_context_only_decode = True
     # This checkpoint's full source trajectory starts at the request
     # observation. Timeline owns all stale-row trimming at commit time.
@@ -53,12 +54,13 @@ class UmiDpTianjiAdapter(PolicyAdapter):
     # parallel and merge them atomically.
     decode_partitions = ("left_arm", "right_arm")
 
-    def __init__(self, robot, policy, *, kinematics=None):
+    def __init__(self, robot, policy, *, kinematics=None, motion_limits=None):
         self.validate(robot, policy)
         self.policy = policy
-        self.horizon = policy["horizon_steps"]
+        self.motion_limits = motion_limits
+        self.horizon = policy["horizon_policy_steps"]
         self.dt_ns = round(action_interval(policy) * 1e9)
-        self.offset_ns = round(float(policy["adapter"]["first_action_offset_s"]) * 1e9)
+        self.offset_ns = round(execution_offset_s(policy) * 1e9)
         self.gripper_output_deadzone = float(
             policy["adapter"].get("gripper_output_deadzone", 0.0)
         )
@@ -78,9 +80,11 @@ class UmiDpTianjiAdapter(PolicyAdapter):
         # In-process decoding receives the robot's exact models. A spawned
         # action decoder loads geometry only, from the same assembly config.
         self.robot_kinematics = kinematics
-        if robot["type"] == "tianji_taccap" and self.robot_kinematics is None:
+        if self.robot_kinematics is None and robot["type"] == "tianji_taccap":
             from manimux.embodiments.robot import RobotModel
 
+            if robot.get("config") is None:
+                raise ValueError("UMI Tianji requires robot.config or assembled kinematics")
             self.robot_kinematics = RobotModel.from_config(robot["config"]).kinematics
         self.kin = {}
         self.ik_backend = policy["adapter"].get("ik_backend", "analytic")
@@ -90,17 +94,14 @@ class UmiDpTianjiAdapter(PolicyAdapter):
             raise ValueError("diff_ik settings apply only to ik_backend: diff")
         self.diff_solvers = {}
         for side in ("left", "right"):
-            if self.robot_kinematics is not None:
+            if self.robot_kinematics is None:
+                # Non-hardware runtime fixtures use the fixed offline Tianji model.
+                # Adapter configuration cannot replace or modify its geometry.
+                self.kin[side] = build_kinematics("tianji", arm=side)
+                arm_solver = self.kin[side]
+            else:
                 self.kin[side] = self.robot_kinematics.models[f"{side}_arm"]
                 arm_solver = self.kin[side].arm
-            else:
-                # Compatibility for experiments not yet migrated to robot.type/config.
-                options = dict(policy["adapter"].get("kinematics_options", {}))
-                options.update(policy["adapter"].get(f"{side}_kinematics_options", {}))
-                self.kin[side] = build_kinematics(
-                    policy["adapter"].get("kinematics", "tianji"), arm=side, **options
-                )
-                arm_solver = self.kin[side]
             if self.ik_backend == "diff":
                 from manimux.embodiments.arm.tianji.kinematics import TianjiArmKinematics
                 from manimux.kinematics.tianji_diff import (
@@ -110,9 +111,12 @@ class UmiDpTianjiAdapter(PolicyAdapter):
 
                 if not isinstance(arm_solver, TianjiArmKinematics):
                     raise ValueError("UMI differential IK requires Tianji kinematics")
-                config = DifferentialIKConfig.model_validate(policy["adapter"].get("diff_ik", {}))
-                if not config.check_j67:
-                    raise ValueError("UMI differential IK requires the J6/J7 constraint")
+                arm_motion = None if motion_limits is None else motion_limits.get("arm")
+                if arm_motion is None or arm_motion.get("max_velocity") is None:
+                    raise ValueError("UMI differential IK requires resolved arm motion limits")
+                tuning = dict(policy["adapter"].get("diff_ik", {}))
+                tuning["max_velocity_rad_s"] = arm_motion["max_velocity"]
+                config = DifferentialIKConfig.model_validate(tuning)
                 self.diff_solvers[side] = TianjiDifferentialIK(arm_solver, config)
         self.waypoint_handoff = WaypointHandoff.from_options(
             policy["adapter"], source_dt_ns=self.dt_ns, runtime_dt_ns=self._runtime_dt_ns()
@@ -125,6 +129,12 @@ class UmiDpTianjiAdapter(PolicyAdapter):
         if list(robot["group_dims"].items()) != [("left_arm", 8), ("right_arm", 8)]:
             raise ValueError("UMI Tianji requires left_arm/right_arm with 7+1 values")
         options = policy["adapter"]
+        for key in ("first_action_offset_s", "observation_period_s"):
+            if key in options:
+                raise ValueError(
+                    f"adapter.{key} moved to the checkpoint identity; set "
+                    "adapter.execution_offset_s to execute at a different phase"
+                )
         execute_substeps = options.get("execute_diff_ik_substeps", False)
         if not isinstance(execute_substeps, bool):
             raise ValueError("execute_diff_ik_substeps must be boolean")
@@ -132,19 +142,10 @@ class UmiDpTianjiAdapter(PolicyAdapter):
             raise ValueError("execute_diff_ik_substeps requires ik_backend: diff")
         if options.get("handoff_waypoint") is not None and not execute_substeps:
             raise ValueError("handoff_waypoint requires execute_diff_ik_substeps")
-        if not np.isfinite(options.get("observation_period_s", np.nan)) or (
-            options["observation_period_s"] <= 0
+        if "execution_offset_s" in options and not (
+            np.isfinite(options["execution_offset_s"]) and options["execution_offset_s"] >= 0
         ):
-            raise ValueError(
-                "Bind the checkpoint observation_period_s before constructing the adapter"
-            )
-        # The offset places row 0 on the wall clock, so zero is a meaningful
-        # deployment choice: execute each row at the observation time it was
-        # predicted for rather than one source frame later.
-        if not np.isfinite(options.get("first_action_offset_s", np.nan)) or (
-            options["first_action_offset_s"] < 0
-        ):
-            raise ValueError("adapter.first_action_offset_s must be finite and non-negative")
+            raise ValueError("adapter.execution_offset_s must be finite and non-negative")
         deadzone = float(options.get("gripper_output_deadzone", 0.0))
         exponent = float(options.get("gripper_output_exponent", 1.0))
         if not math.isfinite(deadzone) or not 0 <= deadzone < 1:
@@ -156,31 +157,28 @@ class UmiDpTianjiAdapter(PolicyAdapter):
             raise ValueError(
                 "UMI server identity must declare absolute per-arm base pose semantics"
             )
-        if robot["type"] == "tianji_taccap":
-            required = (
-                "checkpoint_sha256",
-                "training_config_sha256",
-                "checkpoint_path",
-                "weight_key",
-                "rgb_normalize",
-                "action_horizon",
-                "action_dt_s",
-                "first_action_offset_s",
-                "observation_period_s",
-            )
-            if not options.get("deployment_bound") or any(key not in identity for key in required):
-                raise ValueError("Bind UMI checkpoint identity before using the Tianji driver")
-            # first_action_offset_s is deliberately absent: the identity entry
-            # records what the checkpoint was trained with, while the adapter
-            # entry is the phase this station executes at. The remaining three
-            # still pin the runtime to the bound checkpoint.
-            for key, value in (
-                ("action_horizon", policy["horizon_steps"]),
-                ("action_dt_s", action_interval(policy)),
-                ("observation_period_s", options["observation_period_s"]),
-            ):
-                if identity[key] != value:
-                    raise ValueError(f"Runtime {key} differs from the bound checkpoint")
+        required = (
+            "checkpoint_sha256",
+            "training_config_sha256",
+            "checkpoint_path",
+            "weight_key",
+            "rgb_normalize",
+            "action_horizon",
+            "action_dt_s",
+            "first_action_offset_s",
+            "observation_period_s",
+        )
+        if any(key not in identity for key in required):
+            raise ValueError("Bind UMI checkpoint identity before constructing the adapter")
+        for key in ("first_action_offset_s", "observation_period_s"):
+            if not np.isfinite(identity[key]) or identity[key] <= 0:
+                raise ValueError(f"Bound checkpoint {key} must be positive")
+        for key, value in (
+            ("action_horizon", policy["horizon_policy_steps"]),
+            ("action_dt_s", action_interval(policy)),
+        ):
+            if identity[key] != value:
+                raise ValueError(f"Runtime {key} differs from the bound checkpoint")
 
     def build_observation(self, snapshot):
         if not isinstance(snapshot, WindowSnapshot) or snapshot.previous is None:
@@ -248,7 +246,7 @@ class UmiDpTianjiAdapter(PolicyAdapter):
         )
 
     def _fk(self, kin, joints, aperture):
-        # Both paths return TCP in this arm's own base, never the Viewer frame.
+        # Both paths return TCP in this arm's own base, never the RoboGUI frame.
         if self.robot_kinematics is not None:
             return kin.fk(np.r_[joints, aperture])
         return kin.fk(joints, aperture)
@@ -261,10 +259,7 @@ class UmiDpTianjiAdapter(PolicyAdapter):
 
     def _runtime_dt_ns(self):
         """Dense runtime interval, using the same substep count as _solve_knot."""
-        step_dt = self.validation_dt
-        if self.diff_solvers:
-            step_dt = min(step_dt, next(iter(self.diff_solvers.values())).config.dt_max_s)
-        return self.dt_ns // max(1, math.ceil(self.dt_ns / 1e9 / step_dt))
+        return self.dt_ns // max(1, math.ceil(self.dt_ns / 1e9 / self.validation_dt))
 
     def _handoff_fk(self, kin, row):
         """kin: one arm's model; row: seven joints + aperture; returns (TCP pose, aperture)."""
@@ -341,8 +336,6 @@ class UmiDpTianjiAdapter(PolicyAdapter):
         # sampled SE(3) path at that cadence rather than relaxing that detector
         # or applying its per-servo-step threshold to an entire 30/10 Hz knot.
         step_dt = self.validation_dt
-        if diff_solver is not None:
-            step_dt = min(step_dt, diff_solver.config.dt_max_s)
         substeps = max(1, math.ceil(duration_s / step_dt))
         for index in range(1, substeps + 1):
             alpha = index / substeps

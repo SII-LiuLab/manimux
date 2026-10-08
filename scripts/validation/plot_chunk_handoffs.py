@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Plot adjacent Tianji canonical-chunk handoffs in a recorded rollout.
+"""Plot candidate handoffs between adjacent accepted chunks in a recorded rollout.
 
 The full canonical chunks are aligned on their recorded source clocks.  Seam
-markers use the actual committed Timeline values at the incoming plan's
-start_time_ns, so the two black markers represent the executed handoff rather
-than an approximation from source-row timestamps. Generated PNG, PDF, CSV and
-JSON artifacts are written outside the episode so recordings remain unchanged.
+markers use committed Timeline values at the incoming plan's start_time_ns.
+These are reference seams, not measured motion or verified execution boundaries:
+this exploratory tool does not validate takeover, pause segments or hold classes.
+Generated PNG, PDF, CSV and JSON artifacts are written outside the episode so
+recordings remain unchanged.
 """
 
 from __future__ import annotations
@@ -24,7 +25,11 @@ from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-DEFAULT_ROBOT_CONFIG = ROOT / "manimux/configs/embodiment/robot/tianji_taccap.yaml"
+from manimux.evaluation.trajectory import (  # noqa: E402
+    ReferenceTrajectory,
+    analyze_candidates,
+    write_overlap_report,
+)
 
 WIDTH, HEIGHT = 1800, 2040
 # Every subplot uses exactly the same physical vertical scale.  Eight equal
@@ -69,6 +74,8 @@ class Plan:
     dt_ns: int
     canonical: dict[str, np.ndarray]
     committed: dict[str, np.ndarray]
+    committed_dt_ns: int
+    plan_id: str
     recorded_time_trim_steps: int | None = None
     handoff_skip_steps: int = 0
 
@@ -92,20 +99,26 @@ def load_plans(episode: Path) -> list[Plan]:
         group = plans[name]
         canonical = group["canonical_raw"]
         committed = group["committed"]
+        if committed.attrs.get("action_space") != "joint_position":
+            raise ValueError(f"plan {name}: expected committed joint_position action space")
         loaded.append(
             Plan(
                 index=int(name),
                 request_seq=int(group.attrs["request_seq"]),
+                plan_id=str(committed.attrs["plan_id"]),
+                committed_dt_ns=int(committed.attrs["dt_ns"]),
                 source_start_ns=int(canonical.attrs["observation_time_ns"]),
                 committed_start_ns=int(committed.attrs["start_time_ns"]),
                 dt_ns=int(canonical.attrs["dt_ns"]),
                 canonical={
                     arm: np.asarray(canonical[arm][:], dtype=np.float64)
                     for arm in ("left_arm", "right_arm")
+                    if arm in canonical
                 },
                 committed={
                     arm: np.asarray(committed[arm][:], dtype=np.float64)
                     for arm in ("left_arm", "right_arm")
+                    if arm in committed
                 },
                 recorded_time_trim_steps=(
                     int(committed.attrs["time_trimmed_steps"])
@@ -124,7 +137,7 @@ def fk_xyz(model, rows: np.ndarray) -> np.ndarray:
 
 def sample_committed(plan: Plan, arm: str, time_ns: int) -> np.ndarray:
     values = plan.committed[arm]
-    position = (time_ns - plan.committed_start_ns) / plan.dt_ns
+    position = (time_ns - plan.committed_start_ns) / plan.committed_dt_ns
     position = float(np.clip(position, 0.0, len(values) - 1))
     lower = min(int(math.floor(position)), len(values) - 1)
     upper = min(lower + 1, len(values) - 1)
@@ -309,7 +322,7 @@ def plot_handoff(
         f"requests {old.request_seq}→{new.request_seq} · "
         f"{old_steps}/{new_steps} source points · "
         f"incoming trim={new.time_trim_steps}+{new.handoff_skip_steps} skip · "
-        "actual position seam: "
+        "committed reference seam: "
         f"L {jumps_mm['left_arm']:.1f} mm, R {jumps_mm['right_arm']:.1f} mm · "
         f"Y grid={Y_GRID_M * 100:.0f} cm × {Y_GRID_INTERVALS} (seam-centred)"
     )
@@ -432,13 +445,31 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--robot-config",
         type=Path,
-        default=DEFAULT_ROBOT_CONFIG,
-        help="offline Tianji assembly used for FK",
+        required=True,
+        help="offline assembly matching the recorded embodiment and tool (required)",
     )
     parser.add_argument(
         "--max-handoffs",
         type=int,
         help="render only the first N adjacent handoffs (useful for a quick check)",
+    )
+    parser.add_argument(
+        "--metrics-only",
+        action="store_true",
+        help="write 10/20/30-step overlap diagnostics without rendering images",
+    )
+    parser.add_argument(
+        "--windows",
+        nargs="+",
+        type=int,
+        default=[10, 20, 30],
+        help="future windows in incoming model action steps (default: 10 20 30)",
+    )
+    parser.add_argument(
+        "--stationary-speed-mm-s",
+        type=float,
+        default=0.01,
+        help="cosine is missing below this RMS EEF speed (default: 0.01 mm/s)",
     )
     return parser.parse_args()
 
@@ -457,7 +488,8 @@ def main() -> None:
         if args.out is not None
         else ROOT / "data/analysis" / f"{episode_name}-all-chunk-handoffs"
     )
-    out.mkdir(parents=True, exist_ok=True)
+    if out == episode or episode in out.parents:
+        raise SystemExit("analysis output must be outside the raw episode")
     plans = load_plans(episode)
     if len(plans) < 2:
         raise SystemExit("need at least two recorded plans")
@@ -468,6 +500,32 @@ def main() -> None:
         pairs = pairs[: args.max_handoffs]
     robot = RobotModel.from_config(args.robot_config.expanduser().resolve())
     models = dict(robot.kinematics.models)
+    metric_plans = plans[: len(pairs) + 1]
+    references = [
+        ReferenceTrajectory(
+            index=p.index,
+            plan_id=p.plan_id,
+            request_seq=p.request_seq,
+            start_ns=p.committed_start_ns,
+            dt_ns=p.committed_dt_ns,
+            groups=p.committed,
+        )
+        for p in metric_plans
+    ]
+    report = analyze_candidates(
+        references,
+        {arm: models[arm] for arm in ("left_arm", "right_arm")},
+        windows=tuple(args.windows),
+        stationary_speed_mm_s=args.stationary_speed_mm_s,
+    )
+    report["selection"] = {
+        "available_plan_count": len(plans),
+        "truncated": len(metric_plans) != len(plans),
+    }
+    write_overlap_report(report, out, episode=episode, robot_config=args.robot_config)
+    if args.metrics_only:
+        print(f"wrote overlap diagnostics for {len(pairs)} candidate pairs to {out}")
+        return
     images: list[Image.Image] = []
     summaries: list[dict[str, object]] = []
     for old, new in pairs:

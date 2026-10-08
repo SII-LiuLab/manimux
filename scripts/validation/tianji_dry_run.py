@@ -1,12 +1,12 @@
 """Read-only Tianji bring-up: stream the real joint and gripper state.
 
 Nothing is enabled or commanded: the assembly's ``execute`` flag is forced
-off. With ``--viewer`` each state is also published to a running viewer, so the
+off. With ``--robogui`` each state is also published to a running robogui, so the
 digital twin can be compared with the real arms.
 
     .venv/bin/python scripts/validation/tianji_dry_run.py --seconds 10
-    .venv/bin/manimux-viewer --robot tianji          # second terminal
-    .venv/bin/python scripts/validation/tianji_dry_run.py --viewer --seconds 120
+    .venv/bin/manimux-robogui --robot tianji          # second terminal
+    .venv/bin/python scripts/validation/tianji_dry_run.py --robogui --seconds 120
 
 Quit MarvinPlatform first; it holds the controller's UDP port.
 """
@@ -31,14 +31,14 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--config", type=Path,
-        default=REPO / "manimux/configs/experiments/pass_ball/tianji_taccap_umi_dp.yaml",
+        default=REPO / "manimux/configs/experiments/pass_ball/umi_dp/tianji_taccap_umi_dp.yaml",
     )
     parser.add_argument("--local", type=Path, help="local controller and component bindings")
     parser.add_argument("--robot-ip", help="override robot.options.hardware.ip")
     parser.add_argument("--seconds", type=float, default=10.0)
     parser.add_argument("--hz", type=float, default=30.0)
-    parser.add_argument("--viewer", action="store_true", help="publish states to the viewer")
-    parser.add_argument("--viewer-endpoint", default="tcp://127.0.0.1:5568")
+    parser.add_argument("--robogui", action="store_true", help="publish states to the robogui")
+    parser.add_argument("--robogui-endpoint", default="tcp://127.0.0.1:5568")
     return parser
 
 
@@ -54,11 +54,11 @@ def main() -> None:
         options.setdefault("hardware", {})["ip"] = args.robot_ip
     robot = build_robot(config["robot"], SystemClock())
     client = None
-    if args.viewer:
-        from manimux.viewer.publisher import ViewerClient
+    if args.robogui:
+        from manimux.robogui.publisher import RoboGUIClient
 
-        client = ViewerClient(
-            robot="tianji-taccap", policy="read-only bring-up", endpoint=args.viewer_endpoint
+        client = RoboGUIClient(
+            robot="tianji-taccap", policy="read-only bring-up", endpoint=args.robogui_endpoint
         )
 
     steps = max(1, int(args.seconds * args.hz))

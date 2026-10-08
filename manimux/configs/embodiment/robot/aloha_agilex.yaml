@@ -1,0 +1,14 @@
+# Offline assembly for the RoboTwin ALOHA-AgileX checkpoint embodiment.
+name: aloha-agilex
+components:
+  left_follower:
+    config: ../arm/aloha_agilex.yaml
+    options: {side: left}
+  right_follower:
+    config: ../arm/aloha_agilex.yaml
+    options: {side: right}
+groups:
+  left_arm: {arm: left_follower, end_effector: null}
+  right_arm: {arm: right_follower, end_effector: null}
+action_contract:
+  group_prefixes: {left_arm: left, right_arm: right}

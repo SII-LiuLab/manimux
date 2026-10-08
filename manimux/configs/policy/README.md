@@ -36,3 +36,30 @@ hardware control loop or a framework-specific experiment directory.
 Private training recipes and launchers live under the repository root's ignored
 `training/` directory. Checkpoint metadata needed to reconstruct a model at inference
 time remains part of its deployment artifacts, even when named `training_config_path`.
+
+## Model layout passed to XPolicyLab
+
+The policy recipe owns the model-side layout, for example:
+
+```yaml
+env_cfg_type: yam_dual
+robot_action_dim_info: {arm_dim: [6, 6], ee_dim: [1, 1]}
+num_envs: 1
+```
+
+`env_cfg_type` remains checkpoint/profile identity. Explicit dimensions replace the
+former root `env_cfg/` lookup. The experiment's `policy_server.config` loads this
+recipe; inline `policy_server` fields override it through the existing merge.
+`--experiment` launchers pass that resolved mapping to the model server. Standalone
+`--config` launchers read the same complete recipe, without requiring a robot config.
+
+The embodiment still owns real joint/tool layout, geometry and SDK behavior. The
+recipe owns what the model consumes/emits; its adapter connects that representation
+to the embodiment. An EE model's pose width is not its robot's joint count. Do not
+infer or overwrite one from the other. This migration changes configuration ownership,
+not packing order, action semantics, FK/IK, timing or execution behavior.
+
+XPolicyLab's shared LeRobot converters accept `--model-config <recipe> --fps <source-rate>`.
+Pi05/DP/LingBot conversion scripts also accept the recipe via `--model-config` or
+`XPOLICYLAB_MODEL_CONFIG` in their shell wrappers. See the
+[framework guide](../../../XPolicyLab/README.md#explicit-deployment-layout).

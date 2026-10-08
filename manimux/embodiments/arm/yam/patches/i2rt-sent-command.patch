@@ -1,0 +1,121 @@
+--- a/i2rt/motor_drivers/can_interface.py
++++ b/i2rt/motor_drivers/can_interface.py
+@@ -36,7 +36,8 @@
+         self.bus.shutdown()
+ 
+     def _send_message_get_response(
+-        self, id: int, motor_id: int, data: List[int], max_retry: int = 5, expected_id: Optional[int] = None
++        self, id: int, motor_id: int, data: List[int], max_retry: int = 5, expected_id: Optional[int] = None,
++        send_trace: Optional[dict] = None,
+     ) -> can.Message:
+         """Send a message over the CAN bus.
+ 
+@@ -51,7 +52,17 @@
+         for _ in range(max_retry):
+             try:
+                 # logging.info("Sending message: %s at %f", message, time.time())
++                if send_trace is not None:
++                    begin_ns = time.monotonic_ns()
++                    unix_ns = time.time_ns()
+                 self.bus.send(message)
++                if send_trace is not None:
++                    send_trace.update(
++                        send_monotonic_ns=begin_ns,
++                        send_time_ns=unix_ns,
++                        send_end_monotonic_ns=time.monotonic_ns(),
++                        send_count=send_trace.get("send_count", 0) + 1,
++                    )
+                 response = self._receive_message(motor_id, timeout=0.01)
+                 # logging.info("Received response: %s at %f", response, time.time())
+ 
+--- a/i2rt/motor_drivers/dm_driver.py
++++ b/i2rt/motor_drivers/dm_driver.py
+@@ -278,7 +278,17 @@
+             data[0:4] = can_data[0:4]
+ 
+         # Send the CAN message
+-        message = self._send_message_get_response(frame_id, motor_id, data, max_retry=15)
++        send_trace = {}
++        message = self._send_message_get_response(
++            frame_id, motor_id, data, max_retry=15, send_trace=send_trace
++        )
++        # Store the position encoded on the wire, including MIT quantization.
++        # Host bus.send timestamps are not motor receive timestamps.
++        self._last_control_send = (
++            dict(send_trace, motor_position=uint_to_float(
++                pos_tmp, const.POSITION_MIN, const.POSITION_MAX, 16
++            )) if self.control_mode == ControlMode.MIT else None
++        )
+ 
+         # Parse the received message to extract motor information
+         motor_info = self.parse_recv_message(message, motor_type)
+@@ -661,8 +671,21 @@
+ 
+         return False
+ 
++    def get_sent_command_snapshot(self) -> Optional[dict]:
++        """Copy the latest complete MIT send cycle; no device I/O or command lock.
++
++        Snapshots are published once and never mutated. Consumers may skip or
++        repeat cycles; sequence and per-motor timestamps make this explicit.
++        """
++        sample = getattr(self, "_last_sent_command", None)
++        if sample is None:
++            return None
++        return {key: value.copy() if isinstance(value, np.ndarray) else value
++                for key, value in sample.items()}
++
+     def _set_commands(self, commands: List[MotorCmd]) -> List[MotorInfo]:
+         motor_feedback = []
++        sent = []
+         for idx, motor_info in enumerate(self.motor_list):
+             motor_id, motor_type = motor_info
+             torque = commands[idx].torque * self.motor_direction[idx]
+@@ -685,7 +708,26 @@
+                 logging.error(f"{idx}th motor at DMChainCanInterface {self} failed with info {motor_info}")
+                 raise e
+ 
++            trace = getattr(self.motor_interface, "_last_control_send", None)
++            sent.append(None if trace is None else dict(trace))
+             motor_feedback.append(fd_back)
++        if sent and all(item is not None for item in sent):
++            sequence = getattr(self, "_sent_command_sequence", 0) + 1
++            sample = {
++                key: np.asarray([item[key] for item in sent], dtype=(
++                    np.float64 if key == "motor_position" else np.int64
++                )) for key in ("motor_position", "send_time_ns", "send_monotonic_ns",
++                              "send_end_monotonic_ns", "send_count")
++            }
++            sample["position"] = np.asarray([
++                self._joint_position_real_to_sim_idx(value, idx)
++                for idx, value in enumerate(sample["motor_position"])
++            ])
++            sample["sequence"] = sequence
++            self._sent_command_sequence = sequence
++            self._last_sent_command = sample
++        else:
++            self._last_sent_command = None
+         return motor_feedback
+ 
+     def read_states(self, torques: Optional[np.ndarray] = None) -> List[MotorInfo]:
+--- a/i2rt/robots/motor_chain_robot.py
++++ b/i2rt/robots/motor_chain_robot.py
+@@ -540,6 +540,18 @@
+                 pos = np.clip(pos, self._joint_limits[:, 0], self._joint_limits[:, 1])
+         return pos
+ 
++    def get_sent_command_snapshot(self) -> Optional[dict]:
++        """Latest completed CAN cycle in command coordinates, including gripper.
++
++        This observes commands after SDK limits and gripper force limiting.
++        It never substitutes the requested target for a missing sent sample.
++        """
++        getter = getattr(self.motor_chain, "get_sent_command_snapshot", None)
++        sample = getter() if callable(getter) else None
++        if sample is not None:
++            sample["position"] = self.remapper.to_command_joint_pos_space(sample["position"])
++        return sample
++
+     def command_joint_pos(self, joint_pos: np.ndarray) -> None:
+         """Command the leader robot to a given state.
+ 

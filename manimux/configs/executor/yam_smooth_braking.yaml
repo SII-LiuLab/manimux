@@ -1,0 +1,25 @@
+# Braking-aware arm and gripper tracking with grasp/release guards.
+smooth:
+  cutoff_hz: 8.0
+  tracking_mode: braking
+  max_velocity: 0.6
+  max_acceleration: 1.5
+  position_limit_abs: 3.14
+  gripper:
+    mode: continuous
+    max_velocity: 1.0
+    max_acceleration: 12.0
+    closed_value: 0.0
+    open_value: 1.0
+  grasp_guard:
+    approach_max_velocity: 0.25
+    position_tolerance_m: 0.02
+    rotation_tolerance_rad: 0.0872664626
+    settle_s: 0.15
+    aperture_stability: 0.01
+    phase_timeout_s: 3.0
+  release_guard:
+    mode: latched_release
+    phase_timeout_s: 2.0
+    kinematics: yam
+    position_tolerance_m: 0.02

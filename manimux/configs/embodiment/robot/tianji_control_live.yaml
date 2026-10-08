@@ -1,0 +1,30 @@
+# Live Tianji-TacCap control profile. This intentionally preserves the reviewed
+# rate contract and command bounds from tianji_control.yaml while enabling arm
+# and end-effector command output. Device bindings remain in the private station.
+robot:
+  type: tianji_taccap
+  group_dims:
+    left_arm: 8
+    right_arm: 8
+  options:
+    execute: true
+    end_effector_control: true
+
+rate_contract:
+  command_margin: 0.9
+  mode: isotropic
+  max_step_dt_s: 0.016
+  max_acceleration: null
+  gripper:
+    max_velocity: 3.0
+    max_acceleration: 12.0
+    max_closing_velocity: 1.0
+
+command_safety:
+  position_lower:
+    left_arm: [-2.8797932657906435, -2.007128639793479, -2.8797932657906435, -2.443460952792061, -2.8797932657906435, -0.9599310885968813, -1.4835298641951802, 0.0]
+    right_arm: [-2.8797932657906435, -2.007128639793479, -2.8797932657906435, -2.443460952792061, -2.8797932657906435, -0.9250245035569946, -1.4835298641951802, 0.0]
+  position_upper:
+    left_arm: [2.8797932657906435, 2.007128639793479, 2.8797932657906435, 0.9599310885968813, 2.8797932657906435, 0.9599310885968813, 1.4835298641951802, 1.0]
+    right_arm: [2.8797932657906435, 2.007128639793479, 2.8797932657906435, 0.9599310885968813, 2.8797932657906435, 0.9250245035569946, 1.4835298641951802, 1.0]
+  max_acceleration: null

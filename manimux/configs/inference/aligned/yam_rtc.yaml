@@ -1,0 +1,9 @@
+# Aligned RTC settings; select the algorithm and action interval in the experiment.
+rtc:
+  min_execute_policy_steps: 16
+  initial_delay_policy_steps: null  # Seed from successful warmup; use zero before any sample.
+  delay_buffer_size: 10
+  beta: 5.0
+max_plan_age_s: 2.0
+blend_policy_steps: 0
+action_start_mode: drop_infer_latency

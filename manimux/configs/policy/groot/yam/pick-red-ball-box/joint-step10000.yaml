@@ -1,0 +1,31 @@
+# Relative model_dir is resolved against XPolicyLab/policy/GR00T_N17/.
+policy_name: GR00T_N17
+protocol: ws
+host: 127.0.0.1
+port: 8500
+bench_name: null
+ckpt_name: null
+seed: 0
+gpu_id: 0
+task_name: pick_red_ball_box
+env_cfg_type: yam_dual
+robot_action_dim_info: {arm_dim: [6, 6], ee_dim: [1, 1]}
+num_envs: 1
+action_type: joint
+eval_batch: false
+
+model_dir: ../../../checkpoints/finetuned/ziyang/gr00t-n17-yam-pick-red-ball-box-step10000
+checkpoint_source: ziyang/gr00t-n17-yam-pick-red-ball-box-step10000
+checkpoint_num: null
+embodiment_tag: NEW_EMBODIMENT
+observation_profile: yam_bimanual
+modality_config_source: checkpoint
+cosmos_model_path: nvidia/Cosmos-Reason2-2B
+device: cuda:0
+native_frequency_hz: 30.0
+action_horizon: 16
+default_prompt: Pick the red ball up and place it into the box.
+
+backend_identity:
+  fields: [task_name, checkpoint_source, action_horizon, observation_profile]
+  model: {policy_family: groot_n17, rtc_mode: pi_guided_v1}

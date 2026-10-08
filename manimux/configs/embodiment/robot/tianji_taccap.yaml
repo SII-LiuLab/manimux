@@ -4,7 +4,7 @@ name: tianji-taccap
 # Shared Home / initial arm target; no motion is triggered by loading this config.
 # Source: teleop/data/dp_start_20260910.yaml, active joints_deg (not commented values).
 # A = left_arm, B = right_arm; original seven-joint order, degrees.
-# The source specifies no gripper target. Viewer aperture is display-only config.
+# The source specifies no gripper target. RoboGUI aperture is display-only config.
 home:
   name: dp_start_20260910
   joints_deg:
@@ -24,6 +24,10 @@ hardware:
   stale_timeout_s: 0.2
   ready_timeout_s: 3.0
   max_tracking_error_deg: 10  # Original command-to-measured bound.
+  # Shared Marvin controller capability/settings for both arms.
+  rated_joint_velocity_rad_s: 3.141592653589793  # 180 deg/s from ccs_m6_40 PNVA.
+  velocity_ratio: 32
+  acceleration_ratio: 100
 components:
   # FK/IK 在各臂自身基座中计算；这里仅保留参与 TCP 的末端安装关系。
   # drag_tool: measured per-arm UMI tool load from teleop/configs/tool/umi.yaml
@@ -65,3 +69,7 @@ components:
 groups:
   left_arm: {arm: left_arm, end_effector: left_end_effector}
   right_arm: {arm: right_arm, end_effector: right_end_effector}
+action_contract:
+  group_dims: {left_arm: 8, right_arm: 8}
+  group_prefixes: {left_arm: left, right_arm: right}
+  gripper_dofs: 1

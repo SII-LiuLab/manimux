@@ -46,9 +46,9 @@ PAGE = """<!doctype html>
     .card-head { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:2px 2px 10px; }
     .card-title { font-size:17px; font-weight:620; }
     .card-serial { color:var(--muted); font-size:12px; margin-top:2px; }
-    .viewer { position:relative; overflow:hidden; border:1px solid var(--line); border-radius:12px;
+    .robogui { position:relative; overflow:hidden; border:1px solid var(--line); border-radius:12px;
       background:#020405; aspect-ratio:16/9; }
-    .viewer img { display:block; width:100%; height:100%; object-fit:contain; }
+    .robogui img { display:block; width:100%; height:100%; object-fit:contain; }
     .overlay { position:absolute; inset:0; display:grid; place-items:center; pointer-events:none; }
     .message { padding:10px 14px; border-radius:10px; background:rgba(4,7,10,.78); color:#dbe5ef; }
     .toolbar { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px;
@@ -74,13 +74,13 @@ PAGE = """<!doctype html>
         <div><div class="card-title">Gemini 305</div><div class="card-serial">CV278640000Z</div></div>
         <div class="badge"><span id="dot-0" class="dot"></span><span id="state-0">正在连接</span></div>
       </div>
-      <section id="viewer-0" class="viewer">
+      <section id="robogui-0" class="robogui">
         <img id="feed-0" src="/stream/0.mjpg" alt="Gemini 305 live stream">
         <div class="overlay"><div id="message-0" class="message">正在等待第一帧…</div></div>
       </section>
       <div class="toolbar">
         <div class="stats"><span>分辨率 <b id="resolution-0">—</b></span><span>帧率 <b id="fps-0">—</b></span><span>设备 <b id="device-0">—</b></span></div>
-        <div class="actions"><a class="button" href="/snapshot/0.jpg" target="_blank">打开单帧</a><button data-fullscreen="viewer-0" type="button">全屏</button></div>
+        <div class="actions"><a class="button" href="/snapshot/0.jpg" target="_blank">打开单帧</a><button data-fullscreen="robogui-0" type="button">全屏</button></div>
       </div>
     </article>
     <article class="card">
@@ -88,13 +88,13 @@ PAGE = """<!doctype html>
         <div><div class="card-title">Gemini 335</div><div class="card-serial">CP0N763000LK</div></div>
         <div class="badge"><span id="dot-1" class="dot"></span><span id="state-1">正在连接</span></div>
       </div>
-      <section id="viewer-1" class="viewer">
+      <section id="robogui-1" class="robogui">
         <img id="feed-1" src="/stream/1.mjpg" alt="Gemini 335 live stream">
         <div class="overlay"><div id="message-1" class="message">正在等待第一帧…</div></div>
       </section>
       <div class="toolbar">
         <div class="stats"><span>分辨率 <b id="resolution-1">—</b></span><span>帧率 <b id="fps-1">—</b></span><span>设备 <b id="device-1">—</b></span></div>
-        <div class="actions"><a class="button" href="/snapshot/1.jpg" target="_blank">打开单帧</a><button data-fullscreen="viewer-1" type="button">全屏</button></div>
+        <div class="actions"><a class="button" href="/snapshot/1.jpg" target="_blank">打开单帧</a><button data-fullscreen="robogui-1" type="button">全屏</button></div>
       </div>
     </article>
   </div>

@@ -22,11 +22,13 @@ class DecodeResult:
     error: str | None = None
 
 
-def _decode_main(requests, results, startup, robot_data, policy_data, partition):
+def _decode_main(
+    requests, results, startup, robot_data, policy_data, motion_limits, partition
+):
     try:
         robot = robot_data
         policy = policy_data
-        adapter = build_policy_adapter(robot, policy)
+        adapter = build_policy_adapter(robot, policy, motion_limits=motion_limits)
         adapter.validate(robot, policy)
         if not getattr(adapter, "supports_context_only_decode", False):
             raise ValueError("adapter does not support context-only decoding")
@@ -68,7 +70,9 @@ class ActionDecoderClient:
     camera frames, robot drivers and control sockets never enter these processes.
     """
 
-    def __init__(self, robot: dict, policy: dict, adapter: Any):
+    def __init__(
+        self, robot: dict, policy: dict, adapter: Any, *, motion_limits: dict | None = None
+    ):
         if not getattr(adapter, "supports_context_only_decode", False):
             raise ValueError("process decoding requires a context-only adapter")
         self._partitions = tuple(getattr(adapter, "decode_partitions", ())) or (None,)
@@ -90,6 +94,11 @@ class ActionDecoderClient:
                     self._startup,
                     deepcopy(robot),
                     deepcopy(policy),
+                    deepcopy(
+                        motion_limits
+                        if motion_limits is not None
+                        else getattr(adapter, "motion_limits", None)
+                    ),
                     partition,
                 ),
                 name=f"manimux-decode-{partition or 'action'}",

@@ -6,6 +6,7 @@
 # Private training recipes, launchers, notes and outputs stay outside the package.
 /training/
 /manimux/configs/local/station.yaml
+/manimux/configs/local/deployments/
 /.vscode/
 /qz/
 /weekly_report/
@@ -18,13 +19,10 @@
 .pytest_cache/
 .ruff_cache/
 .venv/
-# Local environment contents are machine-specific; keep the setup guide tracked.
-/envs/*
-!/envs/README.md
+# Local Python environments; setup instructions live in docs/usage/environments.md.
+/envs/
 *.egg-info/
 data/
-!manimux/collection/yam/data/
-!manimux/collection/yam/data/**
 __pycache__/
 *.py[cod]
 dist/
@@ -37,45 +35,10 @@ logs/
 **/source_provenance.json
 /3cam_tcp.ckpt
 *.ckpt
-tests/
+# Regression tests and their launchers stay local; do not commit or force-add them.
+/tests/
+/scripts/validation/test_*.sh
 **/**/test*
-!/tests/
-/tests/*
-!/tests/unit/
-/tests/unit/*
-!/tests/unit/test_yam_collection.py
-!/tests/unit/test_selected_camera_requests.py
-!/tests/unit/test_sapolicy_xpl_model.py
-!/tests/unit/test_sapolicy_xpl_transport.py
-!/tests/unit/test_sapolicy_decode_timing.py
-!/tests/unit/test_viewer_config.py
-!/tests/unit/test_taccap_camera.py
-
-!/tests/unit/test_umi_dp_tianji.py
-!/tests/unit/test_tianji_diff_ik.py
-!/tests/unit/test_tianji_rtc.py
-!/tests/unit/test_timeline_handoff_skip.py
-!/tests/integration/
-/tests/integration/*
-!/tests/integration/test_umi_tianji_process_decoding.py
-!/tests/integration/test_tianji_rtc_process.py
-!/tests/integration/test_viewer_offline.py
-
-# Tianji embodiment migration and hardware-free component checks.
-!/tests/unit/test_tianji_embodiment_layout.py
-!/tests/unit/test_tianji_robot.py
-!/tests/unit/test_tianji_sdk_kinematics.py
-!/tests/unit/test_tianji_taccap_kinematics.py
-!/tests/unit/test_taccap_gripper.py
-!/tests/unit/test_composed_kinematics.py
-!/tests/unit/test_tool_geometry.py
-!/tests/unit/test_robot_assembly.py
-
-!/tests/unit/test_tianji_policy_assembly.py
-!/tests/unit/test_local_config.py
-!/tests/unit/test_xr1_tianji_taccap.py
-!/tests/unit/test_decode_forecast.py
-!/tests/unit/test_abort_detail.py
 
 # Private embodiment SDKs and robot assets stay on the local installation.
 /manimux/embodiments/**/sdk/
@@ -88,22 +51,21 @@ tests/
 # YAM 的公开 MIT 模型随组件发布，保留重构前已跟踪的资源。
 !/manimux/embodiments/arm/yam/assets/
 !/manimux/embodiments/arm/yam/assets/**
-!/tests/unit/test_yam_assembly.py
-!/tests/unit/test_policy_adapter_configuration.py
-!/tests/unit/test_station_entrypoints.py
-!/tests/unit/test_tianji_local_bindings.py
 
-# Hardware substitutes and fixtures are test-only; they are not runtime plugins.
-!/tests/__init__.py
-!/tests/conftest.py
-!/tests/support/
-!/tests/support/**
-!/tests/fixtures/
-!/tests/fixtures/**
+# Public RoboTwin follower-arm geometry and its retained license are redistributable.
+!/manimux/embodiments/arm/aloha_agilex/assets/
+!/manimux/embodiments/arm/aloha_agilex/assets/**
 
-# Test-source inclusion above must not include generated Python bytecode.
-**/__pycache__/
-*.py[cod]
+# Public standard PiPER meshes retain the official MIT notice in the component.
+!/manimux/embodiments/arm/piper/assets/
+!/manimux/embodiments/arm/piper/assets/**
 
 # Local backup of the pre-refactor package tree; the active package is /manimux.
 /src/
+
+# Generated documentation website.
+/site/
+/.venv-docs/
+
+# Private study decisions and results; preserve the local file.
+/experiments.md

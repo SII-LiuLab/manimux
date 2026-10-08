@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import threading
-import time
+
+from manimux.clock import Clock, SystemClock
+from manimux.embodiments.sensor.base import SensorBase
+from manimux.types import SensorFrame
 
 
 def discover_orbbec() -> list[dict[str, str]]:
@@ -20,44 +23,62 @@ def discover_orbbec() -> list[dict[str, str]]:
     return sorted(cameras, key=lambda camera: camera["serial"])
 
 
-class OrbbecCamera:
-    def __init__(self, device_id: str, *, width: int = 640, height: int = 480,
+class OrbbecSensor(SensorBase):
+    def __init__(self, *, name: str, camera_serial: str | None = None,
+                 clock: Clock | None = None, width: int = 640, height: int = 480,
                  fps: int = 30, max_frame_age_sec: float = 0.30,
                  flip: bool = False, enable_depth: bool = False) -> None:
-        import cv2
-
         if enable_depth:
             raise ValueError("Gemini UVC driver supports RGB only")
         if min(width, height, fps, max_frame_age_sec) <= 0:
             raise ValueError("Camera dimensions, FPS and maximum age must be positive")
-        matches = [camera for camera in discover_orbbec() if camera["serial"] == device_id]
-        if len(matches) != 1:
-            raise RuntimeError(f"Expected one Gemini RGB interface for {device_id}, got {matches}")
+        self.name = name
+        self.camera_serial = camera_serial
+        self.clock = clock or SystemClock()
+        self._fps = fps
         self._max_age = max_frame_age_sec
         self._flip = flip
         self._shape = (height, width, 3)
-        self._latest_frame_timestamp = 0.0
-        self._image = None
+        self._frame: SensorFrame | None = None
+        self._sequence = 0
         self._error = "No captured frame"
         self._lock = threading.Lock()
         self._ready = threading.Event()
         self._stop = threading.Event()
-        self._cap = cv2.VideoCapture(matches[0]["node"], cv2.CAP_V4L2)
+        self._cap = None
         self._thread = None
+
+    def start(self) -> None:
+        if self._cap is not None:
+            return
+        import cv2
+
+        if not self.camera_serial:
+            raise ValueError(f"Camera {self.name!r} needs camera_serial")
+        matches = [camera for camera in discover_orbbec()
+                   if camera["serial"] == self.camera_serial]
+        if len(matches) != 1:
+            raise RuntimeError(
+                f"Expected one Gemini RGB interface for {self.camera_serial}, got {matches}"
+            )
+        self._stop.clear()
+        self._ready.clear()
+        self._frame = None
+        self._cap = cv2.VideoCapture(matches[0]["node"], cv2.CAP_V4L2)
         try:
             if not self._cap.isOpened():
-                raise RuntimeError(f"Could not open Gemini {device_id}")
+                raise RuntimeError(f"Could not open Gemini {self.camera_serial}")
             self._cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
-            self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-            self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-            self._cap.set(cv2.CAP_PROP_FPS, fps)
+            self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._shape[1])
+            self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._shape[0])
+            self._cap.set(cv2.CAP_PROP_FPS, self._fps)
             self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 2)
             self._thread = threading.Thread(
-                target=self._capture, name=f"gemini-{device_id}", daemon=True
+                target=self._capture, name=f"gemini-{self.camera_serial}", daemon=True
             )
             self._thread.start()
             if not self._ready.wait(5.0):
-                raise RuntimeError(f"Gemini {device_id} produced no frame: {self._error}")
+                raise RuntimeError(f"Gemini {self.camera_serial} produced no frame: {self._error}")
             self.read()
         except BaseException:
             self.close()
@@ -76,20 +97,29 @@ class OrbbecCamera:
             if self._flip:
                 rgb = cv2.rotate(rgb, cv2.ROTATE_180)
             with self._lock:
-                self._image = rgb
-                self._latest_frame_timestamp = time.time()
+                self._sequence += 1
+                self._frame = SensorFrame(self.name, rgb, self.clock.now_ns(), self._sequence)
                 self._error = ""
             self._ready.set()
 
-    def read(self):
+    def read(self) -> SensorFrame:
         with self._lock:
-            age = time.time() - self._latest_frame_timestamp
-            if self._image is None or age > self._max_age:
+            if self._frame is None:
+                raise RuntimeError(f"Gemini frame unavailable: {self._error}")
+            frame = self._frame
+            age = (self.clock.now_ns() - frame.capture_monotonic_ns) / 1e9
+            if age > self._max_age:
                 raise RuntimeError(f"Gemini frame unavailable/stale ({age:.3f}s): {self._error}")
-            return self._image.copy(), None
+            return SensorFrame(self.name, frame.data.copy(), frame.capture_monotonic_ns, frame.sequence)
 
     def close(self) -> None:
         self._stop.set()
         if self._thread is not None:
             self._thread.join(timeout=2.0)
-        self._cap.release()
+            if self._thread.is_alive():
+                raise RuntimeError(f"Gemini {self.camera_serial} capture thread did not stop")
+            self._thread = None
+        if self._cap is not None:
+            self._cap.release()
+            self._cap = None
+        self._frame = None

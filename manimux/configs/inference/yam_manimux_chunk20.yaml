@@ -1,0 +1,7 @@
+# Single-inflight ManiMux with a 20-step source prefix, before latency trimming.
+inference_schedule: single_inflight
+refill_threshold_s: 0.4
+max_plan_age_s: 2.0
+blend_policy_steps: 4
+action_start_mode: drop_infer_latency
+chunk_policy_steps: 20

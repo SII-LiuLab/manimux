@@ -28,6 +28,30 @@ class Capture:
     unix_s: float
     monotonic_ns: int
     sequence: int
+    metadata: dict | None = None
+
+
+def read_frame_metadata(color):
+    """Read supported RGB metadata; units follow librealsense rs_frame.h.
+
+    Sensor/frame timestamps use the device clock, not Unix host time.
+    TIME_OF_ARRIVAL is host Unix milliseconds (integer-truncated in SDK 2.58.3).
+    Unsupported fields remain None.
+    """
+    import pyrealsense2 as rs
+
+    result = {
+        "sdk_timestamp_ms": float(color.get_timestamp()),
+        "timestamp_domain": str(color.get_frame_timestamp_domain()),
+    }
+    for key, value in (
+        ("actual_exposure_us", rs.frame_metadata_value.actual_exposure),
+        ("frame_timestamp_us", rs.frame_metadata_value.frame_timestamp),
+        ("sensor_timestamp_us", rs.frame_metadata_value.sensor_timestamp),
+        ("sdk_arrival_unix_ms", rs.frame_metadata_value.time_of_arrival),
+    ):
+        result[key] = int(color.get_frame_metadata(value)) if color.supports_frame_metadata(value) else None
+    return result
 
 
 class RealSenseSensor(SensorBase):
@@ -55,6 +79,7 @@ class RealSenseSensor(SensorBase):
         max_frame_age_sec=0.30,
         read_timeout_ms=1200,
         background=True,
+        collect_metadata=False,
     ):
         self.name = name
         self.camera_serial = camera_serial
@@ -67,6 +92,7 @@ class RealSenseSensor(SensorBase):
         self.max_frame_age_sec = max_frame_age_sec
         self.read_timeout_ms = read_timeout_ms
         self.background = background
+        self.collect_metadata = collect_metadata
         self._pipeline = None
         self._alignment = None
         self._depth_scale = None
@@ -143,12 +169,14 @@ class RealSenseSensor(SensorBase):
                 else None
             )
             unix_s, monotonic_ns = time.time(), self.clock.now_ns()
+            # Keep the host receipt timestamp before optional diagnostic work.
+            metadata = read_frame_metadata(color) if self.collect_metadata else None
             if self.flip:
                 image = image[::-1, ::-1].copy()
                 if depth is not None:
                     depth = depth[::-1, ::-1].copy()
             return Capture(
-                image, depth, self._depth_scale, unix_s, monotonic_ns, int(color.get_frame_number())
+                image, depth, self._depth_scale, unix_s, monotonic_ns, int(color.get_frame_number()), metadata
             )
 
     def _capture_loop(self):
@@ -182,6 +210,10 @@ class RealSenseSensor(SensorBase):
     def read(self):
         frame = self._read_capture()
         return SensorFrame(self.name, frame.image, frame.monotonic_ns, frame.sequence)
+
+    def read_capture(self):
+        """Return a coherent latest RGB/depth/host-time/metadata diagnostic snapshot."""
+        return self._read_capture()
 
     def read_with_timestamp(self):
         """相机网络服务的 RGB/depth/Unix 时间接口；与采集共享同一个 capture。"""

@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 from manimux.runtime.decode_forecast import FORECAST_MODES
 from manimux.runtime.inference import build_inference_strategy
+from manimux.types import ACTION_START_MODES
 
 if TYPE_CHECKING:
     from manimux.runtime.edge import EdgeRuntime, RunResult
@@ -18,7 +19,7 @@ if TYPE_CHECKING:
 
 def __getattr__(name: str):
     # Workers unpickle runtime request types. Do not make the first inference
-    # import all executors/viewer code and count that cost as model latency.
+    # import all executors/robogui code and count that cost as model latency.
     if name in {"EdgeRuntime", "RunResult"}:
         from manimux.runtime import edge
 
@@ -56,6 +57,8 @@ def executor_parameters(**options) -> dict:
         "command_safety": {},
         **options,
     }
+    if values["type"] not in {"direct", "smooth", "mpc"}:
+        raise ValueError(f"unknown executor type: {values['type']!r}")
     if values.get("motion_limits") is not None:
         values["motion_limits"] = motion_limits_parameters(**values["motion_limits"])
     if values.get("smooth") is not None:
@@ -75,38 +78,49 @@ def inference_parameters(*, executor: dict, **options) -> dict:
     from manimux.runtime.rtc.strategy import rtc_parameters
     from manimux.runtime.temporal_ensemble import temporal_ensemble_parameters
 
-    # chunk_steps 只是各调度方式已有步数参数的统一入口。
+    unsupported = {"chunk_steps", "blend_steps", "max_chunk_steps", "commit_lead_s"}.intersection(
+        options
+    )
+    if unsupported:
+        raise ValueError(f"unsupported inference fields: {sorted(unsupported)}")
+    # chunk_policy_steps 只是各调度方式已有步数参数的统一入口。
     options = dict(options)
-    if options.get("chunk_steps") is not None:
+    if options.get("chunk_policy_steps") is not None:
         paths = {
-            "manimux": (None, "max_chunk_steps"),
-            "rtc": ("rtc", "min_execute_steps"),
-            "paint": ("paint", "execution_steps"),
-            "act_temporal_ensemble": ("temporal_ensemble", "query_interval_steps"),
-            "dvac": ("dvac", "max_execution_steps"),
+            "manimux": (None, "max_chunk_policy_steps"),
+            "rtc": ("rtc", "min_execute_policy_steps"),
+            "paint": ("paint", "execution_policy_steps"),
+            "act_temporal_ensemble": ("temporal_ensemble", "query_interval_policy_steps"),
+            "dvac": ("dvac", "max_execution_policy_steps"),
         }
         section, field = paths[options.get("algorithm", "manimux")]
         destination = options if section is None else dict(options.get(section, {}))
-        if destination.get(field) is not None and destination[field] != options["chunk_steps"]:
-            raise ValueError(f"inference.chunk_steps conflicts with inference.{section or field}")
-        destination[field] = options["chunk_steps"]
+        if (
+            destination.get(field) is not None
+            and destination[field] != options["chunk_policy_steps"]
+        ):
+            raise ValueError(
+                "inference.chunk_policy_steps conflicts with "
+                f"inference.{section or field}"
+            )
+        destination[field] = options["chunk_policy_steps"]
         if section is not None:
             options[section] = destination
 
     values = {
         "algorithm": "manimux",
         "strategy": None,
-        "chunk_steps": None,
+        "chunk_policy_steps": None,
         "inference_schedule": "deadline",
         "refill_threshold_s": 0.4,
-        "commit_lead_s": 0.02,
         "handoff_skip_steps": 0,
         "max_plan_age_s": 1.0,
-        "blend_steps": 2,
+        "blend_policy_steps": 2,
+        "action_start_mode": "drop_infer_latency",
         # Chunk handoff: blend joints at commit, or an adapter EE waypoint before dense IK.
         "handoff": "blend",
         "handoff_margin_s": 0.0,
-        "max_chunk_steps": None,
+        "max_chunk_policy_steps": None,
         "independent_group_decoding": False,
         "decode_budget_ms": 40.0,
         "expected_decode_s": 0.0,
@@ -142,6 +156,11 @@ def inference_parameters(*, executor: dict, **options) -> dict:
 
 def validate_runtime_parameters(config: dict) -> None:
     """保留调度、动作解码和执行限位之间的必要约束。"""
+    if config["run"].get("warmup_before_start", False):
+        if not config["robogui"]["enabled"]:
+            raise ValueError("run.warmup_before_start requires RoboGUI Start control")
+        if config["policy"]["action_decoding"] != "inline":
+            raise ValueError("pre-Start warmup currently requires inline action decoding")
     motion = config["executor"]["motion_limits"]
     if motion is not None:
         for group, index in motion["gripper"]["group_indices"].items():
@@ -160,10 +179,10 @@ def validate_runtime_parameters(config: dict) -> None:
             "serial scheduling requires inline action decoding without latency trimming"
         )
     if (
-        config["inference"]["chunk_steps"] is not None
-        and config["inference"]["chunk_steps"] > config["policy"]["horizon_steps"]
+        config["inference"]["chunk_policy_steps"] is not None
+        and config["inference"]["chunk_policy_steps"] > config["policy"]["horizon_policy_steps"]
     ):
-        raise ValueError("inference.chunk_steps must not exceed policy.horizon_steps")
+        raise ValueError("inference.chunk_policy_steps must not exceed policy.horizon_policy_steps")
     if (
         config["inference"]["handoff"] == "waypoint"
         and config["policy"]["action_decoding"] != "process"
@@ -189,10 +208,10 @@ def validate_runtime_parameters(config: dict) -> None:
             "to use as its initial estimate and lower bound"
         )
     if (
-        config["inference"]["max_chunk_steps"] is not None
-        and config["inference"]["max_chunk_steps"] > config["policy"]["horizon_steps"]
+        config["inference"]["max_chunk_policy_steps"] is not None
+        and config["inference"]["max_chunk_policy_steps"] > config["policy"]["horizon_policy_steps"]
     ):
-        raise ValueError("max_chunk_steps must not exceed policy.horizon_steps")
+        raise ValueError("max_chunk_policy_steps must not exceed policy.horizon_policy_steps")
     command_safety = config["executor"]["command_safety"]
     if bool(command_safety["position_lower"]):
         expected_groups = set(config["robot"]["group_dims"])
@@ -204,31 +223,39 @@ def validate_runtime_parameters(config: dict) -> None:
                     f"executor.command_safety group {group!r} must have {dimension} values"
                 )
     if config["inference"]["algorithm"] == "rtc":
-        delay = config["inference"]["rtc"]["initial_delay_steps"]
-        if 2 * delay > config["policy"]["horizon_steps"]:
-            raise ValueError("RTC requires 2 * initial_delay_steps <= policy.horizon_steps")
-    if config["inference"]["algorithm"] == "act_temporal_ensemble":
-        query_interval = config["inference"]["temporal_ensemble"]["query_interval_steps"]
-        if query_interval >= config["policy"]["horizon_steps"]:
+        delay = config["inference"]["rtc"]["initial_delay_policy_steps"]
+        if delay is not None and 2 * delay > config["policy"]["horizon_policy_steps"]:
             raise ValueError(
-                "ACT temporal ensembling requires query_interval_steps < "
-                "policy.horizon_steps so consecutive chunks overlap"
+                "RTC requires 2 * initial_delay_policy_steps "
+                "<= policy.horizon_policy_steps"
+            )
+    if config["inference"]["algorithm"] == "act_temporal_ensemble":
+        query_interval = config["inference"]["temporal_ensemble"]["query_interval_policy_steps"]
+        if query_interval >= config["policy"]["horizon_policy_steps"]:
+            raise ValueError(
+                "ACT temporal ensembling requires query_interval_policy_steps < "
+                "policy.horizon_policy_steps so consecutive chunks overlap"
             )
     if config["inference"]["algorithm"] == "paint":
-        execution = config["inference"]["paint"]["execution_steps"]
-        delay = config["inference"]["paint"]["initial_delay_steps"]
-        horizon = config["policy"]["horizon_steps"]
+        execution = config["inference"]["paint"]["execution_policy_steps"]
+        delay = config["inference"]["paint"]["initial_delay_policy_steps"]
+        horizon = config["policy"]["horizon_policy_steps"]
         if not delay <= execution <= horizon - delay:
             raise ValueError(
-                "PAINT requires initial_delay_steps <= execution_steps <= "
-                "horizon_steps - initial_delay_steps"
+                "PAINT requires initial_delay_policy_steps <= execution_policy_steps <= "
+                "horizon_policy_steps - initial_delay_policy_steps"
             )
     if config["inference"]["algorithm"] == "dvac":
         dvac = config["inference"]["dvac"]
-        maximum = dvac["max_execution_steps"] or config["policy"]["horizon_steps"]
-        if not dvac["min_execution_steps"] <= maximum <= config["policy"]["horizon_steps"]:
+        maximum = dvac["max_execution_policy_steps"] or config["policy"]["horizon_policy_steps"]
+        if not (
+            dvac["min_execution_policy_steps"]
+            <= maximum
+            <= config["policy"]["horizon_policy_steps"]
+        ):
             raise ValueError(
-                "DVAC requires min_execution_steps <= max_execution_steps <= policy.horizon_steps"
+                "DVAC requires min_execution_policy_steps <= "
+                "max_execution_policy_steps <= policy.horizon_policy_steps"
             )
 
 
@@ -237,6 +264,11 @@ def validate_inference_parameters(values: dict, executor: dict, *, provided=froz
     skip_steps = values["handoff_skip_steps"]
     if type(skip_steps) is not int or skip_steps < 0:
         raise ValueError("inference.handoff_skip_steps must be a non-negative integer")
+    if values["action_start_mode"] not in ACTION_START_MODES:
+        raise ValueError(
+            "inference.action_start_mode must be one of "
+            f"{sorted(ACTION_START_MODES)}"
+        )
     if values["decode_forecast_mode"] not in FORECAST_MODES:
         raise ValueError(f"inference.decode_forecast_mode must be one of {FORECAST_MODES}")
     if values["handoff"] not in {"blend", "waypoint"}:
@@ -244,11 +276,15 @@ def validate_inference_parameters(values: dict, executor: dict, *, provided=froz
     if not values["handoff_margin_s"] >= 0:
         raise ValueError("inference.handoff_margin_s must be non-negative")
     if values["handoff"] == "waypoint" and (
-        values["algorithm"] not in {"manimux", "rtc"} or values["blend_steps"] != 0
+        values["algorithm"] not in {"manimux", "rtc"} or values["blend_policy_steps"] != 0
     ):
         raise ValueError(
-            "inference.handoff=waypoint requires the manimux or rtc algorithm and blend_steps=0"
+            "inference.handoff=waypoint requires the manimux or rtc algorithm and "
+            "blend_policy_steps=0"
         )
+    # The handoff time lies on the source row grid, which first_step_when_ready discards.
+    if values["handoff"] == "waypoint" and values["action_start_mode"] != "drop_infer_latency":
+        raise ValueError("inference.handoff=waypoint requires action_start_mode=drop_infer_latency")
     # RTC conditions the new chunk on the unshifted time grid; a waypoint skip would
     # move that guided prefix by whole rows.
     if values["handoff"] == "waypoint" and skip_steps and values["algorithm"] != "manimux":
@@ -268,10 +304,10 @@ def validate_inference_parameters(values: dict, executor: dict, *, provided=froz
         raise ValueError(
             "independent group decoding requires braking smooth with continuous grippers"
         )
-    if values["max_chunk_steps"] is not None and (
+    if values["max_chunk_policy_steps"] is not None and (
         values["algorithm"] != "manimux" or executor["type"] not in {"smooth", "direct", "mpc"}
     ):
-        raise ValueError("max_chunk_steps requires the ordinary ManiMux joint timeline")
+        raise ValueError("max_chunk_policy_steps requires the ordinary ManiMux joint timeline")
     # 这些策略自行决定请求时机，不使用普通 timeline 的补充调度参数。
     names = {
         "rtc": "RTC",
@@ -289,9 +325,3 @@ def validate_inference_parameters(values: dict, executor: dict, *, provided=froz
         if ignored:
             fields = ", ".join(sorted(ignored))
             raise ValueError(f"inference fields are not used by {names[runtime]}: {fields}")
-        # 除 RTC 外，保留策略选定的轨迹；提交时不能再次插值改写。
-        if runtime != "rtc" and values["blend_steps"] != 0:
-            raise ValueError(
-                f"{names[runtime]} requires inference.blend_steps=0 "
-                "to preserve the strategy's trajectory"
-            )

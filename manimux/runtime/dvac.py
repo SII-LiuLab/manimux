@@ -33,12 +33,12 @@ class DvacInferenceStrategy(SynchronousChunkStrategy):
     def request_options(self) -> dict:
         settings = self._config["inference"]["dvac"]
         return {
-            "dvac_tail_steps": settings["tail_steps"],
+            "dvac_tail_steps": settings["tail_policy_steps"],
             "dvac_alpha": settings["alpha"],
             "dvac_rolling_window_size": settings["rolling_window_size"],
-            "dvac_min_execution_steps": settings["min_execution_steps"],
-            "dvac_max_execution_steps": settings["max_execution_steps"]
-            or self._config["policy"]["horizon_steps"],
+            "dvac_min_execution_steps": settings["min_execution_policy_steps"],
+            "dvac_max_execution_steps": settings["max_execution_policy_steps"]
+            or self._config["policy"]["horizon_policy_steps"],
         }
 
     def on_plan_accepted(
@@ -77,12 +77,17 @@ class DvacInferenceStrategy(SynchronousChunkStrategy):
 def dvac_parameters(**options) -> dict:
     """保留 DVAC 方差窗口与自适应执行步数范围。"""
 
+    unsupported = {"tail_steps", "min_execution_steps", "max_execution_steps"}.intersection(
+        options
+    )
+    if unsupported:
+        raise ValueError(f"unsupported DVAC fields: {sorted(unsupported)}")
     values = {
-        "tail_steps": 5,
+        "tail_policy_steps": 5,
         "alpha": 2.0,
         "rolling_window_size": 5,
-        "min_execution_steps": 1,
-        "max_execution_steps": None,
+        "min_execution_policy_steps": 1,
+        "max_execution_policy_steps": None,
         **options,
     }
     return values

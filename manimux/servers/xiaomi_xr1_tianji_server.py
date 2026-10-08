@@ -19,7 +19,7 @@ XPOLICY_ROOT = REPO_ROOT / "XPolicyLab"
 XR1_ROOT = XPOLICY_ROOT / "policy/Xiaomi_Robotics_1/xiaomi_robotics_1/xr1"
 DEFAULT_EXPERIMENT = (
     REPO_ROOT
-    / "manimux/configs/experiments/pass_ball/tianji_taccap_xiaomi_xr1_step50000.yaml"
+    / "manimux/configs/experiments/pass_ball/xiaomi-xr1/tianji_taccap_xiaomi_xr1_step50000.yaml"
 )
 
 
@@ -179,9 +179,11 @@ def main() -> int:
     args = parser.parse_args()
 
     _prepare_imports()
-    from manimux.cli import read_experiment
+    from manimux.cli import read_experiment, resolve_local_path
 
-    experiment = read_experiment(args.experiment, local=args.local)
+    experiment = read_experiment(
+        args.experiment, local=resolve_local_path(args.experiment, args.local)
+    )
     config = dict(experiment["policy_server"])
     if args.checkpoint is not None:
         config["checkpoint_path"] = str(args.checkpoint)

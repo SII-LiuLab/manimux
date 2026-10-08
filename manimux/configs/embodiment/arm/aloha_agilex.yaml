@@ -1,0 +1,7 @@
+# RoboTwin simulation geometry. This file does not select a hardware controller.
+type: arm
+implementation: manimux.embodiments.arm.aloha_agilex:AlohaAgilexArm
+action_layout: {arm_dofs: 6, gripper_dofs: 1}
+options:
+  side: left
+hardware: {}

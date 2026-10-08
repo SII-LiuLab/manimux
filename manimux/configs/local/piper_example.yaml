@@ -1,0 +1,15 @@
+# Copy to a private station file. These placeholders intentionally cannot connect.
+robot:
+  components:
+    left_piper: &piper
+      channel: REPLACE_LEFT_CAN
+      firmware: default  # Match the installed firmware; see the SDK guide.
+      joint_limits: null  # Six calibrated [lower, upper] pairs, radians.
+      gripper_closed: null  # Measured width in metres.
+      gripper_open: null
+      enable_on_connect: false
+      speed_percent: 20
+      gripper_force_n: 1.0
+    right_piper:
+      <<: *piper
+      channel: REPLACE_RIGHT_CAN

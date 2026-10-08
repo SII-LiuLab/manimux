@@ -8,7 +8,7 @@ manimux/configs/embodiment/arm/yam.yaml          单臂配置与 SDK 参数
 manimux/configs/embodiment/sensor/realsense.yaml 相机组件采集参数
 manimux/configs/embodiment/robot/yam_dual.yaml   组件、安装关系与控制组
 manimux/configs/embodiment/robot/yam_control.yaml 采集和部署共享的控制参数
-manimux/configs/local/yam.example.yaml          CAN、相机序列号、网络服务绑定
+manimux/configs/local/yam_example.yaml          CAN、相机序列号、网络服务绑定
 ```
 
 `left_arm` 和 `right_arm` 各为 7 维，内置夹爪随 arm 一起控制，末端字段为 `null`。
@@ -31,7 +31,7 @@ manimux/configs/local/yam.example.yaml          CAN、相机序列号、网络�
 
 ## 相机所有权与配置示例
 
-`manimux/configs/experiments/put_bottles/yam_pi05_joint.yaml` 是新的组合配置示例。
+`manimux/configs/experiments/put_bottles/pi05/yam_pi05_joint.yaml` 是新的组合配置示例。
 独立相机服务用它的 `camera_server.cameras` 选择装配中的相机，runtime 读取网络
 传感器，不会同时调用整机的 `start_sensors()`。单进程使用整机传感器时应由调用方
 显式管理 `start_sensors()` / `close_sensors()`。同一设备只由一个采集端持有。
@@ -43,8 +43,8 @@ from manimux.cli import load_config
 from manimux.clock import SystemClock
 from manimux.embodiments.robot import build_robot
 
-config = load_config("manimux/configs/experiments/put_bottles/yam_pi05_joint.yaml",
-                     local="manimux/configs/local/yam.example.yaml")
+config = load_config("manimux/configs/experiments/put_bottles/pi05/yam_pi05_joint.yaml",
+                     local="manimux/configs/local/yam_example.yaml")
 robot = build_robot(config["robot"], SystemClock())
 print({name: model.num_coordinates for name, model in robot.kinematics.models.items()})
 ```

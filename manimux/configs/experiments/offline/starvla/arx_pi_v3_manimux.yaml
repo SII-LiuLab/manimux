@@ -1,0 +1,70 @@
+# Offline synthetic plant only; no camera or robot hardware.
+local: station_example.yaml
+run:
+  task: Pick up the red block.
+  output_dir: ./data/experiments/starvla-offline/arx_pi_v3/manimux
+  max_control_steps: 500
+robot:
+  type: scripts.validation.starvla_fixtures.robot:build_robot
+  control_hz: 100.0
+  group_dims:
+    left_arm: 7
+    right_arm: 7
+  options:
+    cartesian_test_geometry: false
+sensors:
+- name: cam_head
+  driver: scripts.validation.starvla_fixtures.sensor:build_sensor
+  width: 224
+  height: 224
+  fps: 30.0
+- name: cam_left_wrist
+  driver: scripts.validation.starvla_fixtures.sensor:build_sensor
+  width: 224
+  height: 224
+  fps: 30.0
+- name: cam_right_wrist
+  driver: scripts.validation.starvla_fixtures.sensor:build_sensor
+  width: 224
+  height: 224
+  fps: 30.0
+policy:
+  worker: starvla_ws
+  service: policy
+  adapter:
+    type: manimux.policy_adapter.joint:JointAdapter
+    camera_map:
+      cam_head: cam_head
+      cam_left_wrist: cam_left_wrist
+      cam_right_wrist: cam_right_wrist
+    group_prefixes:
+      left_arm: left
+      right_arm: right
+    group_layouts:
+      left_arm:
+        arm_dofs: 6
+        gripper_dofs: 1
+      right_arm:
+        arm_dofs: 6
+        gripper_dofs: 1
+  action_dt_s: 0.03333333333333333
+  timeout_s: 30.0
+  horizon_policy_steps: 50
+  startup_timeout_s: 120.0
+  options:
+    action_format: joint
+    request_timeout_s: 30.0
+robogui:
+  enabled: false
+  robot: ''
+recording:
+  enabled: true
+  video_fps: 20.0
+inference:
+  algorithm: manimux
+  config: ../../../inference/yam_manimux_chunk12.yaml
+  max_plan_age_s: 30.0
+executor:
+  type: direct
+policy_server:
+  config: ../../../policy/starvla/arx_x5/robodojo/pi_v3.yaml

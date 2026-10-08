@@ -7,6 +7,8 @@ bench_name: ManiMux
 task_name: pass_ball
 ckpt_name: null
 env_cfg_type: tianji_dual
+robot_action_dim_info: {arm_dim: [7, 7], ee_dim: [1, 1]}
+num_envs: 1
 seed: 42
 gpu_id: 0
 action_type: ee
@@ -26,3 +28,6 @@ num_steps: 10
 repo_id: pass-ball-hifi-umi-h32-zero-pose
 model_path: pi05-passball-zero-pose-h32-b16-60k-20260923-192017/checkpoints/20000
 norm_stats_path: pi05-passball-zero-pose-h32-b16-60k-20260923-192017/normalization
+
+backend_identity:
+  fields: [policy_name, task_name, checkpoint_variant, checkpoint_source, norm_stats_source, train_config_name, observation_profile, model_state_encoding, action_horizon, num_steps, action_type, output_format, action_semantics]

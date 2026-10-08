@@ -1,0 +1,68 @@
+:root,
+[data-md-color-scheme="default"] {
+  --md-text-font: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --md-code-font: "SFMono-Regular", Consolas, monospace;
+  --md-primary-fg-color: #ffffff;
+  --md-primary-bg-color: #233630;
+  --md-accent-fg-color: #26715c;
+  --md-default-bg-color: #ffffff;
+  --md-default-fg-color: #29342f;
+  --md-default-fg-color--light: #626f68;
+  --md-typeset-a-color: #246c56;
+  --md-code-bg-color: #f5f7f6;
+  --guide-rule: #e0e6e2;
+}
+.md-header { color: #233630; box-shadow: none; border-bottom: 1px solid var(--guide-rule); }
+.md-header__button.md-logo img { width: 1.6rem; height: 1.6rem; }
+.md-header__title { font-weight: 650; letter-spacing: -.02em; }
+.md-search__form { background: #f1f4f2; border-radius: .2rem; }
+.md-search__input::placeholder { color: #626f68; }
+.md-grid { max-width: 74rem; }
+.md-main__inner { margin-top: 1.2rem; }
+.md-nav { font-size: .7rem; }
+.md-nav__link--active { font-weight: 650; }
+.md-nav__title { box-shadow: none; }
+.md-sidebar--primary { border-right: 1px solid var(--guide-rule); }
+.md-typeset { font-size: .78rem; line-height: 1.65; }
+.md-typeset h1 { color: var(--md-default-fg-color); font-weight: 650; letter-spacing: -.035em; font-size: 1.85rem; margin-bottom: 1rem; }
+.md-typeset h2 { font-weight: 650; letter-spacing: -.025em; border-top: 1px solid var(--guide-rule); padding-top: .9rem; margin-top: 1.7rem; }
+.md-typeset h3 { font-weight: 650; }
+.md-typeset code, .md-typeset pre { border-radius: .15rem; }
+.md-typeset table:not([class]) { font-size: .7rem; border-color: var(--guide-rule); }
+.md-typeset table:not([class]) th { background: #f7f9f8; }
+.md-typeset .headerlink { color: #758a7e; }
+.md-footer, .md-footer-meta { background: #f7f9f8; color: #33483e; }
+.md-footer { border-top: 1px solid var(--guide-rule); }
+.md-footer-meta .md-copyright, .md-footer-meta .md-copyright a { color: #626f68; }
+.guide-kicker { color: #66746b; font: 600 .56rem var(--md-code-font); letter-spacing: .09em; text-transform: uppercase; }
+.md-typeset .guide-intro h1 { font-size: 2.6rem; line-height: 1.1; letter-spacing: -.055em; margin: .4rem 0 .55rem; }
+.md-typeset .guide-intro p { max-width: 42rem; margin: .45rem 0; }
+.md-typeset .guide-lead { font-size: 1.03rem; color: #344c40; line-height: 1.4; }
+.guide-links { display: flex; flex-wrap: wrap; gap: .6rem 1.3rem; margin: .95rem 0 1.25rem; font-size: .72rem; font-weight: 650; }
+.guide-links a { border-bottom: 1px solid #a7c1b5; padding-bottom: .15rem; }
+.guide-links span { margin-left: .15rem; }
+.guide-overview { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(13rem, 1fr); gap: 1.3rem; align-items: start; }
+.md-typeset .guide-demo { margin: 0; max-width: none; width: 100%; }
+.guide-video { display: block; width: 100%; border: 1px solid var(--guide-rule); border-radius: .2rem; background: #f5f7f6; }
+.md-typeset .guide-demo figcaption { text-align: left; font-style: normal; font-size: .59rem; line-height: 1.5; color: #626f68; max-width: none; margin: .4rem 0 0; }
+.guide-start > .guide-kicker { padding: .1rem 0 .5rem; }
+.guide-start a { display: grid; grid-template-columns: 1.1rem 1fr .6rem; gap: .4rem; align-items: baseline; border-top: 1px solid var(--guide-rule); padding: .55rem 0; color: var(--md-default-fg-color); }
+.guide-start a:hover strong { color: var(--md-typeset-a-color); text-decoration: underline; text-underline-offset: .2em; }
+.guide-step { font: .56rem var(--md-code-font); color: #78867d; }
+.guide-start strong { display: block; font-size: .74rem; font-weight: 650; }
+.guide-start small { display: block; font-size: .62rem; color: #626f68; line-height: 1.4; margin-top: .1rem; }
+.guide-topics { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; border-top: 1px solid var(--guide-rule); margin-top: 1.4rem; }
+.guide-topics > div { min-width: 0; }
+.md-typeset .guide-topics h3 { margin-top: 1rem; }
+.md-typeset .guide-topics li { margin-bottom: .35rem; }
+.md-typeset .mermaid { margin: .8rem 0; }
+a:focus-visible { outline: 2px solid #26715c; outline-offset: 3px; }
+@media (max-width: 76.2344em) {
+  .md-nav--primary .md-nav__title[for="__drawer"] { background: #f5f7f6; color: #233630; }
+}
+@media (max-width: 650px) {
+  .guide-overview, .guide-topics { grid-template-columns: 1fr; gap: .9rem; }
+  .md-typeset .guide-intro h1 { font-size: 2.2rem; }
+  .md-typeset .guide-lead { font-size: .95rem; }
+  .guide-links { gap: .5rem 1rem; }
+}

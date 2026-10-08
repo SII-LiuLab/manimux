@@ -1,0 +1,7 @@
+type: arm
+implementation: manimux.embodiments.arm.piper:PiperArm
+controller: manimux.embodiments.arm.piper:PiperController
+action_layout: {arm_dofs: 6, gripper_dofs: 1}
+options: {tcp_frame: link6}
+# The station must supply channel, joint_limits and measured width calibration.
+hardware: {}

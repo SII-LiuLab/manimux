@@ -84,6 +84,10 @@ class CameraClient:
 
     def get_obs(self, camera_names: list[str] | None = None) -> dict[str, np.ndarray]:
         """Return ``{cam_name: np.ndarray (H,W,3) uint8 RGB}`` with the latest frames."""
+        return self.get_bundle(camera_names)["frames"]
+
+    def get_bundle(self, camera_names: list[str] | None = None) -> dict[str, Any]:
+        """Keep the server capture timestamps alongside the selected RGB images."""
         resp = self._request("obs", camera_names)
         frames: dict[str, np.ndarray] = resp["frames"]
         if camera_names is not None:
@@ -91,23 +95,23 @@ class CameraClient:
             if missing:
                 raise CameraClientError(f"Missing selected cameras: {sorted(missing)}")
             frames = {name: frames[name] for name in camera_names}
-        if self.max_frame_age_sec is not None:
-            now = time.time()
-            for name in frames:
-                ts = (resp.get("timestamps") or {}).get(name, 0.0)
-                if camera_names is not None and (
-                    not isinstance(ts, (float, int))
-                    or not math.isfinite(ts)
-                    or ts <= 0
-                    or ts > now + 0.05
-                ):
-                    raise CameraClientError(f"Invalid capture timestamp for {name}: {ts!r}")
-                if ts and (now - ts) > self.max_frame_age_sec:
-                    raise CameraClientError(
-                        f"Stale frame from {name}: {now - ts:.3f}s old "
-                        f"(>{self.max_frame_age_sec:.3f}s)."
-                    )
-        return frames
+        timestamps = resp.get("timestamps") or {}
+        now = time.time()
+        for name in frames:
+            ts = timestamps.get(name)
+            if (
+                not isinstance(ts, (float, int))
+                or not math.isfinite(ts)
+                or ts <= 0
+                or ts > now + 0.05
+            ):
+                raise CameraClientError(f"Invalid capture timestamp for {name}: {ts!r}")
+            if self.max_frame_age_sec is not None and (now - ts) > self.max_frame_age_sec:
+                raise CameraClientError(
+                    f"Stale frame from {name}: {now - ts:.3f}s old "
+                    f"(>{self.max_frame_age_sec:.3f}s)."
+                )
+        return {"frames": frames, "timestamps": {name: timestamps[name] for name in frames}}
 
     def close(self) -> None:
         if self._sock is not None:
@@ -117,10 +121,10 @@ class CameraClient:
 
 
 class CameraSubscriber:
-    """Optional PUB/SUB consumer for the live viewer.
+    """Optional PUB/SUB consumer for the live preview.
 
     The eval inner loop should use ``CameraClient`` (REQ/REP). This subscriber
-    exists so a cv2 viewer can render at camera rate without competing for the
+    exists so a cv2 preview can render at camera rate without competing for the
     REP socket with the policy.
     """
 
@@ -168,7 +172,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Live viewer for the YAM camera server. "
+        description="Live preview for the YAM camera server. "
         "Defaults to the PUB stream so it doesn't fight the policy for REP."
     )
     parser.add_argument(

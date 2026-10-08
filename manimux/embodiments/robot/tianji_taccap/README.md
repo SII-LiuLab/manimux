@@ -23,7 +23,7 @@
 | 文件 | 职责 |
 | --- | --- |
 | `manimux/configs/embodiment/robot/tianji_taccap.yaml` | 组件、安装关系、控制组和显示资产 |
-| `manimux/configs/inference/tianji_taccap_manimux.yaml + manimux/configs/executor/tianji_taccap_smooth.yaml` | 原实验调度、平滑和执行约束 |
+| `manimux/configs/embodiment/robot/tianji_control.yaml + manimux/configs/executor/tianji_smooth_control_profile.yaml` | 共享运动限制、发送保护与执行平滑 |
 | `.local/tianji_taccap.yaml` | 私有设备、服务和路径绑定 |
 | `manimux/configs/embodiment/arm/tianji_left.yaml`、`tianji_right.yaml` | 左右机械臂模型和控制参数 |
 | `manimux/configs/embodiment/end_effector/taccap.yaml` | 末端执行器参数 |
@@ -33,7 +33,7 @@
 | `embodiments/arm/tianji/arm.py` | 官方控制 SDK 连接、反馈、批量命令 |
 | `embodiments/arm/tianji/kinematics.py` | 原有 Tianji 数值算法及官方法兰接口 |
 | `kinematics/composed.py` | 通用 arm + end effector 的 TCP 变换组合 |
-| `integrations/umi_dp_tianji/policy_plugin.py` | UMI 观测与动作格式、时间语义及 FK/IK 调用 |
+| `policy_adapter/umi_dp/tianji.py`、`policy_adapter/umi_dp/history.py` | UMI 观测与动作格式、历史窗口、时间语义及 FK/IK 调用 |
 
 SDK 和 assets 随所属组件存放。旧 `kinematics/tianji.py` 保留旧参数和 TCP 接口的兼容封装，
 数值求解算法只有 arm 目录中的一份。`TianjiSDKKinematics` 和旧入口共同继承
@@ -51,9 +51,9 @@ T_arm_flange_target = T_arm_tcp_target × inverse(T_flange_tool × T_tool_tcp)
 ```
 
 本体配置不再声明 `root_frame` 或机械臂底座的显示变换，也不增加 body 坐标系。
-显示位置与朝向放在 `viewer/robots/tianji/viewer.yaml` 的
-`groups.<name>.viewer_display_frame`，静态支架放在该文件的 `scene.meshes`。
-这些参数只由 Viewer 读取，改变它们不会改变 FK/IK 结果。
+显示位置与朝向放在 `robogui/robots/tianji/robogui.yaml` 的
+`groups.<name>.robogui_display_frame`，静态支架放在该文件的 `scene.meshes`。
+这些参数只由 RoboGUI 读取，改变它们不会改变 FK/IK 结果。
 末端执行器的 `mount` 和自身 TCP 偏移参与控制计算，且只应用一次。
 
 IK 保留原版官方 `ik + ik_nsp`、回代检查、关节限位和余量、实测 J6/J7 干涉约束及
@@ -86,7 +86,7 @@ robot = TianjiTaccapRobot.from_config("manimux/configs/embodiment/robot/tianji_t
 
 Recovery lives on the assembly, not in the session. `clear_errors()` clears latched
 controller faults over a short SDK session before `connect()`. `home()` moves the
-connected arms to `home.joints_deg` on a 6 deg/s cosine profile, settles within 0.5
+connected arms to `home.joints_deg` on a 9 deg/s cosine profile, settles within 0.5
 degrees and then fully opens the grippers when end-effector control is enabled.
 `drag(sides, stop)` opens only the arm controller, enters Marvin joint-space drag with
 each arm's `drag_tool` load from the assembly YAML, and disables the arms on exit.
@@ -98,12 +98,13 @@ each arm's `drag_tool` load from the assembly YAML, and disables the arms on exi
 
 ## 实验入口与验证
 
-实验入口位于 `manimux/configs/experiments/pass_ball/tianji_taccap_umi_dp.yaml`。
+实验入口位于 `manimux/configs/experiments/pass_ball/umi_dp/tianji_taccap_umi_dp.yaml`。
 通过 `--local` 选择工位；policy 配置位于 `manimux/configs/policy/umi_dp/`。
 仍使用既有 XPolicyLab UMI_DP 模型和 `xpolicylab_ws`，需用原启动脚本绑定 checkpoint
-身份后才可运行。细节见 `docs/umi-dp-tianji-taccap-runbook.md`。
+身份后才可运行。细节见 `docs/deployment/umi-dp-tianji-taccap.md`。
 
 测试覆盖注册到 adapter、原算法数值回归、场景变换不影响控制、子进程解码一致性、
 原时间/运动约束保持，以及 fake SDK 下的只读和执行分发。未启动真实硬件或模型服务。
-Viewer 从同一 `RobotModel` 加载显示模型与独立的显示变换。
-新整机尚未实现回零/拖动恢复；旧驱动及恢复模块已删除，服务明确发布恢复不可用。
+RoboGUI 从同一 `RobotModel` 加载显示模型与独立的显示变换。
+Clear error, Return Home and drag recovery are implemented by `TianjiTaccapRobot`; the
+idle RoboGUI session only schedules them.

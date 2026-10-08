@@ -7,6 +7,8 @@ port: 8501
 bench_name: yam_real
 task_name: assemble_the_screwdriver
 env_cfg_type: yam_dual
+robot_action_dim_info: {arm_dim: [6, 6], ee_dim: [1, 1]}
+num_envs: 1
 env_cfg: yam_dual
 action_type: joint
 eval_batch: false
@@ -26,3 +28,10 @@ use_bf16: true
 use_fp32: false
 use_compile: false
 default_prompt: Assemble the screwdriver.
+
+# ManiMux derives the client handshake identity from this recipe.
+backend_identity:
+  fields: [action_horizon, checkpoint_variant, model_root, native_hz, norm_stats_path, task_name]
+  model:
+    policy_family: lingbot_vla2
+    action_semantics: anchor_relative_arm_absolute_gripper

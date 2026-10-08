@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from manimux.types import (
+    ACTION_START_MODES,
     ActionChunk,
     ActionHorizon,
     GroupTrajectory,
@@ -63,23 +64,30 @@ def _sample_plan(plan: _ActivePlan, time_ns: int) -> GroupVector | None:
 
 
 class ActionTimeline:
-    """Time-indexed action reference; a commit_lead window still plays the outgoing plan."""
+    """Time-indexed action reference; the outgoing plan plays until a committed plan starts."""
 
     def __init__(
         self,
         group_dims: dict[str, int],
         *,
         max_source_steps: int | None = None,
-        start_on_commit: bool = False,
+        action_start_mode: str = "drop_infer_latency",
+        hold_last_step: bool = False,
     ) -> None:
         if max_source_steps is not None and max_source_steps < 2:
             raise ValueError("max_source_steps must be at least two")
+        if action_start_mode not in ACTION_START_MODES:
+            raise ValueError(f"action_start_mode must be one of {sorted(ACTION_START_MODES)}")
         self._max_source_steps = max_source_steps
-        self._start_on_commit = start_on_commit
+        # first_step_when_ready starts the untrimmed chunk at commit; drop_infer_latency
+        # keeps the source row grid, so a plan may start up to one row after the commit.
+        self._starts_at_commit = action_start_mode == "first_step_when_ready"
+        self._hold_last_step = hold_last_step
         self._group_dims = dict(group_dims)
         self._active: _ActivePlan | None = None
         self._runtime_active: _ActivePlan | None = None
-        # Kept only to cover the commit_lead window before _active starts.
+        # Covers the window before _active starts: a grid-anchored start or a
+        # waypoint handoff time can lie after the commit.
         self._outgoing: _ActivePlan | None = None
         self._runtime_outgoing: _ActivePlan | None = None
         self._accepted_request_seq = -1
@@ -123,7 +131,6 @@ class ActionTimeline:
         chunk: ActionChunk,
         *,
         now_ns: int,
-        commit_lead_ns: int,
         max_plan_age_ns: int,
         current_command: GroupVector,
         blend_steps: int,
@@ -136,7 +143,7 @@ class ActionTimeline:
             return CommitResult(False, "stale_request_seq")
         if now_ns - chunk.observation_time_ns > max_plan_age_ns:
             return CommitResult(False, "plan_too_old")
-        if self._start_on_commit and chunk.source_offset_steps:
+        if self._hold_last_step and chunk.source_offset_steps:
             return CommitResult(False, "serial_requires_untrimmed_chunk")
         if set(chunk.groups) != set(self._group_dims):
             return CommitResult(False, "group_mismatch")
@@ -154,8 +161,13 @@ class ActionTimeline:
                     return CommitResult(False, f"runtime_dimension_mismatch:{name}")
 
         # Earliest wall-clock time at which the committed plan may start.
-        earliest_ns = now_ns + commit_lead_ns
+        earliest_ns = now_ns
         if chunk.handoff is not None:
+            # The handoff time is on the source row grid that drop_infer_latency keeps.
+            if self._starts_at_commit:
+                raise ValueError(
+                    "waypoint handoff chunks require action_start_mode=drop_infer_latency"
+                )
             # The adapter planned the lead-in to the skipped row; it cannot be trimmed here.
             if chunk.handoff.skipped_steps != handoff_skip_steps:
                 return CommitResult(False, "handoff_skip_mismatch")
@@ -177,7 +189,7 @@ class ActionTimeline:
         )
         # Rows to remove from this chunk, excluding rows already removed upstream.
         time_trimmed_steps = (
-            0 if self._start_on_commit else max(0, source_cursor - chunk.source_offset_steps)
+            0 if self._starts_at_commit else max(0, source_cursor - chunk.source_offset_steps)
         )
         # Skip source actions without moving the time at which the new plan starts.
         # The first plan has no outgoing chunk to hand off from.
@@ -196,7 +208,7 @@ class ActionTimeline:
         first_time_step = chunk.source_offset_steps + time_trimmed_steps
         start_time_ns = (
             earliest_ns
-            if self._start_on_commit
+            if self._starts_at_commit
             else chunk.observation_time_ns + first_time_step * chunk.dt_ns
         )
 
@@ -224,18 +236,18 @@ class ActionTimeline:
             hold_from_step=hold_from_step,
             unblended_groups=unblended_groups,
             observation_time_ns=chunk.observation_time_ns,
-            hold_last_step=self._start_on_commit,
+            hold_last_step=self._hold_last_step,
         )
 
         runtime_plan = new_plan
         if runtime is not None:
             source_end_time_ns = (
                 start_time_ns + (end - trimmed_steps - 1) * chunk.dt_ns
-                if self._start_on_commit
+                if self._starts_at_commit
                 else chunk.observation_time_ns
                 + (chunk.source_offset_steps + end - 1) * chunk.dt_ns
             )
-            if self._start_on_commit:
+            if self._starts_at_commit:
                 runtime_time_index = 0
                 runtime_end_index = runtime.horizon_steps
                 runtime_start_time_ns = earliest_ns
@@ -284,7 +296,7 @@ class ActionTimeline:
             for name, step in chunk.hold_from_step.items():
                 invalid_time_ns = (
                     start_time_ns + max(0, step - trimmed_steps) * chunk.dt_ns
-                    if self._start_on_commit
+                    if self._starts_at_commit
                     else chunk.observation_time_ns
                     + (chunk.source_offset_steps + step - row_skip_steps) * chunk.dt_ns
                 )
@@ -305,7 +317,7 @@ class ActionTimeline:
                 hold_from_step=runtime_hold_from_step,
                 unblended_groups=unblended_runtime_groups,
                 observation_time_ns=chunk.observation_time_ns,
-                hold_last_step=self._start_on_commit,
+                hold_last_step=self._hold_last_step,
             )
         self._outgoing = self._active
         self._runtime_outgoing = self._runtime_active
@@ -368,8 +380,8 @@ class ActionTimeline:
         """The plan that owns ``time_ns``: the outgoing one until _active starts."""
         active = self._active
         if active is not None and time_ns < active.start_time_ns:
-            # With commit_lead > 0 a committed plan starts slightly in the future.
-            # Keep executing the outgoing plan across that window; dropping to a
+            # A grid-anchored or waypoint plan starts slightly in the future. Keep
+            # executing the outgoing plan across that window; dropping to a
             # measured-state hold would yank the command back by the tracking error.
             return self._outgoing
         return active
@@ -397,7 +409,7 @@ class ActionTimeline:
         dt_ns: int,
         horizon_steps: int,
     ) -> ActionHorizon | None:
-        # Report the plan that owns now_ns: across a commit_lead window the
+        # Report the plan that owns now_ns: before a committed plan starts the
         # executor is still tracking the outgoing plan, not the committed one.
         active = self._runtime_plan_at(now_ns)
         if active is None:

@@ -1,10 +1,12 @@
 # Orbbec Gemini RGB
 
-实现位于 `sensor.py`，`camera_server` 直接使用 `OrbbecCamera`。
-按 USB serial 和 UVC interface 04 选择 Gemini 305/335 的 RGB 接口；不按
-`/dev/videoN` 的枚举顺序选择设备。当前路径不采集深度。
+`OrbbecSensor` implements the shared `SensorBase` lifecycle. Construction saves
+settings without importing OpenCV or accessing devices. `start()` opens the UVC
+stream; `read()` returns a copied RGB `SensorFrame` with its original host capture
+time and sequence. `close()` stops capture and releases the device.
 
-环境需要 OpenCV 和 pyudev，可安装 ManiMux 的 `collection` 可选依赖。
-导入模块不访问设备；当前设备 API 在构造 `OrbbecCamera` 时打开 UVC 并启动
-采集线程，`read()` 返回缓存的 RGB 图像，`close()` 结束线程并释放设备。
-本次迁移保持采集、翻转和帧过期处理不变，没有新增 SDK 包装。
+Gemini 305/335 selection uses USB serial and UVC interface 04, never `/dev/videoN`
+enumeration order. This driver supports RGB only. Install `opencv-python` and
+`pyudev` in the camera service environment. Component settings are defined in
+`manimux/configs/embodiment/sensor/orbbec.yaml`; bind `camera_serial` in the local
+station file. Standalone camera service files also accept legacy `device_id`.

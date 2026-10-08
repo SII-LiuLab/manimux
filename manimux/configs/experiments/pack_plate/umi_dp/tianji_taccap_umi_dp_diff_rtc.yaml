@@ -1,0 +1,86 @@
+# Pack-plate counterpart of the local pass-ball DP deployment.
+# Bind a checkpoint before using this template with a real station.
+control_profile: ../../../embodiment/robot/tianji_control.yaml
+
+run:
+  task: pack the plate
+  output_dir: ./data/experiments/umi-dp-tianji-pack-plate-tracker-fixed-diff
+  max_control_steps: 2400
+
+robot:
+  type: tianji_taccap
+  config: ../../../embodiment/robot/tianji_taccap.yaml
+  control_hz: 100.0
+  options:
+    execute: false
+    end_effector_control: false
+    hardware:
+      stale_timeout_s: 0.1
+      # Both arms run at 20% of rated speed; the rate contract derives the executor
+      # and differential-IK limits from this value.
+      velocity_ratio: 20
+    component_hardware:
+      left_end_effector:
+        read_hz: 100.0
+      right_end_effector:
+        read_hz: 100.0
+
+sensors:
+- name: tianji_wrist_history
+  driver: manimux.embodiments.sensor.camera_server.timestamped:build_sensor
+  service: camera
+  options:
+    camera_names: [taccap_left, taccap_right]
+    max_frame_age_sec: 0.15
+    clock_jump_tolerance_s: 0.02
+    output_names:
+      taccap_left: left_wrist_camera
+      taccap_right: right_wrist_camera
+
+policy:
+  worker: xpolicylab_ws
+  service: policy
+  action_decoding: process
+  adapter:
+    type: manimux.policy_adapter.umi_dp.tianji:UmiDpTianjiAdapter
+    camera_map:
+      cam_left_wrist: left_wrist_camera
+      cam_right_wrist: right_wrist_camera
+      cam_left_wrist_prev: left_wrist_camera_prev
+      cam_right_wrist_prev: right_wrist_camera_prev
+    ik_validation_dt_s: 0.004
+    ik_backend: diff
+    execute_diff_ik_substeps: false
+    diff_ik:
+      config: ../../../embodiment/arm/tianji_diff_ik.yaml
+  horizon_policy_steps: 16
+  action_dt_s: 0.03333333333333333
+  timeout_s: 30.0
+  startup_timeout_s: 120.0
+  options:
+    connect_timeout_s: 30.0
+    request_timeout_s: 30.0
+
+robogui:
+  enabled: true
+  robot: tianji-taccap
+  policy_label: UMI DP / Tianji-TacCap / pack plate / tracker fixed epoch20 / async
+
+recording:
+  enabled: true
+
+inference:
+  algorithm: manimux
+  config: ../../../inference/tianji_taccap_umi_dp.yaml
+  expected_decode_s: 0.08
+
+executor:
+  type: smooth
+  config: ../../../executor/tianji_smooth_control_profile.yaml
+
+policy_server:
+  config: ../../../policy/umi_dp/tianji/pack_plate/default.yaml
+
+# Device serials and service addresses come from the shared station file.
+camera_server:
+  config: ../../../embodiment/sensor/cameras/taccap_2_views.yaml

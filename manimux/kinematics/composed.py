@@ -98,7 +98,7 @@ class ComposedManipulatorKinematics(ManipulatorKinematicsBase):
         offset = self._offset(state[self._arm_size :])
         flange = self._arm.fk_flange(state[: self._arm_size].copy())
         # T_arm_base_tcp = T_arm_base_flange @ T_flange_tcp。
-        # 各臂在 Viewer 中的场景位置不参与控制 FK。
+        # 各臂在 RoboGUI 中的场景位置不参与控制 FK。
         return flange @ offset
 
     @property

@@ -138,6 +138,7 @@ class XPolicyLabWsClient:
         self._step = 0
         self._sampling_modes = frozenset({"default"})
         self._backend_metadata: dict[str, object] = {}
+        self._pending_requests: set[str] = set()
 
     @property
     def url(self) -> str:
@@ -172,7 +173,12 @@ class XPolicyLabWsClient:
             max_size=_NO_FRAME_SIZE_LIMIT,
         )
         try:
-            reply = self.request(HELLO, {}, timeout_s=self._connect_timeout_s)
+            # Finish terminates this rollout's transport worker. Its disconnect
+            # must invalidate queued server work instead of retaining it for retry.
+            reply = self.request(
+                HELLO, {"cancel_pending_on_disconnect": True},
+                timeout_s=self._connect_timeout_s,
+            )
             payload = reply.get("payload")
             capabilities = payload.get("capabilities") if isinstance(payload, dict) else None
             modes = capabilities.get("sampling_modes") if isinstance(capabilities, dict) else None
@@ -191,8 +197,32 @@ class XPolicyLabWsClient:
             raise
 
     def reset(self) -> None:
+        # A local timeout does not cancel server work. Receive its completion
+        # before RESET so even preprocessing outside the model lock is fenced.
+        self.drain()
         self.request(RESET, {"trial_id": self._trial_id})
         self._step = 0
+
+    def drain(self) -> None:
+        """Wait at most one request timeout for already-sent calls to finish.
+
+        Late replies are discarded, never retried. Failure leaves their IDs
+        pending so a later reset can continue draining the same connection.
+        """
+        if not self._pending_requests:
+            return
+        conn = self._conn
+        if conn is None:
+            raise XPolicyLabProtocolError("cannot drain a disconnected client")
+        deadline = time.monotonic() + self._request_timeout_s
+        while self._pending_requests:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise XPolicyLabTimeoutError(
+                    f"draining policy requests timed out after {self._request_timeout_s:.3f}s"
+                )
+            reply = unpack_frame(conn.recv(timeout=remaining))
+            self._pending_requests.discard(reply.get("message_id"))
 
     def infer(
         self,
@@ -247,6 +277,7 @@ class XPolicyLabWsClient:
                 }
             )
         )
+        self._pending_requests.add(request_id)
         return self._await_reply(
             conn,
             request_id=request_id,
@@ -268,6 +299,7 @@ class XPolicyLabWsClient:
             if remaining <= 0:
                 raise XPolicyLabTimeoutError(f"{message_type} timed out after {timeout_s:.3f}s")
             reply = unpack_frame(conn.recv(timeout=remaining))
+            self._pending_requests.discard(reply.get("message_id"))
             # Heartbeat acks and replies to an earlier request we already gave
             # up on share the socket; drain them instead of mismatching.
             if reply.get("message_id") != request_id:

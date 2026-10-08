@@ -59,6 +59,7 @@ def _pose_row(model, state: np.ndarray) -> np.ndarray:
 class TianjiAbsoluteEEAdapter(PolicyAdapter):
     """Decode absolute TCP targets with continuous grippers and atomic arm chunks."""
 
+    uses_motion_limits = True
     supports_context_only_decode = True
     # XR-1 targets are restored against the request observation, which also
     # seeds IK.
@@ -68,7 +69,9 @@ class TianjiAbsoluteEEAdapter(PolicyAdapter):
     # only after both partitions have completed successfully.
     decode_partitions = tuple(GROUP_DIMS)
 
-    def __init__(self, robot: dict, policy: dict, *, kinematics=None) -> None:
+    def __init__(
+        self, robot: dict, policy: dict, *, kinematics=None, motion_limits=None
+    ) -> None:
         options = policy["adapter"]
         if kinematics is None and robot.get("config") is not None:
             from manimux.embodiments.robot import RobotModel
@@ -78,10 +81,11 @@ class TianjiAbsoluteEEAdapter(PolicyAdapter):
             raise ValueError("XR-1 Tianji requires the assembled robot kinematics")
         self.kinematics = kinematics
         self.policy = policy
+        self.motion_limits = motion_limits
         self._group_order = tuple(options.get("group_order", GROUP_DIMS))
         self._camera_map = dict(options.get("camera_map", {}))
         self._required_cameras = tuple(self._camera_map.values())
-        self._horizon_steps = int(policy["horizon_steps"])
+        self._horizon_steps = int(policy["horizon_policy_steps"])
         self._action_dt_s = action_interval(policy)
         self._action_dt_ns = round(self._action_dt_s * 1e9)
         validation_dt = float(options.get("ik_validation_dt_s", 0.004))
@@ -119,9 +123,17 @@ class TianjiAbsoluteEEAdapter(PolicyAdapter):
                 TianjiDifferentialIK,
             )
 
-            config = DifferentialIKConfig.model_validate(options.get("diff_ik", {}))
-            if not config.check_j67:
-                raise ValueError("XR-1 Tianji differential IK requires the J6/J7 constraint")
+            arm_motion = None if motion_limits is None else motion_limits.get("arm")
+            if arm_motion is None or arm_motion.get("max_velocity") is None:
+                raise ValueError("Tianji differential IK requires resolved arm motion limits")
+            tuning = dict(options.get("diff_ik", {}))
+            # The QP rate bound is the shared executor profile, never a second constant.
+            if "max_velocity_rad_s" in tuning:
+                raise ValueError(
+                    "policy.adapter.diff_ik.max_velocity_rad_s comes from the motion limits"
+                )
+            tuning["max_velocity_rad_s"] = arm_motion["max_velocity"]
+            config = DifferentialIKConfig.model_validate(tuning)
             for name, model in self.kinematics.models.items():
                 arm = getattr(model, "arm", None)
                 if not isinstance(arm, TianjiArmKinematics):
@@ -222,10 +234,7 @@ class TianjiAbsoluteEEAdapter(PolicyAdapter):
         start = model.fk(current)
         rotation = rotation_vector(start[:3, :3].T @ target[:3, :3])
 
-        step_dt_s = self._validation_dt_s
-        if diff_solver is not None:
-            step_dt_s = min(step_dt_s, diff_solver.config.dt_max_s)
-        substeps = max(1, math.ceil(self._action_dt_s / step_dt_s))
+        substeps = max(1, math.ceil(self._action_dt_s / self._validation_dt_s))
 
         for index in range(1, substeps + 1):
             alpha = index / substeps
@@ -463,7 +472,3 @@ class TianjiAbsoluteEEAdapter(PolicyAdapter):
                 **({"diff_ik_lag": lag_stats} if lag_stats else {}),
             },
         )
-
-
-def build_adapter(robot: dict, policy: dict, *, kinematics=None) -> XR1TianjiTacCapAdapter:
-    return XR1TianjiTacCapAdapter(robot, policy, kinematics=kinematics)

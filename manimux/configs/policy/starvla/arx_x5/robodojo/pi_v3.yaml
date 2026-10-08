@@ -1,0 +1,32 @@
+host: 127.0.0.1
+port: 8500
+action_type: joint
+checkpoint_path: null
+unnorm_key: arx_x5
+include_state: true
+image_size: [224, 224]
+device: cuda
+use_bf16: true
+framework: QwenPI_v3
+pi_v3_forward: canonical
+action_horizon: 50
+action_semantics: absolute_joint_position
+state_type: joint
+camera_names: [cam_head, cam_left_wrist, cam_right_wrist]
+backend_identity:
+  server: starvla_policy_server
+  fields:
+  - framework
+  - pi_v3_forward
+  - checkpoint_path
+  - action_type
+  - action_horizon
+  - action_semantics
+  - unnorm_key
+  - include_state
+  - state_type
+  - camera_names
+  - image_size
+  model:
+    sampling_modes: [default, aac, autohorizon, dvac, paint, rtc]
+enabled_sampling_modes: [rtc, paint, aac, autohorizon, dvac]

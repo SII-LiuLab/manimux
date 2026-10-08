@@ -2,7 +2,7 @@
 
 This package owns observation preparation and conversion of policy-service actions
 into ManiMux `ActionChunk`s. Experiments select an actual Python implementation;
-there is no model-name registry or forwarding package in `integrations/`.
+there is no parallel model-specific integration package.
 
 ```yaml
 policy:
@@ -17,8 +17,9 @@ policy:
       cam_left_wrist: left_camera
       cam_right_wrist: right_camera
   action_dt_s: 0.03333333333333333
-  horizon_steps: 50
+  horizon_policy_steps: 50
   options:
+    action_format: joint
     server: ws://127.0.0.1:8500
 ```
 
@@ -33,13 +34,11 @@ by this directory migration; consolidating them must preserve their TCP/IK behav
 
 - `base.py`: one interface, identity observation/request hooks and abstract
   `decode_action(raw, context)`. The base assumes no joint action format.
-- `joint.py`: absolute joint dictionaries to grouped trajectories. Arm values
+- `joint.py`: canonical grouped absolute joint targets to timed trajectories. Arm values
   precede gripper values; units remain unchanged. No normalization, delta recovery,
   IK or smoothing is performed here.
 - `sapolicy/`, `openwam/`, `umi_dp/`, `xr1/`, `lingbot_vla2/`: specialized pose,
   observation history and action conversion implementations.
-- `abc_yam.py`, `molmoact_yam.py`: existing native-backend matrix decoders. Their
-  relocation does not migrate or validate those legacy model servers.
 
 One model may select multiple adapters when its service exposes different contracts.
 Multiple models may share an adapter when their contracts agree. A new checkpoint

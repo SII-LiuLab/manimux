@@ -1,14 +1,14 @@
 # Utility scripts
 
-Private training recipes, launchers and notes live in the root `training/`
-directory, which is ignored by Git and absent from a fresh clone. Model training
-implementations remain in XPolicyLab or their upstream frameworks.
+ManiMux runtime branches do not carry training launchers or model-training data
+conversion. Those workflows are maintained on the `experiment` branch. Native
+model implementations remain in the separate XPolicyLab repository.
 
 The scripts are grouped by responsibility:
 
-- `datasets/`: convert datasets, compute statistics, and prepare model assets.
+- `datasets/`: prepare assets and statistics consumed by runtime inference.
 - `validation/`: offline probes, configuration checks, and diagnostic audits.
-- `media/`: viewer recording and other presentation helpers.
+- `media/`: robogui recording and other presentation helpers.
 
 Policy launchers live in `manimux/servers/`; model implementations and the shared
 policy server belong to XPolicyLab.
@@ -18,6 +18,6 @@ resolve consistently. For example:
 
 ```bash
 envs/yam/.venv/bin/python manimux/servers/pi05.py --check
-python scripts/datasets/convert_yam_to_lerobot.py --help
+python scripts/datasets/compute_yam_aac_ee_stats.py --help
 envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py --help
 ```

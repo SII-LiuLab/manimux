@@ -1,0 +1,7 @@
+max_plan_age_s: 2.0
+blend_policy_steps: 0
+action_start_mode: drop_infer_latency
+paint:
+  initial_delay_policy_steps: 10
+  delay_buffer_size: 10
+  execution_policy_steps: 12

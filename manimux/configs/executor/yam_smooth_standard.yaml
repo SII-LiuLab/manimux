@@ -1,0 +1,12 @@
+# Shared finite YAM smoothing limits for the established 100 Hz deployments.
+smooth:
+  cutoff_hz: 8.0
+  max_velocity: 0.25
+  max_acceleration: 0.5
+  position_limit_abs: 3.14
+  gripper:
+    mode: continuous
+    max_velocity: 1.0
+    max_acceleration: 12.0
+    closed_value: 0.0
+    open_value: 1.0

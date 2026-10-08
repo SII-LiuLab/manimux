@@ -1,6 +1,7 @@
-"""用装配 YAML 创建 YAM 组件；构造、FK 和 Viewer 都不打开 CAN。"""
+"""用装配 YAML 创建 YAM 组件；构造、FK 和 RoboGUI 都不打开 CAN。"""
 
 import logging
+from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
@@ -40,8 +41,9 @@ class YamRobot(RobotBase):
         clock = clock if clock is not None else SystemClock()
         control = {**model.hardware, **(hardware or {})}
         bound = {name: dict(component["hardware"]) for name, component in model.components.items()}
-        for name, options in (component_hardware or {}).items():
-            bound[name].update(options)
+        # A shared station can bind devices outside this robot's assembly.
+        for name, options in bound.items():
+            options.update((component_hardware or {}).get(name, {}))
         arms = {}
         for name, group in model.groups.items():
             component = model.components[group.arm_name]
@@ -88,6 +90,13 @@ class YamRobot(RobotBase):
             )
 
     def _move(self, targets, duration, label, *, interrupt=False, parallel=True):
+        # Validate every target before submitting the first arm's motion.
+        if not isinstance(targets, Mapping) or set(targets) != set(self.arm_components):
+            raise ValueError(f"{label} must specify every arm group")
+        targets = {name: np.array(q, dtype=np.float64, copy=True) for name, q in targets.items()}
+        for name, arm in self.arm_components.items():
+            if targets[name].shape != (arm.num_joints,) or not np.isfinite(targets[name]).all():
+                raise ValueError(f"{label}: invalid target for {name}")
         # 继续使用 SDK 的 move_joints，不在迁移中替换轨迹算法或运动参数。
         # 等待全部手臂返回后才进入下一阶段；反馈刷新同步旧包装的状态缓存。
         with finish_move_before_interrupt(label, log) as interrupted:
@@ -109,6 +118,11 @@ class YamRobot(RobotBase):
         self.get_state()
         if interrupted and interrupt:
             raise KeyboardInterrupt
+
+    def stop(self):
+        # YAM stop sends a hold target, so observation-only runs must skip it too.
+        if self._execute:
+            super().stop()
 
     def home(self):
         if not self._execute:

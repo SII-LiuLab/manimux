@@ -1,17 +1,12 @@
-# QP tuning from tianji-control configs/solver/diff.yaml.
-# Velocity and dt cap are bound from the effective shared control profile.
+# Explicit Tianji differential-IK profile. Rates come from motion_limits.
 w_pos: 1.0
 w_rot: 1.0
 lam: 0.001
-check_j67: true
-mu_nullspace: 1000.0
-nullspace_activation_deg: 25.0
-# null margins inherit this arm's TianjiKinematics limit margin (5 deg by default).
 limit_margin_deg: null
 j67_margin_deg: null
-# CalibWrist GuardedFlangeSolver defaults: positive flange-position lag required.
+mu_nullspace: 1000.0
+nullspace_activation_deg: 25.0
+nullspace_weights: null
 max_lag_mm: 5.0
 max_lag_deg: null
-# CalibWrist real_run's policy-execution default: lag over max_lag_* is recorded,
-# the bounded step is kept. Failed QPs, joint limits and J6/J7 still reject.
 lag_policy: report

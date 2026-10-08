@@ -77,10 +77,6 @@ class SmoothExecutor:
         return any(event.kind == "release" for event in self._gripper_events.values())
 
     @property
-    def has_pending_gripper_event(self) -> bool:
-        return bool(self._gripper_events)
-
-    @property
     def uses_close_latch(self) -> bool:
         return self._gripper is not None and self._gripper["mode"] == "close_latch"
 
@@ -94,47 +90,6 @@ class SmoothExecutor:
             raise ValueError("control_dt_s must be finite and positive")
         self._dt_s = control_dt_s
         self._alpha = control_dt_s / (self._rc + control_dt_s)
-
-    def brake_hold(self, now_ns: int, state: RobotState) -> RobotCommand:
-        """On a RUNNING inference gap, decelerate rather than jump to feedback.
-
-        Freeze the gripper command. Pause/Finish retain their explicit runtime
-        behavior; this method is only for an exhausted action timeline.
-        """
-        if self._previous is None or self._previous_velocity is None:
-            self.reset(state)
-        if self.uses_close_latch:
-            # Missing predictions cannot count toward a confirmed reopen.
-            self._gripper_open_candidate_ns = dict.fromkeys(self._gripper_closed)
-        if self.has_pending_gripper_event:
-            # A validated gripper-event target survives ordinary inference gaps. Other
-            # groups still brake; Pause/Home call reset and cancel pending events.
-            reference = ActionHorizon(
-                now_ns,
-                int(self._dt_s * 1e9),
-                "gripper-gap",
-                {name: np.tile(value, (2, 1)) for name, value in self._previous.items()},
-                hold_groups=tuple(self._previous),
-                tracking_groups=copy_group_vector(self._previous),
-            )
-            command = self.step(now_ns, state, reference)
-            command.plan_id = None
-            return command
-        for name, velocity in self._previous_velocity.items():
-            next_velocity = decelerate_velocity(
-                velocity,
-                self._limits.max_acceleration,
-                self._dt_s,
-                mode=self._limits.mode,
-                independent_index=(
-                    self._gripper["group_indices"].get(name) if self._gripper else None
-                ),
-            )
-            if self._gripper is not None and name in self._gripper["group_indices"]:
-                next_velocity[self._gripper["group_indices"][name]] = 0.0
-            self._previous[name] += next_velocity * self._dt_s
-            self._previous_velocity[name] = next_velocity
-        return RobotCommand(copy_group_vector(self._previous), now_ns, plan_id=None)
 
     def hold(self, now_ns: int, state: RobotState) -> RobotCommand:
         """Reanchor motion during an inference gap, retaining a close latch.
@@ -633,8 +588,6 @@ def gripper_hysteresis_parameters(**options) -> dict:
         "open_value": 1.0,
         **options,
     }
-    if not values["group_indices"]:
-        raise ValueError("gripper group_indices must not be empty")
     if any((not name or index < 0 for name, index in values["group_indices"].items())):
         raise ValueError("gripper group_indices must map non-empty names to non-negative indices")
     if values["close_threshold"] >= values["open_threshold"]:

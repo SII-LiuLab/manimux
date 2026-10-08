@@ -15,7 +15,7 @@ class TimestampedCameraSensor(SensorBase):
     def __init__(self, config, clock):
         self.clock = clock
         self.endpoint = str(config["options"].get("endpoint", "tcp://127.0.0.1:5556"))
-        self.names = tuple(config["options"].get("camera_names", ("left_wrist", "right_wrist")))
+        self.names = tuple(config["options"].get("camera_names", ("taccap_left", "taccap_right")))
         self.output_names = config["options"].get("output_names", {})
         self.max_age_ns = int(float(config["options"].get("max_frame_age_sec", 0.15)) * 1e9)
         self.jump_ns = int(float(config["options"].get("clock_jump_tolerance_s", 0.02)) * 1e9)

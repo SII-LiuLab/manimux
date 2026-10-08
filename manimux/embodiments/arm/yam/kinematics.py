@@ -1,9 +1,9 @@
 """YAM arm kinematics on the bundled i2rt model assets.
 
-One implementation serves both consumers: the viewer renders end-effector trails
+One implementation serves both consumers: the robogui renders end-effector trails
 with :meth:`fk`, and pose-space policy adapters (XR-1 and friends) additionally
 solve :meth:`ik`. Forward kinematics needs nothing but ``mujoco`` so it works in
-the viewer's slim environment; the IK solver is imported lazily because ``mink``
+the robogui's slim environment; the IK solver is imported lazily because ``mink``
 only lives in the robot environment.
 
 The joint -> ``qpos`` mapping matches i2rt's ``MujocoControlInterface`` and the
@@ -178,7 +178,7 @@ class YamKinematics:
         return transform
 
     def pose(self, configuration: FloatArray) -> FloatArray:
-        """FK from one packed ``[joints..., gripper]`` vector (viewer entry point)."""
+        """FK from one packed ``[joints..., gripper]`` vector (robogui entry point)."""
         values = np.asarray(configuration, dtype=np.float64).reshape(-1)
         if values.size != self.state_dim:
             raise ValueError(f"expected {self.state_dim} YAM values, got {values.size}")
@@ -426,7 +426,7 @@ class YamKinematics:
 def visual_configuration(configuration):
     """控制夹爪为 0=闭合、1=张开；URDF 的两个指尖关节使用米。
 
-    这里沿用旧 YAM Viewer 的 -0.04695 m 行程映射，展开仅用于显示。
+    这里沿用旧 YAM RoboGUI 的 -0.04695 m 行程映射，展开仅用于显示。
     发送给 i2rt 的目标始终保留一个归一化夹爪值。
     """
     q = np.asarray(configuration, dtype=np.float64)

@@ -4,7 +4,7 @@ A gripper, hand or tool is described once under
 the owning component's ``assets/<name>/`` as a standalone URDF plus
 ``end_effector.yaml``, independent of the arm that carries it. The same
 description yields both the tool transform (flange -> TCP) that pose-space
-kinematics use and the combined arm + end-effector URDF the viewer renders, so
+kinematics use and the combined arm + end-effector URDF the robogui renders, so
 a drawn fingertip and the IK tool frame cannot drift apart.
 
 ``end_effector.yaml``::

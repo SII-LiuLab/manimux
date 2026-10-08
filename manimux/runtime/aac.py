@@ -14,6 +14,7 @@ from manimux.types import (
 
 @dataclass(slots=True)
 class AacInferenceRequest(InferenceRequest):
+    aac_robot_config: str | None = None
     aac_num_samples: int = 20
     aac_motion_threshold: float = 3.0
     aac_ee_stats_path: str | None = None
@@ -31,6 +32,7 @@ class AacInferenceStrategy(SynchronousChunkStrategy):
     def request_options(self) -> dict:
         aac = self._config["inference"]["aac"]
         return {
+            "aac_robot_config": str(self._config["robot"]["config"]),
             "aac_num_samples": aac["num_samples"],
             "aac_motion_threshold": aac["motion_threshold"],
             "aac_ee_stats_path": aac["ee_stats_path"],

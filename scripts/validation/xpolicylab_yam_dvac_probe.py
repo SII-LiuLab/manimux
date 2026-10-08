@@ -41,7 +41,10 @@ def main() -> int:
         raise ValueError("DVAC probe requires inference.algorithm: dvac")
 
     settings = config["inference"]["dvac"]
-    maximum = settings["max_execution_steps"] or config["policy"]["horizon_steps"]
+    maximum = (
+        settings["max_execution_policy_steps"]
+        or config["policy"]["horizon_policy_steps"]
+    )
     group_order = list(config["policy"]["adapter"]["group_order"])
     expected_width = sum(int(config["robot"]["group_dims"][name]) for name in group_order)
     session_id = f"xpolicy-dvac-probe-{uuid.uuid4().hex[:8]}"
@@ -61,10 +64,10 @@ def main() -> int:
                 + int(config["policy"]["timeout_s"] * 1_000_000_000),
                 observation=snapshot,
                 instruction=args.instruction,
-                dvac_tail_steps=settings["tail_steps"],
+                dvac_tail_steps=settings["tail_policy_steps"],
                 dvac_alpha=settings["alpha"],
                 dvac_rolling_window_size=settings["rolling_window_size"],
-                dvac_min_execution_steps=settings["min_execution_steps"],
+                dvac_min_execution_steps=settings["min_execution_policy_steps"],
                 dvac_max_execution_steps=maximum,
             )
             started = time.perf_counter()
@@ -75,7 +78,7 @@ def main() -> int:
                 raise ValueError("DVAC reply is missing metadata")
             variance = np.asarray(metadata.get("variance"), dtype=np.float64)
             if (
-                variance.shape != (config["policy"]["horizon_steps"],)
+                variance.shape != (config["policy"]["horizon_policy_steps"],)
                 or not np.isfinite(variance).all()
                 or np.any(variance < 0)
             ):
@@ -91,7 +94,7 @@ def main() -> int:
                 ),
             )
             packed = np.concatenate([chunk.groups[name] for name in group_order], axis=1)
-            expected_shape = (config["policy"]["horizon_steps"], expected_width)
+            expected_shape = (config["policy"]["horizon_policy_steps"], expected_width)
             if packed.shape != expected_shape or not np.isfinite(packed).all():
                 raise ValueError(
                     f"DVAC adapter must return a finite {expected_shape} chunk, got {packed.shape}"

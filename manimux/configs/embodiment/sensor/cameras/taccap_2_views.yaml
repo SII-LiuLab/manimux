@@ -1,0 +1,24 @@
+# Stream names identify images; component names select station device bindings.
+# All public capture options are listed below. See README.md for units and defaults.
+service: camera
+cameras:
+  taccap_left:
+    config: ../taccap.yaml
+    component: left_wrist_camera
+    options:
+      width: 640
+      height: 480
+      fps: 30
+      max_frame_age_sec: 0.30
+      startup_timeout_sec: 3.0
+      by_id_root: /dev/v4l/by-id
+  taccap_right:
+    config: ../taccap.yaml
+    component: right_wrist_camera
+    options:
+      width: 640
+      height: 480
+      fps: 30
+      max_frame_age_sec: 0.30
+      startup_timeout_sec: 3.0
+      by_id_root: /dev/v4l/by-id

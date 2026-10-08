@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -45,6 +46,35 @@ def _load_config(path: Path) -> dict[str, Any]:
     return loaded
 
 
+def _load_station_config(experiment: str, config_path: str, local_path: str) -> dict[str, Any]:
+    """Resolve runtime YAML in its environment when the model uses Python 3.10."""
+    if sys.version_info < (3, 11):
+        runtime_python = REPO_ROOT / "envs/yam/.venv/bin/python"
+        result = subprocess.run(
+            [
+                str(runtime_python),
+                "-c",
+                "import json, sys; from manimux.servers.groot import _load_station_config; "
+                "print(json.dumps(_load_station_config(*sys.argv[1:])))",
+                experiment,
+                config_path,
+                local_path,
+            ],
+            cwd=REPO_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return json.loads(result.stdout)
+
+    from manimux.cli import bind_station, read_experiment, resolve_local_path
+
+    local = resolve_local_path(experiment or None, local_path or None)
+    if experiment:
+        return read_experiment(experiment, local=local)["policy_server"]
+    return bind_station({"policy_server": _load_config(Path(config_path))}, local)["policy_server"]
+
+
 def _validate_statistics(model_dir: Path) -> None:
     statistics = json.loads((model_dir / "statistics.json").read_text(encoding="utf-8"))
     yam = statistics.get("new_embodiment")
@@ -76,7 +106,10 @@ def _validate_checkpoint(config: dict[str, Any]) -> tuple[Path, int]:
         raise FileNotFoundError(
             f"XPolicyLab submodule is missing under {XPOLICY_ROOT}; initialize submodules first"
         )
-    model_dir = Path(str(config["model_dir"])).expanduser().resolve()
+    model_dir = Path(str(config["model_dir"])).expanduser()
+    if not model_dir.is_absolute():
+        model_dir = GR00T_ROOT.parent / model_dir
+    model_dir = model_dir.resolve()
     for name in ("config.json", "processor_config.json", "statistics.json"):
         if not (model_dir / name).is_file():
             raise FileNotFoundError(f"GR00T checkpoint is missing {model_dir / name}")
@@ -228,11 +261,22 @@ def _runtime_readiness(config: dict[str, Any]) -> dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+    source.add_argument("--experiment", type=Path, help="Use the experiment's paired policy_server")
+    parser.add_argument("--local", type=Path, help="Private station bindings")
     parser.add_argument("--check", action="store_true", help="validate and print resolved setup")
     args = parser.parse_args()
 
-    config = _load_config(args.config.resolve())
+    if args.experiment is not None or args.local is not None:
+        config = _load_station_config(
+            str(args.experiment.resolve()) if args.experiment is not None else "",
+            str(args.config.resolve()),
+            str(args.local.resolve()) if args.local is not None else "",
+        )
+    else:
+        config = _load_config(args.config.resolve())
+        config.pop("backend_identity", None)
     model_dir, horizon = _validate_checkpoint(config)
     contract = {
         "contract_status": "ready",
@@ -246,9 +290,9 @@ def main() -> int:
         "action_horizon": horizon,
         "native_frequency_hz": EXPECTED_FREQUENCY_HZ,
         "inference_timesteps": 4,
-        "checkpoint_role": "yam_finetune_on_molmoact2_data",
+        "task_name": config.get("task_name"),
         "normalization": str(model_dir / "statistics.json"),
-        "rtc": False,
+        "rtc": "pi_guided_v1",
         "cosmos_model": config.get("cosmos_model_path", "nvidia/Cosmos-Reason2-2B"),
     }
     contract.update(_runtime_readiness(config))

@@ -29,7 +29,7 @@ class MPCExecutor:
 
     @property
     def horizon_steps(self) -> int:
-        return self._config["horizon_steps"]
+        return self._config["horizon_control_steps"]
 
     def reset(self, state: RobotState) -> None:
         self._previous = copy_group_vector(state.groups)
@@ -43,7 +43,7 @@ class MPCExecutor:
         previous_command: np.ndarray,
         reference: np.ndarray,
     ) -> np.ndarray:
-        horizon = min(self._config["horizon_steps"], reference.shape[0])
+        horizon = min(self._config["horizon_control_steps"], reference.shape[0])
         reference = reference[:horizon]
         a = self._config["dynamics_a"]
         b_matrix = np.zeros((horizon, horizon), dtype=np.float64)
@@ -96,11 +96,13 @@ class MPCExecutor:
 def mpc_parameters(**options) -> dict:
     """保留 MPC 时域、动力学与代价权重的默认值。"""
 
+    if "horizon_steps" in options:
+        raise ValueError("unsupported MPC field: horizon_steps")
     values = {
         "max_velocity": 2.0,
         "max_acceleration": 8.0,
         "position_limit_abs": 3.14,
-        "horizon_steps": 15,
+        "horizon_control_steps": 15,
         "dynamics_a": 0.85,
         "tracking_weight": 10.0,
         "command_delta_weight": 1.0,

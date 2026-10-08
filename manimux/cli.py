@@ -4,7 +4,6 @@ import argparse
 import hashlib
 import json
 import logging
-import math
 import multiprocessing as mp
 import signal
 import subprocess
@@ -49,6 +48,20 @@ def read_yaml(path: str | Path) -> dict:
         return yaml.safe_load(stream)
 
 
+def _resolve_camera_references(recipe: dict, directory: Path) -> dict:
+    """Resolve each camera's component file relative to its declaring YAML."""
+    result = deepcopy(recipe)
+    for camera in result.get("cameras", {}).values():
+        if "config" in camera:
+            camera["config"] = str((directory / camera["config"]).resolve())
+    return result
+
+
+def read_camera_recipe(path: str | Path) -> dict:
+    source = Path(path).expanduser().resolve()
+    return _resolve_camera_references(read_yaml(source), source.parent)
+
+
 def _merge(base: dict, overrides: dict) -> dict:
     """Merge mappings; replace lists instead of guessing component matches by index."""
     result = deepcopy(base)
@@ -81,21 +94,45 @@ def load_local(path: str | Path) -> dict:
 def read_experiment(
     path: str | Path, *, local: str | Path | None = None, bind_local: bool = True
 ) -> dict:
-    """Expand policy/inference/executor/server references and explicit station bindings.
+    """Expand component references and explicit station bindings.
 
     Each section references at most one base YAML, without recursive inheritance.
     robot.config remains the assembly path; reading does not construct RobotModel.
     """
     source = Path(path).expanduser().resolve()
     raw = read_yaml(source)
-    for name in ("policy", "inference", "executor", "policy_server"):
+    from manimux.embodiments.layout import assembly_action_contract
+    from manimux.embodiments.robot import apply_action_contract
+    from manimux.policies.base import backend_identity_from_recipe
+
+    backend_identity = None
+    for name in ("policy", "inference", "executor", "policy_server", "camera_server", "evaluation"):
         section = raw.get(name, {})
+        if name == "evaluation" and section is None:
+            continue
+        if name == "camera_server":
+            section = _resolve_camera_references(section, source.parent)
+            if section:
+                raw[name] = section
         if "config" in section:
             reference = (source.parent / section.pop("config")).resolve()
-            raw[name] = _merge(read_yaml(reference), section)
+            base = (
+                read_camera_recipe(reference) if name == "camera_server" else read_yaml(reference)
+            )
+            raw[name] = _merge(base, section)
+        if name == "policy_server" and isinstance(raw.get(name), dict):
+            backend_identity = raw[name].pop("backend_identity", None)
+    adapter = raw.get("policy", {}).get("adapter", {})
+    diff_ik = adapter.get("diff_ik", {})
+    if isinstance(diff_ik, dict) and "config" in diff_ik:
+        reference = (source.parent / diff_ik.pop("config")).resolve()
+        adapter["diff_ik"] = _merge(read_yaml(reference), diff_ik)
     robot = raw.setdefault("robot", {})
     if robot.get("config") is not None:
         robot["config"] = str((source.parent / robot["config"]).resolve())
+        contract = assembly_action_contract(robot["config"])
+        if contract is not None:
+            apply_action_contract(raw, contract)
     if raw.get("control_profile") is not None:
         raw["control_profile"] = str((source.parent / raw["control_profile"]).resolve())
 
@@ -106,9 +143,16 @@ def read_experiment(
     if selected is not None:
         raw["local"] = str(selected)
     # Exported experiments retain their station reference instead of copying devices.
-    if not bind_local:
-        return raw
-    return bind_station(raw, selected) if selected is not None else raw
+    if bind_local and selected is not None:
+        raw = bind_station(raw, selected)
+    if backend_identity is not None:
+        generated = backend_identity_from_recipe(raw["policy_server"], backend_identity)
+        policy = raw.setdefault("policy", {})
+        configured = policy.get("expected_backend")
+        if configured is not None and configured != generated:
+            raise ValueError("policy.expected_backend conflicts with policy_server recipe")
+        policy["expected_backend"] = generated
+    return raw
 
 
 def bind_station(config: dict, local: str | Path) -> dict:
@@ -138,23 +182,29 @@ def bind_station(config: dict, local: str | Path) -> dict:
         service = sensor.get("service")
         if service in services:
             sensor.setdefault("options", {})["endpoint"] = services[service]["endpoint"]
-    if "policy" in services:
-        service = services["policy"]
-        raw.setdefault("policy", {}).setdefault("options", {})["server"] = service["endpoint"]
+    policy = raw.setdefault("policy", {})
+    policy_service = policy.get("service", "policy")
+    if policy_service in services:
+        service = services[policy_service]
+        policy.setdefault("options", {})["server"] = service["endpoint"]
         if "policy_server" in raw:
             address = urlsplit(service["endpoint"])
             # Clients use reachable addresses; servers may bind to a different host.
             raw["policy_server"].update(
                 host=service.get("bind_host", address.hostname), port=address.port
             )
-    if "camera" in services and "camera_server" in raw:
-        service = services["camera"]
+    camera_service = raw.get("camera_server", {}).get("service", "camera")
+    if camera_service in services and "camera_server" in raw:
+        service = services[camera_service]
         raw["camera_server"].update(
             pub_endpoint=service.get("bind_endpoint", service["endpoint"]),
             rep_endpoint=service.get("bind_request_endpoint", service["request_endpoint"]),
         )
     server = raw.get("policy_server")
     if server is not None:
+        # Recipe-only metadata configures ManiMux's handshake check and is not
+        # part of the model deployment arguments.
+        server.pop("backend_identity", None)
         # Provider field names differ; station paths do not change the selected
         # checkpoint variant, normalization identity, horizon or action contract.
         pi05 = server.get("policy_name") == "Pi_05"
@@ -206,15 +256,23 @@ def _git_sha(workdir: Path | None = None) -> str | None:
 
 
 def _load_config(
-    config_path: Path, executor: str | None = None, *, local: Path | None = None
+    config_path: Path, executor: str | None = None, *, local: Path | None = None,
+    control_timing: bool = False,
 ) -> dict:
     config = load_config(config_path, local=resolve_local_path(config_path, local))
     if executor is not None:
         config["executor"]["type"] = executor
+    if control_timing:
+        config["run"]["control_timing"] = True
     return config
 
 
 def _create_run_dir(config: dict, config_path: Path, *, mode: str) -> Path:
+    from manimux.recording.provenance import (
+        capture_source_provenance,
+        deployment_artifact_provenance,
+    )
+
     timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     run_id = f"session-{timestamp}-{uuid.uuid4().hex[:8]}"
     run_dir = config["run"]["output_dir"] / run_id
@@ -222,14 +280,22 @@ def _create_run_dir(config: dict, config_path: Path, *, mode: str) -> Path:
     resolved_config = config_path.expanduser().resolve()
     config_sha256 = hashlib.sha256(resolved_config.read_bytes()).hexdigest()
     repository_root = Path(__file__).resolve().parents[1]
+    recipe = config.get("policy_server", {})
+    sources = capture_source_provenance(repository_root, policy_name=recipe.get("policy_name"))
+    repositories = sources["repositories"]
     with (run_dir / "session-manifest.json").open("w", encoding="utf-8") as handle:
         json.dump(
             {
                 "session_id": run_id,
                 "mode": mode,
                 "created_at": datetime.now(UTC).isoformat(),
-                "git_sha": _git_sha(repository_root),
-                "xpolicylab_git_sha": _git_sha(repository_root / "XPolicyLab"),
+                "git_sha": repositories["manimux"].get("head"),
+                "xpolicylab_git_sha": (
+                    repositories["xpolicylab"].get("head") if "xpolicylab" in repositories
+                    else _git_sha(repository_root / "XPolicyLab")
+                ),
+                "source_provenance": sources,
+                "deployment_artifacts": deployment_artifact_provenance(recipe),
                 "config_path": str(resolved_config),
                 "config_sha256": config_sha256,
                 "config": loads(dumps(deepcopy(config), default=str)),
@@ -242,11 +308,14 @@ def _create_run_dir(config: dict, config_path: Path, *, mode: str) -> Path:
     return run_dir
 
 
-def _run(config_path: Path, executor: str | None = None, *, local: Path | None = None) -> int:
+def _run(
+    config_path: Path, executor: str | None = None, *, local: Path | None = None,
+    control_timing: bool = False,
+) -> int:
     from manimux.runtime import build_runtime
     from manimux.runtime.lock import RuntimeLockError
 
-    config = _load_config(config_path, executor, local=local)
+    config = _load_config(config_path, executor, local=local, control_timing=control_timing)
     try:
         with _runtime_lock(config, config_path, mode="run"):
             run_dir = _create_run_dir(config, config_path, mode="run")
@@ -266,12 +335,15 @@ def _run(config_path: Path, executor: str | None = None, *, local: Path | None =
     return 0 if result.success else 2
 
 
-def _serve(config_path: Path, executor: str | None = None, *, local: Path | None = None) -> int:
+def _serve(
+    config_path: Path, executor: str | None = None, *, local: Path | None = None,
+    control_timing: bool = False,
+) -> int:
     # Session/recovery dependencies are only needed for the interactive service.
     from manimux.runtime.lock import RuntimeLockError
     from manimux.session import RuntimeSessionService
 
-    config = _load_config(config_path, executor, local=local)
+    config = _load_config(config_path, executor, local=local, control_timing=control_timing)
     try:
         with _runtime_lock(config, config_path, mode="serve"):
             run_dir = _create_run_dir(config, config_path, mode="serve")
@@ -293,7 +365,7 @@ def _runtime_lock(
 ) -> RuntimeInstanceLock:
     from manimux.runtime.lock import RuntimeInstanceLock
 
-    identity = config["viewer"]["robot"].strip() or config["robot"]["type"]
+    identity = config["robogui"]["robot"].strip() or config["robot"]["type"]
     return RuntimeInstanceLock(identity, mode=mode, config_path=config_path)
 
 
@@ -304,6 +376,10 @@ def _add_runtime_arguments(parser: argparse.ArgumentParser) -> None:
         help="Station bindings (default: manimux/configs/local/station.yaml)",
     )
     parser.add_argument("--executor", choices=("direct", "smooth", "mpc"))
+    parser.add_argument(
+        "--control-timing", action="store_true",
+        help="Collect bounded per-cycle timings; save and summarize when the rollout ends",
+    )
     parser.add_argument(
         "--log-level",
         choices=("DEBUG", "INFO", "WARNING", "ERROR"),
@@ -318,7 +394,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser = subparsers.add_parser("run", help="run one local robot-policy session")
     _add_runtime_arguments(run_parser)
     serve_parser = subparsers.add_parser(
-        "serve", help="keep one runtime service available for Viewer-controlled rollouts"
+        "serve", help="keep one runtime service available for RoboGUI-controlled rollouts"
     )
     _add_runtime_arguments(serve_parser)
     return parser
@@ -333,24 +409,51 @@ def main(argv: list[str] | None = None) -> int:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
     if args.command == "run":
-        return _run(args.config, args.executor, local=args.local)
+        return _run(
+            args.config, args.executor, local=args.local, control_timing=args.control_timing,
+        )
     if args.command == "serve":
-        return _serve(args.config, args.executor, local=args.local)
+        return _serve(
+            args.config, args.executor, local=args.local, control_timing=args.control_timing,
+        )
     raise AssertionError(f"unhandled command {args.command}")
 
 
 def run_parameters(**options) -> dict:
-    """补齐实验记录目录和步数；保持旧入口的路径含义。"""
+    """补齐实验记录目录和控制步数。"""
 
+    from manimux.embodiments.sensor.reader import sensor_reading_parameters
+    from manimux.evaluation.identity import research_template
+
+    if "max_steps" in options:
+        raise ValueError("unsupported run field: max_steps")
     values = {
         "output_dir": Path("data"),
-        "max_steps": 500,
+        "max_control_steps": 500,
+        "warmup_before_start": False,
+        "control_timing": False,
+        "timing_max_cycles": 20000,
+        "sensor_reading": {},
+        "experiment_template": None,
+        "experiment_name": "",
+        "condition": "",
+        "notes": "",
         "experiment_mode": False,
         "layout_id": "",
+        "repeat_id": None,
+        "reference_layout": None,
         **options,
     }
     if values.get("output_dir") is not None:
         values["output_dir"] = Path(values["output_dir"])
+    if not isinstance(values["warmup_before_start"], bool):
+        raise ValueError("run.warmup_before_start must be boolean")
+    if not isinstance(values["control_timing"], bool):
+        raise ValueError("run.control_timing must be boolean")
+    if type(values["timing_max_cycles"]) is not int or values["timing_max_cycles"] <= 0:
+        raise ValueError("run.timing_max_cycles must be a positive integer")
+    values["experiment_template"] = research_template(values["experiment_template"])
+    values["sensor_reading"] = sensor_reading_parameters(**values["sensor_reading"])
     return values
 
 
@@ -379,6 +482,7 @@ def prepare_experiment(**options) -> dict:
     """把各模块处理过的参数组合成实验字典；不创建机器人或连接硬件。"""
     from manimux.embodiments.robot import robot_parameters
     from manimux.embodiments.sensor import sensor_parameters
+    from manimux.evaluation.rubric import evaluation_parameters
     from manimux.policies.base import policy_parameters
     from manimux.recording import recording_parameters
     from manimux.runtime import (
@@ -386,8 +490,10 @@ def prepare_experiment(**options) -> dict:
         inference_parameters,
         validate_runtime_parameters,
     )
-    from manimux.viewer import viewer_parameters
+    from manimux.robogui import robogui_parameters
 
+    if "viewer" in options:
+        raise ValueError("Rename the experiment section 'viewer' to 'robogui'.")
     options = deepcopy(options)
     values = {
         "control_profile": None,
@@ -397,8 +503,9 @@ def prepare_experiment(**options) -> dict:
         "sensors": [],
         "inference": {},
         "executor": {},
-        "viewer": {},
+        "robogui": {},
         "recording": {},
+        "evaluation": {},
         **options,
     }
     if values.get("control_profile") is not None:
@@ -410,10 +517,11 @@ def prepare_experiment(**options) -> dict:
     values["policy"] = policy_parameters(**values["policy"])
     values["executor"] = executor_parameters(**values["executor"])
     values["inference"] = inference_parameters(executor=values["executor"], **values["inference"])
-    if values.get("viewer") is not None:
-        values["viewer"] = viewer_parameters(**values["viewer"])
+    if values.get("robogui") is not None:
+        values["robogui"] = robogui_parameters(**values["robogui"])
     if values.get("recording") is not None:
         values["recording"] = recording_parameters(**values["recording"])
+    values["evaluation"] = evaluation_parameters(values["evaluation"])
     values["sensors"] = [sensor_parameters(**sensor) for sensor in values["sensors"]]
     validate_runtime_parameters(values)
     return values
@@ -421,18 +529,40 @@ def prepare_experiment(**options) -> dict:
 
 def load_config(path: str | Path, *, local: str | Path | None = None) -> dict:
     """主入口使用的完整加载流程；保留共享控制参数原有的合并规则。"""
-    from manimux.embodiments.robot import shared_robot_parameters
+    from manimux.embodiments.robot import (
+        action_contract_group_indices,
+        shared_robot_parameters,
+    )
     from manimux.runtime.executors.limits import motion_limits_parameters
     from manimux.runtime.safety import command_safety_parameters
 
     config_path = Path(path)
     raw = read_experiment(config_path, local=local)
+    gripper_indices = action_contract_group_indices(raw)
     # read_experiment 已解析文件引用；这里只组合共享控制参数和实验参数。
     robot = raw["robot"] = shared_robot_parameters(**raw.get("robot", {}))
     profile = None
     if raw.get("control_profile") is not None:
         profile_path = Path(raw["control_profile"])
-        profile = control_profile_parameters(**read_yaml(profile_path))
+        profile_raw = read_yaml(profile_path)
+        if profile_raw.get("rate_contract") is not None:
+            from manimux.embodiments.arm.tianji.arm import resolve_rate_contract
+
+            assembly = read_yaml(raw["robot"]["config"])
+            controller = _merge(
+                assembly.get("hardware", {}),
+                raw.get("robot", {}).get("options", {}).get("hardware", {}),
+            )
+            profile_raw = resolve_rate_contract(profile_raw, controller, gripper_indices)
+        if gripper_indices is not None and profile_raw.get("motion_limits") is not None:
+            profile_gripper = profile_raw["motion_limits"].setdefault("gripper", {})
+            _set_shared_value(
+                profile_gripper,
+                "group_indices",
+                deepcopy(gripper_indices),
+                "control_profile.motion_limits.gripper.group_indices",
+            )
+        profile = control_profile_parameters(**profile_raw)
         raw["control_profile"] = profile_path
         robot = raw.setdefault("robot", {})
         _set_shared_value(robot, "type", profile["robot"]["type"], "robot.type")

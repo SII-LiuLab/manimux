@@ -14,6 +14,7 @@ import yaml
 from scipy.spatial.transform import Rotation
 
 from manimux.clock import Clock, SystemClock
+from manimux.embodiments.layout import assembly_action_contract, group_layouts
 from manimux.embodiments.arm.base import ArmBase, ArmController, ArmModel
 from manimux.embodiments.end_effector.base import EndEffectorModel
 from manimux.embodiments.end_effector.gripper import GripperBase, GripperCommand
@@ -24,6 +25,7 @@ from manimux.kinematics.end_effector import Frame, attach_end_effector
 from manimux.kinematics.robot import RobotKinematics
 from manimux.kinematics.tool import FixedToolGeometry
 from manimux.plugins import load_plugin
+from manimux.timing import stage, timed, timed_lock, timing_scope
 from manimux.types import RobotCommand, RobotState, SensorFrame
 
 
@@ -142,10 +144,18 @@ class RobotBase(ABC):
         if not self._ready:
             raise RuntimeError("robot is not connected")
 
+    @timed("robot_get_state")
     def get_state(self) -> RobotState:
-        with self._lock:
+        with timing_scope("robot_get_state"), timed_lock(self._lock, "assembly_lock_wait"):
             self._require_ready()
-            feedback = {controller: controller.get_states() for controller in self._controllers}
+            feedback = {}
+            for index, controller in enumerate(self._controllers):
+                name = f"controller_{index}.get_states"
+                with (
+                    stage(name, controller_type=type(controller).__name__),
+                    timing_scope(name),
+                ):
+                    feedback[controller] = controller.get_states()
             groups, timestamps = {}, []
             for name, arm in self.arm_components.items():
                 state = feedback[arm.controller][arm.channel]
@@ -165,8 +175,9 @@ class RobotBase(ABC):
             self._sequence += 1
             return RobotState(groups, min(timestamps), self._sequence)
 
+    @timed("robot_send_command")
     def send_command(self, command: RobotCommand) -> None:
-        with self._lock:
+        with timing_scope("robot_send_command"), timed_lock(self._lock, "assembly_lock_wait"):
             self._require_ready()
             if set(command.groups) != set(self.arm_components):
                 raise ValueError("command must contain all configured groups, without extras")
@@ -190,8 +201,13 @@ class RobotBase(ABC):
                 controller.validate_commands(batch)
             try:
                 self.get_state()
-                for controller, batch in batches.items():
-                    controller.send_commands(batch)
+                for index, (controller, batch) in enumerate(batches.items()):
+                    name = f"controller_{index}.send_commands"
+                    with (
+                        stage(name, controller_type=type(controller).__name__),
+                        timing_scope(name),
+                    ):
+                        controller.send_commands(batch)
                 if self._end_effector_control:
                     for name, tool_command in tool_commands.items():
                         self.end_effectors[name].send_command(tool_command)
@@ -204,6 +220,38 @@ class RobotBase(ABC):
 
     def home(self) -> None:
         raise NotImplementedError("home trajectory not configured; use the runtime motion planner")
+
+    def sent_command_snapshots(self) -> dict:
+        """Read optional controller send evidence without issuing hardware reads."""
+        with self._lock:
+            snapshots = {}
+            for controller in self._controllers:
+                getter = getattr(controller, "sent_command_snapshots", None)
+                snapshots[controller] = getter() if callable(getter) else {}
+            return {
+                name: snapshots[arm.controller][arm.channel]
+                for name, arm in self.arm_components.items()
+                if arm.channel in snapshots[arm.controller]
+            }
+
+    def runtime_metadata(self) -> dict:
+        """Snapshot optional controller provenance without polling or commanding hardware."""
+        controllers = {}
+        for controller in self._controllers:
+            method = getattr(controller, "runtime_metadata", None)
+            try:
+                controllers[controller] = method() if callable(method) else {
+                    "available": False, "reason": "controller_metadata_not_supported",
+                }
+            except Exception as exc:
+                controllers[controller] = {"available": False, "reason": type(exc).__name__}
+        return {
+            "connected": self._ready,
+            "execute": self._execute,
+            "groups": {
+                name: controllers[arm.controller] for name, arm in self.arm_components.items()
+            },
+        }
 
     def start_sensors(self) -> None:
         """Explicitly start owned sensors; connect() does not claim camera devices."""
@@ -297,7 +345,7 @@ class RobotBase(ABC):
 
 # These data classes belong to robot assembly. They neither connect devices nor
 # replace a component's official solver; no separate description/assembly layer
-# is needed to share them with Viewer and policy adapters.
+# is needed to share them with RoboGUI and policy adapters.
 @dataclass(frozen=True, slots=True)
 class MountedGroup:
     arm_name: str
@@ -354,10 +402,10 @@ def _mount(value) -> Frame:
 
 @dataclass(frozen=True, slots=True)
 class RobotModel:
-    """Offline assembly shared by control, adapters and Viewer.
+    """Offline assembly shared by control, adapters and RoboGUI.
 
     Each arm keeps its own base frame, with an optional flange-mounted tool.
-    Scene placement belongs to Viewer configuration and is never loaded here.
+    Scene placement belongs to RoboGUI configuration and is never loaded here.
     Sensors may declare an unknown mount (null); no camera transform is inferred.
     """
 
@@ -369,6 +417,7 @@ class RobotModel:
     config_path: Path
     # Optional arm-only Home targets in model coordinates (radians), without tool commands.
     home_joints: Mapping[str, FloatArray] = field(default_factory=dict)
+    action_layouts: Mapping[str, dict] = field(default_factory=dict)
 
     @classmethod
     def from_config(cls, path: Path | str) -> RobotModel:
@@ -391,7 +440,7 @@ class RobotModel:
             kind = component["type"]
             component["class"] = factory
             # 手臂 FK/IK 自带基座坐标；只解析实际工具或相机的安装关系。
-            # Viewer 的摆放参数不进入本体模型。
+            # RoboGUI 的摆放参数不进入本体模型。
             if kind == "end_effector" or (kind == "sensor" and entry.get("mount") is not None):
                 mounts[component_name] = _mount(entry.get("mount"))
             if kind == "arm":
@@ -467,6 +516,9 @@ class RobotModel:
                 q.setflags(write=False)
                 home_joints[group_name] = q
         kin = RobotKinematics({key: value.kinematics for key, value in groups.items()})
+        contract = assembly_action_contract(source)
+        layouts = (group_layouts({name: model.num_coordinates for name, model in kin.models.items()},
+                                contract) if contract else {})
         return cls(
             name,
             MappingProxyType(groups),
@@ -475,4 +527,5 @@ class RobotModel:
             MappingProxyType(dict(spec.get("hardware", {}))),
             source,
             MappingProxyType(home_joints),
+            MappingProxyType(layouts),
         )

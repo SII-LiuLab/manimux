@@ -1,0 +1,15 @@
+# X5 (2023) only. Copy to a private station file and calibrate each arm separately.
+robot:
+  components:
+    left_x5: &x5
+      channel: REPLACE_LEFT_CAN
+      joint_limits: null  # Six calibrated [lower, upper] pairs, radians.
+      gripper_closed: null  # Measured seventh encoder coordinate, SDK units.
+      gripper_open: null
+      gripper_command_closed: null  # set_catch value in [0, 5].
+      gripper_command_open: null
+      # Explicit acknowledgement: polling cannot prove device feedback freshness.
+      feedback_policy: null  # sdk_poll is the only available mode.
+    right_x5:
+      <<: *x5
+      channel: REPLACE_RIGHT_CAN
