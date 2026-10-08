@@ -147,7 +147,7 @@ policy:
       action_horizon: 50
       checkpoint_source: sha256:49505482141081c6dd65e93ca1a4774c98a87556ad40789c6d5e5fb6a66e3011
 
-viewer:
+robogui:
   enabled: true
   robot: yam
   policy_label: SAPolicy MV51 RAW | top + wrists | RTC min 25 + lowpass 8Hz

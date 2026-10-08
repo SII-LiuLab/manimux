@@ -16,11 +16,11 @@ def control_parameters(**options) -> dict:
     values = {"poll_hz": 100.0, "timeout_s": 0.02, "max_age_s": 0.05}
     unknown = options.keys() - values.keys()
     if unknown:
-        raise ValueError(f"Unknown viewer control options: {sorted(unknown)}")
+        raise ValueError(f"Unknown robogui control options: {sorted(unknown)}")
     values.update(options)
     for name, value in values.items():
         if isinstance(value, bool) or not math.isfinite(float(value)) or float(value) <= 0:
-            raise ValueError(f"viewer.control.{name} must be finite and positive")
+            raise ValueError(f"robogui.control.{name} must be finite and positive")
         values[name] = float(value)
     return values
 
@@ -49,7 +49,7 @@ class RuntimeControlClient:
         self._reply_rtt_ms: float | None = None
         self._server_timing: dict = {}
         self._thread = threading.Thread(
-            target=self._run, name="runtime-viewer-controls", daemon=True,
+            target=self._run, name="runtime-robogui-controls", daemon=True,
         )
         self._thread.start()
 
@@ -89,7 +89,7 @@ class RuntimeControlClient:
                 "home" if self._home else
                 "not_ready" if age is None else
                 "stale_control" if age > self._max_age else
-                "viewer_pause" if self._paused or self._pause_pending else
+                "robogui_pause" if self._paused or self._pause_pending else
                 "running"
             )
             state = {
@@ -131,7 +131,7 @@ class RuntimeControlClient:
                     break
                 self._stop.wait(max(0.0, self._period - (time.monotonic() - started)))
         except Exception:
-            logger.exception("Viewer control communication stopped; runtime will remain paused")
+            logger.exception("RoboGUI control communication stopped; runtime will remain paused")
         finally:
             self._stop.set()
             if client is not None:
@@ -141,4 +141,4 @@ class RuntimeControlClient:
         self._stop.set()
         self._thread.join(timeout=self._timeout_ms / 1000 + 1.0)
         if self._thread.is_alive():
-            raise RuntimeError("Viewer control thread did not stop")
+            raise RuntimeError("RoboGUI control thread did not stop")

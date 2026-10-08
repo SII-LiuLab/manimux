@@ -6,7 +6,7 @@ run:
   task: Put the bottles into the bin.
   output_dir: ./data/yam-pi05-rtc
   max_control_steps: 12000
-  # Viewer evaluation workflow; independent of inference and robot execution.
+  # RoboGUI evaluation workflow; independent of inference and robot execution.
   experiment_mode: false
   experiment_name: my-first-study
   condition: baseline
@@ -63,7 +63,7 @@ policy:
     action_format: joint
     request_timeout_s: 10.0
 
-viewer:
+robogui:
   enabled: true
   robot: yam
   policy_label: Pi05 RTC example - execution disabled

@@ -20,7 +20,7 @@ class PolicyWarmup:
     """Run real requests while paused, then fence them with an acknowledged reset.
 
     This component has no robot, executor, timeline, or recorder reference. Its
-    decoded outputs are offered only as Viewer previews, never as executable plans.
+    decoded outputs are offered only as RoboGUI previews, never as executable plans.
     """
 
     def __init__(

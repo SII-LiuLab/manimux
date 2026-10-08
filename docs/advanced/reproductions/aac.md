@@ -379,7 +379,7 @@ First run is an infrastructure characterization, not a task-success claim. Recor
 - recorder output directory and stop reason.
 
 Stop immediately for unexpected direction, joint-limit approach, stale camera/state, non-finite action,
-repeated large oscillation or any mismatch between viewer and physical achieved state.
+repeated large oscillation or any mismatch between robogui and physical achieved state.
 
 ## 13. Known Differences and Open Questions
 

@@ -103,20 +103,20 @@ another full control period or replay missed ticks. At 100 Hz, 6 ms of work leav
 4 ms to sleep, while 12 ms of work leaves no sleep. The following cycle gets a new
 10 ms budget. Timeline sampling still uses current monotonic time.
 
-<a id="runtime-viewer-controls"></a>
+<a id="runtime-robogui-controls"></a>
 
 ## Runtime RoboGUI controls
 
-The runtime's `ViewerBridge` uses one background control client. Its thread owns
+The runtime's `RoboGUIBridge` uses one background control client. Its thread owns
 the REQ socket throughout creation, polling, reconnect and close. The main-loop
-`viewer_control` span now measures a local mailbox read, not a network round trip.
+`robogui_control` span now measures a local mailbox read, not a network round trip.
 Session preparation retains its synchronous client; it does not poll concurrently
 with a running rollout.
 
-The resolved `viewer.control` configuration records these defaults:
+The resolved `robogui.control` configuration records these defaults:
 
 ```yaml
-viewer:
+robogui:
   control:
     poll_hz: 100.0
     timeout_s: 0.02
@@ -139,9 +139,9 @@ the existing RoboGUI protocol does not acknowledge individual button events.
 The reply retention bound is the larger of `timeout_s` and `max_age_s` and is checked
 after each wait. The freshness check runs independently in the control loop.
 
-`events.jsonl` records `viewer_control_state` when control reason, transport status
+`events.jsonl` records `robogui_control_state` when control reason, transport status
 or error/timeout counts change. It includes sample age, last reply round-trip time,
-and RoboGUI lock/read timing. `stale_control`, `viewer_pause`, `home`, `finish` and
+and RoboGUI lock/read timing. `stale_control`, `robogui_pause`, `home`, `finish` and
 `control_thread_stopped` are distinct. Rejected model responses also distinguish
 pause/Home invalidation, session mismatch, supersession, deadline expiry and missing
 actions. These records diagnose failure origin without relaxing inference deadlines.
@@ -157,7 +157,7 @@ reject late warmup messages. Warmup never commits these preview actions to the
 robot timeline.
 
 
-<a id="viewer-display-cadence"></a>
+<a id="robogui-display-cadence"></a>
 
 ## RoboGUI display cadence
 

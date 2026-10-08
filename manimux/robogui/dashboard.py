@@ -23,14 +23,14 @@ from manimux.types import FloatArray, UInt8Array
 from .camera_panel import CameraPanel
 from .camera_panel import _camera_panel_html as _camera_panel_html
 from .chunk_timeline import ChunkTimelineView
-from .communication import ControlServer, PolicyPlan, RobotSnapshot, ViewerReceiver
+from .communication import ControlServer, PolicyPlan, RobotSnapshot, RoboGUIReceiver
 from .records import RecordsPanel
 from .reference_layouts import DEFAULT_LAYOUT_ROOT
 from .robot_view import RobotGroup, RobotView
 from .top_overlay import TopViewOverlay
 
 MAX_PLAN_HISTORY = 16
-ViewerStage = Literal["waiting", "setup", "preparing", "control", "evaluation", "complete"]
+RoboGUIStage = Literal["waiting", "setup", "preparing", "control", "evaluation", "complete"]
 _TRAJECTORY_COLOR_STOPS = np.asarray(
     [
         (67, 20, 133),
@@ -92,7 +92,7 @@ def _configure_gui(gui: Any) -> None:
         main_panel.dock_right()
 
 
-class PolicyViewer:
+class PolicyRoboGUI:
     """Robot-independent dashboard consuming an offline RobotModel view."""
 
     def __init__(
@@ -103,11 +103,11 @@ class PolicyViewer:
         control_endpoint: str,
         robot: RobotView,
         reference_root: Path = DEFAULT_LAYOUT_ROOT,
-        viewer_config: dict | None = None,
+        robogui_config: dict | None = None,
         render_hz: float = 30.0,
     ) -> None:
         self.robot = robot
-        self.viewer_config = viewer_config if viewer_config is not None else robot.options
+        self.robogui_config = robogui_config if robogui_config is not None else robot.options
         self.reference_root = reference_root
         self.server = viser.ViserServer(host=host, port=port, label="ManiMux RoboGUI")
         _configure_gui(self.server.gui)
@@ -176,7 +176,7 @@ class PolicyViewer:
             with self.server.atomic():
                 self.on_message(message)
 
-        self.receiver = ViewerReceiver(bridge_endpoint, display_message, render_hz=render_hz)
+        self.receiver = RoboGUIReceiver(bridge_endpoint, display_message, render_hz=render_hz)
         self.control_server = ControlServer(control_endpoint, self.control_state)
 
         @self.server.on_client_disconnect
@@ -223,7 +223,7 @@ class PolicyViewer:
                 ViserUrdf(self.server, mesh.urdf_path, root_node_name=mesh_root)
             # Scene context only; the arms and trajectories render without it.
             except Exception as exc:  # noqa: BLE001
-                print(f"[viewer] {mesh.name} mesh unavailable ({exc})")
+                print(f"[robogui] {mesh.name} mesh unavailable ({exc})")
         for group in self.robot.groups:
             root = self._root(group)
             # Every group child (URDF, EE frame, plans, tails) inherits this placement.
@@ -246,7 +246,7 @@ class PolicyViewer:
             # URDF rendering is optional, so preserve trajectory-only operation.
             except Exception as exc:  # noqa: BLE001
                 print(
-                    f"[viewer] {group.label} URDF unavailable ({exc}); "
+                    f"[robogui] {group.label} URDF unavailable ({exc}); "
                     "trajectory rendering remains enabled"
                 )
 
@@ -254,7 +254,7 @@ class PolicyViewer:
         self.top_overlay: TopViewOverlay | None = None
         self.camera_view = CameraPanel(
             self.server.gui,
-            self.viewer_config,
+            self.robogui_config,
             self.robot.camera_slot,
             lambda image: self.top_overlay.update(image) if self.top_overlay is not None else None,
             defer_diagnostics=True,
@@ -401,7 +401,7 @@ class PolicyViewer:
             self.clear_btn = self.server.gui.add_button("Clear trails")
         if any(
             camera.get("slot", camera.get("source")) == "top"
-            for camera in self.viewer_config.get("cameras", [])
+            for camera in self.robogui_config.get("cameras", [])
         ):
             self.top_overlay = TopViewOverlay(
                 self.server.gui,
@@ -866,7 +866,7 @@ class PolicyViewer:
         self.instruction.content = _instruction_markdown(instruction)
         self.task.value = _prefill_task(self.task.value, instruction)
 
-    def _set_stage(self, stage: ViewerStage) -> None:
+    def _set_stage(self, stage: RoboGUIStage) -> None:
         """Expose only the controls that are actionable in the current stage."""
 
         self.new_rollout_folder.visible = stage in {"waiting", "setup", "preparing"}
@@ -1212,7 +1212,7 @@ class PolicyViewer:
         if not robot_name or robot_name == self.robot.name:
             return True
         self.status.content = (
-            f"🔴 **Message targets robot `{robot_name}`; viewer uses `{self.robot.name}`**"
+            f"🔴 **Message targets robot `{robot_name}`; robogui uses `{self.robot.name}`**"
         )
         return False
 
@@ -1239,7 +1239,7 @@ class PolicyViewer:
                     timeline.update(message)
                     self._refresh_chunk_timeline(force=kind != "state")
                 timing = getattr(self, "display_timing", None)
-                received = message.get("_viewer_received_ns")
+                received = message.get("_robogui_received_ns")
                 if kind == "state" and timing is not None and received is not None:
                     queue_ms = max(0, display_started - received) / 1e6
                     draw_ms = (time.monotonic_ns() - display_started) / 1e6
@@ -1722,14 +1722,14 @@ def _demo_sample(robot: RobotView, elapsed_s: float, horizon: int):
     return states, plans
 
 
-def _demo(viewer: PolicyViewer) -> None:
+def _demo(robogui: PolicyRoboGUI) -> None:
     elapsed_s = 0.0
     chunk_id = 0
     next_plan_s = 0.0
-    while viewer.running:
-        joints, actions = _demo_sample(viewer.robot, elapsed_s, horizon=25)
+    while robogui.running:
+        joints, actions = _demo_sample(robogui.robot, elapsed_s, horizon=25)
         if elapsed_s >= next_plan_s:
-            viewer.on_message(
+            robogui.on_message(
                 PolicyPlan(
                     policy="Synthetic demo",
                     instruction="Inspect a predicted action chunk",
@@ -1737,7 +1737,7 @@ def _demo(viewer: PolicyViewer) -> None:
                     action_dt=1 / 30,
                     inference_ms=824,
                     chunk_id=chunk_id,
-                    robot=viewer.robot.name,
+                    robot=robogui.robot.name,
                 ).to_wire()
             )
             chunk_id += 1
@@ -1746,36 +1746,39 @@ def _demo(viewer: PolicyViewer) -> None:
         x = np.broadcast_to(np.linspace(0, 1, width)[None, :], (height, width))
         y = np.broadcast_to(np.linspace(0, 1, height)[:, None], (height, width))
         camera = np.stack((x, y, np.full_like(x, 0.3)), axis=-1)
-        viewer.on_message(
+        robogui.on_message(
             RobotSnapshot(
                 groups=joints,
                 cameras={"overview": (camera * 255).astype(np.uint8)},
                 step=int(elapsed_s * 30),
                 max_steps=1000,
-                robot=viewer.robot.name,
+                robot=robogui.robot.name,
             ).to_wire()
         )
         elapsed_s += 0.05
         time.sleep(0.05)
 
 
-def load_viewer_config(path: Path | None = None, *, robot="tianji") -> dict:
+def load_robogui_config(path: Path | None = None, *, robot="tianji") -> dict:
     from importlib.resources import files
 
     from manimux.cli import read_yaml
 
     source = (
-        path if path is not None else Path(__file__).parent / "robots" / robot / "viewer.yaml"
+        path if path is not None else Path(__file__).parent / "robots" / robot / "robogui.yaml"
     ).resolve()
     config = read_yaml(source)
+    styles = [*config.get("groups", {}).values(), *config.get("scene", {}).get("meshes", {}).values()]
+    if any("viewer_display_frame" in style for style in styles):
+        raise ValueError("Rename preset 'viewer_display_frame' to 'robogui_display_frame'.")
     if "model" not in config:
         raise ValueError("RoboGUI YAML must reference a RobotModel using model")
     model_path = (source.parent / config["model"]).resolve()
-    # Viewer 和装配 YAML 都随 manimux 发布，源码与 wheel 使用同一相对路径。
+    # RoboGUI 和装配 YAML 都随 manimux 发布，源码与 wheel 使用同一相对路径。
     if not model_path.is_file():
         raise FileNotFoundError(model_path)
     config["model"] = model_path
-    # 支架等场景资源由 Viewer 解析；本体和控制进程不读取显示资产。
+    # 支架等场景资源由 RoboGUI 解析；本体和控制进程不读取显示资产。
     for mesh in config.get("scene", {}).get("meshes", {}).values():
         resource = mesh["urdf"]
         if resource.startswith("package://"):
@@ -1832,12 +1835,12 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--robot",
         default="tianji",
-        help="RoboGUI preset containing viewer.yaml (yam, tianji, piper or aloha)",
+        help="RoboGUI preset containing robogui.yaml (yam, tianji, piper or aloha)",
     )
     parser.add_argument(
         "--list-robots",
         action="store_true",
-        help="list body folders containing viewer.yaml and exit",
+        help="list body folders containing robogui.yaml and exit",
     )
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--demo", action="store_true", help="show synthetic data without hardware")
@@ -1860,13 +1863,13 @@ def main() -> None:
         print(
             "\n".join(
                 sorted(
-                    p.parent.name for p in (Path(__file__).parent / "robots").glob("*/viewer.yaml")
+                    p.parent.name for p in (Path(__file__).parent / "robots").glob("*/robogui.yaml")
                 )
             )
         )
         return
-    viewer_config = load_viewer_config(args.config, robot=args.robot)
-    robot = load_robot_view(viewer_config)
+    robogui_config = load_robogui_config(args.config, robot=args.robot)
+    robot = load_robot_view(robogui_config)
     if args.replay_actions is not None:
         from .action_replay import serve_action_replay
 
@@ -1875,23 +1878,23 @@ def main() -> None:
             host=args.host, port=args.port,
         )
         return
-    viewer = PolicyViewer(
+    robogui = PolicyRoboGUI(
         args.host,
         args.port,
         args.bridge_endpoint,
         args.control_endpoint,
         robot,
         reference_root=args.reference_root,
-        viewer_config=viewer_config,
+        robogui_config=robogui_config,
         render_hz=args.render_hz,
     )
     if args.demo:
-        threading.Thread(target=_demo, args=(viewer,), daemon=True).start()
+        threading.Thread(target=_demo, args=(robogui,), daemon=True).start()
     stop = threading.Event()
     signal.signal(signal.SIGINT, lambda *_: stop.set())
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
     print(f"Robot model: {robot.name} ({robot.label})")
-    print(f"RoboGUI camera mode: {viewer_config['camera_mode']}")
+    print(f"RoboGUI camera mode: {robogui_config['camera_mode']}")
     display_host = {"0.0.0.0": "127.0.0.1", "localhost": "127.0.0.1", "::": "::1"}.get(
         args.host, args.host
     )
@@ -1902,17 +1905,17 @@ def main() -> None:
         while not stop.wait(0.25):
             now = time.time()
             if (
-                viewer.episode_active
-                and viewer.last_state_time
-                and now - viewer.last_state_time > 2
+                robogui.episode_active
+                and robogui.last_state_time
+                and now - robogui.last_state_time > 2
             ) or (
-                viewer.service_ready
-                and viewer.last_service_time
-                and now - viewer.last_service_time > 3
+                robogui.service_ready
+                and robogui.last_service_time
+                and now - robogui.last_service_time > 3
             ):
-                viewer._mark_runtime_unavailable()
+                robogui._mark_runtime_unavailable()
     finally:
-        viewer.close()
+        robogui.close()
 
 
 if __name__ == "__main__":

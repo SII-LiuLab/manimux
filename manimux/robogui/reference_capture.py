@@ -1,6 +1,6 @@
 """Standalone camera-only tool for saving named Top references per task.
 
-Run: python -m manimux.viewer.reference_capture --task put_bottles_into_the_bin
+Run: python -m manimux.robogui.reference_capture --task put_bottles_into_the_bin
 """
 
 from __future__ import annotations

@@ -4,7 +4,7 @@ name: tianji-taccap
 # Shared Home / initial arm target; no motion is triggered by loading this config.
 # Source: teleop/data/dp_start_20260910.yaml, active joints_deg (not commented values).
 # A = left_arm, B = right_arm; original seven-joint order, degrees.
-# The source specifies no gripper target. Viewer aperture is display-only config.
+# The source specifies no gripper target. RoboGUI aperture is display-only config.
 home:
   name: dp_start_20260910
   joints_deg:

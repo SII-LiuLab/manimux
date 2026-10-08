@@ -1,4 +1,4 @@
-<a id="runtime-viewer-and-configuration-ownership"></a>
+<a id="runtime-robogui-and-configuration-ownership"></a>
 
 # Runtime, RoboGUI and configuration ownership
 
@@ -34,14 +34,14 @@ timestamps, overlap, delayed/rejected responses and reset as relevant. For execu
 changes check actual arm/tool limits and output groups. Preserve capability checks;
 an algorithm setting alone does not implement the model's sampling hooks.
 
-<a id="viewer-replay-and-recording"></a>
+<a id="robogui-replay-and-recording"></a>
 
 ## RoboGUI, replay and recording
 
-The current dashboard loads a RoboGUI YAML through `load_viewer_config()`, then
+The current dashboard loads a RoboGUI YAML through `load_robogui_config()`, then
 constructs `RobotView(RobotModel.from_config(model), config)`. Start from
-`manimux/viewer/robot_view.py` and `viewer/robots/yam/viewer.yaml`.
-A new body normally needs a `viewer/robots/<name>/viewer.yaml` pointing to its
+`manimux/robogui/robot_view.py` and `robogui/robots/yam/robogui.yaml`.
+A new body normally needs a `robogui/robots/<name>/robogui.yaml` pointing to its
 assembled offline model, with camera slots and per-group display styles.
 `--robot <name>` selects that directory; `--config <path>` selects an explicit YAML.
 Do not create a second kinematic definition just for display.
@@ -50,7 +50,7 @@ Do not create a second kinematic definition just for display.
 
 ```text
 --robot yam
-  -> manimux/viewer/robots/yam/viewer.yaml
+  -> manimux/robogui/robots/yam/robogui.yaml
      model: ../../../configs/embodiment/robot/yam_dual.yaml
   -> RobotModel.from_config(yam_dual.yaml)
      components.left_yam/right_yam -> configs/embodiment/arm/yam.yaml
@@ -82,7 +82,7 @@ replay supplies saved positions through the same display model.
    Geometry loading must work without constructing an SDK connection.
 2. Declare components and groups in the robot assembly YAML. RoboGUI group names and
    incoming runtime group names must agree; use the same geometry definition as adapters.
-3. Add `manimux/viewer/robots/<name>/viewer.yaml`, referencing that assembly in `model`.
+3. Add `manimux/robogui/robots/<name>/robogui.yaml`, referencing that assembly in `model`.
    Set group styles/initial poses, display placement and camera slots. Copy YAM's YAML
    structure, not its joint counts, physical dimensions or camera assumptions.
 4. Load with `--robot <name>`, or keep a custom display YAML elsewhere and use
@@ -92,10 +92,10 @@ replay supplies saved positions through the same display model.
    poses. Then verify measured-state display in an authorized real deployment.
 
 Keep imported asset licenses and mesh references with the component. Do not require
-another developer's absolute paths. `viewer_display_frame` arranges the scene; it
+another developer's absolute paths. `robogui_display_frame` arranges the scene; it
 must not be used to change TCP offsets or control-space calibration.
 
-The older `viewer/robots/base.py` `RobotAdapter` and its entry-point loader still
+The older `robogui/robots/base.py` `RobotAdapter` and its entry-point loader still
 serve compatibility consumers such as collection-record replay. They are not the
 current live dashboard's integration entry point. A display model is also distinct
 from `policy_adapter.PolicyAdapter`, which converts policy inputs/actions.
@@ -136,7 +136,7 @@ the existing referenced-config loading; do not create another schema/merge syste
   as `action_dt_s`, `horizon_policy_steps` or `inference_delay_s` into Python bases.
 - **Inference YAML**, `configs/inference/`: algorithm request/chunk rules.
 - **Executor YAML**, `configs/executor/`: smoothing and command-generation choices.
-- **Experiment run/viewer/recording**: task, output, lifecycle/UI and rollout settings.
+- **Experiment run/robogui/recording**: task, output, lifecycle/UI and rollout settings.
   Private training work stays in the ignored root `training/` workspace.
 
 In the list above, `configs/` means `manimux/configs/`.
@@ -164,7 +164,7 @@ treat config loading as SDK, model or hardware validation.
 ## Minimal display configuration
 
 ```yaml
-# Place at manimux/viewer/robots/<name>/viewer.yaml.
+# Place at manimux/robogui/robots/<name>/robogui.yaml.
 model: ../../../configs/embodiment/robot/my_robot.yaml
 label: My robot
 camera_mode: policy

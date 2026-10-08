@@ -21,7 +21,7 @@ def load_actions(path: Path, robot: RobotView) -> dict[str, np.ndarray]:
         return robot.validate_groups(dict(archive), sequence=True)
 
 
-class ActionReplayViewer:
+class ActionReplayRoboGUI:
     """Display joint targets only; never construct a robot driver or policy client."""
 
     def __init__(
@@ -179,7 +179,7 @@ class ActionReplayViewer:
 
 
 def serve_action_replay(path: Path, robot: RobotView, *, action_dt_s: float, host: str, port: int):
-    viewer = ActionReplayViewer(
+    robogui = ActionReplayRoboGUI(
         load_actions(path, robot),
         robot,
         action_dt_s=action_dt_s,
@@ -192,10 +192,10 @@ def serve_action_replay(path: Path, robot: RobotView, *, action_dt_s: float, hos
         for sig in (signal.SIGINT, signal.SIGTERM):
             handlers[sig] = signal.signal(sig, lambda *_: stop.set())
         address = "127.0.0.1" if host == "0.0.0.0" else host
-        print(f"Offline action replay: http://{address}:{viewer.server.get_port()} (paused)")
+        print(f"Offline action replay: http://{address}:{robogui.server.get_port()} (paused)")
         while not stop.wait(0.01):
-            viewer.tick()
+            robogui.tick()
     finally:
-        viewer.close()
+        robogui.close()
         for sig, handler in handlers.items():
             signal.signal(sig, handler)

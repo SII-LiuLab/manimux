@@ -44,11 +44,11 @@ dev = [
 
 [project.scripts]
 manimux = "manimux.cli:main"
-manimux-viewer = "manimux.viewer.dashboard:main"
+manimux-robogui = "manimux.robogui.dashboard:main"
 manimux-camera-server = "manimux.servers.camera.server:main"
 
-[project.entry-points."manimux.viewer.robots"]
-yam = "manimux.viewer.robots.yam:YamAdapter"
+[project.entry-points."manimux.robogui.robots"]
+yam = "manimux.robogui.robots.yam:YamAdapter"
 
 [build-system]
 requires = ["hatchling"]

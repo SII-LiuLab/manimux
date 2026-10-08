@@ -68,7 +68,7 @@ policy:
     connect_timeout_s: 30.0
     request_timeout_s: 300.0
 
-viewer:
+robogui:
   enabled: true
   robot: yam
   policy_label: OpenWAM YAM absolute EEF20

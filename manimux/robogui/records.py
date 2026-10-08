@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 import zarr
 
-from .action_replay import ActionReplayViewer
+from .action_replay import ActionReplayRoboGUI
 
 SOURCES = {
     "Measured state": "state",
@@ -41,7 +41,7 @@ class RecordsPanel:
         self._lock = threading.RLock()
         self._stop = threading.Event()
         self._thread = None
-        self._viewer = None
+        self._robogui = None
         with gui.add_folder("Recorded rollouts", expand_by_default=False):
             self.root = gui.add_text("Session directory", "")
             self.refresh = gui.add_button("Refresh episodes")
@@ -88,7 +88,7 @@ class RecordsPanel:
                         episode, SOURCES[self.source.value], self.robot
                     )
                     self._close_replay()
-                    self._viewer = ActionReplayViewer(
+                    self._robogui = ActionReplayRoboGUI(
                         actions,
                         self.robot,
                         action_dt_s=1.0,
@@ -104,7 +104,7 @@ class RecordsPanel:
                     if ":" in host:
                         host = f"[{host}]"
                     self.link.content = (
-                        f"[Open paused replay](http://{host}:{self._viewer.server.get_port()})"
+                        f"[Open paused replay](http://{host}:{self._robogui.server.get_port()})"
                         " · separate view; live controls are unchanged."
                     )
                 except (OSError, ValueError, KeyError) as exc:
@@ -137,16 +137,16 @@ class RecordsPanel:
 
     def _play(self):
         while not self._stop.wait(0.01):
-            self._viewer.tick()
+            self._robogui.tick()
 
     def _close_replay(self):
         self._stop.set()
         if self._thread is not None:
             self._thread.join()
             self._thread = None
-        if self._viewer is not None:
-            self._viewer.close()
-            self._viewer = None
+        if self._robogui is not None:
+            self._robogui.close()
+            self._robogui = None
 
     def close(self):
         with self._lock:

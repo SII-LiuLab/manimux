@@ -60,7 +60,7 @@ policy:
     request_timeout_s: 10.0
     server: ws://127.0.0.1:8530
 
-viewer:
+robogui:
   enabled: true
   robot: yam
   policy_label: Pi05 joint+EEF 30k - EEF execution - ManiMux first 20

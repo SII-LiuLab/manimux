@@ -16,7 +16,7 @@ Use an environment containing ManiMux's core dependencies, such as the
 [runtime environment](robot-sdks.md#runtime-environment). From the repository root:
 
 ```bash
-manimux-viewer --robot piper --demo \
+manimux-robogui --robot piper --demo \
   --host 127.0.0.1 --port 8087
 ```
 
@@ -28,7 +28,7 @@ The dual-arm placement and table are display context, not calibrated mounting.
 To inspect an existing absolute-joint trajectory:
 
 ```bash
-manimux-viewer --robot piper \
+manimux-robogui --robot piper \
   --replay-actions actions.npz --action-dt-s 0.03333333333333333 \
   --host 127.0.0.1 --port 8087
 ```

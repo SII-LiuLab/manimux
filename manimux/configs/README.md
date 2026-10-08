@@ -18,7 +18,7 @@ manimux/configs/
 ├── inference/                  # Reusable inference scheduling parameters
 ├── executor/                   # Reusable smoothing and motion limits
 ├── local/                      # Templates and the private local station file
-└── viewer/                     # Display and camera-preview layouts
+└── robogui/                     # Display and camera-preview layouts
 ```
 
 Camera combinations live in `embodiment/sensor/cameras/`; IK settings belong to their
@@ -284,16 +284,16 @@ See the [DVAC audit](../../docs/advanced/reproductions/dvac-pi05.md) for the pap
 | `executor.mpc.command_delta_weight` | Cost of command changes between ticks. |
 | `executor.mpc.max_velocity` / `max_acceleration` / `position_limit_abs` | Limits applied after optimization. |
 
-<a id="viewer-and-recording"></a>
+<a id="robogui-and-recording"></a>
 
 ### RoboGUI and recording
 
 | Field | Meaning |
 | --- | --- |
-| `viewer.enabled` | Publish state, cameras, plans and events for the RoboGUI. |
-| `viewer.robot` | Robot geometry/joint mapping used for display. |
-| `viewer.policy_label` | Label displayed in the RoboGUI and stored by the Recorder. |
-| `viewer.camera_hz` | Maximum camera publication rate to the RoboGUI, default 5 Hz. |
+| `robogui.enabled` | Publish state, cameras, plans and events for the RoboGUI. |
+| `robogui.robot` | Robot geometry/joint mapping used for display. |
+| `robogui.policy_label` | Label displayed in the RoboGUI and stored by the Recorder. |
+| `robogui.camera_hz` | Maximum camera publication rate to the RoboGUI, default 5 Hz. |
 | `recording.enabled` | Real runs require recording of episodes, events and command lineage. |
 | `recording.video_fps` | Video encoding target rate; zero disables video without changing policy/camera rates. |
 | `recording.video_codec` | OpenCV four-character codec, default `mp4v`. |

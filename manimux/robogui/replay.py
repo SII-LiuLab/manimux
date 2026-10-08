@@ -12,7 +12,7 @@ import numpy as np
 import viser
 from viser.extras import ViserUrdf
 
-from manimux.viewer.replay_data.replay import JointReplay, load_joint_replay
+from manimux.robogui.replay_data.replay import JointReplay, load_joint_replay
 
 from .robots.base import RobotAdapter
 
@@ -76,11 +76,11 @@ class ReplayVideo:
         self.cache.clear()
 
 
-class CollectionReplayViewer:
+class CollectionReplayRoboGUI:
     """One playback clock for original video and the available joint trajectories.
 
     This class owns only Viser and recorded file readers. It intentionally does
-    not instantiate PolicyViewer, its command server, or a hardware runtime.
+    not instantiate PolicyRoboGUI, its command server, or a hardware runtime.
     """
 
     def __init__(
@@ -258,7 +258,7 @@ class CollectionReplayViewer:
                 f"源数据平均频率：{min(rates):.2f}–{max(rates):.2f} Hz。\n\n"
                 "各组夹爪均保持相同的已保存值，不对夹爪插值，只比较六个 arm joint。"
                 "图像按主机采集时间戳匹配，非曝光硬同步；视频显示原帧索引和帧龄。"
-                "场景底座为 Viewer 展示布局。\n\n"
+                "场景底座为 RoboGUI 展示布局。\n\n"
                 f"{self.data.target_hz:g} Hz 是轨迹采样网格，浏览器显示帧率取决于设备；"
                 "用慢放或逐帧检查细节。"
                 "这是轨迹回放，不模拟控制器或物体动力学。"
@@ -485,14 +485,14 @@ def serve_collection_replay(
     if target_hz is not None or low_rates_hz is not None:
         if source not in {"command", "feedback"} or target_hz is None or low_rates_hz is None:
             raise ValueError("Custom rates require a replay source and both target and lower rates")
-        from manimux.viewer.replay_data.command_resampling import load_command_rate_replay
-        from manimux.viewer.replay_data.feedback_resampling import load_feedback_rate_replay
+        from manimux.robogui.replay_data.command_resampling import load_command_rate_replay
+        from manimux.robogui.replay_data.feedback_resampling import load_feedback_rate_replay
 
         loader = load_feedback_rate_replay if source == "feedback" else load_command_rate_replay
         data = loader(episode, target_hz=target_hz, low_rates_hz=low_rates_hz)
     else:
         data = load_joint_replay(episode, source)
-    viewer = CollectionReplayViewer(data, robot, host=host, port=port, camera=camera)
+    robogui = CollectionReplayRoboGUI(data, robot, host=host, port=port, camera=camera)
     stop = threading.Event()
     previous_handlers = {}
     for sig in (signal.SIGINT, signal.SIGTERM):
@@ -502,8 +502,8 @@ def serve_collection_replay(
     print(f"Open http://{address}:{port} — paused; press Play in RoboGUI")
     try:
         while not stop.wait(0.005):
-            viewer.tick()
+            robogui.tick()
     finally:
-        viewer.close()
+        robogui.close()
         for sig, handler in previous_handlers.items():
             signal.signal(sig, handler)

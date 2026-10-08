@@ -69,7 +69,7 @@ policy:
     server: ws://127.0.0.1:8520
   service: policy_dp
 
-viewer:
+robogui:
   enabled: true
   robot: yam
   policy_label: DP YAM EEF 100k - Serial 6

@@ -159,7 +159,7 @@ class TianjiKinematics(TianjiArmKinematics):
         self, target_pose: FloatArray, init_joints: FloatArray
     ) -> tuple[bool, FloatArray, dict[str, object]]:
         # 旧接口输入 TCP 目标：T_base_flange = T_base_tcp @ inv(T_flange_tcp)。
-        # 只去除末端偏移；坐标系仍是该臂基座，不加入 Viewer 的场景安装变换。
+        # 只去除末端偏移；坐标系仍是该臂基座，不加入 RoboGUI 的场景安装变换。
         target = np.asarray(target_pose, dtype=np.float64)
         flange = target if self._tool_inverse is None else target @ self._tool_inverse
         return super()._solve(flange, init_joints)

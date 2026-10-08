@@ -17,7 +17,7 @@ prompt, checkpoint identity and action settings. A shared directory does not imp
 that every checkpoint was trained with the same instruction.
 
 Keep sections in this order when present: `control_profile`, `run`, `robot`, `sensors`,
-`policy`, `viewer`, `recording`, `inference`, `executor`, `policy_server`, `camera_server`.
+`policy`, `robogui`, `recording`, `inference`, `executor`, `policy_server`, `camera_server`.
 Adapters and camera input mappings are selected and parameterized inline. Inference,
 executor and camera-server presets are expanded once, relative to the experiment.
 Model-server recipes are under `manimux/configs/policy/<model>/`; local bindings select

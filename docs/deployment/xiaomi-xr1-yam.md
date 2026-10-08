@@ -157,13 +157,13 @@ cd /home/ubuntu/manimux
 envs/yam/.venv/bin/manimux-camera-server --config manimux/configs/embodiment/sensor/cameras/realsense_3_views.yaml
 ```
 
-<a id="terminal-3viewer"></a>
+<a id="terminal-3robogui"></a>
 
 ### Terminal 3：RoboGUI
 
 ```bash
 cd /home/ubuntu/manimux
-.venv/bin/manimux-viewer --robot yam --host 0.0.0.0 --port 8086
+.venv/bin/manimux-robogui --robot yam --host 0.0.0.0 --port 8086
 ```
 
 ### Terminal 4：CAN 检查与 ManiMux

@@ -39,7 +39,7 @@ policy:
   options:
     action_format: pose
     request_timeout_s: 30.0
-viewer:
+robogui:
   enabled: false
   robot: ''
 recording:

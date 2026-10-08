@@ -40,7 +40,7 @@ ManiMux 是一个**可扩展的 real-world manipulation harness（真机操作�
 
 ## RoboGUI
 
-![RoboGUI: live cameras, robot state, trajectories and action chunks](assets/manimux-viewer-demo.webp)
+![RoboGUI: live cameras, robot state, trajectories and action chunks](assets/manimux-robogui-demo.webp)
 
 [▶ Watch the real-robot demo](assets/manimux_2026-09-05_23-17-35-00.00.03.144-00.00.34.914-seg1-00.00.02.596-00.00.34.966.mp4)
 
@@ -115,7 +115,7 @@ XPolicyLab 和 StarVLA 使用独立的服务环境，通过各自的 ManiMux cli
 git clone https://github.com/SII-LiuLab/manimux.git
 cd manimux
 uv sync --dev
-uv run manimux-viewer --robot yam --demo --host 127.0.0.1 --port 8086
+uv run manimux-robogui --robot yam --demo --host 127.0.0.1 --port 8086
 ```
 
 打开 **http://127.0.0.1:8086**。示例使用合成数据和随项目提供的 YAM 模型，不连接机器人。
@@ -124,12 +124,14 @@ uv run manimux-viewer --robot yam --demo --host 127.0.0.1 --port 8086
 同一环境下，可以直接预览新接入的臂：
 
 ```bash
-uv run manimux-viewer --robot piper --demo --host 127.0.0.1 --port 8087
+uv run manimux-robogui --robot piper --demo --host 127.0.0.1 --port 8087
 ```
 
 打开 **http://127.0.0.1:8087**；将 `--robot piper` 换成 `--robot aloha` 可预览 ALOHA-AgileX。
 两者均用合成数据展示手臂与夹爪运动，不需要设备 SDK。
 ARX X5 目前提供运动学模型和实验性控制器，尚无随项目打包的 RoboGUI 网格预设。
+
+更新已有安装时，参见 [RoboGUI 接口迁移说明](docs/usage/getting-started.md#updating-older-installations)。
 
 ### 使用自己的机器人
 

@@ -28,7 +28,7 @@ Apache License 2.0; see `PRM-as-a-Judge/LICENSE`.
 `manimux/embodiments/arm/yam/assets/i2rt/robot_models/` contains the YAM and linear_4310 model
 geometry from `i2rt-robotics/i2rt` at commit
 `5d47b358bafb30c65e397f2ece506550a0db4594`. These assets are used only for
-viewer rendering and forward/inverse kinematics. The upstream project is under the MIT
+robogui rendering and forward/inverse kinematics. The upstream project is under the MIT
 License; see `licenses/i2rt-MIT.txt`.
 
 ## RoboTwin ALOHA-AgileX follower-arm assets
@@ -74,10 +74,10 @@ model scope are documented in `docs/usage/piper.md`.
 `manimux/embodiments/arm/tianji/assets/` and
 `manimux/embodiments/robot/tianji_taccap/assets/` contain the vendor CAD exports of the Tianji
 Marvin left arm, right arm and stand (URDF and STL), as bundled in
-`SII-LiuLab/universal_viewer` at commit `a7278af`. The stand URDF keeps only
+`SII-LiuLab/universal_robogui` at commit `a7278af`. The stand URDF keeps only
 the `Link_Base`/`Link_Stand` links of the vendor's full assembly, and link
 colors are replaced with the palette of the bundled YAM model. These assets
-are used only for viewer rendering. The DH parameters and joint limits in
+are used only for robogui rendering. The DH parameters and joint limits in
 `manimux/kinematics/tianji.py` are copied from the vendor SDK's
 `CommonConfig/ccs_m6_40.MvKDCfg`.
 

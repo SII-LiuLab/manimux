@@ -9,11 +9,11 @@ import numpy as np
 
 from manimux.types import ActionChunk, ActionHorizon, RobotState, SensorFrame
 
-from .communication import PolicyPlan, RobotSnapshot, RuntimeEvent, ViewerPublisher
+from .communication import PolicyPlan, RobotSnapshot, RuntimeEvent, RoboGUIPublisher
 
 
 @dataclass(frozen=True, slots=True)
-class ViewerControl:
+class RoboGUIControl:
     paused: bool
     home_requested: bool = False
     finish_requested: bool = False
@@ -21,8 +21,8 @@ class ViewerControl:
     diagnostics: dict[str, Any] | None = None
 
 
-class ViewerBridge:
-    """Best-effort bridge to the viewer bundled with ManiMux."""
+class RoboGUIBridge:
+    """Best-effort bridge to the robogui bundled with ManiMux."""
 
     def __init__(
         self,
@@ -50,15 +50,15 @@ class ViewerBridge:
         self._runtime_event_type: Any | None = None
         if not enabled:
             return
-        from manimux.viewer.communication import (
+        from manimux.robogui.communication import (
             PolicyPlan,
             RobotSnapshot,
             RuntimeEvent,
-            ViewerPublisher,
+            RoboGUIPublisher,
         )
-        from manimux.viewer.control import RuntimeControlClient
+        from manimux.robogui.control import RuntimeControlClient
 
-        self._publisher = ViewerPublisher()
+        self._publisher = RoboGUIPublisher()
         self._controls = RuntimeControlClient(**(control or {}))
         self._policy_plan_type = PolicyPlan
         self._snapshot_type = RobotSnapshot
@@ -87,12 +87,12 @@ class ViewerBridge:
             )
         )
 
-    def poll_control(self) -> ViewerControl:
+    def poll_control(self) -> RoboGUIControl:
         if not self._enabled:
-            return ViewerControl(paused=False)
+            return RoboGUIControl(paused=False)
         assert self._controls is not None
         state = self._controls.poll()
-        return ViewerControl(
+        return RoboGUIControl(
             paused=bool(state.get("paused", True)),
             home_requested=bool(state.get("home_requested", False)),
             finish_requested=bool(state.get("finish_requested", False)),
@@ -183,7 +183,7 @@ class ViewerBridge:
                 component.close()
 
 
-class ViewerClient:
+class RoboGUIClient:
     """Non-owning observer used by a policy executor.
 
     The client never runs inference or commands a robot. The executor remains the
@@ -197,7 +197,7 @@ class ViewerClient:
         policy: str,
         endpoint: str = "tcp://127.0.0.1:5568",
         camera_hz: float = 5.0,
-        publisher: ViewerPublisher | None = None,
+        publisher: RoboGUIPublisher | None = None,
         control_mode: str = "observe",
     ) -> None:
         if camera_hz < 0:
@@ -207,7 +207,7 @@ class ViewerClient:
         self.robot = robot
         self.policy = policy
         self.control_mode = control_mode
-        self._publisher = publisher or ViewerPublisher(endpoint)
+        self._publisher = publisher or RoboGUIPublisher(endpoint)
         self._camera_period_s = 0.0 if camera_hz == 0 else 1.0 / camera_hz
         self._last_camera_publish = float("-inf")
 

@@ -1,4 +1,4 @@
-"""用装配 YAML 创建 YAM 组件；构造、FK 和 Viewer 都不打开 CAN。"""
+"""用装配 YAML 创建 YAM 组件；构造、FK 和 RoboGUI 都不打开 CAN。"""
 
 import logging
 from collections.abc import Mapping

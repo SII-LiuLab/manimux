@@ -1,6 +1,6 @@
 """Compare native->100 Hz with native->30 Hz->linear 100 Hz, per joint.
 
-Run offline: python -m manimux.viewer.replay_data.joint_rate_analysis EPISODE
+Run offline: python -m manimux.robogui.replay_data.joint_rate_analysis EPISODE
 This measures reconstruction error on the same recording, not robot tracking
 error or the task performance of a controller running at another frequency.
 """

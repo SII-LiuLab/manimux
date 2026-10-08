@@ -38,7 +38,7 @@ and a runtime designed for **100–200 Hz command execution**.
 
 ## RoboGUI
 
-![RoboGUI: live cameras, robot state, trajectories and action chunks](assets/manimux-viewer-demo.webp)
+![RoboGUI: live cameras, robot state, trajectories and action chunks](assets/manimux-robogui-demo.webp)
 
 [▶ Watch the real-robot demo](assets/manimux_2026-09-05_23-17-35-00.00.03.144-00.00.34.914-seg1-00.00.02.596-00.00.34.966.mp4)
 
@@ -109,7 +109,7 @@ Python 3.11 or 3.12 and [uv](https://docs.astral.sh/uv/) are required for these 
 git clone https://github.com/SII-LiuLab/manimux.git
 cd manimux
 uv sync --dev
-uv run manimux-viewer --robot yam --demo --host 127.0.0.1 --port 8086
+uv run manimux-robogui --robot yam --demo --host 127.0.0.1 --port 8086
 ```
 
 Open **http://127.0.0.1:8086**. This demo displays synthetic data and the bundled YAM
@@ -119,13 +119,15 @@ only needed for the deployment path you choose.
 Try the new arms in RoboGUI using the same environment:
 
 ```bash
-uv run manimux-viewer --robot piper --demo --host 127.0.0.1 --port 8087
+uv run manimux-robogui --robot piper --demo --host 127.0.0.1 --port 8087
 ```
 
 Open **http://127.0.0.1:8087**. Use `--robot aloha` for ALOHA-AgileX.
 Both presets animate arms and grippers with synthetic data; no device SDK is needed.
 ARX X5 currently has a kinematic model and experimental controller, without a
 bundled RoboGUI mesh preset.
+
+Upgrading an existing checkout? See the [RoboGUI interface migration](docs/usage/getting-started.md#updating-older-installations).
 
 ### Run on your robot
 

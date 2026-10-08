@@ -3,12 +3,12 @@
 > 2026-09-29 · v0.1 草案。Pi05 抓瓶子 Serial K=16、RTC 最小源进度阈值16与β=5、双方 blend=0、100 Hz 插值 + Direct、不限速已写入 YAML；推理配置收敛到 `inference/aligned/`。配对入口已接通自动预热、手动Start前RESET、seed0与RTC自动延迟初值。保留用户手调的控制步数预算，不新增严格墙钟时限。仅完成源码、静态与配置检查，完整 setting 尚未冻结，未新增实测结果。最新进度见 §7.1。
 > 本文是当前实验的登记入口；[实验记录](usage/records.md)说明对照原则与数据格式，[研究流程](usage/research.md)说明操作。
 
-**2026-10-01 默认运行基线：主循环 `robot.control_hz=100`，Viewer `--render-hz=30`。**
+**2026-10-01 默认运行基线：主循环 `robot.control_hz=100`，RoboGUI `--render-hz=30`。**
 当前已对齐的 Pi05 抓瓶子 Serial / RTC 均采用此基线；200 Hz 仅为已完成的性能诊断，RTC 入口已恢复 100 Hz。
-Viewer 默认以 30 Hz 刷新最新状态，接收与绘制分线程，不补播连续旧状态；这不是模型动作频率或相机帧率。
+RoboGUI 默认以 30 Hz 刷新最新状态，接收与绘制分线程，不补播连续旧状态；这不是模型动作频率或相机帧率。
 后续新增或对齐的实验沿用该基线，偏离时显式登记；历史未对齐入口不因本次决定自动改写。
 
-**2026-10-01 分支整合：**实验登记继续保存在 `docs/experiments.md`；Pi05 抓瓶子 Joint 30k Serial / RTC 与 pretrained RTC 入口显式配置 10 个布局 × 3 次、强制参考图的 study template。Free rollout 不受模板限制。Viewer 保留 30 Hz 最新状态显示，并增加历史 rollout 回放入口；pretrained recipe 补齐动作维度与环境数量。配置/代码整合不代表新增真机结果。
+**2026-10-01 分支整合：**实验登记继续保存在 `docs/experiments.md`；Pi05 抓瓶子 Joint 30k Serial / RTC 与 pretrained RTC 入口显式配置 10 个布局 × 3 次、强制参考图的 study template。Free rollout 不受模板限制。RoboGUI 保留 30 Hz 最新状态显示，并增加历史 rollout 回放入口；pretrained recipe 补齐动作维度与环境数量。配置/代码整合不代表新增真机结果。
 
 ## 1. 本轮范围与记录方式
 
@@ -91,9 +91,9 @@ DRR/FNS/SQS 的样本集合不同，需同时保存各自 N。SR、FNS、SQS 的
 
 **人工评分已确认：每条固定6个瓶子，每个最终进入桶内的瓶子计1/6。**记录原始计数`completed_count=k`（整数0–6）与任务目标数`target_count=6`，逐条得分为`k/6`；例如4瓶为4/6≈66.7%。只有k=6为完整`success`，0–5为完整任务的`failure`并保留部分得分。按结束时实际入桶的不同瓶子计数，不把同一个瓶子反复入桶累计计分，不增加未确认的终态保持秒数。
 
-抓瓶子主表同时显示 **H-Score=100×mean(k/6)** 与 **H-SR=100×完整成功条数/有效成功失败条数**；前者是平均完成度，后者是六瓶全成功率。invalid与缺失标签分别留档；历史只有二分类的标签可按原rubric用于SR，但不得推测瓶子数或给缺失H-Score补零。Viewer计数输入及保存已接入代码：保持`human-label-v2`兼容，增加可选`evaluation`规则快照、`completed_count`、`target_count`及有效尝试的`score`。未选数量保持未标注，不能默认算0；invalid不生成score。保存以对应episode的`meta.json.evaluation`为准，矛盾数量/成功标签会报错。当前仅静态及配置检查，未运行Viewer/行为测试；批量H-Score汇总已接入task报告（§9.4），按匹配的rubric分别聚合；旧二分类标签不补计数。
+抓瓶子主表同时显示 **H-Score=100×mean(k/6)** 与 **H-SR=100×完整成功条数/有效成功失败条数**；前者是平均完成度，后者是六瓶全成功率。invalid与缺失标签分别留档；历史只有二分类的标签可按原rubric用于SR，但不得推测瓶子数或给缺失H-Score补零。RoboGUI计数输入及保存已接入代码：保持`human-label-v2`兼容，增加可选`evaluation`规则快照、`completed_count`、`target_count`及有效尝试的`score`。未选数量保持未标注，不能默认算0；invalid不生成score。保存以对应episode的`meta.json.evaluation`为准，矛盾数量/成功标签会报错。当前仅静态及配置检查，未运行RoboGUI/行为测试；批量H-Score汇总已接入task报告（§9.4），按匹配的rubric分别聚合；旧二分类标签不补计数。
 
-两份Pi05 Serial/RTC入口共用[瓶子评分配置](../manimux/configs/evaluation/put_bottles.yaml)：`kind=count`、`task_id=put_bottles`、`rubric_id=put_bottles_6_v1`、`target_count=6`。未配置evaluation时使用`kind=binary`通用评分；定义其他任务可复用同一入口绑定新的规则，不在Viewer新增瓶子特判。已定义任务也可选择binary规则，显式给出完整任务/规则身份。规则在runtime初始化时规范化，冻结进meta与Viewer开始/状态/结束消息；session默认规则不会覆盖尚待评分的旧rollout。
+两份Pi05 Serial/RTC入口共用[瓶子评分配置](../manimux/configs/evaluation/put_bottles.yaml)：`kind=count`、`task_id=put_bottles`、`rubric_id=put_bottles_6_v1`、`target_count=6`。未配置evaluation时使用`kind=binary`通用评分；定义其他任务可复用同一入口绑定新的规则，不在RoboGUI新增瓶子特判。已定义任务也可选择binary规则，显式给出完整任务/规则身份。规则在runtime初始化时规范化，冻结进meta与RoboGUI开始/状态/结束消息；session默认规则不会覆盖尚待评分的旧rollout。
 
 **PRM采样：**先采用PRM-as-a-Judge官方工具默认`frame_interval=72`，保留传参覆盖。对当前30 FPS编码录像，等效每2.4秒采样一次（约0.417 Hz）；这不是72 FPS，也不是不依赖录像帧率的固定时间频率。官方指南建议初次运行保持默认，并给出短任务加密采样的36帧示例，未宣称72帧对所有任务最优。来源：[官方Advanced Guide](https://prm-as-a-judge.github.io/advanced.html)，本地CLI对应`--frame-interval`。同一任务比较组固定最终生效值，保存编码FPS与采样帧索引。
 
@@ -205,7 +205,7 @@ Pi05 coin 产物：`checkpoints/finetuned/pi05/pi05_coin_20260928_v2_w32/50000`�
 | `policy_server.inference_seed` | 0 | 0 | 共同Joint30k recipe显式指定；Pi05模型加载及每条新rollout的RESET复位噪声序列，连续请求推进；已接通源码，未运行模型端回归 |
 | `run.warmup_before_start` | true | true | Prepare后持续真实推理；用户随时手动Start，排空预热请求并等待RESET应答后才取新观测正式推理；没有固定时长或稳定门槛 |
 | `robot.control_hz` | 100 Hz | 100 Hz | **两者已确认并写入 YAML**：30 Hz 模型动作点经 Timeline 线性插值，在 100 Hz 执行循环中更新目标命令 |
-| Viewer `--render-hz` | 30 Hz | 30 Hz | 2026-10-01 确认；独立 Viewer CLI 默认值为30，无需额外传参；不改变模型动作时间轴 |
+| RoboGUI `--render-hz` | 30 Hz | 30 Hz | 2026-10-01 确认；独立 RoboGUI CLI 默认值为30，无需额外传参；不改变模型动作时间轴 |
 | executor / control profile | `direct` + `yam_control_unlimited` | 相同 | 2026-09-29 第1–5项：移除 Smooth recipe 引用，保留共同不限速 profile |
 | arm 速度 / 加速度限制 | null；null | null；null | 不额外限速、限加速度；保留 1/30 s 模型动作时间轴 |
 | gripper 速度 / 加速度 / 单独关爪速度限制 | null；null；null | 相同 | 三项全部关闭；SDK 的夹持力处理是另一层，见参数清单 |
@@ -331,17 +331,17 @@ m 未指定时：m = max(1, floor(H / 2))
 | 2026-09-29 | blend全部0、β=5、seed默认0；同模型对齐、同任务严格时限、同本体底层一致、每次Home起步、相机冻结、增加预热与记录 | 历史反馈已登记；严格墙钟时限已被后续“保留手调控制步数预算”决定替代。其余按每批5项推进，具体实现状态见下表 |
 | 2026-09-29 | 完成对齐的推理 YAML 放入 `inference/aligned/`；本轮 Pi05 双方 blend=0、RTC β=5，显式 min12 | 历史批次：第6–10项配置已写回，两个入口已切换引用；当次CLI loader含station的只读加载与diff检查通过。min12已被后续16决定替代；未运行模型或真机 |
 | 2026-09-29 | action start模式改名为`drop_infer_latency`；RTC初始延迟由预热后实测自动估计 | 模式命名已同步代码和仓内YAML，裁剪行为不变；自动估计与第16项预热共同实现，当前仍用临时初值4 |
-| 2026-09-29 | Pi05 抓瓶子 RTC `min_execute_policy_steps` 由12改16，保持源进度语义；Serial K12不变 | 历史批次：aligned RTC配置与30k入口Viewer标签已更新，当次CLI loader确认RTC min16、β5、blend0、`drop_infer_latency`及Serial K12；Serial K12随后被16替代。未运行行为测试、模型或真机 |
+| 2026-09-29 | Pi05 抓瓶子 RTC `min_execute_policy_steps` 由12改16，保持源进度语义；Serial K12不变 | 历史批次：aligned RTC配置与30k入口RoboGUI标签已更新，当次CLI loader确认RTC min16、β5、blend0、`drop_infer_latency`及Serial K12；Serial K12随后被16替代。未运行行为测试、模型或真机 |
 | 2026-09-29 | Pi05抓瓶子Serial也统一K16；RTC m16、β5保持，Serial无生效β | 用户最新决定；Serial preset改名为`aligned/yam_serial_chunk16.yaml`，模型仍输出50点；起点和裁剪保留各自算法语义 |
 | 2026-09-29 | 取消严格墙钟时限需求，保留用户手动调整 `run.max_control_steps`；同一比较组使用相同值 | 第14项按最新反馈收敛；当前双方12000，不增加timeout代码，RUNNING等待/hold计步、Pause不计，实际时长可能超过120 s |
 | 2026-09-29 | 第11–13项核对同模型配置、保留算法起点区别、解释2 s deadline与10 s RPC超时 | 真实CLI loader确认两份入口模型/硬件/相机/记录/task配置相同，H50、denoise10、dt1/30；超时数值暂不改。未运行模型或真机 |
 | 2026-09-29 | Pi05显式inference_seed=0，每条新rollout复位噪声序列，同条连续请求推进 | Joint30k recipe与backend identity已接通Model/Policy.reset_rng；JAX恢复key，PyTorch使用独立generator生成初始noise。模型端回归与真机未运行；自动预热后的RESET待第16项 |
 | 2026-09-29 | 用户确认超时保持现状，不再讨论删除 | 保留2 s响应验收、2 s轨迹年龄及10 s通信等待；不限制已接受chunk的后续执行时长，不修改运行逻辑 |
 | 2026-09-29 | 预热持续到用户手动Start，不设置等待时长或自动稳定门槛 | Prepare后自动持续推理、显示耗时，由用户判断何时开始；RTC沿用实测延迟窗口，Start切换时隔离预热结果并RESET seed。需求已确定，代码待实现 |
-| 2026-09-29 | 抓瓶子固定6瓶，逐瓶1/6；PRM提示与Top视角确定，其余评测输入参数化 | Table 1增加H-Score并保留H-SR；PRM task=`put bottles into the bin`，Top单视角，首轮采用官方工具默认frame_interval=72。权重、目标图等通过CLI/manifest传入并固定同组生效值；Viewer计数及统一入口尚待实现 |
-| 2026-09-29 | 评分UI区分通用二分类与已定义真机任务 | 已接通evaluation.config、冻结metadata、Viewer按规则显示与v2兼容标签保存；瓶子配置绑定6瓶计数，其他未绑定任务保持通用二分类。仅静态/配置验证，Viewer及真机未运行，批量H-Score尚未接入report |
+| 2026-09-29 | 抓瓶子固定6瓶，逐瓶1/6；PRM提示与Top视角确定，其余评测输入参数化 | Table 1增加H-Score并保留H-SR；PRM task=`put bottles into the bin`，Top单视角，首轮采用官方工具默认frame_interval=72。权重、目标图等通过CLI/manifest传入并固定同组生效值；RoboGUI计数及统一入口尚待实现 |
+| 2026-09-29 | 评分UI区分通用二分类与已定义真机任务 | 已接通evaluation.config、冻结metadata、RoboGUI按规则显示与v2兼容标签保存；瓶子配置绑定6瓶计数，其他未绑定任务保持通用二分类。仅静态/配置验证，RoboGUI及真机未运行，批量H-Score尚未接入report |
 
-当前Pi05 Joint30k配对入口已接通Serial K=16、RTC m=16和β=5、双方blend=0、30 Hz动作点 → 100 Hz插值、Direct、不限速、共同last-command hold、seed0，以及第16项持续自动预热/自动延迟初值/Start前RESET。第13项继续保留2 s验收、2 s轨迹年龄及10 s等待回复；预算仍由用户手调控制步数，不新增严格墙钟时限。代码与配置已落地，模型端、Viewer交互和真机行为尚未运行验收；接下来用这两个候选进行dev验证，登记实际judge/goal与布局版本。完整setting及§10的三类指标统一评测仍未验收。
+当前Pi05 Joint30k配对入口已接通Serial K=16、RTC m=16和β=5、双方blend=0、30 Hz动作点 → 100 Hz插值、Direct、不限速、共同last-command hold、seed0，以及第16项持续自动预热/自动延迟初值/Start前RESET。第13项继续保留2 s验收、2 s轨迹年龄及10 s等待回复；预算仍由用户手调控制步数，不新增严格墙钟时限。代码与配置已落地，模型端、RoboGUI交互和真机行为尚未运行验收；接下来用这两个候选进行dev验证，登记实际judge/goal与布局版本。完整setting及§10的三类指标统一评测仍未验收。
 
 **实现范围限于`B-P05-S-v0` / `B-P05-R-v0`。**表中的Pi05 ManiMux/PAINT与XR1、LingBot-VLA2、OpenWAM、DP仍待各自配置、sampler seed/RESET及部署绑定对齐；不迁移历史入口，不将本批结果扩称为全模型完成。缺少瓶子recipe/experiment的模型也不能仅凭表格预留行启动。
 
@@ -380,11 +380,11 @@ m 未指定时：m = max(1, floor(H / 2))
 
 ### 7.2 Start 前预热：Pi05 配对入口已接通
 
-两个入口均配置`run.warmup_before_start: true`：**Prepare后自动持续预热，不增加Warmup按钮，不设固定等待时长、最少次数或自动稳定门槛；用户观察耗时后自行点击Start。预热模型输出不发送给机器人。**当前实现要求Viewer Start控制和inline动作解码，未扩展到其他模型的历史入口。
+两个入口均配置`run.warmup_before_start: true`：**Prepare后自动持续预热，不增加Warmup按钮，不设固定等待时长、最少次数或自动稳定门槛；用户观察耗时后自行点击Start。预热模型输出不发送给机器人。**当前实现要求RoboGUI Start控制和inline动作解码，未扩展到其他模型的历史入口。
 
 流程：`Prepare → 自动Warming up → 手动Start → 排空预热请求 → RESET应答 → 新观测的正式推理/执行`。预热结果直接显示在左侧Action chunks和中央3D轨迹，标注`Warmup preview · no execution`；左侧同时显示最近10次成功请求的E2E耗时曲线。右侧只保留简短状态与错误，不再堆列耗时数字；不自动判定稳定或解锁Start。
 
-1. [PolicyWarmup](../manimux/runtime/warmup.py)使用独立adapter、负请求ID和所选策略的专用预热请求接口，复用正式模型后端及输入形状。解码动作仅作为带`warmup_preview`标记的Viewer预览发布：左侧展示最近两次推理的动作格及输出中的夹爪开闭预测，中央通过FK绘制最新左右臂预测路径。预览不提交Timeline、不推进正式请求/执行历史、不驱动executor，也不改变画面中的实测机器人姿态；预热期间机器人沿用实测姿态hold，Prepare/Home仍属于原有机器人生命周期。
+1. [PolicyWarmup](../manimux/runtime/warmup.py)使用独立adapter、负请求ID和所选策略的专用预热请求接口，复用正式模型后端及输入形状。解码动作仅作为带`warmup_preview`标记的RoboGUI预览发布：左侧展示最近两次推理的动作格及输出中的夹爪开闭预测，中央通过FK绘制最新左右臂预测路径。预览不提交Timeline、不推进正式请求/执行历史、不驱动executor，也不改变画面中的实测机器人姿态；预热期间机器人沿用实测姿态hold，Prepare/Home仍属于原有机器人生命周期。
 2. Serial持续普通推理；RTC按成功请求交替覆盖ordinary/conditioned分支。condition使用当前实测姿态构造的占位轨迹和合法mask，只用于覆盖真实采样分支，绝不执行；它不另设手填延迟4。错误单独记录并显示，不算成功或校准样本。
 3. 每分支首次**成功**调用耗时写入`first_inference_ms`，不加入校准窗口；UI的`recent_inference_ms`仍显示包含首次调用的最近10次成功耗时。随后成功请求进入容量10的`calibration_latency_ns`，包含观测年龄、请求准备、传输、采样和解码，不附加人为等待；RTC按action dt向上取整并取窗口max。`initial_delay_policy_steps: null`启用该初值；不要求等满窗口，提前Start且没有有效样本时明确记录`latency_calibrated=false`、样本数0，RTC从0估计开始。
 4. Start立即停止新增预热请求，等待本地在飞结果，并在同一WS连接排空超时请求的晚到回复，再发RESET、等待应答；期间继续hold。RESET错误不会进入正式推理，UI显示原因，可Pause后再次Start重试或Finish。RESET只复位模型历史及seed0序列，保留编译缓存；策略reset重新装入预热校准窗口，预热动作和观测历史不继承。
@@ -392,9 +392,9 @@ m 未指定时：m = max(1, floor(H / 2))
 6. 正式RTC继续以成功提交更新延迟窗口；失败/拒绝不更新。预热减少冷启动影响，但Start仍有一次正常首推理，未来负载、网络或解码延迟仍可突增，因此保留last-command hold。没有样本的提前Start不会被误报为已完成延迟校准。
 7. Start、Finish或预热退出时立即清除预览；同一条已结束试验的迟到预览不能恢复显示。Finish在Home及记录收尾之前停止本条rollout的policy transport worker，禁止新请求；下一次预热只在用户再次Prepare后开始。
 
-接入点：[session.py](../manimux/session.py)管理Prepare，[warmup.py](../manimux/runtime/warmup.py)隔离预热，[edge.py](../manimux/runtime/edge.py)管理hold与正式切换，[worker.py](../manimux/policies/worker.py)提供异步RESET应答，[ws_client.py](../manimux/policies/xpolicylab/ws_client.py)排空同连接请求，[dashboard.py](../manimux/viewer/dashboard.py)展示状态。当前仅完成源码、静态与配置检查；没有运行pytest、模型推理、Viewer服务或真机验收。
+接入点：[session.py](../manimux/session.py)管理Prepare，[warmup.py](../manimux/runtime/warmup.py)隔离预热，[edge.py](../manimux/runtime/edge.py)管理hold与正式切换，[worker.py](../manimux/policies/worker.py)提供异步RESET应答，[ws_client.py](../manimux/policies/xpolicylab/ws_client.py)排空同连接请求，[dashboard.py](../manimux/robogui/dashboard.py)展示状态。当前仅完成源码、静态与配置检查；没有运行pytest、模型推理、RoboGUI服务或真机验收。
 
-跨Finish/Prepare的旧请求由[共享WS服务](../XPolicyLab/client_server/ws/model_server.py)的连接及RESET代际检查隔离。ManiMux连接显式启用`cancel_pending_on_disconnect`：Finish关闭连接后，尚未进入模型的排队/预处理请求被拒绝；已经进入模型的一次调用可能完成，但结果被丢弃，不再显示或执行。其他未启用此选项的客户端保持原有断线重试语义。RESET前接收但尚未进入模型的旧请求也会被拒绝，避免修改新试验的模型状态。应用本批改动需要重新启动runtime/Viewer及模型服务；这里只登记实现，没有代用户重启服务。
+跨Finish/Prepare的旧请求由[共享WS服务](../XPolicyLab/client_server/ws/model_server.py)的连接及RESET代际检查隔离。ManiMux连接显式启用`cancel_pending_on_disconnect`：Finish关闭连接后，尚未进入模型的排队/预处理请求被拒绝；已经进入模型的一次调用可能完成，但结果被丢弃，不再显示或执行。其他未启用此选项的客户端保持原有断线重试语义。RESET前接收但尚未进入模型的旧请求也会被拒绝，避免修改新试验的模型状态。应用本批改动需要重新启动runtime/RoboGUI及模型服务；这里只登记实现，没有代用户重启服务。
 
 ## 8. Agent 评测与进度登记
 
@@ -485,9 +485,9 @@ Agent 每轮建立唯一分析目录，推荐 `data/analysis/<task>/<setting>/<s
 
 图库分组 `put_bottles_into_the_bin` 必须在后续 task 文件中显式对应实验 task `put_bottles`；图库名称和模型 Task command 都不自动充当规范 task ID。
 
-**已接入代码，静态检查通过，尚未做 Viewer/真机验收：** 在参考布局选择 Task、编号 `01`–`10`，在 New rollout 选择 `Experiment repeat=1/2/3`，点击 `Prepare experiment rollout`。Prepare 一次冻结指令、位置、重复次数及参考图身份；取消独立可编辑 layout 框。位置/Task/重复次数在准备和运行期间锁定，蒙版透明度仍可调。参考图缺失时不提交 Prepare；普通 rollout 不要求参考图并清空正式实验身份。
+**已接入代码，静态检查通过，尚未做 RoboGUI/真机验收：** 在参考布局选择 Task、编号 `01`–`10`，在 New rollout 选择 `Experiment repeat=1/2/3`，点击 `Prepare experiment rollout`。Prepare 一次冻结指令、位置、重复次数及参考图身份；取消独立可编辑 layout 框。位置/Task/重复次数在准备和运行期间锁定，蒙版透明度仍可调。参考图缺失时不提交 Prepare；普通 rollout 不要求参考图并清空正式实验身份。
 
-冻结内容经 Viewer → session → runtime 同时写入 `meta.json` 与 Viewer 状态：`layout_id`、`repeat_id`、`reference_layout={task,path,sha256}`。图像解码和 hash 来自同一份文件字节；控制轮询不再读取图库。`Run / Recorded layout / repeat` 显示本次身份；重连后图库版本不匹配时隐藏参考并提示。独立尝试继续使用现有 episode 路径与 session/episode ID，不新增第二套 attempt UUID；重复选择同一位置/次数仍产生独立 rollout，后续盘点需显式处理重复。
+冻结内容经 RoboGUI → session → runtime 同时写入 `meta.json` 与 RoboGUI 状态：`layout_id`、`repeat_id`、`reference_layout={task,path,sha256}`。图像解码和 hash 来自同一份文件字节；控制轮询不再读取图库。`Run / Recorded layout / repeat` 显示本次身份；重连后图库版本不匹配时隐藏参考并提示。独立尝试继续使用现有 episode 路径与 session/episode ID，不新增第二套 attempt UUID；重复选择同一位置/次数仍产生独立 rollout，后续盘点需显式处理重复。
 
 这里冻结的是图片身份，不会复制或禁止独立采集工具覆盖原 PNG；正式采集期间不覆盖参考图。旧 rollout 缺少这些字段时保持未知，不补猜编号、次数或 hash。一次性 `manimux run` 若设置 `run.experiment_mode=true`，也必须显式提供上述身份字段，缺失或非法值会在创建机器人/传感器前报错。
 
@@ -559,7 +559,7 @@ FK配置hash不覆盖其引用资产，不自动证明历史运动学一致性�
 
 ### 10.4 最小实现范围与验收
 
-1. **记录身份与分段证据**：layout、repeat、参考图身份已接入现有 Viewer/session/runtime metadata 路径，尚待交互验收；有时间戳的暂停/恢复分段仍待实现，需结合已保存 tick plan ID 判断交接。旧数据缺证据则标未知，不猜 repeat 或拼接跨段边界。
+1. **记录身份与分段证据**：layout、repeat、参考图身份已接入现有 RoboGUI/session/runtime metadata 路径，尚待交互验收；有时间戳的暂停/恢复分段仍待实现，需结合已保存 tick plan ID 判断交接。旧数据缺证据则标未知，不猜 repeat 或拼接跨段边界。
 2. **任务读取和数值评测**：在现有 `manimux/evaluation/` 增加统一入口与读取/计算模块，盘点所有尝试和 10×3 槽位、汇总 Human SR，规范有效接缝分类及左右 Mean/P95/Max。提取现有画图脚本中可复用的 FK/绘图逻辑，让旧 CLI 调用同一实现，不复制第二套 seam 公式。
 3. **PRM 适配**：增加薄适配模块，完成视频质量/对齐检查、manifest 导出、独立环境调用与结果导入；保存实际 PRM run/case 路径和 profile 身份。读取已有匹配结果可以复用；profile 或视频改变则不得复用旧分数。
 4. **统一报告（HTML部分已实现，见§9.4）**：当前生成HTML、JSON/CSV、cohort、provenance与SVG；正式指标筛选、`table.md`及Markdown回填仍待完成。目标是由一个 report 模块生成 `cohort.jsonl`、`episode-metrics.json`、`summary.json`、`table.md` 和图。每个 metric 带有效数量、来源及缺失原因；写入新 analysis 目录，精确索引原始证据。固定 task/model/method 行映射后更新 Markdown 对应表格及表外进度/路径，不重写人工说明。
@@ -628,7 +628,7 @@ FK配置hash不覆盖其引用资产，不自动证明历史运动学一致性�
 - **手臂低通**：`α=dt/(1/(2πfc)+dt)`；legacy 先低通，再速率整形，再位置裁剪；continuous 夹爪独立取 reference，覆盖上述结果。Smooth horizon 固定2点，legacy 只用首点。[smooth.py](../manimux/runtime/executors/smooth.py)
 - **请求与超时**：最多一个在途请求；2 s 只拒绝迟到响应，在途标志仍等响应回来才清除，所以可能等到 10 s transport 超时。worker 的请求/响应队列容量固定1，latest-wins，进程用 spawn。[worker.py](../manimux/policies/worker.py)
 - **循环时钟与 hold**：相机读取、状态读取、inline decode、发送和记录在同一个循环。超时后从完成时刻再等一个 dt，不补发追赶。Serial 无未来轨迹时保持上一 command；legacy RTC 保持 measured state。Pause/Home 清轨迹和策略、丢弃旧响应，RTC 延迟恢复初始4；不同时重置远端模型 RNG。[edge.py](../manimux/runtime/edge.py)
-- **标签问题**：RTC Viewer label 当前仍为 `RTC max 12`，实际是 minimum source-progress trigger，标签待修正；不能据标签解释算法。
+- **标签问题**：RTC RoboGUI label 当前仍为 `RTC max 12`，实际是 minimum source-progress trigger，标签待修正；不能据标签解释算法。
 
 </details>
 
@@ -650,7 +650,7 @@ FK配置hash不覆盖其引用资产，不自动证明历史运动学一致性�
 | 后端 / 精度 | 当前产物有 params、无 model.safetensors，选择 JAX；参数载入 bfloat16，不代表图像、noise 等全链路 BF16 |
 | GPU / JAX 环境 | recipe 未绑定设备；启动环境/JAX 决定；ManiMux launcher 未固定显存预分配或设备环境变量 |
 | 架构默认 | pi05=true；action_dim32；gemma_2b + gemma_300m；max_token_len200；discrete_state_input=true |
-| 真实 prompt | 来自 experiment/Viewer 的任务指令 `Put the bottles into the bin.`；recipe.task_name 不是实际 prompt |
+| 真实 prompt | 来自 experiment/RoboGUI 的任务指令 `Put the bottles into the bin.`；recipe.task_name 不是实际 prompt |
 | 文本变换 | 去两端空白，下划线/换行换空格；不转小写；state 256 bins；超出200 tokens截断 |
 | 图像 | 三路 RGB uint8 → 保比例黑边 resize224×224（linear）→ float32 [−1,1]；推理无训练增强 |
 | `use_delta_joint_actions` | true；12个arm关节相对观测state，两个夹爪保持绝对；输出加回state，最终发送绝对joint |
@@ -679,9 +679,9 @@ FK配置hash不覆盖其引用资产，不自动证明历史运动学一致性�
 | 客户端 `max_frame_age_sec` / `request_timeout_ms` | 0.5 s / 500 ms | runtime 的 camera_server sensor |
 | 相机首帧等待 / 未来时间容差 | 固定1.5 s / 0.05 s | Python内常数 |
 | `recording.video_fps` / codec / queue | 30 / 默认 mp4v / 默认8 bundles | 采样、编码和背压；满队列丢 bundle并计数 |
-| `viewer.camera_hz` | 默认5 Hz | 显示刷新，与采集/控制/录像频率不同 |
+| `robogui.camera_hz` | 默认5 Hz | 显示刷新，与采集/控制/录像频率不同 |
 | camera server PUB / heartbeat | CLI 默认1/30 s / 10 s | runtime 用REQ取帧，PUB不是控制时钟 |
-| `run.experiment_mode` | 默认false；Viewer可选正式实验 | Prepare时冻结布局、repeat和参考图hash |
+| `run.experiment_mode` | 默认false；RoboGUI可选正式实验 | Prepare时冻结布局、repeat和参考图hash |
 | 预算 / 输出目录 | 每模型×方法10×3；各自raw root | §9登记；timeout/rubric/PRM profile未冻结 |
 
 来源：[相机 recipe](../manimux/configs/embodiment/sensor/cameras/realsense_3_views.yaml)、[RealSense](../manimux/embodiments/sensor/realsense/sensor.py)、[网络 client](../manimux/embodiments/sensor/camera_server/client.py)、[camera server](../manimux/servers/camera/server.py)、[录像](../manimux/recording/video.py)。
@@ -731,7 +731,7 @@ XML原始J1–J6范围（rad）分别为 `[-2.61799,3.14159]`、`[≈0,3.66519]`
 - gripper `.35/.85`阈值、`min_closed_s=0`、`open_confirm_s=0`：continuous且无guards时不控制锁存/张闭。`release_guard`默认容差0.02 m、timeout2 s；`grasp_guard`默认0.02 m、0.08726646 rad、settle0.15 s、开度稳定阈值0.01、timeout2 s、approach速度null；两者当前都是null。
 - MPC、braking、temporal ensemble、AAC、PAINT、DVAC和AutoHorizon未启用；补全配置里出现这些默认字典不代表参与此次执行。Smooth的第二个参考点也不被legacy用作前馈。
 - Pi_05上游deploy.yml不会自动合并进当前ManiMux launcher；其中seed/eval_batch/checkpoint_num不能当成生效值。当前JAX分支不使用PyTorch compile/device选项；正常INFER也不随意透传`sampling.noise/num_steps`。
-- 默认`run.experiment_mode=false`、空layout/repeat、Viewer host/port/标签是启动与界面信息；正式尝试身份以Prepare冻结记录为准，不将Viewer描述当成算法真值。
+- 默认`run.experiment_mode=false`、空layout/repeat、RoboGUI host/port/标签是启动与界面信息；正式尝试身份以Prepare冻结记录为准，不将RoboGUI描述当成算法真值。
 
 `session-manifest.json` 已存展开的config、入口文件hash和父仓库/XPolicyLab Git SHA；rollout meta另存task、身份、Smooth和backend声明。[保存逻辑](../manimux/cli.py)。它尚不能完整证明SDK内部默认、实际GPU/精度/预热、每条RNG、相机生效选项/标定值、checkpoint hash及dirty源码状态；正式setting冻结时需要补足这些证据，不以同一个Git SHA掩盖未提交差异。
 

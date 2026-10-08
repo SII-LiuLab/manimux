@@ -27,7 +27,7 @@ camera_aliases:
 groups:
   left_arm:
     label: Left arm
-    viewer_display_frame:
+    robogui_display_frame:
       xyz:
       - 0.0
       - 0.32
@@ -55,7 +55,7 @@ groups:
     aperture: gripper
   right_arm:
     label: Right arm
-    viewer_display_frame:
+    robogui_display_frame:
       xyz:
       - 0.0
       - -0.32

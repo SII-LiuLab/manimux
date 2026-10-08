@@ -15,7 +15,7 @@ checkpoint or hardware connection:
 
 ```bash
 uv sync --dev
-uv run manimux-viewer --robot yam --demo --port 8086
+uv run manimux-robogui --robot yam --demo --port 8086
 ```
 
 Open `http://127.0.0.1:8086`. The demo uses RoboGUI data without creating a robot connection.
@@ -25,7 +25,7 @@ remain under `tests/`.
 To preview the new arms and grippers with bundled assets:
 
 ```bash
-uv run manimux-viewer --robot piper --demo --host 127.0.0.1 --port 8087
+uv run manimux-robogui --robot piper --demo --host 127.0.0.1 --port 8087
 ```
 
 Open `http://127.0.0.1:8087`. Replace `--robot piper` with `--robot aloha` for
@@ -55,7 +55,7 @@ envs/yam/.venv/bin/python -m manimux.servers.camera.server \
   --experiment manimux/configs/experiments/put_bottles/pi05/yam_pi05_rtc_joint_step30000.yaml
 
 # Terminal 2: RoboGUI (its network options remain independent)
-envs/yam/.venv/bin/python -m manimux.viewer.dashboard \
+envs/yam/.venv/bin/python -m manimux.robogui.dashboard \
   --robot yam --host 127.0.0.1 --port 8086
 
 # Terminal 3: pure-joint 30k model server
@@ -73,7 +73,7 @@ This experiment enables execution and moves to its configured start pose during 
 The RoboGUI follows `policy.adapter.camera_map` reported by the runtime and labels model
 inputs with their camera sources. Before receiving that mapping, it shows its labeled
 default previews. For an explicit manual preview, use
-`--config manimux/configs/viewer/yam-top.yaml`.
+`--config manimux/configs/robogui/yam-top.yaml`.
 Free rollouts have no scoring step. Study rollouts offer `Save evaluation` or
 `Skip evaluation` before the next rollout. Skipping writes no human label.
 See the [research guide](research.md) for current controls and saved-record replay.
@@ -115,3 +115,28 @@ feedback are different measurements; compare matching fields and timestamps.
 
 Continue with [experiment design](records.md), [human feedback and recording](records.md)
 or [offline video evaluation](evaluation.md).
+
+## Updating older installations
+
+RoboGUI interfaces now use one name throughout the project:
+
+| Previous interface | Current interface |
+| --- | --- |
+| `manimux-viewer` | `manimux-robogui` |
+| `manimux.viewer` | `manimux.robogui` |
+| Experiment section `viewer:` | `robogui:` |
+| `manimux/configs/viewer/` | `manimux/configs/robogui/` |
+| Body preset `viewer.yaml` | `robogui.yaml` |
+| `viewer_display_frame` | `robogui_display_frame` |
+| `ViewerBridge`, `ViewerClient`, `ViewerControl` | `RoboGUIBridge`, `RoboGUIClient`, `RoboGUIControl` |
+| `load_viewer_config()` | `load_robogui_config()` |
+| Entry-point group `manimux.viewer.robots` | `manimux.robogui.robots` |
+
+Run `uv sync --dev` to refresh the installed command, or reinstall the project
+in a separate runtime environment with `uv pip install --python <python> --no-deps -e .`.
+Update private experiment configs, custom presets, imports and launch scripts using
+the table above. The old experiment/preset keys raise a migration error rather
+than silently disabling GUI control or changing display placement. Built-in recipes
+and documentation already use the new names. Existing recordings need no conversion.
+Restart RoboGUI and runtime together when switching code versions; the `viser`
+dependency, network endpoints, action semantics and control rates are unchanged.

@@ -49,7 +49,7 @@ policy:
     request_timeout_s: 30.0
   action_dt_s: 0.03333333333333333
 
-viewer:
+robogui:
   enabled: false
   robot: tianji-taccap
   policy_label: UMI DP Tianji

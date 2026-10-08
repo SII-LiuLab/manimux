@@ -13,9 +13,10 @@ Skills route agents to these same maintained protocol guides.
 ## Product naming
 
 Use **RoboGUI** as the visualization product name in documentation, UI labels and
-launch messages. Keep existing `viewer` module paths, configuration keys and
-`manimux-viewer` commands compatible. Refer to `viser` only when discussing the
-underlying library or its API, not as the ManiMux product name.
+launch messages. Public interfaces use `manimux-robogui`, `manimux.robogui`,
+`robogui:` experiment settings and `robogui.yaml` presets. Use the same naming in
+new integrations. Refer to `viser` only when discussing the underlying library
+or its API, not as the ManiMux product name.
 
 ## Task skills
 

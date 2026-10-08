@@ -1,20 +1,20 @@
 from pathlib import Path
 
-from manimux.viewer.communication import PolicyPlan, RobotSnapshot, RuntimeEvent
-from manimux.viewer.publisher import ViewerBridge, ViewerClient, ViewerControl
+from manimux.robogui.communication import PolicyPlan, RobotSnapshot, RuntimeEvent
+from manimux.robogui.publisher import RoboGUIBridge, RoboGUIClient, RoboGUIControl
 
 __all__ = [
     "PolicyPlan",
     "RobotSnapshot",
     "RuntimeEvent",
-    "ViewerBridge",
-    "ViewerClient",
-    "ViewerControl",
+    "RoboGUIBridge",
+    "RoboGUIClient",
+    "RoboGUIControl",
 ]
 
 
-def viewer_parameters(**options) -> dict:
-    """补齐显示发布参数；不启动 Viewer 服务。"""
+def robogui_parameters(**options) -> dict:
+    """补齐显示发布参数；不启动 RoboGUI 服务。"""
 
     values = {
         "enabled": False,

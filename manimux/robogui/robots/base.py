@@ -1,4 +1,4 @@
-"""Robot adapter contract used by the viewer.
+"""Robot adapter contract used by the robogui.
 
 The dashboard deliberately knows nothing about a robot's joint count, kinematic
 groups, URDF layout, or action-to-configuration mapping.  Those details live in
@@ -183,7 +183,7 @@ class RobotAdapter(ABC):
         *,
         previous_positions: Mapping[str, np.ndarray] | None = None,
     ) -> np.ndarray:
-        """Aggregate per-group flags for callers of the original viewer interface."""
+        """Aggregate per-group flags for callers of the original robogui interface."""
 
         flags = self.gripper_closed_steps_by_group(
             grouped_actions, previous_positions=previous_positions

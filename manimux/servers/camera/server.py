@@ -12,7 +12,7 @@ REP  ``tcp://127.0.0.1:5555``  (default)
 
 PUB  ``tcp://127.0.0.1:5556``  (default, optional)
     Push semantics. Server publishes the latest obs every ``pub_period_sec``.
-    Intended for the cv2 live viewer so it can render at camera rate without
+    Intended for the cv2 live preview so it can render at camera rate without
     burning policy-side requests.
 
 Request protocol

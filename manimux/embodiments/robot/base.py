@@ -345,7 +345,7 @@ class RobotBase(ABC):
 
 # These data classes belong to robot assembly. They neither connect devices nor
 # replace a component's official solver; no separate description/assembly layer
-# is needed to share them with Viewer and policy adapters.
+# is needed to share them with RoboGUI and policy adapters.
 @dataclass(frozen=True, slots=True)
 class MountedGroup:
     arm_name: str
@@ -402,10 +402,10 @@ def _mount(value) -> Frame:
 
 @dataclass(frozen=True, slots=True)
 class RobotModel:
-    """Offline assembly shared by control, adapters and Viewer.
+    """Offline assembly shared by control, adapters and RoboGUI.
 
     Each arm keeps its own base frame, with an optional flange-mounted tool.
-    Scene placement belongs to Viewer configuration and is never loaded here.
+    Scene placement belongs to RoboGUI configuration and is never loaded here.
     Sensors may declare an unknown mount (null); no camera transform is inferred.
     """
 
@@ -440,7 +440,7 @@ class RobotModel:
             kind = component["type"]
             component["class"] = factory
             # 手臂 FK/IK 自带基座坐标；只解析实际工具或相机的安装关系。
-            # Viewer 的摆放参数不进入本体模型。
+            # RoboGUI 的摆放参数不进入本体模型。
             if kind == "end_effector" or (kind == "sensor" and entry.get("mount") is not None):
                 mounts[component_name] = _mount(entry.get("mount"))
             if kind == "arm":

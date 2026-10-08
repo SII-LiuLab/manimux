@@ -208,7 +208,7 @@ class UmiDpTianjiAdapter(PolicyAdapter):
         )
 
     def _fk(self, kin, joints, aperture):
-        # Both paths return TCP in this arm's own base, never the Viewer frame.
+        # Both paths return TCP in this arm's own base, never the RoboGUI frame.
         if self.robot_kinematics is not None:
             return kin.fk(np.r_[joints, aperture])
         return kin.fk(joints, aperture)

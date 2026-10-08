@@ -198,7 +198,7 @@ differential/adapter tests plus twelve existing UMI tests passing,
 including finite-difference Jacobians, velocity and dt caps, invalid inputs,
 empty boxes, J6/J7 conflicts/post-checks, lag guards, reset, profile conflicts,
 real H16/H64 chunk decoding and atomic rejection on the final right-arm action.
-Its final combined viewer/session/config/executor/Tianji/camera/UMI/diff-IK and
+Its final combined robogui/session/config/executor/Tianji/camera/UMI/diff-IK and
 mock-runtime regression suite passed 218 tests in 13.02 seconds. Ruff passed
 on the changed source, scripts and tests. A real H16 checkpoint was bound with
 an explicit differential-IK profile in the model environment; the runtime

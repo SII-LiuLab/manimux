@@ -9,7 +9,7 @@ robot SDK. The RoboGUI preset has no hardware controller or Home operation.
 Use a [core ManiMux environment](environments.md), then run from the repository root:
 
 ```bash
-manimux-viewer --robot aloha --demo --host 127.0.0.1 --port 8087
+manimux-robogui --robot aloha --demo --host 127.0.0.1 --port 8087
 ```
 
 Open `http://127.0.0.1:8087`. Both arms and grippers move using synthetic joint
@@ -20,7 +20,7 @@ simulate physics. The table and dual-arm placement are display context.
 To inspect recorded absolute joint targets:
 
 ```bash
-manimux-viewer --robot aloha --replay-actions actions.npz \
+manimux-robogui --robot aloha --replay-actions actions.npz \
   --action-dt-s 0.03333333333333333 --host 127.0.0.1 --port 8087
 ```
 

@@ -55,7 +55,7 @@ Load only the needed reference:
    cameras and backend identity. Freeze the task rubric, reset/layout protocol,
    timeout and repeat budget before formal collection. List a concrete missing
    value instead of silently inventing it.
-3. **Collect within the existing authorization.** Follow the current Viewer
+3. **Collect within the existing authorization.** Follow the current RoboGUI
    controls/runbook. Each independent attempt gets a new rollout, the correct
    layout ID and matched layout reset; randomize method order within blocks.
    Record the human assessment after finalization. A request to inspect progress

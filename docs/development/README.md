@@ -17,7 +17,7 @@ Humans and agents use the same protocol references below.
 | A different action representation | `manimux/policy_adapter/` | [Action semantics](policies.md#observation-and-action-adapter) |
 | A chunk scheduling algorithm | `manimux/runtime/<algorithm>/` | [InferenceStrategy](runtime-config.md#inference-algorithm-versus-executor) |
 | A command generator | `manimux/runtime/executors/` | [Executor](runtime-config.md#inference-algorithm-versus-executor) |
-| Robot display, replay or experiment UI | `manimux/viewer/`, `manimux/recording/` | [RoboGUI and records](runtime-config.md#viewer-replay-and-recording) |
+| Robot display, replay or experiment UI | `manimux/robogui/`, `manimux/recording/` | [RoboGUI and records](runtime-config.md#robogui-replay-and-recording) |
 
 RLinf is an example of an integration request, not a claim of an existing client.
 

@@ -9,7 +9,7 @@ groups:
   left_arm:
     label: Left follower
     # Source assembly placement is display context, not station calibration.
-    viewer_display_frame: {xyz: [0.2305, 0.297, 0.782], rpy: [0.0, 0.0, 0.02]}
+    robogui_display_frame: {xyz: [0.2305, 0.297, 0.782], rpy: [0.0, 0.0, 0.02]}
     prediction_color: [52, 111, 255]
     trail_color: [33, 180, 106]
     initial: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5]
@@ -19,7 +19,7 @@ groups:
       phase: 0.0
   right_arm:
     label: Right follower
-    viewer_display_frame: {xyz: [0.2315, -0.3063, 0.781], rpy: [0.0, 0.0, 0.01]}
+    robogui_display_frame: {xyz: [0.2315, -0.3063, 0.781], rpy: [0.0, 0.0, 0.01]}
     prediction_color: [255, 94, 87]
     trail_color: [255, 170, 0]
     initial: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5]

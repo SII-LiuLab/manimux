@@ -121,10 +121,10 @@ class CameraClient:
 
 
 class CameraSubscriber:
-    """Optional PUB/SUB consumer for the live viewer.
+    """Optional PUB/SUB consumer for the live preview.
 
     The eval inner loop should use ``CameraClient`` (REQ/REP). This subscriber
-    exists so a cv2 viewer can render at camera rate without competing for the
+    exists so a cv2 preview can render at camera rate without competing for the
     REP socket with the policy.
     """
 
@@ -172,7 +172,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Live viewer for the YAM camera server. "
+        description="Live preview for the YAM camera server. "
         "Defaults to the PUB stream so it doesn't fight the policy for REP."
     )
     parser.add_argument(

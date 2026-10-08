@@ -65,7 +65,7 @@ envs/yam/.venv/bin/manimux-camera-server --config manimux/configs/embodiment/sen
 envs/yam/.venv/bin/manimux-camera-server \
   --config manimux/configs/embodiment/sensor/cameras/gemini_2_views.yaml \
   --rep-endpoint tcp://127.0.0.1:5575 --pub-endpoint tcp://127.0.0.1:5576
-envs/yam/.venv/bin/manimux-viewer --robot yam --host 0.0.0.0 --port 8086
+envs/yam/.venv/bin/manimux-robogui --robot yam --host 0.0.0.0 --port 8086
 ```
 
 | 视角配置 | 外部相机 | 腕部相机 |
@@ -84,8 +84,8 @@ GUI 默认 `camera_mode: policy`，跟随 runtime 上报的 `policy.adapter.came
 未收到模型输入配置时显示默认 `top / left / right` 预览，并注明尚未获取配置。
 新一轮、新 runtime、失联和视角变化会清理旧画面；缺失的选中视角显示“等待图像”。
 
-调试时仍可用 `--config manimux/configs/viewer/yam-top.yaml`、`yam-gemini305.yaml` 或
-`yam-gemini335.yaml`（后两者同在 `manimux/configs/viewer/`）进入 `camera_mode: manual`。
+调试时仍可用 `--config manimux/configs/robogui/yam-top.yaml`、`yam-gemini305.yaml` 或
+`yam-gemini335.yaml`（后两者同在 `manimux/configs/robogui/`）进入 `camera_mode: manual`。
 这只覆盖预览；界面同时列出模型输入，预览选择不改变送入模型的相机。
 若要恢复自动跟随，省略 RoboGUI 的 `--config` 或显式设置 `camera_mode: policy`。
 记录仍保存物理相机名和 `view_profile`。

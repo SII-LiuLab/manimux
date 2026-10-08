@@ -51,7 +51,7 @@ Sources: `manimux/recording/episode.py`, `manimux/recording/video.py`,
   metadata for these per-attempt fields. Legacy missing identities remain unknown.
 - `runtime=manimux` alone does not identify Serial. Check the snapshot's
   `inference.algorithm` **and** `inference.inference_schedule`, then policy and
-  checkpoint identity. Do not group by viewer label or output folder alone.
+  checkpoint identity. Do not group by robogui label or output folder alone.
 - Identify an episode by its full resolved directory, keeping both session and
   rollout names. Different sessions reuse `rollout-001`; runtime `session_id` and
   directory/manifest IDs need not be the same identifier.

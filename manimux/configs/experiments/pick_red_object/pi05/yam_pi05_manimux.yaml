@@ -61,7 +61,7 @@ policy:
     action_format: joint
     request_timeout_s: 10.0
 
-viewer:
+robogui:
   enabled: true
   robot: yam
   policy_label: pi05 YAM finetune ManiMux 30Hz

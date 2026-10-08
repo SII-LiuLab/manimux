@@ -315,13 +315,13 @@ envs/yam/.venv/bin/manimux-camera-server --config manimux/configs/embodiment/sen
 
 确认三台 RealSense 均已打开，并看到 `REP bound` 与 `PUB bound`。
 
-<a id="terminal-3viewer"></a>
+<a id="terminal-3robogui"></a>
 
 ### Terminal 3：RoboGUI
 
 ```bash
 cd /home/ubuntu/manimux
-.venv/bin/manimux-viewer --robot yam --host 0.0.0.0 --port 8086
+.venv/bin/manimux-robogui --robot yam --host 0.0.0.0 --port 8086
 ```
 
 浏览器打开 `http://localhost:8086`。

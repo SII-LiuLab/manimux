@@ -1,4 +1,4 @@
-"""Policy- and robot-independent messages sent to the viewer."""
+"""Policy- and robot-independent messages sent to the robogui."""
 
 from __future__ import annotations
 
@@ -153,7 +153,7 @@ class RuntimeEvent:
         }
 
 
-class ViewerPublisher:
+class RoboGUIPublisher:
     """Non-blocking publisher used by the robot/policy process."""
 
     def __init__(self, endpoint: str = "tcp://127.0.0.1:5568") -> None:
@@ -172,7 +172,7 @@ class ViewerPublisher:
         self._socket.close(linger=0)
 
 
-class _ViewerInbox:
+class _RoboGUIInbox:
     """Coalesce adjacent state samples without crossing plan/event boundaries."""
 
     def __init__(self) -> None:
@@ -187,7 +187,7 @@ class _ViewerInbox:
 
     def put(self, message: dict[str, Any]) -> None:
         message = dict(message)
-        message["_viewer_received_ns"] = time.monotonic_ns()
+        message["_robogui_received_ns"] = time.monotonic_ns()
         with self._lock:
             if (self._messages and message.get("kind") == "state"
                     and self._messages[-1].get("kind") == "state"
@@ -206,7 +206,7 @@ class _ViewerInbox:
         return messages
 
 
-class ViewerReceiver:
+class RoboGUIReceiver:
     """Receive independently of rendering; display current state at a bounded rate."""
 
     def __init__(
@@ -218,18 +218,18 @@ class ViewerReceiver:
         self._endpoint = endpoint
         self._callback = callback
         self._period = 1.0 / render_hz
-        self._inbox = _ViewerInbox()
+        self._inbox = _RoboGUIInbox()
         self._stop = threading.Event()
         self._ready = threading.Event()
         self._startup_error: Exception | None = None
-        self._thread = threading.Thread(target=self._run, name="viewer-bridge", daemon=True)
+        self._thread = threading.Thread(target=self._run, name="robogui-bridge", daemon=True)
         self._render_thread = threading.Thread(
-            target=self._render, name="viewer-render", daemon=True,
+            target=self._render, name="robogui-render", daemon=True,
         )
         self._thread.start()
         if not self._ready.wait(5.0):
             self.close()
-            raise TimeoutError("Viewer receiver did not start")
+            raise TimeoutError("RoboGUI receiver did not start")
         if self._startup_error is not None:
             self.close()
             raise self._startup_error
@@ -266,7 +266,7 @@ class ViewerReceiver:
                 try:
                     self._callback(message)
                 except Exception:
-                    logging.getLogger(__name__).exception("Viewer display update failed")
+                    logging.getLogger(__name__).exception("RoboGUI display update failed")
             # Never catch up by replaying missed display ticks.
             self._stop.wait(max(0.0, self._period - (time.monotonic() - started)))
 
@@ -287,7 +287,7 @@ class ControlServer:
         self._socket.bind(endpoint)
         self._callback = callback
         self._running = True
-        self._thread = threading.Thread(target=self._run, name="viewer-controls", daemon=True)
+        self._thread = threading.Thread(target=self._run, name="robogui-controls", daemon=True)
         self._thread.start()
 
     def _run(self) -> None:
@@ -305,7 +305,7 @@ class ControlServer:
 
 
 class ControlClient:
-    """Best-effort polling client that fails closed when the viewer is absent."""
+    """Best-effort polling client that fails closed when the robogui is absent."""
 
     def __init__(
         self, endpoint: str = "tcp://127.0.0.1:5569", *, timeout_ms: int = 20,

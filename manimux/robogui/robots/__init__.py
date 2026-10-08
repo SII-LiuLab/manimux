@@ -15,7 +15,7 @@ BUILTIN_ROBOTS = ("yam",)
 
 def available_robot_adapters() -> tuple[str, ...]:
     discovered = set(BUILTIN_ROBOTS)
-    discovered.update(entry.name for entry in metadata.entry_points(group="manimux.viewer.robots"))
+    discovered.update(entry.name for entry in metadata.entry_points(group="manimux.robogui.robots"))
     return tuple(sorted(discovered))
 
 
@@ -51,7 +51,7 @@ def load_robot_adapter(
     else:
         matching = [
             entry
-            for entry in metadata.entry_points(group="manimux.viewer.robots")
+            for entry in metadata.entry_points(group="manimux.robogui.robots")
             if entry.name == name_or_reference
         ]
         factory = cast(

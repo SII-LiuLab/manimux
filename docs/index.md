@@ -25,7 +25,7 @@ policies, and inference strategies. Built around **RoboGUI**, it brings together
 
 <div class="guide-overview">
 <figure class="guide-demo">
-<video class="guide-video" controls playsinline preload="none" poster="assets/media/viewer.webp" aria-label="RoboGUI demonstration with a YAM robot">
+<video class="guide-video" controls playsinline preload="none" poster="assets/media/robogui.webp" aria-label="RoboGUI demonstration with a YAM robot">
 <source src="assets/media/demo.mp4" type="video/mp4">
 Your browser does not support inline video.
 </video>

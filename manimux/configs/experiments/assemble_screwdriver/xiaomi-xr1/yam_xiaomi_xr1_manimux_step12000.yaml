@@ -60,7 +60,7 @@ policy:
   options:
     request_timeout_s: 10.0
 
-viewer:
+robogui:
   enabled: true
   robot: yam
   policy_label: Xiaomi XR-1 YAM screwdriver step-12000 · ManiMux

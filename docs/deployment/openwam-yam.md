@@ -4,7 +4,7 @@
 
 OpenWAM follows the XR1/Pi05 split: the policy and trainer live under
 `XPolicyLab/policy/OpenWAM`; ManiMux owns robot observations, FK/IK, scheduling,
-execution constraints, recording and the viewer. There is no ManiMux OpenWAM
+execution constraints, recording and the robogui. There is no ManiMux OpenWAM
 JSON client or standalone OpenWAM service. The vendored upstream deployment
 modules remain because the XPolicy adapter uses their loader and preprocessor
 in-process, without starting their WebSocket listener.
@@ -116,7 +116,7 @@ python scripts/validation/xpolicylab_yam_forward_probe.py \
 ```
 
 Only after real-checkpoint offline validation and robot setup, run the ordinary
-ManiMux runtime for task evaluation, recording and viewer output:
+ManiMux runtime for task evaluation, recording and robogui output:
 
 ```bash
 manimux run --config /path/to/deployment/openwam.yaml

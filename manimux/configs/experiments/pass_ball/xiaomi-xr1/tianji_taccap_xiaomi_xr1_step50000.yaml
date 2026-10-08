@@ -46,7 +46,7 @@ policy:
     connect_timeout_s: 60.0
     request_timeout_s: 120.0
 
-viewer:
+robogui:
   enabled: false
   robot: tianji-taccap
   policy_label: Xiaomi Robotics 1 / Tianji-TacCap / pass ball

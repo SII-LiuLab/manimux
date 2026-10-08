@@ -247,7 +247,7 @@ nvidia-smi
 
 必须看到 `127.0.0.1:8500` 处于 `LISTEN`。
 
-<a id="3-viewer"></a>
+<a id="3-robogui"></a>
 
 ## 3. 相机与 RoboGUI
 
@@ -261,7 +261,7 @@ envs/yam/.venv/bin/manimux-camera-server --config manimux/configs/embodiment/sen
 已有 `5555` 服务时不要重复启动。RoboGUI 可选：
 
 ```bash
-envs/yam/.venv/bin/manimux-viewer --robot yam --host 0.0.0.0 --port 8086
+envs/yam/.venv/bin/manimux-robogui --robot yam --host 0.0.0.0 --port 8086
 ```
 
 ## 4. Preflight
@@ -366,7 +366,7 @@ RoboGUI 通过 Prepare normal / Prepare experiment 选择模式：普通模式�
 Prepare 固定位置、重复次数和参考图路径/hash；页面中的 task command 会真实发送给 Pi05，不只是显示文本。
 
 `serve` 不加载模型、不启动相机，也不替代 RoboGUI。用户先分别启动 camera server、Pi05 model
-server 和 `manimux-viewer`，再启动一次 `serve`。RoboGUI 显示 service ready 后：
+server 和 `manimux-robogui`，再启动一次 `serve`。RoboGUI 显示 service ready 后：
 
 1. 确认 task；正式实验再选择参考图和重复次数。
 2. 点击 `Prepare normal rollout` 或 `Prepare experiment rollout`；ManiMux 创建全新 episode、连接机器人并移动到 start pose。
@@ -380,7 +380,7 @@ server 和 `manimux-viewer`，再启动一次 `serve`。RoboGUI 显示 service r
 [experiment infrastructure](../usage/records.md)。
 
 每条 episode 都创建新的 worker session，并重置 Timeline、RTC delay history、Executor、Recorder 和
-RoboGUI trail；不会继承上一条 rollout 的推理状态。camera/model/viewer/service 进程保持运行。
+RoboGUI trail；不会继承上一条 rollout 的推理状态。camera/model/robogui/service 进程保持运行。
 
 只需要单条 rollout 或用于脚本兼容时，原 CLI 入口仍保留：
 

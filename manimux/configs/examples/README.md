@@ -19,7 +19,7 @@ using it for robot motion. Existing experiment settings have not been changed.
 - `policy_server`: checkpoint and sampler settings for the separate model process.
 - `inference`: request scheduling, chunk handoff and timeline start alignment.
 - `executor`: command smoothing and limits.
-- `run`, `viewer`, `recording`: rollout lifecycle, UI and saved evidence.
+- `run`, `robogui`, `recording`: rollout lifecycle, UI and saved evidence.
 
 For example, `inference.action_start_mode: drop_infer_latency` makes the action timeline
 skip elapsed action points. It does not change the observation's timestamp. The shared
@@ -72,7 +72,7 @@ envs/yam/.venv/bin/python -m manimux.servers.camera.server \
 RoboGUI (open the printed browser URL; its endpoint must match the station):
 
 ```bash
-envs/yam/.venv/bin/python -m manimux.viewer.dashboard \
+envs/yam/.venv/bin/python -m manimux.robogui.dashboard \
   --robot yam --host 127.0.0.1 --port 8086
 ```
 

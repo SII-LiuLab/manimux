@@ -45,7 +45,7 @@ def on_page_markdown(markdown, *, page, config, files):
 def on_files(files, *, config):
     """Publish existing demo media without duplicating it in the source tree."""
     media = {
-        "assets/media/viewer.webp": ROOT / "assets/manimux-viewer-demo.webp",
+        "assets/media/robogui.webp": ROOT / "assets/manimux-robogui-demo.webp",
         "assets/media/demo.mp4": ROOT / "assets" / (
             "manimux_2026-09-05_23-17-35-00.00.03.144-00.00.34.914-"
             "seg1-00.00.02.596-00.00.34.966.mp4"

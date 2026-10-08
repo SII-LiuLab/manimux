@@ -63,7 +63,7 @@ policy:
     request_timeout_s: 10.0
   action_dt_s: 0.03333333333333333
 
-viewer:
+robogui:
   enabled: true
   robot: yam
   policy_label: Pi05 YAM put-bottles joint step-30000 - RTC max 12

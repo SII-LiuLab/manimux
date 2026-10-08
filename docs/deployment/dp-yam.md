@@ -36,9 +36,9 @@ envs/yam/.venv/bin/python -m manimux.servers.camera.server \
 ```
 
 ```bash
-envs/yam/.venv/bin/python -m manimux.viewer.dashboard \
+envs/yam/.venv/bin/python -m manimux.robogui.dashboard \
   --robot yam --host 127.0.0.1 --port 8086 \
-  --config manimux/configs/viewer/yam-dp-live.yaml
+  --config manimux/configs/robogui/yam-dp-live.yaml
 ```
 
 ```bash

@@ -163,7 +163,7 @@ envs/tianji/.venv/bin/python -m manimux serve \
 Start RoboGUI after the runtime is listening:
 
 ```bash
-envs/tianji/.venv/bin/python -m manimux.viewer.dashboard \
+envs/tianji/.venv/bin/python -m manimux.robogui.dashboard \
   --robot tianji --host 127.0.0.1 --port 8086
 ```
 
@@ -179,7 +179,7 @@ separate recovery action.
 The non-live experiments default to `robot.options.execute: false` and
 `robot.options.end_effector_control: false`; runtime still connects and reads feedback.
 The explicit `tianji_taccap_umi_dp_diff_live.yaml` recipe sets both fields and
-`viewer.enabled` to true. Execution settings belong to the experiment, not the station.
+`robogui.enabled` to true. Execution settings belong to the experiment, not the station.
 Tianji connection does not Home; the existing controller enables on the first executed
 command. See [RoboGUI](../development/runtime-config.md) for its separate display and control interface.
 

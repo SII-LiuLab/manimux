@@ -24,7 +24,7 @@ resolve the station in this order: CLI `--local`, experiment `local:`, default s
 are relative to the working directory, experiment references to that YAML, and `paths`
 values to the station file. Use the same experiment and station for the three processes.
 Pi05 and camera-server `--config` also read the selected station. UMI_DP standalone
-`--config`, Viewer sockets, other model launchers retain separate
+`--config`, RoboGUI sockets, other model launchers retain separate
 configuration paths; do not claim they all use the station file. Some historical YAM
 experiments still lack named camera/service mappings; check the selected recipe instead
 of assuming every existing experiment supports camera `--experiment` startup.
@@ -48,12 +48,12 @@ Neither robot requires a separate original control/reproduction repository at ru
 Follow physical camera → assembly component → camera-server stream name → runtime sensor
 name → `policy.adapter.camera_map`. A camera serial and a gripper serial identify different
 devices. Follow the chosen template's REP/PUB addressing: current YAM uses requests on
-port 5555, while Tianji's timestamped client subscribes on 5556. A manual Viewer preview
+port 5555, while Tianji's timestamped client subscribes on 5556. A manual RoboGUI preview
 does not alter model inputs. Confirm unknown placement with the user or an authorized preview.
 
-Viewer preset names and runtime robot identities are distinct: `--robot tianji` selects
-the Viewer preset, while the Tianji assembly is named `tianji-taccap`. Experiments must
-use `viewer.robot: tianji-taccap` so Viewer message filtering and runtime ownership agree.
+RoboGUI preset names and runtime robot identities are distinct: `--robot tianji` selects
+the RoboGUI preset, while the Tianji assembly is named `tianji-taccap`. Experiments must
+use `robogui.robot: tianji-taccap` so RoboGUI message filtering and runtime ownership agree.
 
 ## Environments and model paths
 

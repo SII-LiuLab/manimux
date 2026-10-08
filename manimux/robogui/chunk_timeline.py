@@ -40,7 +40,7 @@ class WarmupPreviewLane:
 
 
 class ChunkTimelineView:
-    """Reduce viewer wire messages into two alternating chunk lanes."""
+    """Reduce robogui wire messages into two alternating chunk lanes."""
 
     def __init__(self, gripper_groups: dict[str, str] | None = None) -> None:
         self.gripper_groups = dict(gripper_groups or {})

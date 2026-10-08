@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 def __getattr__(name: str):
     # Workers unpickle runtime request types. Do not make the first inference
-    # import all executors/viewer code and count that cost as model latency.
+    # import all executors/robogui code and count that cost as model latency.
     if name in {"EdgeRuntime", "RunResult"}:
         from manimux.runtime import edge
 
@@ -153,8 +153,8 @@ def inference_parameters(*, executor: dict, **options) -> dict:
 def validate_runtime_parameters(config: dict) -> None:
     """保留调度、动作解码和执行限位之间的必要约束。"""
     if config["run"].get("warmup_before_start", False):
-        if not config["viewer"]["enabled"]:
-            raise ValueError("run.warmup_before_start requires Viewer Start control")
+        if not config["robogui"]["enabled"]:
+            raise ValueError("run.warmup_before_start requires RoboGUI Start control")
         if config["policy"]["action_decoding"] != "inline":
             raise ValueError("pre-Start warmup currently requires inline action decoding")
     motion = config["executor"]["motion_limits"]

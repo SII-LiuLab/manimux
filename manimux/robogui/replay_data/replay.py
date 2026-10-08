@@ -1,4 +1,4 @@
-"""Read saved YAM trajectories for synchronized, hardware-free Viewer replay."""
+"""Read saved YAM trajectories for synchronized, hardware-free RoboGUI replay."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-# Viewer 仅加载离线一体模型，无需 i2rt/CAN，也不创建相机设备。
+# RoboGUI 仅加载离线一体模型，无需 i2rt/CAN，也不创建相机设备。
 label: YAM
 model: ../../../configs/embodiment/robot/yam_dual.yaml
 camera_mode: policy
@@ -21,8 +21,8 @@ camera_aliases:
 groups:
   left_arm:
     label: Left arm
-    # 仅供场景摆放，沿用旧 Viewer 布局；不进入本体 FK/IK。
-    viewer_display_frame: {xyz: [0.0, 0.32, 0.0], rpy: [0.0, 0.0, 0.0]}
+    # 仅供场景摆放，沿用旧 RoboGUI 布局；不进入本体 FK/IK。
+    robogui_display_frame: {xyz: [0.0, 0.32, 0.0], rpy: [0.0, 0.0, 0.0]}
     prediction_color: [52, 111, 255]
     trail_color: [33, 180, 106]
     # 六个弧度关节 + 内置夹爪开度（0 闭合、1 张开）。
@@ -30,7 +30,7 @@ groups:
     aperture: gripper
   right_arm:
     label: Right arm
-    viewer_display_frame: {xyz: [0.0, -0.32, 0.0], rpy: [0.0, 0.0, 0.0]}
+    robogui_display_frame: {xyz: [0.0, -0.32, 0.0], rpy: [0.0, 0.0, 0.0]}
     prediction_color: [255, 94, 87]
     trail_color: [255, 170, 0]
     initial: [0.0, 0.75, 1.2, -0.25, -0.1, 0.2, 0.4]

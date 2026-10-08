@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# Record the policy viewer with ffmpeg/x11grab.
+# Record the policy robogui with ffmpeg/x11grab.
 #
-# The viewer's own Record button can only capture the 3D scene -- viser renders
+# The robogui's own Record button can only capture the 3D scene -- viser renders
 # in the browser and `get_render` returns the scene, not the window.  Screen
 # capture is what gets the GUI column, the task prompt, and the camera panels
 # into the clip, so that is what this script does.
 #
-#   scripts/media/record-viewer.sh                 # 2K 60 fps, click the window to record
-#   scripts/media/record-viewer.sh --screen        # whole screen instead of one window
-#   scripts/media/record-viewer.sh --duration 15   # stop automatically after 15 s
-#   scripts/media/record-viewer.sh --gif           # also write a README-ready GIF
-#   scripts/media/record-viewer.sh --delay 5       # 5 s to raise the window first
+#   scripts/media/record-robogui.sh                 # 2K 60 fps, click the window to record
+#   scripts/media/record-robogui.sh --screen        # whole screen instead of one window
+#   scripts/media/record-robogui.sh --duration 15   # stop automatically after 15 s
+#   scripts/media/record-robogui.sh --gif           # also write a README-ready GIF
+#   scripts/media/record-robogui.sh --delay 5       # 5 s to raise the window first
 #
 # Stop a running capture with a single Ctrl-C; ffmpeg finalizes the file.
 
@@ -53,7 +53,7 @@ export DISPLAY
 case "$mode" in
   window)
     command -v xwininfo >/dev/null || { echo "xwininfo is not installed" >&2; exit 1; }
-    echo "Click the browser window showing the viewer..."
+    echo "Click the browser window showing the robogui..."
     info=$(xwininfo)
     x=$(awk '/Absolute upper-left X/ {print $NF}' <<<"$info")
     y=$(awk '/Absolute upper-left Y/ {print $NF}' <<<"$info")
@@ -86,7 +86,7 @@ h=$((h / 2 * 2))
 
 mkdir -p "$OUT_DIR"
 stamp=$(date +%Y%m%d-%H%M%S)
-mp4="$OUT_DIR/viewer-$stamp.mp4"
+mp4="$OUT_DIR/robogui-$stamp.mp4"
 
 args=(-hide_banner -loglevel warning -stats
       -f x11grab -framerate "$FPS" -video_size "${w}x${h}" -i "${DISPLAY}+${x},${y}")

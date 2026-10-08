@@ -119,7 +119,7 @@ def gripper_closed_steps_by_group_at(
 
 
 def _display_frame(frame):
-    """Viewer 独有的显示位置（米）和朝向（xyz 欧拉角，弧度），省略时为原点。"""
+    """RoboGUI 独有的显示位置（米）和朝向（xyz 欧拉角，弧度），省略时为原点。"""
     position = tuple(frame.get("xyz", [0.0, 0.0, 0.0]))
     orientation = Rotation.from_euler("xyz", frame.get("rpy", [0.0, 0.0, 0.0]))
     return position, tuple(orientation.as_quat()[[3, 0, 1, 2]])
@@ -141,8 +141,8 @@ class RobotView:
         groups = []
         for name, group in model.groups.items():
             style = styles.get(name, {})
-            # 场景原点由 Viewer 隐式提供；这里只摆放模型，绝不修改单臂 FK/IK。
-            position, orientation = _display_frame(style.get("viewer_display_frame", {}))
+            # 场景原点由 RoboGUI 隐式提供；这里只摆放模型，绝不修改单臂 FK/IK。
+            position, orientation = _display_frame(style.get("robogui_display_frame", {}))
             groups.append(
                 RobotGroup(
                     name=name,
@@ -160,7 +160,7 @@ class RobotView:
             StaticMesh(
                 name,
                 Path(mesh["urdf"]),
-                *_display_frame(mesh.get("viewer_display_frame", {})),
+                *_display_frame(mesh.get("robogui_display_frame", {})),
             )
             for name, mesh in scene.get("meshes", {}).items()
         )
@@ -203,7 +203,7 @@ class RobotView:
         return result
 
     def pose(self, group, configuration):
-        # 控制 FK 始终在单臂基座中；Viewer 节点单独应用显示变换一次。
+        # 控制 FK 始终在单臂基座中；RoboGUI 节点单独应用显示变换一次。
         return self.model.groups[group].kinematics.fk(configuration)
 
     def positions(self, group, configurations):

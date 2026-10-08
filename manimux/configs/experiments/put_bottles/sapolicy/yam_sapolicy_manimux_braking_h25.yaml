@@ -149,7 +149,7 @@ policy:
       model_path:
         /home/ubuntu/manimux/checkpoints/finetuned/sapolicy/abc130k/ft_teleop50_from_abc_notcpkv_rot5_bs1024_raw.ckpt
 
-viewer:
+robogui:
   enabled: true
   robot: yam
   policy_label: SAPolicy RAW | IK recovery 5deg | latched release | prefix 25

@@ -1,5 +1,5 @@
 # Live UMI_DP + Tianji-TacCap differential-IK experiment entry.
-# This recipe enables arm/end-effector commands and Viewer-controlled rollouts.
+# This recipe enables arm/end-effector commands and RoboGUI-controlled rollouts.
 # Bind a reviewed checkpoint before starting the runtime.
 control_profile: ../../../embodiment/robot/tianji_control_live.yaml
 
@@ -53,7 +53,7 @@ policy:
     request_timeout_s: 30.0
   action_dt_s: 0.03333333333333333
 
-viewer:
+robogui:
   enabled: true
   robot: tianji-taccap
   policy_label: UMI DP Tianji DiffIK Live

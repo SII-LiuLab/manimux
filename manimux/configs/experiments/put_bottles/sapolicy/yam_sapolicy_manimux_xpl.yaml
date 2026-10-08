@@ -5,9 +5,9 @@
 #        python manimux/servers/sapolicy.py --config manimux/configs/policy/sapolicy/yam/abc-bottles.yaml
 #   2. camera server at 640x480:
 #        envs/yam/.venv/bin/manimux-camera-server --config manimux/configs/embodiment/sensor/cameras/realsense_3_views.yaml
-#   3. viewer as in docs/deployment/sapolicy-yam.md
+#   3. robogui as in docs/deployment/sapolicy-yam.md
 #
-# Safety: connects paused when viewer.enabled; operator must Start at the robot.
+# Safety: connects paused when robogui.enabled; operator must Start at the robot.
 run:
   task: put the plastic bottles in the bin
   output_dir: ./data
@@ -104,7 +104,7 @@ policy:
     connect_timeout_s: 5.0
     request_timeout_s: 1.0
 
-viewer:
+robogui:
   enabled: true
   robot: yam
   policy_label: SAPolicy bottles 3cam TCP · XPolicyLab WS

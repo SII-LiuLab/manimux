@@ -48,7 +48,7 @@ from manimux.types import (
     copy_action_chunk,
     copy_group_vector,
 )
-from manimux.viewer import ViewerBridge
+from manimux.robogui import RoboGUIBridge
 
 logger = logging.getLogger(__name__)
 
@@ -213,13 +213,13 @@ class EdgeRuntime:
             max_acceleration=command_safety["max_acceleration"],
             control_dt_s=self._control_dt_ns / 1_000_000_000,
         )
-        self._viewer = ViewerBridge(
-            enabled=config["viewer"]["enabled"],
-            robot=config["viewer"]["robot"],
-            policy=config["viewer"]["policy_label"] or "manimux-local",
-            instruction=config["run"]["task"] if config["viewer"]["policy_label"] else "",
-            camera_hz=config["viewer"]["camera_hz"],
-            control=config["viewer"].get("control", {}),
+        self._robogui = RoboGUIBridge(
+            enabled=config["robogui"]["enabled"],
+            robot=config["robogui"]["robot"],
+            policy=config["robogui"]["policy_label"] or "manimux-local",
+            instruction=config["run"]["task"] if config["robogui"]["policy_label"] else "",
+            camera_hz=config["robogui"]["camera_hz"],
+            control=config["robogui"].get("control", {}),
         )
         self._state = RuntimeState.DISCONNECTED
         logger.info(
@@ -349,7 +349,7 @@ class EdgeRuntime:
                     else None
                 ),
                 "runtime": self._strategy.name,
-                "policy_label": self._config["viewer"]["policy_label"],
+                "policy_label": self._config["robogui"]["policy_label"],
                 "policy_worker": self._config["policy"]["worker"],
                 "policy_adapter": self._config["policy"]["adapter"]["type"],
                 "view_profile": self._config["policy"]["adapter"].get("view_profile"),
@@ -433,7 +433,7 @@ class EdgeRuntime:
             previous_command = copy_group_vector(initial_state.groups)
             last_command = copy_group_vector(initial_state.groups)
             self._state = RuntimeState.RUNNING
-            viewer_episode_metadata = {
+            robogui_episode_metadata = {
                 "episode_active": True,
                 "episode_id": episode_id,
                 "episode_dir": str(recorder.final_dir.resolve()),
@@ -444,19 +444,19 @@ class EdgeRuntime:
                 "control_mode": self._strategy.control_mode,
                 "runtime": self._strategy.name,
                 "executor": self._config["executor"]["type"],
-                "policy_label": self._config["viewer"]["policy_label"],
+                "policy_label": self._config["robogui"]["policy_label"],
                 **self._rollout_identity,
                 "camera_map": self._config["policy"]["adapter"].get("camera_map", {}),
                 "launch_mode": self._launch_mode,
                 **({"warmup": warmup.metadata()} if warmup is not None else {}),
             }
-            # 当前整机未提供手动拖动恢复；Viewer 不展示已退役的驱动能力。
-            viewer_episode_metadata["recovery_available"] = False
-            self._viewer.set_state_metadata(viewer_episode_metadata)
-            with stage("viewer_publish_event"):
-                self._viewer.publish_event(
+            # 当前整机未提供手动拖动恢复；RoboGUI 不展示已退役的驱动能力。
+            robogui_episode_metadata["recovery_available"] = False
+            self._robogui.set_state_metadata(robogui_episode_metadata)
+            with stage("robogui_publish_event"):
+                self._robogui.publish_event(
                     "episode_started",
-                    metadata=viewer_episode_metadata,
+                    metadata=robogui_episode_metadata,
                 )
             next_tick_ns = self._clock.now_ns()
 
@@ -477,33 +477,33 @@ class EdgeRuntime:
                 with stage("camera_read", mode=sensor_reader.mode):
                     frames = sensor_reader.read()
 
-                with stage("viewer_control"):
-                    viewer_control = self._viewer.poll_control()
-                control_diagnostics = getattr(viewer_control, "diagnostics", None)
+                with stage("robogui_control"):
+                    robogui_control = self._robogui.poll_control()
+                control_diagnostics = getattr(robogui_control, "diagnostics", None)
                 if control_diagnostics is not None:
                     control_status = (
-                        viewer_control.paused, control_diagnostics.get("reason"),
+                        robogui_control.paused, control_diagnostics.get("reason"),
                         control_diagnostics.get("timeout_count"),
                         control_diagnostics.get("error_count"),
                         control_diagnostics.get("transport_status"),
                     )
                     if control_status != last_control_status:
                         recorder.event(
-                            "viewer_control_state", step=steps,
+                            "robogui_control_state", step=steps,
                             monotonic_ns=self._clock.now_ns(),
-                            paused=viewer_control.paused, **control_diagnostics,
+                            paused=robogui_control.paused, **control_diagnostics,
                         )
                         last_control_status = control_status
-                if viewer_control.finish_requested:
+                if robogui_control.finish_requested:
                     timing.set_phase("stopped")
                     # Stop model requests before Home/recording cleanup can take time.
                     self._worker.request_stop()
-                    if viewer_control.finish_home is not None:
-                        home_on_close = viewer_control.finish_home
-                    terminal_reason = "viewer_finish_requested"
-                    recorder.event("viewer_finish_requested", step=steps, home=home_on_close)
+                    if robogui_control.finish_home is not None:
+                        home_on_close = robogui_control.finish_home
+                    terminal_reason = "robogui_finish_requested"
+                    recorder.event("robogui_finish_requested", step=steps, home=home_on_close)
                     break
-                if viewer_control.home_requested:
+                if robogui_control.home_requested:
                     timing.set_phase("homing")
                     self._robot.home()
                     state = self._robot.get_state()
@@ -517,7 +517,7 @@ class EdgeRuntime:
                     pending_observation_states.clear()
                     self._state = RuntimeState.PAUSED
                     recorder.event(
-                        "viewer_home_requested", step=steps,
+                        "robogui_home_requested", step=steps,
                         state=state_evidence(
                             state, targets=self._config["robot"]["options"].get("start_joints")
                         ),
@@ -530,7 +530,7 @@ class EdgeRuntime:
                     before = warmup.metadata()
                     with stage("warmup_advance"):
                         warmup.advance(
-                            paused=viewer_control.paused,
+                            paused=robogui_control.paused,
                             snapshot=ObservationSnapshot(state=state, frames=frames),
                         )
                     status = warmup.metadata()
@@ -538,8 +538,8 @@ class EdgeRuntime:
                     preview = warmup.take_preview()
                     if preview is not None:
                         preview_chunk, preview_inference_ms, preview_metadata = preview
-                        with stage("viewer_publish_plan"):
-                            self._viewer.publish_plan(
+                        with stage("robogui_publish_plan"):
+                            self._robogui.publish_plan(
                                 preview_chunk, preview_inference_ms,
                                 metadata={
                                     **preview_metadata,
@@ -562,8 +562,8 @@ class EdgeRuntime:
                     for kind, fields in warmup.take_events():
                         recorder.event(kind, **fields)
                         logger.info("%s %s", kind, fields)
-                        with stage("viewer_publish_event"):
-                            self._viewer.publish_event(
+                        with stage("robogui_publish_event"):
+                            self._robogui.publish_event(
                                 kind, step=steps,
                                 metadata={
                                     **fields, "episode_id": episode_id,
@@ -573,8 +573,8 @@ class EdgeRuntime:
                             )
                     if status != before:
                         recorder.update_metadata(warmup=status)
-                    viewer_episode_metadata["warmup"] = status
-                    self._viewer.set_state_metadata(viewer_episode_metadata)
+                    robogui_episode_metadata["warmup"] = status
+                    self._robogui.set_state_metadata(robogui_episode_metadata)
                     # Preserve the existing paused hold; model output never reaches it.
                     self._executor.reset(state)
                     command = self._hold_command(self._clock.now_ns(), state.groups)
@@ -584,8 +584,8 @@ class EdgeRuntime:
                     self._robot.send_command(command)
                     previous_command = copy_group_vector(last_command)
                     last_command = copy_group_vector(command.groups)
-                    with stage("viewer_publish_state"):
-                        self._viewer.publish_state(
+                    with stage("robogui_publish_state"):
+                        self._robogui.publish_state(
                             state, frames, step=steps,
                             max_steps=self._config["run"]["max_control_steps"],
                         )
@@ -597,7 +597,7 @@ class EdgeRuntime:
                     timing.end()
                     # Even after RESET, reacquire a fresh observation on the next tick.
                     continue
-                if viewer_control.paused and (
+                if robogui_control.paused and (
                     self._decoder is not None
                     or self._config["inference"]["inference_schedule"] == "serial"
                     or getattr(self._strategy, "discard_plans_while_paused", False)
@@ -610,7 +610,7 @@ class EdgeRuntime:
                     discard_responses_through = max(discard_responses_through, request_seq)
                     pending_observation_states.clear()
                 self._state = (
-                    RuntimeState.RUNNING if not viewer_control.paused else RuntimeState.PAUSED
+                    RuntimeState.RUNNING if not robogui_control.paused else RuntimeState.PAUSED
                 )
                 timing.set_phase(self._state.value.lower())
                 if self._state == RuntimeState.RUNNING and not formal_start_recorded:
@@ -745,8 +745,8 @@ class EdgeRuntime:
                             request_seq=response.request_seq,
                             reason=rejection_reason,
                         )
-                        with stage("viewer_publish_event"):
-                            self._viewer.publish_event(
+                        with stage("robogui_publish_event"):
+                            self._robogui.publish_event(
                                 "inference_rejected",
                                 step=steps,
                                 chunk_id=response.request_seq,
@@ -800,8 +800,8 @@ class EdgeRuntime:
                                 request_seq=response.request_seq,
                                 reason=reason,
                             )
-                            with stage("viewer_publish_event"):
-                                self._viewer.publish_event(
+                            with stage("robogui_publish_event"):
+                                self._robogui.publish_event(
                                     "plan_rejected",
                                     step=steps,
                                     chunk_id=response.request_seq,
@@ -821,8 +821,8 @@ class EdgeRuntime:
                                     f"'joint_position', got {chunk.action_space!r}"
                                 ),
                             )
-                            with stage("viewer_publish_event"):
-                                self._viewer.publish_event(
+                            with stage("robogui_publish_event"):
+                                self._robogui.publish_event(
                                     "plan_rejected",
                                     step=steps,
                                     chunk_id=response.request_seq,
@@ -849,8 +849,8 @@ class EdgeRuntime:
                                     request_seq=response.request_seq,
                                     reason=reason,
                                 )
-                                with stage("viewer_publish_event"):
-                                    self._viewer.publish_event(
+                                with stage("robogui_publish_event"):
+                                    self._robogui.publish_event(
                                         "plan_rejected",
                                         step=steps,
                                         chunk_id=response.request_seq,
@@ -964,8 +964,8 @@ class EdgeRuntime:
                                             committed=committed,
                                         ),
                                     )
-                                with stage("viewer_publish_plan"):
-                                    self._viewer.publish_plan(
+                                with stage("robogui_publish_plan"):
+                                    self._robogui.publish_plan(
                                         chunk,
                                         response.inference_ms,
                                         committed=committed,
@@ -1016,8 +1016,8 @@ class EdgeRuntime:
                                     request_seq=chunk.request_seq,
                                     reason=result.reason,
                                 )
-                                with stage("viewer_publish_event"):
-                                    self._viewer.publish_event(
+                                with stage("robogui_publish_event"):
+                                    self._robogui.publish_event(
                                         "plan_rejected",
                                         step=steps,
                                         chunk_id=response.request_seq,
@@ -1112,8 +1112,8 @@ class EdgeRuntime:
                                 submission.event_fields.get("forecast_delay", 0)
                             )
                         pending_visuals[request_seq] = visual_fields
-                        with stage("viewer_publish_event"):
-                            self._viewer.publish_event(
+                        with stage("robogui_publish_event"):
+                            self._robogui.publish_event(
                                 "inference_submitted",
                                 step=steps,
                                 chunk_id=request_seq,
@@ -1121,8 +1121,8 @@ class EdgeRuntime:
                             )
                 for kind, fields in self._strategy.take_runtime_events(step=steps):
                     recorder.event(kind, **fields)
-                    with stage("viewer_publish_event"):
-                        self._viewer.publish_event(kind, step=steps, metadata=fields)
+                    with stage("robogui_publish_event"):
+                        self._robogui.publish_event(kind, step=steps, metadata=fields)
 
                 now_ns = self._clock.now_ns()
                 with stage("timeline_reference"):
@@ -1218,8 +1218,8 @@ class EdgeRuntime:
                     last_dispatch_plan_id = command.plan_id
                 previous_command = copy_group_vector(last_command)
                 last_command = copy_group_vector(command.groups)
-                with stage("viewer_publish_state"):
-                    self._viewer.publish_state(
+                with stage("robogui_publish_state"):
+                    self._robogui.publish_state(
                         state,
                         frames,
                         step=steps,
@@ -1274,8 +1274,8 @@ class EdgeRuntime:
                 steps=steps,
                 wall_time_s=time.perf_counter() - started_wall,
             )
-            with stage("viewer_publish_event"):
-                self._viewer.publish_event(
+            with stage("robogui_publish_event"):
+                self._robogui.publish_event(
                     "episode_finished",
                     step=steps,
                     metadata={
@@ -1333,7 +1333,7 @@ class EdgeRuntime:
             except BaseException as exc:
                 cleanup_errors.append(exc)
             try:
-                self._viewer.close()
+                self._robogui.close()
             except BaseException as exc:
                 cleanup_errors.append(exc)
             if not completed:

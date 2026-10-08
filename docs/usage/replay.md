@@ -23,7 +23,7 @@ joint configurations with the matching policy adapter.
 From the repository root:
 
 ```bash
-envs/yam/.venv/bin/python -m manimux.viewer.dashboard \
+envs/yam/.venv/bin/python -m manimux.robogui.dashboard \
   --robot yam --replay-actions actions.npz --action-dt-s 0.03333333333333333 \
   --host 127.0.0.1 --port 8087
 ```
@@ -37,19 +37,19 @@ frames when playback is faster than rendering.
 The Python interface accepts the same named arrays directly:
 
 ```python
-from manimux.viewer.action_replay import ActionReplayViewer
-from manimux.viewer.dashboard import load_robot_view, load_viewer_config
+from manimux.robogui.action_replay import ActionReplayRoboGUI
+from manimux.robogui.dashboard import load_robot_view, load_robogui_config
 
-robot = load_robot_view(load_viewer_config(robot="yam"))
-viewer = ActionReplayViewer(
+robot = load_robot_view(load_robogui_config(robot="yam"))
+robogui = ActionReplayRoboGUI(
     {"left_arm": left_actions, "right_arm": right_actions},
     robot, action_dt_s=1 / 30, port=8087,
 )
-# Call viewer.tick() regularly from your event loop; call viewer.close() on exit.
+# Call robogui.tick() regularly from your event loop; call robogui.close() on exit.
 ```
 
 Without `--replay-actions`, the existing live RoboGUI startup and runtime control
-protocol are unchanged. Replay does not construct `PolicyViewer`, bind its control
+protocol are unchanged. Replay does not construct `PolicyRoboGUI`, bind its control
 socket, connect a runtime subscriber, write rollout data, or send robot commands.
 Only the robot's offline model dependencies are required. The NPZ playback path
 has no video or PyAV requirement.

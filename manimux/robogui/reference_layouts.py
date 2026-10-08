@@ -1,4 +1,4 @@
-"""Named reference images per task, shared by capture and research viewers."""
+"""Named reference images per task, shared by capture and research roboguis."""
 
 from __future__ import annotations
 

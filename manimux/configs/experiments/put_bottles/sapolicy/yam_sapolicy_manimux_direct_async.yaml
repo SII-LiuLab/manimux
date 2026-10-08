@@ -139,7 +139,7 @@ policy:
     request_timeout_s: 5.0
   action_decoding: process
 
-viewer:
+robogui:
   enabled: true
   robot: yam
   policy_label: SAPolicy RAW | DIRECT | parallel full IK | horizon 50

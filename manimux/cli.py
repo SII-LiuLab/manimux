@@ -357,7 +357,7 @@ def _runtime_lock(
 ) -> RuntimeInstanceLock:
     from manimux.runtime.lock import RuntimeInstanceLock
 
-    identity = config["viewer"]["robot"].strip() or config["robot"]["type"]
+    identity = config["robogui"]["robot"].strip() or config["robot"]["type"]
     return RuntimeInstanceLock(identity, mode=mode, config_path=config_path)
 
 
@@ -482,8 +482,10 @@ def prepare_experiment(**options) -> dict:
         inference_parameters,
         validate_runtime_parameters,
     )
-    from manimux.viewer import viewer_parameters
+    from manimux.robogui import robogui_parameters
 
+    if "viewer" in options:
+        raise ValueError("Rename the experiment section 'viewer' to 'robogui'.")
     options = deepcopy(options)
     values = {
         "control_profile": None,
@@ -493,7 +495,7 @@ def prepare_experiment(**options) -> dict:
         "sensors": [],
         "inference": {},
         "executor": {},
-        "viewer": {},
+        "robogui": {},
         "recording": {},
         "evaluation": {},
         **options,
@@ -507,8 +509,8 @@ def prepare_experiment(**options) -> dict:
     values["policy"] = policy_parameters(**values["policy"])
     values["executor"] = executor_parameters(**values["executor"])
     values["inference"] = inference_parameters(executor=values["executor"], **values["inference"])
-    if values.get("viewer") is not None:
-        values["viewer"] = viewer_parameters(**values["viewer"])
+    if values.get("robogui") is not None:
+        values["robogui"] = robogui_parameters(**values["robogui"])
     if values.get("recording") is not None:
         values["recording"] = recording_parameters(**values["recording"])
     values["evaluation"] = evaluation_parameters(values["evaluation"])

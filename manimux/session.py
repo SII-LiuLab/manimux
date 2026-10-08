@@ -16,7 +16,7 @@ from manimux.clock import SystemClock
 from manimux.embodiments.robot import build_robot
 from manimux.runtime import RunResult, build_runtime
 from manimux.types import RobotCommand
-from manimux.viewer.communication import ControlClient, RuntimeEvent, ViewerPublisher
+from manimux.robogui.communication import ControlClient, RuntimeEvent, RoboGUIPublisher
 
 
 class _Runtime(Protocol):
@@ -52,7 +52,7 @@ def _new_marvin_session():
 _DRAG_HZ = 250.0
 _DRAG_TRACK_RATE_DEG_S = 15.0
 # Measured per-arm UMI data from teleop/configs/tool/umi.yaml (2026-08-23).
-# Keep the idle Viewer session self-contained instead of importing a sibling checkout.
+# Keep the idle RoboGUI session self-contained instead of importing a sibling checkout.
 _DRAG_TOOL = {
     "A": {
         "kine": [-36.745, 0.0, 169.450, 0.0, -90.0, 180.0],
@@ -88,7 +88,7 @@ _DRAG_TOOL = {
 
 
 class _TianjiRecovery:
-    """Idle Viewer recovery without adding commands to the embodiment classes."""
+    """Idle RoboGUI recovery without adding commands to the embodiment classes."""
 
     def __init__(
         self,
@@ -171,7 +171,7 @@ class _TianjiRecovery:
                 self._state = "stopping"
             elif self._drag_error:
                 # A late Stop acknowledgement must not hide a cleanup failure
-                # that completed between the Viewer click and this poll.
+                # that completed between the RoboGUI click and this poll.
                 self._error = self._drag_error
                 self._state = "error"
             else:
@@ -197,7 +197,7 @@ class _TianjiRecovery:
             self._drag_thread = threading.Thread(
                 target=self._drag,
                 args=(tuple(arm),),
-                name="tianji-viewer-drag",
+                name="tianji-robogui-drag",
                 daemon=True,
             )
             self._drag_thread.start()
@@ -208,7 +208,7 @@ class _TianjiRecovery:
             self._home_cancel.clear()
             self._home_thread = threading.Thread(
                 target=self._home,
-                name="tianji-viewer-home",
+                name="tianji-robogui-home",
                 daemon=True,
             )
             self._home_thread.start()
@@ -221,7 +221,7 @@ class _TianjiRecovery:
                 raise ValueError(f"unsupported recovery request: {request}")
             self._clear_errors()
             self._state = "cleared"
-        except Exception as exc:  # noqa: BLE001 - report the SDK error in Viewer
+        except Exception as exc:  # noqa: BLE001 - report the SDK error in RoboGUI
             self._state = "error"
             self._error = f"{type(exc).__name__}: {exc}"
         finally:
@@ -392,7 +392,7 @@ class _TianjiRecovery:
                     controller.set_joint_cmd_pose(arm=arm, joints=commands[arm])
                 controller.send_cmd()
                 self._sleep(period_s)
-        except Exception as exc:  # noqa: BLE001 - surface hardware failures in Viewer
+        except Exception as exc:  # noqa: BLE001 - surface hardware failures in RoboGUI
             errors.append(f"{type(exc).__name__}: {exc}")
         finally:
             if touched:
@@ -521,7 +521,7 @@ class _TianjiRecovery:
                 if self._monotonic() >= deadline:
                     raise TimeoutError("Tianji-TacCap grippers did not fully open")
                 self._sleep(self._period_s)
-        except Exception as exc:  # noqa: BLE001 - report recovery failure to Viewer
+        except Exception as exc:  # noqa: BLE001 - report recovery failure to RoboGUI
             errors.append(f"{type(exc).__name__}: {exc}")
         finally:
             if robot is not None:
@@ -553,12 +553,12 @@ class RuntimeSessionService:
         *,
         runtime_factory: RuntimeFactory | None = None,
         control_factory: ControlFactory = ControlClient,
-        publisher_factory: PublisherFactory = ViewerPublisher,
+        publisher_factory: PublisherFactory = RoboGUIPublisher,
         poll_interval_s: float = 0.1,
         announcement_interval_s: float = 1.0,
     ) -> None:
-        if not config["viewer"]["enabled"]:
-            raise ValueError("manimux serve requires viewer.enabled=true")
+        if not config["robogui"]["enabled"]:
+            raise ValueError("manimux serve requires robogui.enabled=true")
         self._config = config
         self._run_dir = run_dir
         self._runtime_factory = runtime_factory or _build_served_runtime
@@ -582,7 +582,7 @@ class RuntimeSessionService:
             "evaluation": deepcopy(self._config.get("evaluation", {"kind": "binary"})),
             "runtime": self._config["inference"]["algorithm"],
             "executor": self._config["executor"]["type"],
-            "policy_label": self._config["viewer"]["policy_label"],
+            "policy_label": self._config["robogui"]["policy_label"],
             "camera_map": self._config["policy"]["adapter"].get("camera_map", {}),
             "experiment_template": deepcopy(self._config["run"].get("experiment_template")),
             "research_defaults": {
@@ -608,8 +608,8 @@ class RuntimeSessionService:
             publisher.publish(
                 RuntimeEvent(
                     event,
-                    robot=self._config["viewer"]["robot"],
-                    policy=self._config["viewer"]["policy_label"],
+                    robot=self._config["robogui"]["robot"],
+                    policy=self._config["robogui"]["policy_label"],
                     metadata=metadata,
                 )
             )
@@ -635,8 +635,8 @@ class RuntimeSessionService:
                     publisher.publish(
                         RuntimeEvent(
                             "runtime_service_ready",
-                            robot=self._config["viewer"]["robot"],
-                            policy=self._config["viewer"]["policy_label"],
+                            robot=self._config["robogui"]["robot"],
+                            policy=self._config["robogui"]["policy_label"],
                             metadata=self._ready_metadata(),
                         )
                     )

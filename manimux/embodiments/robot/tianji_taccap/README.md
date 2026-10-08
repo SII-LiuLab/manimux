@@ -51,8 +51,8 @@ T_arm_flange_target = T_arm_tcp_target × inverse(T_flange_tool × T_tool_tcp)
 ```
 
 本体配置不再声明 `root_frame` 或机械臂底座的显示变换，也不增加 body 坐标系。
-显示位置与朝向放在 `viewer/robots/tianji/viewer.yaml` 的
-`groups.<name>.viewer_display_frame`，静态支架放在该文件的 `scene.meshes`。
+显示位置与朝向放在 `robogui/robots/tianji/robogui.yaml` 的
+`groups.<name>.robogui_display_frame`，静态支架放在该文件的 `scene.meshes`。
 这些参数只由 RoboGUI 读取，改变它们不会改变 FK/IK 结果。
 末端执行器的 `mount` 和自身 TCP 偏移参与控制计算，且只应用一次。
 

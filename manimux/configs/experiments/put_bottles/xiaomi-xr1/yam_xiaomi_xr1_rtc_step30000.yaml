@@ -59,7 +59,7 @@ policy:
     request_timeout_s: 10.0
     server: ws://127.0.0.1:8500
 
-viewer:
+robogui:
   enabled: true
   robot: yam
   policy_label: Xiaomi XR1 bottles 30k - RTC

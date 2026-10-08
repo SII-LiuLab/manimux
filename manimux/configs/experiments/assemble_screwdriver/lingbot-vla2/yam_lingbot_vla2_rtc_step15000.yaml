@@ -59,7 +59,7 @@ policy:
     action_format: joint
     request_timeout_s: 20.0
 
-viewer:
+robogui:
   enabled: true
   robot: yam
   policy_label: LingBot-VLA2 YAM screwdriver step-15000 · RTC

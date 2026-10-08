@@ -9,7 +9,7 @@ See the [research workflow](research.md) for free/study modes.
 With your camera service already running, start the camera-only reference tool:
 
 ```bash
-envs/yam/.venv/bin/python -m manimux.viewer.reference_capture \
+envs/yam/.venv/bin/python -m manimux.robogui.reference_capture \
   --task put_bottles_into_the_bin --camera d405_front --port 8087
 ```
 

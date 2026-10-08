@@ -18,7 +18,7 @@ groups:
   left_arm:
     label: Left arm (A)
     # 原显示安装位置直接迁入；此变换不进入本体 FK/IK。
-    viewer_display_frame: {xyz: [0.0, 0.037, 1.121], rpy: [-1.5707963267948966, 0.0, 0.0]}
+    robogui_display_frame: {xyz: [0.0, 0.037, 1.121], rpy: [-1.5707963267948966, 0.0, 0.0]}
     prediction_color: [52, 111, 255]
     trail_color: [33, 180, 106]
     # Display-only opening; the recorded Home pose contains no gripper target.
@@ -29,7 +29,7 @@ groups:
       phase: 0.0
   right_arm:
     label: Right arm (B)
-    viewer_display_frame: {xyz: [0.0, -0.037, 1.121], rpy: [1.5707963267948966, 0.0, 0.0]}
+    robogui_display_frame: {xyz: [0.0, -0.037, 1.121], rpy: [1.5707963267948966, 0.0, 0.0]}
     prediction_color: [255, 94, 87]
     trail_color: [255, 170, 0]
     initial_end_effector: [1.0]
@@ -41,7 +41,7 @@ scene:
   meshes:
     stand:
       urdf: package://manimux.embodiments.robot.tianji_taccap/assets/stand/stand.urdf
-      viewer_display_frame: {xyz: [0.0, 0.0, 0.0], rpy: [0.0, 0.0, 0.0]}
+      robogui_display_frame: {xyz: [0.0, 0.0, 0.0], rpy: [0.0, 0.0, 0.0]}
   boxes:
     - name: table
       dimensions: [0.8, 1.2, 0.04]

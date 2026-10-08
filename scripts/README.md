@@ -8,7 +8,7 @@ The scripts are grouped by responsibility:
 
 - `datasets/`: prepare assets and statistics consumed by runtime inference.
 - `validation/`: offline probes, configuration checks, and diagnostic audits.
-- `media/`: viewer recording and other presentation helpers.
+- `media/`: robogui recording and other presentation helpers.
 
 Policy launchers live in `manimux/servers/`; model implementations and the shared
 policy server belong to XPolicyLab.
