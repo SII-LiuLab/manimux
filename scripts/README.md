@@ -21,3 +21,7 @@ envs/yam/.venv/bin/python manimux/servers/pi05.py --check
 python scripts/datasets/compute_yam_aac_ee_stats.py --help
 envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py --help
 ```
+
+For self-contained chunk speed reports with online execution, offline Pi05
+predictions, wrist images and inference latency, see the
+[chunk speed diagnostics guide](../docs/usage/chunk-speed.md).
