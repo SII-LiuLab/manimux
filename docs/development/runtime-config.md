@@ -43,8 +43,6 @@ timestamps, overlap, delayed/rejected responses and reset as relevant. For execu
 changes check actual arm/tool limits and output groups. Preserve capability checks;
 an algorithm setting alone does not implement the model's sampling hooks.
 
-<a id="robogui-replay-and-recording"></a>
-
 ### RTC waypoint handoff skip
 
 With `inference.algorithm: rtc`, `handoff: waypoint`, and `blend_policy_steps: 0`,
@@ -68,6 +66,8 @@ Choose `S < H` and, for a numeric initial delay, `2*initial_delay_policy_steps <
 The measured delay remains wall-clock latency and does not include intentional skip.
 Acceptance events distinguish `rtc_source_horizon` (`H`), `rtc_effective_horizon`
 (`H-S` for a skipped waypoint), and `rtc_handoff_skip_steps`.
+
+<a id="robogui-replay-and-recording"></a>
 
 ## RoboGUI, replay and recording
 
