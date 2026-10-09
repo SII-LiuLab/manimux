@@ -19,11 +19,21 @@ from manimux.embodiments.robot.base import RobotBase, RobotModel
 from manimux.kinematics.base import KinematicCoordinate, ManipulatorKinematicsBase
 from manimux.types import FloatArray, RobotCommand
 
-# Home profile: 9 deg/s peak cosine at 100 Hz.
-_HOME_HZ = 100.0
-_HOME_SPEED_DEG_S = 9.0
-_HOME_TOLERANCE_DEG = 0.5
-_SETTLE_TIMEOUT_S = 5.0
+
+@dataclass(frozen=True, slots=True)
+class TianjiHomeSettings:
+    """Cosine Home motion settings authored in the robot assembly YAML."""
+
+    control_hz: float
+    peak_velocity_deg_s: float
+    tolerance_deg: float
+    settle_timeout_s: float
+
+    def __post_init__(self) -> None:
+        for name in self.__dataclass_fields__:
+            value = getattr(self, name)
+            if not math.isfinite(value) or value <= 0:
+                raise ValueError(f"hardware.home_motion.{name} must be finite and positive")
 
 
 @dataclass(frozen=True, slots=True)
@@ -222,8 +232,8 @@ class TianjiTaccapRobot(RobotBase):
     def home(self) -> None:
         """Move connected arms to model.home_joints, then fully open the grippers.
 
-        The arms follow one cosine profile peaking at 9 deg/s and must settle within
-        0.5 degrees. Grippers open only with end-effector control. No-op without execute.
+        The arms follow the assembly's cosine profile and settle tolerance.
+        Grippers open only with end-effector control. No-op without execute.
         """
         if not self._execute:
             return
@@ -231,15 +241,16 @@ class TianjiTaccapRobot(RobotBase):
         targets = {} if self.model is None else dict(self.model.home_joints)
         if not targets:
             raise RuntimeError("Tianji-TacCap Home target is not configured")
-        period_s = 1.0 / _HOME_HZ
+        home = self._home_motion
+        period_s = 1.0 / home.control_hz
         with self._lock:
             state = self.get_state()
             if set(targets) != set(state.groups):
                 raise RuntimeError("Home targets do not match the robot groups")
             start = {name: state.groups[name][: len(q)].copy() for name, q in targets.items()}
             distance = max(float(np.max(np.abs(q - start[name]))) for name, q in targets.items())
-            duration_s = (math.pi / 2.0) * distance / math.radians(_HOME_SPEED_DEG_S)
-            deadline = time.monotonic() + duration_s * 2.0 + _SETTLE_TIMEOUT_S
+            duration_s = (math.pi / 2.0) * distance / math.radians(home.peak_velocity_deg_s)
+            deadline = time.monotonic() + duration_s * 2.0 + home.settle_timeout_s
             groups = {name: values.copy() for name, values in state.groups.items()}
             tick = 0
             while True:
@@ -261,8 +272,8 @@ class TianjiTaccapRobot(RobotBase):
                 tick += 1
                 self._home_wait(period_s)
 
-            deadline = time.monotonic() + _SETTLE_TIMEOUT_S
-            tolerance = math.radians(_HOME_TOLERANCE_DEG)
+            deadline = time.monotonic() + home.settle_timeout_s
+            tolerance = math.radians(home.tolerance_deg)
             while True:
                 self._check_home_cancel()
                 state = self.get_state()
@@ -272,7 +283,9 @@ class TianjiTaccapRobot(RobotBase):
                 ):
                     break
                 if time.monotonic() >= deadline:
-                    raise TimeoutError("Tianji-TacCap did not reach Home within 0.5 degrees")
+                    raise TimeoutError(
+                        f"Tianji-TacCap did not reach Home within {home.tolerance_deg:g} degrees"
+                    )
                 self._check_home_cancel()
                 self.send_command(RobotCommand(groups, self._clock.now_ns(), None))
                 self._home_wait(period_s)
@@ -283,7 +296,7 @@ class TianjiTaccapRobot(RobotBase):
                 groups[name][-1] = 1.0
             self._check_home_cancel()
             self.send_command(RobotCommand(groups, self._clock.now_ns(), None))
-            deadline = time.monotonic() + _SETTLE_TIMEOUT_S
+            deadline = time.monotonic() + home.settle_timeout_s
             while not all(
                 self.get_state().groups[name][-1] >= 0.98 for name in self.end_effectors
             ):
@@ -329,6 +342,8 @@ class TianjiTaccapRobot(RobotBase):
     ) -> None:
         clock = clock if clock is not None else SystemClock()
         control = {**model.hardware, **(hardware or {})}
+        home_motion = {**model.hardware["home_motion"], **control.pop("home_motion")}
+        self._home_motion = TianjiHomeSettings(**home_motion)
         shared_arm_hardware = {
             name: control.pop(name) for name in ("velocity_ratio", "acceleration_ratio")
         }

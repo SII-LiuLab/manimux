@@ -19,6 +19,11 @@ home:
       description: servo_fault
       note: carried over from dp_start_20260907, not resampled on 2026-09-10
 hardware:
+  home_motion:
+    control_hz: 100.0
+    peak_velocity_deg_s: 9.0
+    tolerance_deg: 0.5
+    settle_timeout_s: 5.0
   stale_timeout_s: 0.2
   ready_timeout_s: 3.0
   max_tracking_error_deg: 10  # Original command-to-measured bound.

@@ -21,6 +21,13 @@ drivers against the interfaces and callers; do not copy a vendor exception as a 
 | `recovery_actions`, `drag_selections` / robot assembly; `clear_errors()`, `drag()`, `recover_home(stop)`, `recover_drag()` | Optional idle recovery that RoboGUI may request between rollouts. `recovery_actions` declares the supported actions (`clear_error`, `home`, `drag`; none by default) and `drag_selections` maps each drag label to robot groups. The serving session only schedules them, each on a fresh, disconnected assembly constructed with its configured options. Home implementations must observe the stop event and complete cleanup before returning. | Vendor fault reset, hand-guiding mode, tool behavior and any preparation, such as clearing faults before connecting. |
 | `close()` / resource owner | Release owned resources, including after partial startup. Repeated cleanup must be safe; incomplete cleanup remains visible and retryable. Borrowers do not close shared sessions. | SDK shutdown, worker termination and connection release. |
 
+Tianji Home targets live in the assembly's `home.joints_deg`. Its cosine trajectory
+uses `hardware.home_motion`: `control_hz`, `peak_velocity_deg_s`, `tolerance_deg`,
+and `settle_timeout_s` (also used while waiting for grippers to open). The shipped
+assemblies retain 100 Hz, 9 deg/s, 0.5 degrees and 5 seconds. Experiment
+`robot.options.hardware.home_motion` may override individual fields; these options
+belong to the assembly and are not forwarded to the arm SDK.
+
 Document these lifecycle details in the integration's runbook:
 
 - **Read-only execution:** `execute: false` permits only documented read-only

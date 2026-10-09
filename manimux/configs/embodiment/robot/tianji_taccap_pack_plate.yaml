@@ -10,6 +10,11 @@ home:
     left_arm: [89.549, -32.95, -52.6334, -127.1007, -54.3386, 4.6073, 54.6561]
     right_arm: [-88.6985, -13.1926, 37.6683, -117.9514, 50.1699, -34.0801, -32.0042]
 hardware:
+  home_motion:
+    control_hz: 100.0
+    peak_velocity_deg_s: 9.0
+    tolerance_deg: 0.5
+    settle_timeout_s: 5.0
   stale_timeout_s: 0.2
   ready_timeout_s: 3.0
   max_tracking_error_deg: 10  # Original command-to-measured bound.

@@ -38,6 +38,15 @@ stateful close/open thresholds in the executor. Do not place curve parameters in
 adapter-side stateless mapping from this single authored block so recorded plans,
 IK and hardware commands use the same aperture.
 
+Curve mapping is supported by `JointAdapter`, Tianji absolute-EE adapters (XR-1
+and Pi05), and the Tianji UMI-DP adapter. Other adapters reject this mode at
+construction. An adapter must declare `supports_gripper_mapping = True` only when
+it maps decoded tool coordinates before timeline commit and inversely maps RTC
+conditions back into model units. Use the shared `GripperMapping`; leave measured
+observations and arm coordinates unchanged. Zero-weight RTC padding stays padding.
+`hysteresis` initializes its closed/open state from measured aperture; `close_latch`
+retains its separate explicit-reset and inference-hold behavior.
+
 For scheduling changes use a deterministic clock and synthetic chunks to check
 timestamps, overlap, delayed/rejected responses and reset as relevant. For executor
 changes check actual arm/tool limits and output groups. Preserve capability checks;

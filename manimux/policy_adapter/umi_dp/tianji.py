@@ -46,6 +46,7 @@ def state_vector(value):
 
 
 class UmiDpTianjiAdapter(PolicyAdapter):
+    supports_gripper_mapping = True
     uses_motion_limits = True
     supports_context_only_decode = True
     # This checkpoint's full source trajectory starts at the request

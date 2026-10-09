@@ -10,6 +10,13 @@ def build_policy_adapter(
     adapter_class = load_plugin(
         policy["adapter"]["type"], group="manimux.policy_adapter", builtins={}
     )
+    if (
+        policy["adapter"].get("gripper_mapping", {}).get("mode") == "curve"
+        and not getattr(adapter_class, "supports_gripper_mapping", False)
+    ):
+        raise ValueError(
+            f"{adapter_class.__name__} does not support executor.smooth.gripper.mode=curve"
+        )
     options = {"kinematics": kinematics}
     if getattr(adapter_class, "uses_motion_limits", False):
         options["motion_limits"] = motion_limits

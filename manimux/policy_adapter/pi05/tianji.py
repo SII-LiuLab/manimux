@@ -1,7 +1,5 @@
 """Pi05 zero-pose observations over the shared Tianji absolute EE decoder."""
 
-import numpy as np
-
 from manimux.policy_adapter.tianji_ee import TianjiAbsoluteEEAdapter
 
 
@@ -57,13 +55,3 @@ class Pi05PackPlateTacCapAdapter(TianjiAbsoluteEEAdapter):
             or identity.get("checkpoint_variant") not in self._CHECKPOINT_VARIANTS
         ):
             raise ValueError("Pi05 pack-plate backend identity mismatch")
-
-    def _absolute_condition(self, condition, weights):
-        poses, weights = super()._absolute_condition(condition, weights)
-        active = weights > 0
-        for index in range(7, poses.shape[1], 8):
-            opening = poses[active, index]
-            if np.any((opening < 0) | (opening > 1)):
-                raise ValueError("Pi05 RTC gripper condition must be in [0,1]")
-            poses[active, index] = self._gripper_mapping.inverse(opening)
-        return poses, weights

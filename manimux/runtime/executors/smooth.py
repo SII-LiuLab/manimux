@@ -145,6 +145,8 @@ class SmoothExecutor:
             close_threshold = self._gripper.get("close_threshold", 0.35)
             open_threshold = self._gripper.get("open_threshold", 0.85)
             closed = latched.get(name, False) if self.uses_close_latch else False
+            if self._gripper["mode"] == "hysteresis":
+                closed = bool(state.groups[name][index] <= close_threshold)
             self._gripper_closed[name] = closed
             self._release_armed[name] = bool(
                 state.groups[name][index] <= close_threshold

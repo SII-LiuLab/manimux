@@ -18,6 +18,9 @@ class PolicyAdapter(ABC):
     # handoff_skip_steps (waypoint handoff).
     supports_waypoint_handoff = False
 
+    # Decode model apertures and invert the mapping for RTC conditioning.
+    supports_gripper_mapping = False
+
     def __init__(self, robot: dict, policy: dict, *, kinematics=None):
         self.robot = robot
         self.policy = policy

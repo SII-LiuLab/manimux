@@ -63,6 +63,7 @@ class TianjiAbsoluteEEAdapter(PolicyAdapter):
 
     uses_motion_limits = True
     supports_context_only_decode = True
+    supports_gripper_mapping = True
     # Preserve the real request observation (including the model's pose anchor).
     # Waypoint handoff selects its IK seed separately from the outgoing runtime
     # reference and drops the expired source prefix before IK.
@@ -226,6 +227,9 @@ class TianjiAbsoluteEEAdapter(PolicyAdapter):
                 )
                 poses[row, offset : offset + GROUP_DIMS[name]] = _pose_row(
                     self.kinematics.models[name], state
+                )
+                poses[row, offset + GROUP_DIMS[name] - 1] = self._gripper_mapping.inverse(
+                    state[-1]
                 )
                 offset += GROUP_DIMS[name]
         return poses, weights
