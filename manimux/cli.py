@@ -74,6 +74,22 @@ def _merge(base: dict, overrides: dict) -> dict:
     return result
 
 
+def _merge_executor(base: dict, overrides: dict) -> dict:
+    """Merge an executor recipe while replacing a changed tagged gripper mode."""
+
+    prepared = deepcopy(base)
+    base_gripper = prepared.get("smooth", {}).get("gripper")
+    override_gripper = overrides.get("smooth", {}).get("gripper")
+    if (
+        isinstance(base_gripper, dict)
+        and isinstance(override_gripper, dict)
+        and "mode" in override_gripper
+        and override_gripper["mode"] != base_gripper.get("mode")
+    ):
+        prepared.setdefault("smooth", {})["gripper"] = {}
+    return _merge(prepared, overrides)
+
+
 def load_local(path: str | Path) -> dict:
     """Read device, service and path bindings; execution flags belong to experiments."""
     source = Path(path).expanduser().resolve()
@@ -119,7 +135,9 @@ def read_experiment(
             base = (
                 read_camera_recipe(reference) if name == "camera_server" else read_yaml(reference)
             )
-            raw[name] = _merge(base, section)
+            raw[name] = (
+                _merge_executor(base, section) if name == "executor" else _merge(base, section)
+            )
         if name == "policy_server" and isinstance(raw.get(name), dict):
             backend_identity = raw[name].pop("backend_identity", None)
     adapter = raw.get("policy", {}).get("adapter", {})
@@ -485,12 +503,12 @@ def prepare_experiment(**options) -> dict:
     from manimux.evaluation.rubric import evaluation_parameters
     from manimux.policies.base import policy_parameters
     from manimux.recording import recording_parameters
+    from manimux.robogui import robogui_parameters
     from manimux.runtime import (
         executor_parameters,
         inference_parameters,
         validate_runtime_parameters,
     )
-    from manimux.robogui import robogui_parameters
 
     if "viewer" in options:
         raise ValueError("Rename the experiment section 'viewer' to 'robogui'.")
@@ -599,7 +617,25 @@ def load_config(path: str | Path, *, local: str | Path | None = None) -> dict:
         gripper = smooth.setdefault("gripper", {"mode": "continuous"})
         for name, value in deepcopy(motion["gripper"]).items():
             _set_shared_value(gripper, name, value, f"executor.smooth.gripper.{name}")
-    return prepare_experiment(**raw)
+    resolved = prepare_experiment(**raw)
+    gripper = (
+        resolved["executor"]["smooth"].get("gripper")
+        if resolved["executor"]["type"] == "smooth"
+        else None
+    )
+    if gripper is not None:
+        adapter = resolved["policy"]["adapter"]
+        if "gripper_mapping" in adapter:
+            raise ValueError(
+                "policy.adapter.gripper_mapping is derived from executor.smooth.gripper"
+            )
+        if gripper["mode"] == "curve":
+            adapter["gripper_mapping"] = {
+                "mode": "curve",
+                "deadzone": gripper["deadzone"],
+                "exponent": gripper["exponent"],
+            }
+    return resolved
 
 
 def _set_shared_value(target: dict, name: str, value: object, label: str) -> None:

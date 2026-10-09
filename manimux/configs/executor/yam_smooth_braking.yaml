@@ -9,8 +9,6 @@ smooth:
     mode: continuous
     max_velocity: 1.0
     max_acceleration: 12.0
-    closed_value: 0.0
-    open_value: 1.0
   grasp_guard:
     approach_max_velocity: 0.25
     position_tolerance_m: 0.02

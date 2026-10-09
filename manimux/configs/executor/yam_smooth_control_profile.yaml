@@ -4,5 +4,3 @@ smooth:
   position_limit_abs: 3.14
   gripper:
     mode: continuous
-    closed_value: 0.0
-    open_value: 1.0

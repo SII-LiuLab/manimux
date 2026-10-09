@@ -247,8 +247,10 @@ class RobotBase(ABC):
         """Hand-guide the named groups until stop is set; on_active marks drag entry."""
         raise NotImplementedError("this robot does not support hand-guided drag")
 
-    def recover_home(self) -> None:
-        """Idle Return Home: connect this disconnected assembly, run home(), then close."""
+    def recover_home(self, stop: threading.Event | None = None) -> None:
+        """Connect, Home and close; idle Home implementations must support cancellation."""
+        if stop is not None:
+            raise NotImplementedError("this robot does not support cancellable idle Home")
         self.connect()
         try:
             self.home()

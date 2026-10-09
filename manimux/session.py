@@ -56,7 +56,7 @@ class _IdleRecovery:
         self._robot_factory = robot_factory
         self._robot_config = deepcopy(config["robot"])
         # Reading capabilities constructs the assembly without opening any device.
-        robot = self._build(end_effector_control=False)
+        robot = self._build()
         executing = bool(self._robot_config.get("options", {}).get("execute", False))
         self.actions = tuple(robot.recovery_actions) if executing else ()
         self._drag_selections = dict(robot.drag_selections)
@@ -65,7 +65,7 @@ class _IdleRecovery:
         self._task = ""  # "home" or "drag" while the worker thread runs.
         self._thread: threading.Thread | None = None
         self._thread_error = ""
-        self._drag_stop = threading.Event()
+        self._recovery_stop = threading.Event()
         self._state = "idle"
         self._ack = self._error = self._arm = ""
 
@@ -73,10 +73,8 @@ class _IdleRecovery:
     def busy(self) -> bool:
         return self._busy or self._thread is not None
 
-    def _build(self, *, end_effector_control: bool):
-        config = deepcopy(self._robot_config)
-        config.setdefault("options", {})["end_effector_control"] = end_effector_control
-        return self._robot_factory(config, SystemClock())
+    def _build(self):
+        return self._robot_factory(deepcopy(self._robot_config), SystemClock())
 
     def _poll(self) -> None:
         if self._thread is None or self._thread.is_alive():
@@ -104,7 +102,7 @@ class _IdleRecovery:
     def update(self, control: dict[str, Any]) -> None:
         self._poll()
         if self._task == "drag" and not bool(control.get("recovery_lease", False)):
-            self._drag_stop.set()
+            self._recovery_stop.set()
             self._state = "stopping"
         request = str(control.get("recovery_request", ""))
         request_id = str(control.get("recovery_request_id", ""))
@@ -112,9 +110,9 @@ class _IdleRecovery:
             return
         self._ack = request_id
         if request == "stop":
-            if self._task == "drag":
+            if self._task in {"drag", "home"}:
                 self._error = ""
-                self._drag_stop.set()
+                self._recovery_stop.set()
                 self._state = "stopping"
             elif self._thread_error:
                 # A late Stop acknowledgement must not hide a cleanup failure
@@ -158,7 +156,7 @@ class _IdleRecovery:
             default="",
         )
         try:
-            self._build(end_effector_control=False).clear_errors()
+            self._build().clear_errors()
             self._state = "cleared"
         except Exception as exc:  # noqa: BLE001 - report the robot error in RoboGUI
             self._state = "error"
@@ -175,29 +173,24 @@ class _IdleRecovery:
 
         self._task = task
         self._thread_error = ""
-        self._drag_stop.clear()
+        self._recovery_stop.clear()
         self._thread = threading.Thread(target=run, name=f"robogui-recovery-{task}", daemon=True)
         self._thread.start()
 
     def _drag_active(self) -> None:
-        if not self._drag_stop.is_set():
+        if not self._recovery_stop.is_set():
             self._state = "active"
 
     def _drag(self, groups: tuple[str, ...]) -> None:
-        # Drag uses only the arms, so grippers stay closed.
-        robot = self._build(end_effector_control=False)
-        robot.recover_drag(groups, self._drag_stop, self._drag_active)
+        self._build().recover_drag(groups, self._recovery_stop, self._drag_active)
 
     def _home(self) -> None:
-        # Home also restores the grippers, so they are opened for this assembly.
-        self._build(end_effector_control=True).recover_home()
+        self._build().recover_home(self._recovery_stop)
 
     def close(self) -> None:
         if self._thread is not None:
-            if self._task == "drag":
-                self._drag_stop.set()
-                self._state = "stopping"
-            # Home has no cancellation; it finishes before the service exits.
+            self._recovery_stop.set()
+            self._state = "stopping"
             self._thread.join()
             self._poll()
 

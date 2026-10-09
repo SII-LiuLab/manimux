@@ -27,9 +27,9 @@ No camera, policy or robot service is started by configuration loading or `--che
 - Only `default` sampling is advertised. RTC/AAC/PAINT/AutoHorizon/DVAC are unsupported
   for this profile until their native action transforms and sampler hooks are validated.
 - Task instruction is `pass_ball`, matching one of the training manifest's task strings.
-- The task-specific robot file uses the pass-ball Home recorded in the shared robot
-  file's comments. Verify that pose and clearance before any Prepare/Home operation;
-  the shared pack-plate Home is untouched.
+- Pass-ball experiments select `tianji_taccap_pass_ball.yaml`; pack-plate experiments
+  select `tianji_taccap_pack_plate.yaml`. The shared `tianji_taccap.yaml` retains the
+  original pass-ball Home. Loading any assembly never moves hardware.
 
 ## Artifacts and station binding
 
@@ -114,16 +114,17 @@ XPolicyLab/policy/Pi_05/openpi/.venv/bin/python -m manimux.servers.pi05 \
 ```
 
 The local Python environments are managed by uv; no `conda run` is required.
-The root `.venv` currently lacks `xense.taccap`; the local TacCap SDK's built
-Python package is importable with `PYTHONPATH=/home/jw/Desktop/project/TacCap-Gripper/python`.
-This exact import was checked without connecting a device. The documented
+The root `.venv` currently lacks an installed `xense.taccap`; use the built SDK
+kept with this ManiMux checkout at
+`manimux/embodiments/end_effector/taccap/sdk/TacCap-Gripper/python`. This exact
+import was checked without connecting a device. The documented
 `envs/tianji/.venv` does not currently exist on this station. On another installation,
 install the TacCap SDK into the intended hardware venv and use its interpreter.
 
 Camera server (opens physical TacCap cameras; reuse an existing matching service):
 
 ```bash
-PYTHONPATH=/home/jw/Desktop/project/TacCap-Gripper/python \
+PYTHONPATH="$PWD/manimux/embodiments/end_effector/taccap/sdk/TacCap-Gripper/python" \
 .venv/bin/python -m manimux.servers.camera.server \
   --experiment manimux/configs/experiments/pass_ball/pi05/tianji_taccap_pi05_zero_pose_step20000.yaml \
   --local .local/tianji_taccap.yaml
@@ -142,7 +143,7 @@ Open `http://127.0.0.1:8086`. The templates enable RoboGUI and keep execution fa
 Runtime service (`execute: false`; reads hardware observations during the experiment):
 
 ```bash
-PYTHONPATH=/home/jw/Desktop/project/TacCap-Gripper/python \
+PYTHONPATH="$PWD/manimux/embodiments/end_effector/taccap/sdk/TacCap-Gripper/python" \
 .venv/bin/python -m manimux serve \
   --config manimux/configs/experiments/pass_ball/pi05/tianji_taccap_pi05_zero_pose_step20000.yaml \
   --local .local/tianji_taccap.yaml

@@ -33,6 +33,11 @@ class Pi05TianjiTacCapAdapter(TianjiAbsoluteEEAdapter):
 class Pi05PackPlateTacCapAdapter(TianjiAbsoluteEEAdapter):
     """Pack-plate identity gate over the same Tianji absolute EE decoder."""
 
+    _CHECKPOINT_VARIANTS = {
+        "pi05_pack_plate_wrist_only_step59999",
+        "pi05_pack_plate_full_zero_state_pack_instruction_step59999",
+    }
+
     def validate(self, robot: dict, policy: dict) -> None:
         super().validate(robot, policy)
         if self._horizon_steps != 32 or abs(self._action_dt_s - 1 / 30) > 1e-9:
@@ -41,28 +46,24 @@ class Pi05PackPlateTacCapAdapter(TianjiAbsoluteEEAdapter):
         required = {
             "policy_name": "Pi_05",
             "task_name": "plate",
-            "checkpoint_variant": "pi05_pack_plate_wrist_only_step59999",
             "observation_profile": "tianji_taccap_pi05_pack_plate",
             "model_state_encoding": "zero_pose",
             "output_format": "xpolicylab",
             "action_semantics": "absolute_per_arm_base_xyz_wxyz",
             "action_horizon": 32,
         }
-        if any(identity.get(key) != value for key, value in required.items()):
+        if (
+            any(identity.get(key) != value for key, value in required.items())
+            or identity.get("checkpoint_variant") not in self._CHECKPOINT_VARIANTS
+        ):
             raise ValueError("Pi05 pack-plate backend identity mismatch")
 
     def _absolute_condition(self, condition, weights):
         poses, weights = super()._absolute_condition(condition, weights)
         active = weights > 0
-        deadzone = self._gripper_output_deadzone
-        exponent = self._gripper_output_exponent
         for index in range(7, poses.shape[1], 8):
             opening = poses[active, index]
             if np.any((opening < 0) | (opening > 1)):
                 raise ValueError("Pi05 RTC gripper condition must be in [0,1]")
-            poses[active, index] = np.where(
-                opening == 0,
-                0.0,
-                deadzone + (1.0 - deadzone) * opening ** (1.0 / exponent),
-            )
+            poses[active, index] = self._gripper_mapping.inverse(opening)
         return poses, weights

@@ -1008,6 +1008,11 @@ class EdgeRuntime:
                                             committed=committed,
                                         ),
                                     )
+                                # A waypoint chunk arrives with its skipped rows already
+                                # removed; RoboGUI draws them like a commit-time skip.
+                                upstream_skip = (
+                                    0 if chunk.handoff is None else chunk.handoff.skipped_steps
+                                )
                                 with stage("robogui_publish_plan"):
                                     self._robogui.publish_plan(
                                         chunk,
@@ -1015,9 +1020,10 @@ class EdgeRuntime:
                                         committed=committed,
                                         metadata={
                                             "runtime": self._strategy.name,
-                                            "raw_horizon_steps": chunk.horizon_steps,
+                                            "raw_horizon_steps": (
+                                                chunk.horizon_steps + upstream_skip
+                                            ),
                                             "committed_horizon_steps": committed.horizon_steps,
-                                            "trimmed_steps": result.trimmed_steps,
                                             "time_trimmed_steps": result.time_trimmed_steps,
                                             "handoff_skipped_steps": (
                                                 result.handoff_skipped_steps
@@ -1046,6 +1052,8 @@ class EdgeRuntime:
                                             ),
                                             **submission_visuals,
                                             **event_fields,
+                                            # After event_fields, which repeat the timeline's count.
+                                            "trimmed_steps": result.trimmed_steps + upstream_skip,
                                         },
                                     )
                                 pending_visuals.pop(response.request_seq, None)

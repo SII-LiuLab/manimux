@@ -18,6 +18,8 @@ from manimux.kinematics.tianji_diff import rotation_matrix, rotation_vector
 from manimux.policies.base import action_interval
 from manimux.policies.xpolicylab.codec import matrix_pose, pose_matrix
 from manimux.policy_adapter.base import PolicyAdapter
+from manimux.policy_adapter.gripper_mapping import GripperMapping
+from manimux.policy_adapter.handoff import WaypointHandoff
 from manimux.runtime.rtc.request import RtcInferenceRequest
 from manimux.types import (
     ActionChunk,
@@ -61,9 +63,9 @@ class TianjiAbsoluteEEAdapter(PolicyAdapter):
 
     uses_motion_limits = True
     supports_context_only_decode = True
-    # XR-1 targets are restored against the request observation, which also
-    # seeds IK.
-    # Timeline owns stale-row trimming after the full source trajectory is decoded.
+    # Preserve the real request observation (including the model's pose anchor).
+    # Waypoint handoff selects its IK seed separately from the outgoing runtime
+    # reference and drops the expired source prefix before IK.
     decode_seed_source = "observation_state"
     # Each arm can be solved in its own process, but the decoder client commits
     # only after both partitions have completed successfully.
@@ -96,14 +98,14 @@ class TianjiAbsoluteEEAdapter(PolicyAdapter):
         if not math.isfinite(tolerance) or not 0.0 <= tolerance <= 1.0:
             raise ValueError("policy.adapter.gripper_clip_tolerance must be in [0, 1]")
         self._gripper_clip_tolerance = tolerance
-        deadzone = float(options.get("gripper_output_deadzone", 0.0))
-        exponent = float(options.get("gripper_output_exponent", 1.0))
-        if not math.isfinite(deadzone) or not 0.0 <= deadzone < 1.0:
-            raise ValueError("policy.adapter.gripper_output_deadzone must be in [0, 1)")
-        if not math.isfinite(exponent) or exponent <= 0.0:
-            raise ValueError("policy.adapter.gripper_output_exponent must be finite and positive")
-        self._gripper_output_deadzone = deadzone
-        self._gripper_output_exponent = exponent
+        legacy_mapping = {"gripper_output_deadzone", "gripper_output_exponent"}.intersection(
+            options
+        )
+        if legacy_mapping:
+            raise ValueError(
+                f"move {sorted(legacy_mapping)} to executor.smooth.gripper mode: curve"
+            )
+        self._gripper_mapping = GripperMapping.from_options(options.get("gripper_mapping"))
 
         self.ik_backend = options.get("ik_backend", "analytic")
         if self.ik_backend not in {"analytic", "diff"}:
@@ -113,6 +115,16 @@ class TianjiAbsoluteEEAdapter(PolicyAdapter):
             raise ValueError("policy.adapter.execute_diff_ik_substeps must be boolean")
         if self.execute_diff_ik_substeps and self.ik_backend != "diff":
             raise ValueError("execute_diff_ik_substeps requires ik_backend: diff")
+        self.waypoint_handoff = WaypointHandoff.from_options(
+            options,
+            source_dt_ns=self._action_dt_ns,
+            runtime_dt_ns=(
+                self._action_dt_ns // max(1, math.ceil(self._action_dt_s / self._validation_dt_s))
+            ),
+        )
+        if self.waypoint_handoff is not None and not self.execute_diff_ik_substeps:
+            raise ValueError("handoff_waypoint requires execute_diff_ik_substeps: true")
+        self.supports_waypoint_handoff = self.waypoint_handoff is not None
         if self.ik_backend == "analytic" and options.get("diff_ik"):
             raise ValueError("policy.adapter.diff_ik applies only to ik_backend: diff")
         self.diff_solvers = {}
@@ -228,13 +240,15 @@ class TianjiAbsoluteEEAdapter(PolicyAdapter):
         diff_solver=None,
         lag=None,
         substep_joints=None,
+        duration_s=None,
     ):
         current = _state_vector(current, label="IK seed").copy()
         current[-1] = gripper
         start = model.fk(current)
         rotation = rotation_vector(start[:3, :3].T @ target[:3, :3])
 
-        substeps = max(1, math.ceil(self._action_dt_s / self._validation_dt_s))
+        duration_s = self._action_dt_s if duration_s is None else duration_s
+        substeps = max(1, math.ceil(duration_s / self._validation_dt_s))
 
         for index in range(1, substeps + 1):
             alpha = index / substeps
@@ -254,7 +268,7 @@ class TianjiAbsoluteEEAdapter(PolicyAdapter):
                 result = diff_solver.solve(
                     model.flange_target(waypoint, np.array([gripper])),
                     current[:7],
-                    self._action_dt_s / substeps,
+                    duration_s / substeps,
                 )
                 if not result.ok:
                     raise ValueError(
@@ -341,12 +355,7 @@ class TianjiAbsoluteEEAdapter(PolicyAdapter):
                     f"[0, 1] by more than tolerance {tolerance}"
                 )
             clipped = np.clip(raw, 0.0, 1.0)
-            scaled = np.maximum(
-                0.0,
-                (clipped - self._gripper_output_deadzone)
-                / (1.0 - self._gripper_output_deadzone),
-            )
-            targets[name] = scaled**self._gripper_output_exponent
+            targets[name] = self._gripper_mapping.map(clipped)
             clip_max_abs = max(clip_max_abs, float(np.max(np.abs(clipped - raw))))
         return targets, clip_max_abs
 
@@ -366,6 +375,30 @@ class TianjiAbsoluteEEAdapter(PolicyAdapter):
         steps = self._steps(raw, context)
         # Clip metadata covers both arms so partitioned decodes agree.
         gripper_targets, gripper_clip_max_abs = self._gripper_targets(steps)
+        targets = {
+            name: [
+                (pose_matrix(step[f"{GROUP_SIDES[name]}_ee_pose"]), float(gripper))
+                for step, gripper in zip(steps, gripper_targets[name], strict=True)
+            ]
+            for name in self._group_order
+        }
+        handoff = None
+        if context.handoff_reference is not None and self.waypoint_handoff is not None:
+            # Plan over both groups even in a partition so atomic decodes agree.
+            handoff = self.waypoint_handoff.plan(
+                context,
+                origin_ns=context.observation_time_ns,
+                targets=targets,
+                fk={
+                    name: lambda state, model=self.kinematics.models[name]: (
+                        model.fk(state),
+                        float(state[-1]),
+                    )
+                    for name in self._group_order
+                },
+            )
+            targets = handoff.targets
+        seed_groups = context.measured_state.groups if handoff is None else handoff.start_state
 
         groups: dict[str, np.ndarray] = {}
         runtime_groups: dict[str, np.ndarray] = {}
@@ -373,9 +406,7 @@ class TianjiAbsoluteEEAdapter(PolicyAdapter):
         lag_stats: dict[str, dict[str, float | int]] = {}
         for name in groups_to_decode:
             model = self.kinematics.models[name]
-            current = _state_vector(
-                context.measured_state.groups[name], label=f"observation {name}"
-            ).copy()
+            current = _state_vector(seed_groups[name], label=f"IK seed {name}").copy()
             previous_gripper = float(current[-1])
             solver = self.diff_solvers.get(name)
             lag = None
@@ -386,20 +417,33 @@ class TianjiAbsoluteEEAdapter(PolicyAdapter):
                     "worst_lag_deg": 0.0,
                     "lag_exceedances": 0,
                 }
-            key = f"{GROUP_SIDES[name]}_ee_pose"
             rows: list[np.ndarray] = []
             runtime_rows: list[np.ndarray] | None = (
                 [] if self.execute_diff_ik_substeps else None
             )
-            for index, step in enumerate(steps):
-                gripper = float(gripper_targets[name][index])
+            if handoff is not None:
+                for pose, gripper in handoff.lead_in[name]:
+                    current = self._solve_knot(
+                        model,
+                        current,
+                        pose,
+                        gripper,
+                        diff_solver=solver,
+                        lag=lag,
+                        duration_s=self.waypoint_handoff.runtime_dt_ns / 1e9,
+                    )
+                    runtime_rows.append(current.copy())
+                    previous_gripper = gripper
+                # The last lead-in target is the first retained source row.
+                rows.append(current.copy())
+            for pose, gripper in targets[name]:
                 substep_joints: list[np.ndarray] | None = (
                     [] if runtime_rows is not None else None
                 )
                 current = self._solve_knot(
                     model,
                     current,
-                    pose_matrix(step[key]),
+                    pose,
                     gripper,
                     diff_solver=solver,
                     lag=lag,
@@ -427,20 +471,26 @@ class TianjiAbsoluteEEAdapter(PolicyAdapter):
         runtime_trajectory = None
         runtime_dt_ns = None
         if runtime_groups:
-            if samples_per_action is None:
+            if samples_per_action is None and handoff is None:
                 raise ValueError("diffIK runtime trajectory has no samples")
-            runtime_dt_ns = self._action_dt_ns // samples_per_action
+            runtime_dt_ns = (
+                self.waypoint_handoff.runtime_dt_ns
+                if samples_per_action is None
+                else self._action_dt_ns // samples_per_action
+            )
             if runtime_dt_ns <= 0:
                 raise ValueError("diffIK runtime trajectory interval rounded to zero")
             runtime_trajectory = RuntimeTrajectory(
                 start_time_ns=(
                     context.observation_time_ns - self._action_dt_ns + runtime_dt_ns
+                    if handoff is None
+                    else handoff.time_ns + runtime_dt_ns
                 ),
                 dt_ns=runtime_dt_ns,
                 groups=runtime_groups,
             )
 
-        return ActionChunk(
+        chunk = ActionChunk(
             plan_id=f"xr1-tianji-{context.request_seq}-{uuid.uuid4().hex[:8]}",
             request_seq=context.request_seq,
             observation_time_ns=context.observation_time_ns,
@@ -455,11 +505,15 @@ class TianjiAbsoluteEEAdapter(PolicyAdapter):
                 "native_action_semantics": NATIVE_ACTION_SEMANTICS,
                 "gripper_clip_tolerance": self._gripper_clip_tolerance,
                 "gripper_clip_max_abs": gripper_clip_max_abs,
-                "gripper_output_deadzone": self._gripper_output_deadzone,
-                "gripper_output_exponent": self._gripper_output_exponent,
+                "gripper_mapping": self._gripper_mapping.metadata(),
                 "ik_backend": self.ik_backend,
-                "ik_seed_source": self.decode_seed_source,
-                "ik_seed_time_ns": context.measured_state.monotonic_ns,
+                "ik_seed_source": (
+                    self.decode_seed_source if handoff is None else "active_reference"
+                ),
+                "ik_seed_time_ns": (
+                    context.measured_state.monotonic_ns if handoff is None else handoff.time_ns
+                ),
+                **({"ik_seed_plan_id": handoff.plan_id} if handoff is not None else {}),
                 **(
                     {
                         "execute_diff_ik_substeps": True,
@@ -472,3 +526,4 @@ class TianjiAbsoluteEEAdapter(PolicyAdapter):
                 **({"diff_ik_lag": lag_stats} if lag_stats else {}),
             },
         )
+        return chunk if handoff is None else self.waypoint_handoff.finish(chunk, handoff)

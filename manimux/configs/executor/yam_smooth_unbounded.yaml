@@ -10,5 +10,3 @@ smooth:
     max_velocity: null
     max_acceleration: null
     max_closing_velocity: null
-    closed_value: 0.0
-    open_value: 1.0

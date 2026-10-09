@@ -13,7 +13,7 @@ from manimux.runtime.inference import (
     InferenceSubmission,
     RequestState,
 )
-from manimux.runtime.rtc.mask import inpainting_condition
+from manimux.runtime.rtc.mask import inpainting_condition, waypoint_condition
 from manimux.runtime.rtc.request import RtcInferenceRequest
 from manimux.runtime.safety import RuntimeState
 from manimux.runtime.timeline import ActionTimeline, CommitResult
@@ -39,6 +39,11 @@ class RtcInferenceStrategy:
         self._group_order = tuple(config["robot"]["group_dims"])
         self._rtc_beta = float(rtc["beta"])
         self._min_execute_steps = rtc["min_execute_policy_steps"]
+        self._waypoint_skip = (
+            config["inference"]["handoff_skip_steps"]
+            if config["inference"]["handoff"] == "waypoint"
+            else 0
+        )
         initial_delay = rtc["initial_delay_policy_steps"]
         self._initial_delay_steps = None if initial_delay is None else int(initial_delay)
         self._delay_buffer_size = int(rtc["delay_buffer_size"])
@@ -129,6 +134,12 @@ class RtcInferenceStrategy:
             condition, weights = inpainting_condition(
                 rows, executed_steps=executed, delay_steps=delay
             )
+            condition, weights = waypoint_condition(
+                condition,
+                weights,
+                model_horizon=horizon,
+                skip_steps=self._waypoint_skip,
+            )
         request = RtcInferenceRequest(
             session_id=session_id,
             request_seq=request_seq,
@@ -182,6 +193,12 @@ class RtcInferenceStrategy:
                         executed_steps=executed,
                         delay_steps=delay,
                     )
+                    condition, weights = waypoint_condition(
+                        condition,
+                        weights,
+                        model_horizon=self._config["policy"]["horizon_policy_steps"],
+                        skip_steps=self._waypoint_skip,
+                    )
                     forecast_used = delay
         if not ready:
             return None
@@ -209,6 +226,9 @@ class RtcInferenceStrategy:
                 "executed_steps": executed,
                 "forecast_delay": forecast_used,
                 "conditioned": condition is not None,
+                "condition_handoff_skip_steps": (
+                    self._waypoint_skip if condition is not None else 0
+                ),
             },
         )
 
@@ -250,8 +270,19 @@ class RtcInferenceStrategy:
         response: InferenceResponse,
         now_ns: int,
     ) -> ActionChunk:
-        del response, now_ns
-        source_horizon = chunk.source_offset_steps + chunk.horizon_steps
+        del now_ns
+        skipped = 0 if chunk.handoff is None else chunk.handoff.skipped_steps
+        if chunk.handoff is not None and skipped != self._waypoint_skip:
+            raise ValueError("RTC waypoint handoff skip differs from the configured skip")
+        if (
+            self._waypoint_skip
+            and response.request_seq in self._conditioned_requests
+            and chunk.handoff is None
+        ):
+            # The model received a shifted condition. Without the matching
+            # waypoint, its guided rows would execute at the wrong timestamps.
+            raise ValueError("RTC shifted condition requires its waypoint handoff")
+        source_horizon = chunk.source_offset_steps + chunk.horizon_steps + skipped
         if source_horizon != self._config["policy"]["horizon_policy_steps"]:
             raise ValueError("RTC decoded suffix must retain the configured source horizon")
         if chunk.hold_from_step:
@@ -267,8 +298,9 @@ class RtcInferenceStrategy:
         now_ns: int,
     ) -> dict[str, object]:
         rows = np.concatenate([chunk.groups[name] for name in self._group_order], axis=1)
-        # Restore source indices only. The discarded prefix is never executable
-        # or conditioned: executed always starts beyond these zero-weight rows.
+        # Restore executable time-slot indices, not skipped model-row indices.
+        # A waypoint puts source row k+skip in slot k; its tail loses skip slots.
+        # Do not fabricate a repeated/zero-weight executable tail to restore H.
         self._active_rows = np.pad(rows, ((chunk.source_offset_steps, 0), (0, 0)))
         self._active_offset = chunk.source_offset_steps + result.trimmed_steps
         started_ns = self._request_started_ns.pop(response.request_seq, now_ns)
@@ -292,7 +324,11 @@ class RtcInferenceStrategy:
             "forecast_delay": forecast_used,
             "server_ms": round(response.inference_ms, 1),
             "trimmed_steps": result.trimmed_steps,
-            "rtc_source_horizon": len(self._active_rows),
+            "rtc_source_horizon": self._config["policy"]["horizon_policy_steps"],
+            "rtc_effective_horizon": len(self._active_rows),
+            "rtc_handoff_skip_steps": (
+                0 if chunk.handoff is None else chunk.handoff.skipped_steps
+            ),
             "rtc_executed_steps_at_commit": self._active_offset,
             "request_to_commit_ms": (now_ns - started_ns) / 1e6,
             "rtc_delay_ms": delay_ns / 1e6,

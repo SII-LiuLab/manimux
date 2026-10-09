@@ -93,8 +93,12 @@ each arm's `drag_tool` load from the assembly YAML, and disables the arms on exi
 With execution enabled and a bound controller IP, `recovery_actions` offers
 `clear_error`, `home` and `drag`; `drag_selections` maps the Marvin labels A, B and AB
 to the left, right and both arm groups. The idle recovery entry points
-`recover_home()` and `recover_drag()` clear latched faults first, because `connect()`
-rejects faulted arms.
+`recover_home(stop)` and `recover_drag()` clear latched faults first, because `connect()`
+rejects faulted arms. Idle Home restores grippers within the assembly, without changing
+the caller's configuration. The stop event cancels trajectory, settling and gripper waits;
+the owned components are stopped and closed before recovery returns. Task experiments
+select `tianji_taccap_pass_ball.yaml` or `tianji_taccap_pack_plate.yaml`; the shared
+`tianji_taccap.yaml` preserves the original pass-ball Home.
 
 相机启动独立于 `connect()`。新 UMI 实验仍订阅现有 camera server，未自动调用
 `robot.start_sensors()`。订阅层把 `left_wrist/right_wrist` 映射为

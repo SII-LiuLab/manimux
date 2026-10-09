@@ -176,11 +176,11 @@ def main(argv: list[str] | None = None) -> int:
         if args.checkpoint is not None:
             checkpoint = args.checkpoint.expanduser().resolve()
             config["model_path"] = str(checkpoint)
-            config["norm_stats_path"] = str(
-                checkpoint / "assets/pack-plate-taccap-h32-zero-pose"
-                if profile == "tianji_taccap_pi05_pack_plate"
-                else checkpoint.parent.parent / "normalization"
-            )
+            if profile == "tianji_taccap_pi05_pack_plate":
+                asset_name = Path(config["norm_stats_path"]).name
+                config["norm_stats_path"] = str(checkpoint / "assets" / asset_name)
+            else:
+                config["norm_stats_path"] = str(checkpoint.parent.parent / "normalization")
         if args.norm_stats is not None:
             config["norm_stats_path"] = str(args.norm_stats.expanduser().resolve())
     model_root, stats_dir = _validate_paths(config)

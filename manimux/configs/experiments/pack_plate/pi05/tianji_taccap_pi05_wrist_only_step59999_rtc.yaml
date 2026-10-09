@@ -8,7 +8,7 @@ run:
 
 robot:
   type: tianji_taccap
-  config: ../../../embodiment/robot/tianji_taccap.yaml
+  config: ../../../embodiment/robot/tianji_taccap_pack_plate.yaml
   control_hz: 100.0
   options:
     execute: false
@@ -18,8 +18,14 @@ robot:
     component_hardware:
       left_end_effector:
         read_hz: 100.0
+        control_mode: force_position
+        grasp_torque_nm: 1.0
+        close_speed_radps: 1.1
       right_end_effector:
         read_hz: 100.0
+        control_mode: force_position
+        grasp_torque_nm: 1.0
+        close_speed_radps: 1.1
 
 sensors:
 - name: tianji_wrist_cameras
@@ -43,9 +49,6 @@ policy:
       cam_left_wrist: left_wrist_camera
       cam_right_wrist: right_wrist_camera
     gripper_clip_tolerance: 0.1
-    # Map model opening through a closing deadzone and power curve.
-    gripper_output_deadzone: 0.05
-    gripper_output_exponent: 1.1
     ik_validation_dt_s: 0.004
     ik_backend: diff
     diff_ik:
@@ -89,7 +92,9 @@ executor:
   config: ../../../executor/tianji_smooth_control_profile.yaml
   smooth:
     gripper:
-      mode: continuous
+      mode: curve
+      deadzone: 0.05
+      exponent: 1.1
 
 policy_server:
   config: ../../../policy/pi05/tianji/pack_plate/wrist-only-step59999.yaml

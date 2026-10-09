@@ -9,7 +9,7 @@ run:
 
 robot:
   type: tianji_taccap
-  config: ../../../embodiment/robot/tianji_taccap.yaml
+  config: ../../../embodiment/robot/tianji_taccap_pack_plate.yaml
   control_hz: 100.0
   options:
     execute: false

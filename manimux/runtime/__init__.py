@@ -224,10 +224,23 @@ def validate_runtime_parameters(config: dict) -> None:
                 )
     if config["inference"]["algorithm"] == "rtc":
         delay = config["inference"]["rtc"]["initial_delay_policy_steps"]
+        skip = (
+            config["inference"]["handoff_skip_steps"]
+            if config["inference"]["handoff"] == "waypoint"
+            else 0
+        )
+        horizon = config["policy"]["horizon_policy_steps"]
+        if skip >= horizon:
+            raise ValueError("RTC waypoint handoff_skip_steps must be smaller than the horizon")
         if delay is not None and 2 * delay > config["policy"]["horizon_policy_steps"]:
             raise ValueError(
                 "RTC requires 2 * initial_delay_policy_steps "
                 "<= policy.horizon_policy_steps"
+            )
+        if delay is not None and skip and 2 * delay > horizon - skip:
+            raise ValueError(
+                "RTC requires 2 * initial_delay_policy_steps <= "
+                "policy.horizon_policy_steps - handoff_skip_steps for waypoint handoff"
             )
     if config["inference"]["algorithm"] == "act_temporal_ensemble":
         query_interval = config["inference"]["temporal_ensemble"]["query_interval_policy_steps"]
@@ -285,10 +298,6 @@ def validate_inference_parameters(values: dict, executor: dict, *, provided=froz
     # The handoff time lies on the source row grid, which first_step_when_ready discards.
     if values["handoff"] == "waypoint" and values["action_start_mode"] != "drop_infer_latency":
         raise ValueError("inference.handoff=waypoint requires action_start_mode=drop_infer_latency")
-    # RTC conditions the new chunk on the unshifted time grid; a waypoint skip would
-    # move that guided prefix by whole rows.
-    if values["handoff"] == "waypoint" and skip_steps and values["algorithm"] != "manimux":
-        raise ValueError("inference.handoff_skip_steps with a waypoint handoff requires manimux")
     if values["inference_schedule"] == "serial":
         if values["algorithm"] != "manimux":
             raise ValueError("serial scheduling requires inference.algorithm=manimux")

@@ -6,7 +6,7 @@ run:
   max_control_steps: 2400 # 24 s at control_hz
 
 robot:
-  config: ../../../embodiment/robot/tianji_taccap.yaml
+  config: ../../../embodiment/robot/tianji_taccap_pass_ball.yaml
   options:
     hardware:
       stale_timeout_s: 0.1

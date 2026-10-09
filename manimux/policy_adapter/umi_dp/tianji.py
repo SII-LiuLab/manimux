@@ -15,6 +15,7 @@ from manimux.kinematics.tianji_diff import rotation_matrix, rotation_vector
 from manimux.policies.base import action_interval
 from manimux.policies.xpolicylab.codec import matrix_pose, pose_matrix
 from manimux.policy_adapter.base import PolicyAdapter
+from manimux.policy_adapter.gripper_mapping import GripperMapping
 from manimux.policy_adapter.handoff import WaypointHandoff
 from manimux.policy_adapter.umi_dp.history import WindowSnapshot, execution_offset_s
 from manimux.runtime.rtc.request import RtcInferenceRequest
@@ -61,11 +62,8 @@ class UmiDpTianjiAdapter(PolicyAdapter):
         self.horizon = policy["horizon_policy_steps"]
         self.dt_ns = round(action_interval(policy) * 1e9)
         self.offset_ns = round(execution_offset_s(policy) * 1e9)
-        self.gripper_output_deadzone = float(
-            policy["adapter"].get("gripper_output_deadzone", 0.0)
-        )
-        self.gripper_output_exponent = float(
-            policy["adapter"].get("gripper_output_exponent", 1.0)
+        self.gripper_mapping = GripperMapping.from_options(
+            policy["adapter"].get("gripper_mapping")
         )
         self.execute_diff_ik_substeps = policy["adapter"].get(
             "execute_diff_ik_substeps", False
@@ -146,12 +144,14 @@ class UmiDpTianjiAdapter(PolicyAdapter):
             np.isfinite(options["execution_offset_s"]) and options["execution_offset_s"] >= 0
         ):
             raise ValueError("adapter.execution_offset_s must be finite and non-negative")
-        deadzone = float(options.get("gripper_output_deadzone", 0.0))
-        exponent = float(options.get("gripper_output_exponent", 1.0))
-        if not math.isfinite(deadzone) or not 0 <= deadzone < 1:
-            raise ValueError("adapter.gripper_output_deadzone must be in [0, 1)")
-        if not math.isfinite(exponent) or exponent <= 0:
-            raise ValueError("adapter.gripper_output_exponent must be positive and finite")
+        legacy_mapping = {"gripper_output_deadzone", "gripper_output_exponent"}.intersection(
+            options
+        )
+        if legacy_mapping:
+            raise ValueError(
+                f"move {sorted(legacy_mapping)} to executor.smooth.gripper mode: curve"
+            )
+        GripperMapping.from_options(options.get("gripper_mapping"))
         identity = {} if policy["expected_backend"] is None else policy["expected_backend"]["model"]
         if identity.get("action_semantics") != SEMANTICS:
             raise ValueError(
@@ -219,7 +219,7 @@ class UmiDpTianjiAdapter(PolicyAdapter):
                     poses[row, index * 8 : index * 8 + 7] = matrix_pose(
                         self._fk(self.kin[side], values[:7], float(values[-1]))
                     )
-                    poses[row, index * 8 + 7] = values[-1]
+                    poses[row, index * 8 + 7] = self.gripper_mapping.inverse(values[-1])
             condition = poses
         return UmiRequest(
             session_id=request.session_id,
@@ -281,7 +281,7 @@ class UmiDpTianjiAdapter(PolicyAdapter):
 
     def _map_gripper_steps(self, steps):
         """Map model apertures to robot apertures before IK and timeline handoff."""
-        if self.gripper_output_deadzone == 0.0 and self.gripper_output_exponent == 1.0:
+        if self.gripper_mapping.mode == "continuous":
             return steps
         mapped_steps = []
         for step in steps:
@@ -291,12 +291,7 @@ class UmiDpTianjiAdapter(PolicyAdapter):
                 grip = np.asarray(step[key], dtype=float)
                 if grip.shape != (1,) or not np.isfinite(grip).all() or not 0 <= grip[0] <= 1:
                     raise ValueError("UMI gripper action must lie in [0, 1]")
-                scaled = max(
-                    0.0,
-                    (float(grip[0]) - self.gripper_output_deadzone)
-                    / (1.0 - self.gripper_output_deadzone),
-                )
-                mapped[key] = np.array([scaled**self.gripper_output_exponent])
+                mapped[key] = self.gripper_mapping.map(grip)
             mapped_steps.append(mapped)
         return mapped_steps
 
@@ -544,8 +539,7 @@ class UmiDpTianjiAdapter(PolicyAdapter):
                 "ik_backend": self.ik_backend,
                 "ik_seed_source": self.decode_seed_source,
                 "ik_seed_time_ns": context.measured_state.monotonic_ns,
-                "gripper_output_deadzone": self.gripper_output_deadzone,
-                "gripper_output_exponent": self.gripper_output_exponent,
+                "gripper_mapping": self.gripper_mapping.metadata(),
                 **(
                     {
                         "execute_diff_ik_substeps": True,

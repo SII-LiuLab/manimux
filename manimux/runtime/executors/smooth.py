@@ -81,6 +81,13 @@ class SmoothExecutor:
         return self._gripper is not None and self._gripper["mode"] == "close_latch"
 
     @property
+    def uses_continuous_gripper(self) -> bool:
+        return self._gripper is not None and self._gripper["mode"] in {
+            "continuous",
+            "curve",
+        }
+
+    @property
     def horizon_steps(self) -> int:
         return 2
 
@@ -135,17 +142,15 @@ class SmoothExecutor:
                     f"smooth gripper index {index} is outside group {name!r} "
                     f"with dimension {len(state.groups[name])}"
                 )
-            closed = (
-                latched.get(name, False)
-                if self.uses_close_latch
-                else bool(state.groups[name][index] <= self._gripper["close_threshold"])
-            )
+            close_threshold = self._gripper.get("close_threshold", 0.35)
+            open_threshold = self._gripper.get("open_threshold", 0.85)
+            closed = latched.get(name, False) if self.uses_close_latch else False
             self._gripper_closed[name] = closed
             self._release_armed[name] = bool(
-                state.groups[name][index] <= self._gripper["close_threshold"]
+                state.groups[name][index] <= close_threshold
             )
             self._grasp_armed[name] = bool(
-                state.groups[name][index] >= self._gripper["open_threshold"]
+                state.groups[name][index] >= open_threshold
             )
             self._gripper_closed_since_ns[name] = state.monotonic_ns if closed else None
             if closed and self.uses_close_latch:
@@ -162,8 +167,8 @@ class SmoothExecutor:
     ) -> None:
         if self._gripper is None:
             return
-        min_closed_ns = int(self._gripper["min_closed_s"] * 1_000_000_000)
-        open_confirm_ns = int(self._gripper["open_confirm_s"] * 1_000_000_000)
+        min_closed_ns = int(self._gripper.get("min_closed_s", 0.0) * 1_000_000_000)
+        open_confirm_ns = int(self._gripper.get("open_confirm_s", 0.0) * 1_000_000_000)
         for name, index in self._gripper["group_indices"].items():
             if name in reference.hold_groups:
                 output[name][index] = self._previous[name][index]
@@ -186,14 +191,10 @@ class SmoothExecutor:
                     continue
                 desired = float(event.target[index])
             closed = self._gripper_closed[name]
-            if self._gripper["mode"] == "continuous":
-                goal = float(
-                    np.clip(
-                        desired,
-                        self._gripper["closed_value"],
-                        self._gripper["open_value"],
-                    )
-                )
+            if self.uses_continuous_gripper:
+                # Curve mode has already transformed the model aperture before IK.
+                # Both stateless modes execute the resolved normalized target here.
+                goal = float(np.clip(desired, 0.0, 1.0))
             else:
                 close_requested = (
                     desired < self._gripper["close_threshold"]
@@ -249,8 +250,12 @@ class SmoothExecutor:
                     command,
                     # A close setpoint is not a mechanical lower bound. Starting
                     # below it must still respect the velocity/acceleration limits.
-                    0.0 if self.uses_close_latch else self._gripper["closed_value"],
-                    self._gripper["open_value"],
+                    0.0
+                    if self.uses_close_latch or self.uses_continuous_gripper
+                    else self._gripper["closed_value"],
+                    1.0
+                    if self.uses_continuous_gripper
+                    else self._gripper["open_value"],
                 )
             )
             velocities[name][index] = velocity
@@ -286,6 +291,10 @@ class SmoothExecutor:
         kin = self._tracking_kinematics
         for name, index in self._gripper["group_indices"].items():
             measured = state.groups[name]
+            close_threshold = self._gripper.get("close_threshold", 0.35)
+            open_threshold = self._gripper.get("open_threshold", 0.85)
+            closed_value = self._gripper.get("closed_value", 0.0)
+            open_value = self._gripper.get("open_value", 1.0)
             if index != kin.num_arm_joints or len(measured) != kin.state_dim:
                 raise ValueError(
                     "gripper pose tracking requires packed arm joints followed by gripper"
@@ -317,11 +326,11 @@ class SmoothExecutor:
                 self._grasp_armed[name] = event.kind == "release"
                 event = None
             if event is None:
-                if self._previous[name][index] <= self._gripper["close_threshold"]:
+                if self._previous[name][index] <= close_threshold:
                     self._release_armed[name] = True
                 if (
-                    self._previous[name][index] >= self._gripper["open_threshold"]
-                    and measured[index] >= self._gripper["open_threshold"]
+                    self._previous[name][index] >= open_threshold
+                    and measured[index] >= open_threshold
                 ):
                     self._grasp_armed[name] = True
                 signal = float(tracking[name][index])
@@ -329,10 +338,10 @@ class SmoothExecutor:
                     self._release_armed.get(name, False)
                     and name not in holds
                     and name not in self._release_bypassed
-                    and signal >= self._gripper["open_threshold"]
+                    and signal >= open_threshold
                 ):
                     target = tracking[name].copy()
-                    target[index] = self._gripper["open_value"]
+                    target[index] = open_value
                     event = _GripperEvent(target, reference.plan_id, phase_started_ns=int(now_ns))
                     self._gripper_events[name] = event
                     self._release_armed[name] = False
@@ -341,12 +350,12 @@ class SmoothExecutor:
                     and self._grasp_armed.get(name, False)
                     and name not in self._grasp_bypassed
                     and name not in holds
-                    and signal < self._gripper["open_threshold"]
+                    and signal < open_threshold
                 ):
                     # Capture closure onset, not the late fully-closed waypoint
                     # that may already belong to the model's lifting trajectory.
                     target = tracking[name].copy()
-                    target[index] = self._gripper["closed_value"]
+                    target[index] = closed_value
                     event = _GripperEvent(
                         target, reference.plan_id, kind="grasp", phase_started_ns=int(now_ns)
                     )
@@ -391,8 +400,8 @@ class SmoothExecutor:
                     # this confirms motion completion, not object detection.
                     ready = (
                         arrived
-                        and self._previous[name][index] <= self._gripper["closed_value"] + 0.02
-                        and measured[index] < self._gripper["open_threshold"] - 0.05
+                        and self._previous[name][index] <= closed_value + 0.02
+                        and measured[index] < open_threshold - 0.05
                     )
                     aperture = float(measured[index])
                     if not ready:
@@ -417,8 +426,8 @@ class SmoothExecutor:
                     event.phase_started_ns = int(now_ns)
                 if (
                     event.phase == "opening"
-                    and self._previous[name][index] >= self._gripper["open_value"] - 0.02
-                    and measured[index] >= self._gripper["open_value"] - 0.05
+                    and self._previous[name][index] >= open_value - 0.02
+                    and measured[index] >= open_value - 0.05
                 ):
                     event.phase = "await_observation"
                     event.completed_ns = int(now_ns)
@@ -510,7 +519,8 @@ class SmoothExecutor:
                         and event.phase in {"approach", "closing"}
                     ) or (
                         event is None
-                        and self._previous[name][index] > self._gripper["close_threshold"]
+                        and self._previous[name][index]
+                        > self._gripper.get("close_threshold", 0.35)
                     )
                     if approach_limited:
                         approach_velocity = self._grasp_guard["approach_max_velocity"]
@@ -573,36 +583,87 @@ class SmoothExecutor:
 
 
 def gripper_hysteresis_parameters(**options) -> dict:
-    """保留夹爪阈值、闭合保持时间和连续/锁存模式。"""
+    """Validate one tagged gripper mode without retaining another mode's fields."""
 
-    values = {
-        "mode": "hysteresis",
-        "close_threshold": 0.35,
-        "open_threshold": 0.85,
-        "min_closed_s": 0.0,
-        "open_confirm_s": 0.0,
-        "max_velocity": 3.0,
-        "max_acceleration": 12.0,
-        "max_closing_velocity": None,
-        "closed_value": 0.0,
-        "open_value": 1.0,
-        **options,
+    mode = options.get("mode", "hysteresis")
+    common = {
+        "mode": mode,
+        "max_velocity": options.get("max_velocity", 3.0),
+        "max_acceleration": options.get("max_acceleration", 12.0),
+        "max_closing_velocity": options.get("max_closing_velocity"),
     }
+    if "group_indices" in options:
+        common["group_indices"] = options["group_indices"]
+    common_fields = set(common)
+    discrete_fields = {
+        "close_threshold",
+        "open_threshold",
+        "min_closed_s",
+        "open_confirm_s",
+        "closed_value",
+        "open_value",
+    }
+    curve_fields = {"deadzone", "exponent"}
+
+    if mode == "continuous":
+        invalid = set(options) - common_fields
+        if invalid:
+            raise ValueError(f"continuous gripper mode does not accept {sorted(invalid)}")
+        values = common
+    elif mode == "curve":
+        invalid = set(options) - common_fields - curve_fields
+        if invalid:
+            raise ValueError(f"curve gripper mode does not accept {sorted(invalid)}")
+        if not curve_fields.issubset(options):
+            raise ValueError("curve gripper mode requires deadzone and exponent")
+        deadzone = float(options["deadzone"])
+        exponent = float(options["exponent"])
+        if not math.isfinite(deadzone) or not 0.0 <= deadzone < 1.0:
+            raise ValueError("curve gripper deadzone must be finite and in [0, 1)")
+        if not math.isfinite(exponent) or exponent <= 0.0:
+            raise ValueError("curve gripper exponent must be finite and positive")
+        values = {**common, "deadzone": deadzone, "exponent": exponent}
+    elif mode in {"hysteresis", "close_latch"}:
+        invalid = set(options) - common_fields - discrete_fields
+        if invalid:
+            raise ValueError(f"{mode} gripper mode does not accept {sorted(invalid)}")
+        values = {
+            **common,
+            "close_threshold": 0.35,
+            "open_threshold": 0.85,
+            "min_closed_s": 0.0,
+            "open_confirm_s": 0.0,
+            "closed_value": 0.0,
+            "open_value": 1.0,
+            **{key: options[key] for key in discrete_fields if key in options},
+        }
+    else:
+        raise ValueError(
+            "gripper mode must be 'continuous', 'curve', 'hysteresis', or 'close_latch'"
+        )
+
+    if "group_indices" not in values:
+        raise ValueError("gripper group_indices are required")
     if any((not name or index < 0 for name, index in values["group_indices"].items())):
         raise ValueError("gripper group_indices must map non-empty names to non-negative indices")
-    if values["close_threshold"] >= values["open_threshold"]:
-        raise ValueError("gripper close_threshold must be below open_threshold")
-    if values["closed_value"] >= values["open_value"]:
-        raise ValueError("gripper closed_value must be below open_value")
-    if values["mode"] == "close_latch" and (
-        not values["closed_value"]
-        < values["close_threshold"]
-        < values["open_threshold"]
-        <= values["open_value"]
-    ):
-        raise ValueError(
-            "close_latch requires closed_value < close_threshold < open_threshold <= open_value"
-        )
+    for key in ("max_velocity", "max_acceleration", "max_closing_velocity"):
+        value = values[key]
+        if value is not None and (not math.isfinite(value) or value <= 0):
+            raise ValueError(f"gripper {key} must be finite and positive or null")
+    if mode in {"hysteresis", "close_latch"}:
+        if values["close_threshold"] >= values["open_threshold"]:
+            raise ValueError("gripper close_threshold must be below open_threshold")
+        if values["closed_value"] >= values["open_value"]:
+            raise ValueError("gripper closed_value must be below open_value")
+        if mode == "close_latch" and (
+            not values["closed_value"]
+            < values["close_threshold"]
+            < values["open_threshold"]
+            <= values["open_value"]
+        ):
+            raise ValueError(
+                "close_latch requires closed_value < close_threshold < open_threshold <= open_value"
+            )
     return values
 
 
@@ -660,9 +721,10 @@ def smooth_parameters(**options) -> dict:
     if values["grasp_guard"] and values["release_guard"] is None:
         raise ValueError("grasp_guard requires release_guard for shared pose tracking")
     if values["release_guard"] and (
-        values["gripper"] is None or values["gripper"]["mode"] != "continuous"
+        values["gripper"] is None
+        or values["gripper"]["mode"] not in {"continuous", "curve"}
     ):
-        raise ValueError("release_guard requires a continuous gripper")
+        raise ValueError("release_guard requires a continuous or curve gripper")
     if values["release_guard"] and values["tracking_mode"] != "braking":
         raise ValueError("latched_release requires braking tracking")
     return values

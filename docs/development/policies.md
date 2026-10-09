@@ -118,6 +118,23 @@ adapters may have different solver requirements; preserve whole-chunk rejection
 versus per-step hold behavior. SAPolicy's bounded IK must not be replaced as a
 side effect of a different model's integration.
 
+### Tianji waypoint handoff and IK seeds
+
+The shared `TianjiAbsoluteEEAdapter` (including Pi05) supports the same
+`WaypointHandoff` planner as UMI-DP. Opt in with `policy.adapter.handoff_waypoint`
+(`max_pos_speed_m_s`, `max_rot_speed_rad_s`), `ik_backend: diff` and
+`execute_diff_ik_substeps: true`; select `inference.handoff: waypoint` with
+`blend_policy_steps: 0`. Both ManiMux and RTC support `handoff_skip_steps`; see the
+[runtime contract](runtime-config.md#rtc-waypoint-handoff-skip) for RTC guidance
+alignment and effective-horizon accounting. The first chunk,
+or a chunk without a valid outgoing reference window, keeps the request-observation
+IK seed. Subsequent handoffs seed from the outgoing runtime reference at the aligned
+handoff time and decode only the future source suffix plus its dense lead-in.
+This does not change measured model inputs, pose anchors or first-action offsets.
+Plan metadata records the actual `ik_seed_source`, `ik_seed_time_ns` and, for a
+reference seed, `ik_seed_plan_id`. The timeline rejects a missed handoff or a changed
+reference instead of committing a discontinuous replacement.
+
 ## Model layout configuration
 
 For XPolicyLab models, declare `robot_action_dim_info` (`arm_dim`, `ee_dim`) and

@@ -86,10 +86,10 @@ class ActionTimeline:
         self._group_dims = dict(group_dims)
         self._active: _ActivePlan | None = None
         self._runtime_active: _ActivePlan | None = None
-        # Covers the window before _active starts: a grid-anchored start or a
-        # waypoint handoff time can lie after the commit.
-        self._outgoing: _ActivePlan | None = None
-        self._runtime_outgoing: _ActivePlan | None = None
+        # Retain the executing owner and pending transitions before _active starts.
+        # A later response may arrive before an already committed plan takes over.
+        self._outgoing: list[_ActivePlan] = []
+        self._runtime_outgoing: list[_ActivePlan] = []
         self._accepted_request_seq = -1
 
     @property
@@ -319,8 +319,10 @@ class ActionTimeline:
                 observation_time_ns=chunk.observation_time_ns,
                 hold_last_step=self._hold_last_step,
             )
-        self._outgoing = self._active
-        self._runtime_outgoing = self._runtime_active
+        self._outgoing = self._retain_outgoing(self._outgoing, self._active, new_plan, now_ns)
+        self._runtime_outgoing = self._retain_outgoing(
+            self._runtime_outgoing, self._runtime_active, runtime_plan, now_ns
+        )
         self._active = new_plan
         self._runtime_active = runtime_plan
         self._accepted_request_seq = chunk.request_seq
@@ -376,6 +378,25 @@ class ActionTimeline:
             return "handoff_reference_mismatch"
         return None
 
+    @staticmethod
+    def _retain_outgoing(
+        outgoing: list[_ActivePlan],
+        active: _ActivePlan | None,
+        incoming: _ActivePlan,
+        now_ns: int,
+    ) -> list[_ActivePlan]:
+        # Acceptance does not mean execution: keep the current owner and every
+        # pending transition before incoming starts. Incoming supersedes later
+        # transitions, even when its start precedes the last accepted plan.
+        prior = list(outgoing)
+        if active is not None:
+            prior.append(active)
+        prior = [plan for plan in prior if plan.start_time_ns < incoming.start_time_ns]
+        # Keep even an expired owner: falling back to an older, longer plan
+        # would resurrect a trajectory that a started plan already superseded.
+        started = [index for index, plan in enumerate(prior) if plan.start_time_ns <= now_ns]
+        return prior[started[-1]:] if started else prior
+
     def _plan_at(self, time_ns: int) -> _ActivePlan | None:
         """The plan that owns ``time_ns``: the outgoing one until _active starts."""
         active = self._active
@@ -383,14 +404,23 @@ class ActionTimeline:
             # A grid-anchored or waypoint plan starts slightly in the future. Keep
             # executing the outgoing plan across that window; dropping to a
             # measured-state hold would yank the command back by the tracking error.
-            return self._outgoing
+            return next(
+                (plan for plan in reversed(self._outgoing) if plan.start_time_ns <= time_ns),
+                None,
+            )
         return active
 
     def _runtime_plan_at(self, time_ns: int) -> _ActivePlan | None:
         """Runtime plan owning ``time_ns``; it may use denser adapter samples."""
         active = self._runtime_active
         if active is not None and time_ns < active.start_time_ns:
-            return self._runtime_outgoing
+            return next(
+                (
+                    plan for plan in reversed(self._runtime_outgoing)
+                    if plan.start_time_ns <= time_ns
+                ),
+                None,
+            )
         return active
 
     def sample(self, time_ns: int) -> GroupVector | None:

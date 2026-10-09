@@ -191,10 +191,33 @@ class TianjiTaccapRobot(RobotBase):
         self.clear_errors()
         self.drag(groups, stop, on_active)
 
-    def recover_home(self) -> None:
+    def recover_home(self, stop: threading.Event | None = None) -> None:
         """Idle Return Home, also the path after an E-stop: clear faults, then home."""
-        self.clear_errors()
-        super().recover_home()
+        previous_control = self._end_effector_control
+        self._recovery_home_stop = stop
+        # Idle Home restores grippers; this device-specific choice belongs here.
+        self._end_effector_control = True
+        try:
+            self._check_home_cancel()
+            self.clear_errors()
+            self._check_home_cancel()
+            super().recover_home()
+        finally:
+            self._recovery_home_stop = None
+            self._end_effector_control = previous_control
+
+    def _check_home_cancel(self) -> None:
+        stop = getattr(self, "_recovery_home_stop", None)
+        if stop is not None and stop.is_set():
+            raise RuntimeError("Tianji-TacCap Home cancelled")
+
+    def _home_wait(self, period_s: float) -> None:
+        stop = getattr(self, "_recovery_home_stop", None)
+        if stop is None:
+            time.sleep(period_s)
+        else:
+            stop.wait(period_s)
+            self._check_home_cancel()
 
     def home(self) -> None:
         """Move connected arms to model.home_joints, then fully open the grippers.
@@ -204,6 +227,7 @@ class TianjiTaccapRobot(RobotBase):
         """
         if not self._execute:
             return
+        self._check_home_cancel()
         targets = {} if self.model is None else dict(self.model.home_joints)
         if not targets:
             raise RuntimeError("Tianji-TacCap Home target is not configured")
@@ -219,6 +243,7 @@ class TianjiTaccapRobot(RobotBase):
             groups = {name: values.copy() for name, values in state.groups.items()}
             tick = 0
             while True:
+                self._check_home_cancel()
                 elapsed = tick * period_s
                 fraction = (
                     1.0
@@ -227,17 +252,19 @@ class TianjiTaccapRobot(RobotBase):
                 )
                 for name, q in targets.items():
                     groups[name][: len(q)] = start[name] + (q - start[name]) * fraction
+                self._check_home_cancel()
                 self.send_command(RobotCommand(groups, self._clock.now_ns(), None))
                 if fraction >= 1.0:
                     break
                 if time.monotonic() > deadline:
                     raise TimeoutError("Tianji-TacCap Home trajectory timed out")
                 tick += 1
-                time.sleep(period_s)
+                self._home_wait(period_s)
 
             deadline = time.monotonic() + _SETTLE_TIMEOUT_S
             tolerance = math.radians(_HOME_TOLERANCE_DEG)
             while True:
+                self._check_home_cancel()
                 state = self.get_state()
                 if all(
                     np.max(np.abs(state.groups[name][: len(q)] - q)) <= tolerance
@@ -246,21 +273,24 @@ class TianjiTaccapRobot(RobotBase):
                     break
                 if time.monotonic() >= deadline:
                     raise TimeoutError("Tianji-TacCap did not reach Home within 0.5 degrees")
+                self._check_home_cancel()
                 self.send_command(RobotCommand(groups, self._clock.now_ns(), None))
-                time.sleep(period_s)
+                self._home_wait(period_s)
 
             if not (self.end_effectors and self._end_effector_control):
                 return
             for name in self.end_effectors:
                 groups[name][-1] = 1.0
+            self._check_home_cancel()
             self.send_command(RobotCommand(groups, self._clock.now_ns(), None))
             deadline = time.monotonic() + _SETTLE_TIMEOUT_S
             while not all(
                 self.get_state().groups[name][-1] >= 0.98 for name in self.end_effectors
             ):
+                self._check_home_cancel()
                 if time.monotonic() >= deadline:
                     raise TimeoutError("Tianji-TacCap grippers did not fully open")
-                time.sleep(period_s)
+                self._home_wait(period_s)
 
     @property
     def arms(self) -> Mapping[str, TianjiArmConfig]:
