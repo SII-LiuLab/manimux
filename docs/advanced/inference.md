@@ -82,6 +82,9 @@ Source: [official ACT implementation at the audited revision](https://github.com
 
 ## Specialized methods
 
+The [model sampling matrix](inference-matrix.md) lists the five YAM policy
+families, selecting-config generator, model-side adaptations and validation limits.
+
 See [reproduction records](reproductions/README.md) for upstream versions, exact
 sampler hooks, adaptations and evidence limits for AAC, PAINT and AutoHorizon.
 For the client/sampler boundary, read the [XPolicyLab deployment guide](../deployment/xpolicylab.md).

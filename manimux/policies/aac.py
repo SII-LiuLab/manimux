@@ -288,6 +288,43 @@ def select_candidate(
     return int(np.argmin(np.sum(distances * weights[None, :], axis=1)))
 
 
+def select_ee_features(
+    features,
+    *,
+    ee_stats,
+    motion_threshold=3.0,
+    chunk_id_selector="0",
+    previous=None,
+    backward_beta=0.99,
+):
+    """Select in physical EE feature space independently of the wire representation."""
+    normalized_features = ee_stats.normalize(features)
+    step_entropy, chunk_mean = ee_entropy(normalized_features)
+    elbow = entropy_elbow(chunk_mean)
+    magnitudes = ee_motion_magnitude(features)
+    floor = motion_floor(magnitudes, motion_threshold, features.shape[1])
+    chunk_size = max(elbow, floor)
+    chunk_id = select_candidate(
+        normalized_features,
+        method=chunk_id_selector,
+        chunk_size=chunk_size,
+        previous=previous,
+        beta=backward_beta,
+    )
+    selection = AacSelection(
+        chunk_size=chunk_size,
+        chunk_id=chunk_id,
+        entropy_elbow=elbow,
+        motion_floor=floor,
+        step_entropy=step_entropy,
+        chunk_mean_entropy=chunk_mean,
+        motion_magnitude=magnitudes,
+    )
+    return selection, AacPreviousAction(
+        ee_features=normalized_features.copy(), chunk_size=chunk_size
+    )
+
+
 def select_ee_chunk(
     candidate_chunks: Sequence[Mapping[str, np.ndarray]],
     *,
@@ -307,31 +344,17 @@ def select_ee_chunk(
         current_groups=current_groups,
         kinematics=kinematics,
     )
-    normalized_features = ee_stats.normalize(features)
-    step_entropy, chunk_mean = ee_entropy(normalized_features)
-    elbow = entropy_elbow(chunk_mean)
-    magnitudes = ee_motion_magnitude(features)
-    floor = motion_floor(magnitudes, motion_threshold, features.shape[1])
-    chunk_size = max(elbow, floor)
-    chunk_id = select_candidate(
-        normalized_features,
-        method=chunk_id_selector,
-        chunk_size=chunk_size,
+    selection, next_previous = select_ee_features(
+        features,
+        ee_stats=ee_stats,
+        motion_threshold=motion_threshold,
+        chunk_id_selector=chunk_id_selector,
         previous=previous,
-        beta=backward_beta,
+        backward_beta=backward_beta,
     )
-    selected = candidate_chunks[chunk_id]
-    selection = AacSelection(
-        chunk_size=chunk_size,
-        chunk_id=chunk_id,
-        entropy_elbow=elbow,
-        motion_floor=floor,
-        step_entropy=step_entropy,
-        chunk_mean_entropy=chunk_mean,
-        motion_magnitude=magnitudes,
+    selected = candidate_chunks[selection.chunk_id]
+    return (
+        {g: rows[: selection.chunk_size] for g, rows in selected.items()},
+        selection,
+        next_previous,
     )
-    next_previous = AacPreviousAction(
-        ee_features=normalized_features.copy(),
-        chunk_size=chunk_size,
-    )
-    return {g: rows[:chunk_size] for g, rows in selected.items()}, selection, next_previous

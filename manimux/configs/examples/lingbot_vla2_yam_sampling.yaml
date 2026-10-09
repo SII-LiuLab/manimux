@@ -1,0 +1,81 @@
+# Sampling integration example; robot execution is disabled.
+# This preserves an existing checkpoint, not a new study/task assignment.
+run:
+  task: Assemble the screwdriver.
+  output_dir: ./data/smoke/lingbot-vla2-inference
+  max_control_steps: 12000
+robot:
+  config: ../embodiment/robot/yam_dual.yaml
+  control_hz: 100.0
+  options:
+    move_to_start_on_connect: false
+    start_joints:
+      left_arm:
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 1.0
+      right_arm:
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 1.0
+    start_duration_s: 3.0
+    home_duration_s: 3.0
+    home_on_close: false
+    execute: false
+  type: yam
+sensors:
+- name: yam_cameras
+  driver: camera_server
+  service: camera
+  options:
+    request_timeout_ms: 500
+    max_frame_age_sec: 0.5
+    camera_names:
+    - d405_left
+    - d405_front
+    - d405_right
+policy:
+  worker: xpolicylab_ws
+  service: policy_secondary
+  adapter:
+    type: manimux.policy_adapter.lingbot_vla2.yam:LingBotVLA2YamAdapter
+    camera_map:
+      cam_head: d405_front
+      cam_left_wrist: d405_left
+      cam_right_wrist: d405_right
+  action_dt_s: 0.03333333333333333
+  timeout_s: 2.0
+  horizon_policy_steps: 50
+  inference_delay_s: 0.0
+  startup_timeout_s: 120.0
+  options:
+    action_format: joint
+    request_timeout_s: 20.0
+robogui:
+  enabled: true
+  robot: yam
+  policy_label: LingBot-VLA2 sampling smoke example
+recording:
+  enabled: true
+  video_fps: 30.0
+inference:
+  algorithm: serial
+  inference_schedule: serial
+  chunk_policy_steps: 16
+  max_plan_age_s: 2.0
+  blend_policy_steps: 0
+  action_start_mode: first_step_when_ready
+executor:
+  type: direct
+policy_server:
+  config: ../policy/lingbot-vla2/yam/finetune-assemble-screwdriver-step15000.yaml
+camera_server:
+  config: ../embodiment/sensor/cameras/realsense_3_views.yaml

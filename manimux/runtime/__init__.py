@@ -86,9 +86,13 @@ def inference_parameters(*, executor: dict, **options) -> dict:
         raise ValueError("inference.algorithm=dvac is no longer supported")
     # chunk_policy_steps 只是各调度方式已有步数参数的统一入口。
     options = dict(options)
+    if options.get("algorithm") == "serial":
+        options.setdefault("inference_schedule", "serial")
     if options.get("chunk_policy_steps") is not None:
         paths = {
             "manimux": (None, "max_chunk_policy_steps"),
+            "async": (None, "max_chunk_policy_steps"),
+            "serial": (None, "max_chunk_policy_steps"),
             "rtc": ("rtc", "min_execute_policy_steps"),
             "paint": ("paint", "execution_policy_steps"),
             "act_temporal_ensemble": ("temporal_ensemble", "query_interval_policy_steps"),
@@ -245,12 +249,14 @@ def validate_inference_parameters(values: dict, executor: dict, *, provided=froz
     if values["decode_forecast_mode"] not in FORECAST_MODES:
         raise ValueError(f"inference.decode_forecast_mode must be one of {FORECAST_MODES}")
     if values["inference_schedule"] == "serial":
-        if values["algorithm"] != "manimux":
-            raise ValueError("serial scheduling requires inference.algorithm=manimux")
+        if values["algorithm"] not in {"manimux", "serial"}:
+            raise ValueError("serial scheduling requires inference.algorithm=serial")
         if "refill_threshold_s" in provided:
             raise ValueError("serial scheduling does not use refill_threshold_s")
+    elif values["algorithm"] == "serial":
+        raise ValueError("inference.algorithm=serial requires inference_schedule=serial")
     if values["independent_group_decoding"] and (
-        values["algorithm"] != "manimux"
+        values["algorithm"] not in {"manimux", "async"}
         or executor["type"] != "smooth"
         or executor["smooth"]["tracking_mode"] != "braking"
         or (executor["smooth"]["gripper"] is None)
@@ -260,7 +266,8 @@ def validate_inference_parameters(values: dict, executor: dict, *, provided=froz
             "independent group decoding requires braking smooth with continuous grippers"
         )
     if values["max_chunk_policy_steps"] is not None and (
-        values["algorithm"] != "manimux" or executor["type"] not in {"smooth", "direct", "mpc"}
+        values["algorithm"] not in {"manimux", "async", "serial"}
+        or executor["type"] not in {"smooth", "direct", "mpc"}
     ):
         raise ValueError("max_chunk_policy_steps requires the ordinary ManiMux joint timeline")
     # 这些策略自行决定请求时机，不使用普通 timeline 的补充调度参数。

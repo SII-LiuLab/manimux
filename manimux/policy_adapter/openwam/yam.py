@@ -3,7 +3,7 @@
 import uuid
 from collections import OrderedDict
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 
@@ -25,6 +25,7 @@ SEMANTICS = "absolute_per_arm_base_xyz_wxyz"
 @dataclass(slots=True)
 class PoseRequest(InferenceRequest):
     model_state: dict | None = None
+    sampling_request: InferenceRequest | None = None
 
 
 class OpenWAMYamAdapter(KinematicAdapter):
@@ -80,6 +81,22 @@ class OpenWAMYamAdapter(KinematicAdapter):
         self.anchors[request.request_seq] = anchors
         while len(self.anchors) > 8:
             self.anchors.popitem(last=False)
+        for field in ("action_condition", "paint_action_prefix"):
+            values = getattr(request, field, None)
+            if values is None:
+                continue
+            values = np.asarray(values, dtype=float)
+            if values.ndim != 2 or values.shape[1] != 14 or not np.isfinite(values).all():
+                raise ValueError("OpenWAM condition must contain absolute dual-arm joint targets")
+            native = []
+            for row in values:
+                arms = []
+                for index, group in enumerate(("left_arm", "right_arm")):
+                    q = row[index * 7 : (index + 1) * 7]
+                    pose = self._fk(group, q[:6], float(q[6]))
+                    arms.extend([pose[:3, 3], pose[:3, 0], pose[:3, 1], q[6:7]])
+                native.append(np.concatenate(arms))
+            request = replace(request, **{field: np.asarray(native)})
         return PoseRequest(
             session_id=request.session_id,
             request_seq=request.request_seq,
@@ -88,6 +105,7 @@ class OpenWAMYamAdapter(KinematicAdapter):
             observation=request.observation,
             instruction=request.instruction,
             model_state=state,
+            sampling_request=request,
         )
 
     def decode_action(self, raw, context):

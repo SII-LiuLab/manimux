@@ -24,6 +24,8 @@ Read only the matching public protocol guide (paths are relative to repository r
   clients, wire codecs and observation/action adapters.
 - [Runtime and configuration](../../../docs/development/runtime-config.md):
   scheduling, timelines, executors, display, records/replay and YAML ownership.
+- [Model sampling matrix](../../../docs/advanced/inference-matrix.md): supported
+  YAM model/algorithm combinations, configuration generation and validation limits.
 - [Integration map](../../../docs/development/README.md): entry points and concrete recipes.
 
 Binding an existing supported robot to another workstation uses

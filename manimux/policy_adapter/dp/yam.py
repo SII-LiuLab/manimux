@@ -2,7 +2,7 @@
 
 import uuid
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 from scipy.spatial.transform import Rotation
@@ -21,6 +21,7 @@ class HistorySnapshot(ObservationSnapshot):
 @dataclass(slots=True)
 class DPRequest(InferenceRequest):
     model_info: dict = field(default_factory=dict)
+    sampling_request: InferenceRequest | None = None
 
 
 class HistoryStrategy:
@@ -120,6 +121,22 @@ class DPYamAdapter(KinematicAdapter):
         self.anchors[request.request_seq] = request.observation.state
         while len(self.anchors) > 8:
             self.anchors.pop(next(iter(self.anchors)))
+        condition = getattr(request, "action_condition", None)
+        if condition is not None:
+            condition = np.asarray(condition, dtype=float)
+            if condition.ndim != 2 or condition.shape[1] != 14 or not np.isfinite(condition).all():
+                raise ValueError("DP RTC expects finite absolute dual-arm joint targets")
+            targets = []
+            for row in condition:
+                arms = []
+                for index, group in enumerate(self.groups):
+                    q = row[index * 7 : (index + 1) * 7]
+                    pose = self._fk(group, q[:6], float(q[6]))
+                    arms.extend(
+                        [pose[:3, 3], Rotation.from_matrix(pose[:3, :3]).as_euler("xyz"), q[6:7]]
+                    )
+                targets.append(np.concatenate(arms))
+            request = replace(request, action_condition=np.asarray(targets))
         return DPRequest(
             request.session_id,
             request.request_seq,
@@ -128,6 +145,7 @@ class DPYamAdapter(KinematicAdapter):
             ObservationSnapshot(request.observation.state, frames),
             request.instruction,
             {"dp_history_states": states},
+            request,
         )
 
     def decode_action(self, raw, context):
