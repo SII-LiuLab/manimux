@@ -105,7 +105,7 @@ class DefaultChunkStrategy:
 
     @property
     def name(self) -> str:
-        return "manimux"
+        return self._config["inference"].get("algorithm", "manimux")
 
     @property
     def control_mode(self) -> str:
@@ -215,6 +215,8 @@ InferenceStrategyFactory = Callable[[dict], InferenceStrategy]
 
 _STRATEGY_BUILTINS: dict[str, InferenceStrategyFactory | str] = {
     "manimux": DefaultChunkStrategy,
+    "async": DefaultChunkStrategy,
+    "serial": DefaultChunkStrategy,
     "rtc": "manimux.runtime.rtc.strategy:RtcInferenceStrategy",
     "act_temporal_ensemble": "manimux.runtime.temporal_ensemble:ACTTemporalEnsembleStrategy",
     "aac": "manimux.runtime.aac:AacInferenceStrategy",

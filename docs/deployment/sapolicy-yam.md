@@ -117,7 +117,78 @@ RTC 首段也 blend 4 步，已有条件的后续 chunk 不叠加 blend。
 RTC 的 25 步是调度下限，不是固定裁掉后半段；根据实测推理和解码延迟调整。
 历史 braking 记录不能当作新 smoother/RTC 的真机验证。
 
+## tcp_rot20：ABC bottles 零样本
+
+`tcp_rot20` 是训练方提供的双臂 3 相机 TCP put-bottles 检查点（RAW，step 50k），
+未用本站数据微调。
+
+### 资源包
+
+`checkpoints/finetuned/sapolicy/tcp_rot20/` 不进入 Git，在机器之间用 `rsync -aL` 复制
+（`-L` 解引用本机的软链接）：
+
+| 文件 | 内容 |
+| --- | --- |
+| `model.ckpt` | 训练检查点，`sha256:d84e94f2…b032825a3f`（配置中有完整值，服务启动时校验） |
+| `backbone.pth` | DINOv2 初始化权重（与 teleopMV51 相同），随后被检查点严格加载覆盖 |
+| `action_normalizer.pt` | 与检查点匹配的动作归一化 |
+| `resolved_config.yaml` | 训练时展开的配置 |
+| `resolved_config.compiled.yaml` | 同上，另开启 `compile_backbone` / `compile_action_head` |
+| `source/` | SpatialAlignVLA rollsweep0917 源码快照，加了推理时 RTC 补丁；普通采样路径与原版逐位一致 |
+
+```bash
+rsync -aL --info=progress2 <本机>:~/manimux/checkpoints/finetuned/sapolicy/tcp_rot20/ \
+  checkpoints/finetuned/sapolicy/tcp_rot20/
+```
+
+### 启动
+
+```bash
+XPolicyLab/policy/SAPolicy/.venv/bin/python manimux/servers/sapolicy.py \
+  --config manimux/configs/policy/sapolicy/yam/tcp_rot20/raw-50k.yaml
+envs/yam/.venv/bin/manimux serve \
+  --config manimux/configs/experiments/put_bottles/sapolicy/yam_sapolicy_tcp_rot20_async40_cranksite.yaml
+```
+
+服务端推理约 60–90 ms（4090，未编译）。如需更快，把 `cfg_file` 换成
+`resolved_config.compiled.yaml` 并设置 `TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=1`（约 36 ms）；
+前几次请求会编译数分钟，开始 rollout 前先发请求预热。
+
+### 设置及原因
+
+| 项 | 设置 | 原因 |
+| --- | --- | --- |
+| 调度 | ManiMux async，每块执行 40/50 步，blend 4，refill 0.2 s | obs_hist=1，模型每块都把下降放在后半段；只执行 16–25 步会一直悬停 |
+| IK 解码 | `action_decoding: process` | 控制线程内 IK 每次交接卡顿 30–100 ms，表现为手臂摇晃 |
+| 执行器 | smooth braking，0.6 rad/s，1.5 rad/s² | 沿用 `yam_smooth_braking.yaml` 的实测值；高频抖动 2.4 → 1.05 °/s |
+| 夹爪 | continuous，不限速，无守护 | — |
+| 起始位 | ABC-130k bottles ready 姿态中位数，4 s | ABC 数据没有从零位开始的 episode |
+| 安装高度 | `model_from_kinematics` z +2.2 cm | 本站底座垫板 2.2 cm，已用 J2 轴高和零位指尖高实测确认 |
+| TCP 参考点 | `tcp_rot20/crank_site_assets`：linear_4310 grasp_site 沿 site x 移 −4.1 cm | ABC 约 59% 使用 crank_4310，指尖相对 grasp_site 偏 4.1 cm；只改一个 site，网格软链接到默认资源 |
+
+### 已知情况
+
+- test-time RTC 无效：去噪器对输入的敏感度 ∂x̂/∂x 只有约 0.01–0.06。
+- 同一观测重复请求，在 ABC ready 起始位附近前 16 行相差 0.5–3.5 cm，块末端相差 3–10 cm。
+  后端没有 `inference_seed`。
+- 抓取闭合时指尖高度基本不随 z 偏移或 crank 修正变化，最后接近由视觉驱动。
+  剩下的偏差来自模型对本站画面的判断，不是安装补偿能解决的。
+
 ## 离线验证
+
+### 使用其他 SAPolicy 训练检查点
+
+为检查点单独配置 `model_path`、训练时展开的 `cfg_file`、匹配的
+`normalizer_path`、`backbone_path` 和 `checkpoint_source`。需要匹配训练源码时，
+用 `sapolicy_root` 指向该快照；适配器保留当前归一化和 TCP 位姿转换包装器，
+只从快照导入模型核心。切换源码快照需要新的模型进程。
+
+TCP + action 联合训练的 `dataset_opts` 可以是嵌套列表。适配器按
+`combined_loader_opts` 选择最后的动作分支，检查其中所有数据集的动作语义、
+图像预处理和相机顺序一致，再用于推理。权重使用严格加载，缺失或多余参数会报错。
+旧训练快照未实现 RTC 时只声明普通采样能力，不能直接配用 MV51 RTC 实验。
+
+以下命令仍以 MV51 为例；新检查点应换成自身配置与权重路径。
 
 ```bash
 envs/yam/.venv/bin/python -m pytest -o addopts='' -q \

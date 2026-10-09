@@ -28,7 +28,7 @@ from manimux.policies.xpolicylab.aac import (
     AacPreviousAction,
     EeActionStats,
     load_ee_action_stats,
-    select_ee_chunk,
+    select_native_chunk,
 )
 from manimux.policies.xpolicylab.codec import (
     DEFAULT_CAMERA_MAP,
@@ -146,6 +146,7 @@ class XPolicyLabWsPolicyModel:
             merged = dict(observation.get("additional_info") or {})
             merged.update(dict(extra_info))
             observation["additional_info"] = merged
+        request = getattr(request, "sampling_request", None) or request
         condition = getattr(request, "action_condition", None)
         weights = getattr(request, "condition_weights", None)
         if (condition is None) != (weights is None):
@@ -165,15 +166,16 @@ class XPolicyLabWsPolicyModel:
                 )
             prefix_array = np.asarray(paint_prefix, dtype=np.float32)
             delay_steps = int(paint_delay_steps)
-            expected_width = sum(layout.dim for layout in self._layouts)
             if (
                 delay_steps <= 0
-                or prefix_array.shape != (delay_steps, expected_width)
+                or prefix_array.ndim != 2
+                or prefix_array.shape[0] != delay_steps
+                or prefix_array.shape[1] == 0
                 or not np.isfinite(prefix_array).all()
             ):
                 raise ValueError(
                     "PAINT action prefix must be finite with shape "
-                    f"({delay_steps}, {expected_width}), got {prefix_array.shape}"
+                    f"({delay_steps}, native_dim), got {prefix_array.shape}"
                 )
             return client.infer(
                 observation,
@@ -216,7 +218,7 @@ class XPolicyLabWsPolicyModel:
             if self._aac_ee_stats is None or self._aac_ee_stats_path != stats_path:
                 self._aac_ee_stats = load_ee_action_stats(stats_path, layouts=self._layouts)
                 self._aac_ee_stats_path = stats_path
-            selected, selection, self._aac_previous = select_ee_chunk(
+            selected, self._aac_previous = select_native_chunk(
                 candidates,
                 layouts=self._layouts,
                 current_groups=snapshot.state.groups,
@@ -227,7 +229,7 @@ class XPolicyLabWsPolicyModel:
                 previous=self._aac_previous,
                 backward_beta=float(getattr(request, "aac_backward_beta", 0.99)),
             )
-            return {"actions": selected, "aac": selection.metadata()}
+            return selected
         if autohorizon:
             if condition is not None:
                 raise ValueError("AutoHorizon cannot be combined with RTC sampling")

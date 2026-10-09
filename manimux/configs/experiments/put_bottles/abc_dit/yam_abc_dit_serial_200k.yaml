@@ -1,0 +1,93 @@
+# ABC-DiT XL 200k (official pretrain, zero-shot) put-bottles SERIAL, aligned to Pi05 Joint 30k Serial
+# (put_bottles/pi05/yam_pi05_serial_joint_step30000.yaml; docs/experiments.md §5).
+# Model-specific: horizon 30, execute the first 16 (official --execute-chunk-dim=16; Pi05 50 / 16),
+#   ABC-130k bottles 'ready' start pose (Pi05 starts at zero, ~3 sigma outside ABC's state stats),
+#   run.task = official ABC bottles prompt, policy service/port, startup_timeout_s, expected_backend.
+control_profile: ../../../embodiment/robot/yam_control_unlimited.yaml
+
+run:
+  task: throw plastic bottles in bin
+  output_dir: ./data/experiments/abc-dit-put-bottles-pretrained-200k/serial
+  max_control_steps: 12000
+  warmup_before_start: true
+  experiment_template:
+    name: Put bottles - ten layouts, three repeats
+    layout_ids: ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10"]
+    repeats: 3
+    require_reference: true
+  sensor_reading:
+    mode: background
+    poll_hz: 100.0
+    max_frame_age_s: 0.5
+    startup_timeout_s: 5.0
+    shutdown_timeout_s: 2.0
+
+evaluation:
+  config: ../../../evaluation/put_bottles.yaml
+
+robot:
+  config: ../../../embodiment/robot/yam_dual.yaml
+  control_hz: 100.0  # Interpolate 30 Hz action points for 100 Hz execution.
+  options:
+    move_to_start_on_connect: true
+    # ABC-130k bottles real 'ready' cluster (median MCAP first frame), as for SAPolicy.
+    start_joints:
+      left_arm: [-0.044, 1.552, 0.383, 0.878, -0.168, -0.006, 1.0]
+      right_arm: [0.015, 1.53, 0.384, 0.831, 0.081, 0.032, 1.0]
+    start_duration_s: 4.0
+    home_duration_s: 2.0
+    home_on_close: true
+    execute: true
+  type: yam
+
+sensors:
+- name: yam_cameras
+  driver: camera_server
+  service: camera
+  options:
+    request_timeout_ms: 500
+    max_frame_age_sec: 0.5
+    camera_names: [d405_left, d405_front, d405_right]
+
+policy:
+  action_dt_s: 0.03333333333333333  # ABC data and model run at 30 Hz.
+  worker: xpolicylab_ws
+  service: policy_abc_dit
+  adapter:
+    type: manimux.policy_adapter.joint:JointAdapter
+    # Wire names; the ABC_DiT server maps them to its top/left/right camera keys.
+    camera_map:
+      cam_head: d405_front
+      cam_left_wrist: d405_left
+      cam_right_wrist: d405_right
+
+  timeout_s: 2.0
+  horizon_policy_steps: 30
+  inference_delay_s: 0.0
+  startup_timeout_s: 120.0
+  options:
+    action_format: joint
+    request_timeout_s: 10.0
+
+robogui:
+  enabled: true
+  robot: yam
+  policy_label: ABC-DiT XL 200k pretrain (zero-shot) - Serial first 16
+
+recording:
+  enabled: true
+  video_fps: 30.0
+
+inference:
+  algorithm: manimux
+  config: ../../../inference/aligned/yam_serial_chunk16.yaml
+  chunk_policy_steps: 16
+
+executor:
+  type: direct
+
+policy_server:
+  config: ../../../policy/abc_dit/yam/put-bottles/pretrained-200k.yaml
+
+camera_server:
+  config: ../../../embodiment/sensor/cameras/realsense_3_views.yaml

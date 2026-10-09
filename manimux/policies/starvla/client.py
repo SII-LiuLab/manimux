@@ -195,7 +195,7 @@ class StarVlaPolicyModel:
         return {
             "format": "joint",
             "actions": groups,
-            "aac": selection.metadata(),
+            "aac": {**selection.metadata(), "execution_steps": selection.chunk_size},
             "action_semantics": self.contract["action_semantics"],
         }
 

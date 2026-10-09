@@ -48,7 +48,7 @@ in a separate, hardware-free view. [Research workflow →](docs/usage/research.m
 
 ## Included integrations
 
-- **Policies with robot deployment recipes (8):** Pi05, DP, SAPolicy, GR00T N1.7, LingBot-VLA2, Xiaomi XR-1, UMI DP and OpenWAM.
+- **Policies with robot deployment recipes (9):** Pi05, DP, SAPolicy, ABC-DiT, GR00T N1.7, LingBot-VLA2, Xiaomi XR-1, UMI DP and OpenWAM.
 - **Policies with offline recipes (5):** Isaac 0.5 and StarVLA's QwenOFT, QwenPI-v3, QwenGR00T and QwenFast.
 - **Inference modes (7):** Serial, asynchronous chunking, RTC, ACT temporal ensembling, AAC, PAINT and AutoHorizon.
 - **Hardware integrations (4):** YAM, Tianji–TacCap, and experimental ARX X5 / PiPER. **Executors:** Direct, Smooth and MPC.

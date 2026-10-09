@@ -28,6 +28,7 @@ class AacInferenceStrategy(SynchronousChunkStrategy):
     name = "aac"
     request_type = AacInferenceRequest
     label = "AAC"
+    horizon_metadata = "aac"
 
     def request_options(self) -> dict:
         aac = self._config["inference"]["aac"]
