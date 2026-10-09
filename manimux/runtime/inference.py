@@ -220,7 +220,6 @@ _STRATEGY_BUILTINS: dict[str, InferenceStrategyFactory | str] = {
     "aac": "manimux.runtime.aac:AacInferenceStrategy",
     "paint": "manimux.runtime.paint:PaintInferenceStrategy",
     "autohorizon": "manimux.runtime.autohorizon:AutoHorizonInferenceStrategy",
-    "dvac": "manimux.runtime.dvac:DvacInferenceStrategy",
 }
 
 

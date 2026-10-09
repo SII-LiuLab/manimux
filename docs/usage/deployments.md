@@ -14,7 +14,7 @@ recipes, not checkpoints, YAML files or every model in an upstream framework.
 | --- | --- | --- |
 | Policies with robot deployment recipes | 8 | Pi05, DP, SAPolicy, GR00T N1.7, LingBot-VLA2, Xiaomi XR-1, UMI DP, OpenWAM |
 | Policies with offline recipes | 5 | Isaac 0.5; StarVLA QwenOFT, QwenPI-v3, QwenGR00T, QwenFast |
-| Inference modes | 8 | Serial, asynchronous chunking, RTC, ACT temporal ensembling, AAC, PAINT, AutoHorizon, DVAC |
+| Inference modes | 7 | Serial, asynchronous chunking, RTC, ACT temporal ensembling, AAC, PAINT, AutoHorizon |
 | Hardware assembly integrations | 4 | YAM, Tianji–TacCap; experimental ARX X5 (2023), standard PiPER |
 
 The **13 policy integrations** are selected through `policy_name` for XPolicyLab

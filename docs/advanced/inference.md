@@ -47,7 +47,6 @@ changing a YAML algorithm name cannot add missing model-side hooks.
 | `rtc` | Minimum execution window for requesting again, adjusted using predicted delay; old actions continue during inference |
 | `paint` | Source-action query trigger; the old chunk continues while the next request runs |
 | `act_temporal_ensemble` | Query interval; overlapping predictions can still contribute to the same action time |
-| `dvac` | Maximum adaptive execution length |
 | AAC / AutoHorizon | No equivalent fixed window; `chunk_policy_steps` is rejected |
 
 The loader maps this field to the corresponding strategy option. Conflicting
@@ -84,7 +83,7 @@ Source: [official ACT implementation at the audited revision](https://github.com
 ## Specialized methods
 
 See [reproduction records](reproductions/README.md) for upstream versions, exact
-sampler hooks, adaptations and evidence limits for AAC, PAINT, AutoHorizon and DVAC.
+sampler hooks, adaptations and evidence limits for AAC, PAINT and AutoHorizon.
 For the client/sampler boundary, read the [XPolicyLab deployment guide](../deployment/xpolicylab.md).
 When comparing tuned deployments, record their actual configuration; isolating an
 algorithmic effect requires controlling the other relevant choices.

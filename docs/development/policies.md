@@ -86,7 +86,7 @@ The XPolicyLab client selects these through `policy.options.action_format`; its
 default is currently `native`. Migrated joint/pose adapters therefore need the
 matching explicit experiment option. Wire field names belong in the client/codec;
 do not import an XPolicyLab codec into a new backend-independent action adapter.
-Retain action semantics and sampler metadata such as AAC/PAINT/DVAC/AutoHorizon
+Retain action semantics and sampler metadata such as AAC/PAINT/AutoHorizon
 fields. Translation must not silently renormalize or reinterpret the action.
 
 ## Observation and action adapter

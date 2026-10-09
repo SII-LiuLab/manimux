@@ -26,6 +26,5 @@
 | ✅ | ACT Temporal Ensembling | [`../act-temporal-ensemble.md`](../inference.md) | Pi05/YAM hardware complete; operator observed smooth execution |
 | ✅ | PAINT | [`paint-pi05.md`](paint-pi05.md) | Pi05 GPU/YAM hardware complete; operator observed very good continuity |
 | ✅ | AutoHorizon | [`autohorizon-pi05.md`](autohorizon-pi05.md) | Pi05/YAM hardware exercised; synchronous inference holds were visibly stop-and-go |
-| ✅ | DVAC | [`dvac-pi05.md`](dvac-pi05.md) | Pi05/YAM hardware exercised; more accurate visible trajectory but synchronous pauses remained |
 
 新方法不得只在 README 表格中打勾；表格状态必须能回链到这里的证据。

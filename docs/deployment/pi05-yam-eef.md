@@ -30,7 +30,7 @@ Successful plans retain the decoded EEF targets in adapter metadata.
 
 This uses the existing ManiMux single-inflight scheduling recipe, action spacing
 1/30 s and the existing YAM smooth executor. The EEF mode advertises only default
-sampling; RTC, PAINT, AAC, AutoHorizon and DVAC are rejected. Existing joint recipes
+sampling; RTC, PAINT, AAC and AutoHorizon are rejected. Existing joint recipes
 continue to return 14 joint/gripper dimensions with their existing capabilities.
 
 ## Startup

@@ -729,7 +729,7 @@ XML原始J1–J6范围（rad）分别为 `[-2.61799,3.14159]`、`[≈0,3.66519]`
 - `policy.trajectory_duration_s=null`：未启用；一旦指定，会用 `duration/(H−1)` 改写实际action间隔。`policy.inference_delay_s=0`用于FakePolicy，此WS模型不用；`policy.device=cpu`不是远端JAX设备选择。
 - `independent_group_decoding=false`、`decode_budget_ms=40`、`expected_decode_s=0`、`decode_forecast_size=0`、`decode_forecast_mode=max`：当前inline joint路径不启用对应分组/异步解码预算。
 - gripper `.35/.85`阈值、`min_closed_s=0`、`open_confirm_s=0`：continuous且无guards时不控制锁存/张闭。`release_guard`默认容差0.02 m、timeout2 s；`grasp_guard`默认0.02 m、0.08726646 rad、settle0.15 s、开度稳定阈值0.01、timeout2 s、approach速度null；两者当前都是null。
-- MPC、braking、temporal ensemble、AAC、PAINT、DVAC和AutoHorizon未启用；补全配置里出现这些默认字典不代表参与此次执行。Smooth的第二个参考点也不被legacy用作前馈。
+- MPC、braking、temporal ensemble、AAC、PAINT和AutoHorizon未启用；补全配置里出现这些默认字典不代表参与此次执行。Smooth的第二个参考点也不被legacy用作前馈。
 - Pi_05上游deploy.yml不会自动合并进当前ManiMux launcher；其中seed/eval_batch/checkpoint_num不能当成生效值。当前JAX分支不使用PyTorch compile/device选项；正常INFER也不随意透传`sampling.noise/num_steps`。
 - 默认`run.experiment_mode=false`、空layout/repeat、RoboGUI host/port/标签是启动与界面信息；正式尝试身份以Prepare冻结记录为准，不将RoboGUI描述当成算法真值。
 
