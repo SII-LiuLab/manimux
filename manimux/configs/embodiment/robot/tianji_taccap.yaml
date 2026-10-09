@@ -19,6 +19,11 @@ home:
       description: servo_fault
       note: carried over from dp_start_20260907, not resampled on 2026-09-10
 hardware:
+  home_motion:
+    control_hz: 100.0
+    peak_velocity_deg_s: 9.0
+    tolerance_deg: 0.5
+    settle_timeout_s: 5.0
   stale_timeout_s: 0.2
   ready_timeout_s: 3.0
   max_tracking_error_deg: 10  # Original command-to-measured bound.
@@ -28,10 +33,24 @@ hardware:
   acceleration_ratio: 100
 components:
   # FK/IK 在各臂自身基座中计算；这里仅保留参与 TCP 的末端安装关系。
+  # drag_tool: measured per-arm UMI tool load from teleop/configs/tool/umi.yaml
+  # (2026-08-23); kine is XYZABC in mm/deg, dynamic is mass, centre of mass, inertia.
   left_arm:
     config: ../arm/tianji_left.yaml
+    hardware:
+      drag_tool:
+        kine: [-36.745, 0.0, 169.450, 0.0, -90.0, 180.0]
+        dynamic: [0.7592901345868115, -26.297010972083665, -5.114926721017194,
+                  79.87115777180252, 0.008816778161434263, 0.0, 0.0, 0.001, 0.0,
+                  0.0008785353008534495]
   right_arm:
     config: ../arm/tianji_right.yaml
+    hardware:
+      drag_tool:
+        kine: [-36.745, 0.0, 169.450, 0.0, -90.0, 180.0]
+        dynamic: [0.7388190421557731, -31.69050032486985, -7.5863175968931635,
+                  82.72853176515602, 0.004192653302493302, 0.0, 0.0, 0.001, 0.0,
+                  0.0026402611847252235]
   left_end_effector:
     config: ../end_effector/taccap.yaml
     hardware: {side: left}

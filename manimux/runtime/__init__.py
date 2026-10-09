@@ -113,9 +113,13 @@ def inference_parameters(*, executor: dict, **options) -> dict:
         "chunk_policy_steps": None,
         "inference_schedule": "deadline",
         "refill_threshold_s": 0.4,
+        "handoff_skip_steps": 0,
         "max_plan_age_s": 1.0,
         "blend_policy_steps": 2,
         "action_start_mode": "drop_infer_latency",
+        # Chunk handoff: blend joints at commit, or an adapter EE waypoint before dense IK.
+        "handoff": "blend",
+        "handoff_margin_s": 0.0,
         "max_chunk_policy_steps": None,
         "independent_group_decoding": False,
         "decode_budget_ms": 40.0,
@@ -180,6 +184,11 @@ def validate_runtime_parameters(config: dict) -> None:
     ):
         raise ValueError("inference.chunk_policy_steps must not exceed policy.horizon_policy_steps")
     if (
+        config["inference"]["handoff"] == "waypoint"
+        and config["policy"]["action_decoding"] != "process"
+    ):
+        raise ValueError("inference.handoff=waypoint requires process action decoding")
+    if (
         config["inference"]["independent_group_decoding"]
         and config["policy"]["action_decoding"] != "process"
     ):
@@ -215,10 +224,23 @@ def validate_runtime_parameters(config: dict) -> None:
                 )
     if config["inference"]["algorithm"] == "rtc":
         delay = config["inference"]["rtc"]["initial_delay_policy_steps"]
+        skip = (
+            config["inference"]["handoff_skip_steps"]
+            if config["inference"]["handoff"] == "waypoint"
+            else 0
+        )
+        horizon = config["policy"]["horizon_policy_steps"]
+        if skip >= horizon:
+            raise ValueError("RTC waypoint handoff_skip_steps must be smaller than the horizon")
         if delay is not None and 2 * delay > config["policy"]["horizon_policy_steps"]:
             raise ValueError(
                 "RTC requires 2 * initial_delay_policy_steps "
                 "<= policy.horizon_policy_steps"
+            )
+        if delay is not None and skip and 2 * delay > horizon - skip:
+            raise ValueError(
+                "RTC requires 2 * initial_delay_policy_steps <= "
+                "policy.horizon_policy_steps - handoff_skip_steps for waypoint handoff"
             )
     if config["inference"]["algorithm"] == "act_temporal_ensemble":
         query_interval = config["inference"]["temporal_ensemble"]["query_interval_policy_steps"]
@@ -252,6 +274,9 @@ def validate_runtime_parameters(config: dict) -> None:
 
 def validate_inference_parameters(values: dict, executor: dict, *, provided=frozenset()) -> None:
     """检查调度和执行方式的组合；provided 仅用于识别 YAML 中明确给出的字段。"""
+    skip_steps = values["handoff_skip_steps"]
+    if type(skip_steps) is not int or skip_steps < 0:
+        raise ValueError("inference.handoff_skip_steps must be a non-negative integer")
     if values["action_start_mode"] not in ACTION_START_MODES:
         raise ValueError(
             "inference.action_start_mode must be one of "
@@ -259,6 +284,20 @@ def validate_inference_parameters(values: dict, executor: dict, *, provided=froz
         )
     if values["decode_forecast_mode"] not in FORECAST_MODES:
         raise ValueError(f"inference.decode_forecast_mode must be one of {FORECAST_MODES}")
+    if values["handoff"] not in {"blend", "waypoint"}:
+        raise ValueError("inference.handoff must be blend or waypoint")
+    if not values["handoff_margin_s"] >= 0:
+        raise ValueError("inference.handoff_margin_s must be non-negative")
+    if values["handoff"] == "waypoint" and (
+        values["algorithm"] not in {"manimux", "rtc"} or values["blend_policy_steps"] != 0
+    ):
+        raise ValueError(
+            "inference.handoff=waypoint requires the manimux or rtc algorithm and "
+            "blend_policy_steps=0"
+        )
+    # The handoff time lies on the source row grid, which first_step_when_ready discards.
+    if values["handoff"] == "waypoint" and values["action_start_mode"] != "drop_infer_latency":
+        raise ValueError("inference.handoff=waypoint requires action_start_mode=drop_infer_latency")
     if values["inference_schedule"] == "serial":
         if values["algorithm"] != "manimux":
             raise ValueError("serial scheduling requires inference.algorithm=manimux")

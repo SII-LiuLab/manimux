@@ -181,7 +181,9 @@ The non-live experiments default to `robot.options.execute: false` and
 The explicit `tianji_taccap_umi_dp_diff_live.yaml` recipe sets both fields and
 `robogui.enabled` to true. Execution settings belong to the experiment, not the station.
 Tianji connection does not Home; the existing controller enables on the first executed
-command. See [RoboGUI](../development/runtime-config.md) for its separate display and control interface.
+command. Clear error, Return Home and manual drag are implemented by the robot assembly
+(`TianjiTaccapRobot.clear_errors/home/drag`); the idle RoboGUI session only schedules
+them. See [RoboGUI](../development/runtime-config.md) for its separate display and control interface.
 
 ## Preserved action and timing conventions
 

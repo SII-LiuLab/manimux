@@ -227,8 +227,11 @@ additional server fields are allowed.
 | `inference.algorithm` | Strategy, including `manimux`, `act_temporal_ensemble`, `rtc`, `aac`, `paint`, `autohorizon`, `dvac`, an entry point or `module:factory`. |
 | `inference.refill_threshold_s` | Default strategy: request another chunk when the timeline has less remaining duration. |
 | `inference.inference_schedule` | Default strategy: `deadline` or `single_inflight`. |
+| `inference.handoff_skip_steps` | Additional leading source rows skipped at a chunk handoff without delaying its start; defaults to `0` and does not affect the first chunk. Skipped rows shorten the remaining horizon and may increase the handoff jump. A waypoint handoff skips them before decoding and requires `algorithm: manimux`. |
 | `inference.max_plan_age_s` | Maximum age measured from the chunk's observation time. |
 | `inference.blend_policy_steps` | Number of leading accepted policy points blended from the measured command; zero disables it. |
+| `inference.handoff` | `blend` (default) joins chunks at commit; `waypoint` lets an adapter that declares `handoff_waypoint` join them in EE space before dense IK. Waypoint requires process decoding, `manimux` or `rtc`, `blend_policy_steps: 0` and `action_start_mode: drop_infer_latency`. |
+| `inference.handoff_margin_s` | Extra time added to the expected decode finish before a waypoint handoff is planned. |
 
 Strategies have different scheduling contracts. RTC uses its horizon/execution/delay
 contract; ACT temporal ensembling uses query intervals; AAC waits for its selected short

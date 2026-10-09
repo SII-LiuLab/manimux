@@ -11,9 +11,10 @@ REP  ``tcp://127.0.0.1:5555``  (default)
     pickled response dict. Used by the policy for on-demand obs.
 
 PUB  ``tcp://127.0.0.1:5556``  (default, optional)
-    Push semantics. Server publishes the latest obs every ``pub_period_sec``.
-    Intended for the cv2 live preview so it can render at camera rate without
-    burning policy-side requests.
+    Push semantics. Server publishes the latest obs every ``pub_period_sec``;
+    a server whose cameras are all TacCap publishes as soon as any camera has a
+    new frame instead. Used by the cv2 live preview and by timestamped runtime
+    sensors.
 
 Request protocol
 ----------------
@@ -52,6 +53,7 @@ from manimux.cli import (
     resolve_local_path,
 )
 from manimux.embodiments.sensor import SensorBase, build_camera
+from manimux.embodiments.sensor.taccap.sensor import TacCapSensor
 from manimux.types import SensorFrame
 
 logger = logging.getLogger("camera_server")
@@ -59,6 +61,8 @@ logger = logging.getLogger("camera_server")
 DEFAULT_REP_ENDPOINT = "tcp://127.0.0.1:5555"
 DEFAULT_PUB_ENDPOINT = "tcp://127.0.0.1:5556"
 DEFAULT_PUB_PERIOD_SEC = 1.0 / 30.0
+# TacCap-only servers check for new frames at this interval instead of the PUB period.
+NEW_FRAME_POLL_SEC = 0.001
 DEFAULT_HEARTBEAT_SEC = 10.0
 
 
@@ -113,23 +117,35 @@ class CameraServer:
     # Frame sourcing
     # ------------------------------------------------------------------
 
-    def _snapshot(self, camera_names: list[str] | None = None) -> dict[str, Any]:
-        """Snapshot the latest color frame from every camera (RGB uint8)."""
-        frames: dict[str, Any] = {}
-        timestamps: dict[str, float] = {}
+    def _read_frames(self, camera_names: list[str] | None = None) -> dict[str, SensorFrame]:
+        """Read the latest frame from each named camera, or from every camera."""
         names = list(self.cameras) if camera_names is None else camera_names
         if not isinstance(names, list) or not names or not all(isinstance(n, str) for n in names):
             raise ValueError("camera_names must be a nonempty list of names")
         missing = set(names) - self.cameras.keys()
         if missing:
             raise ValueError(f"Unknown cameras: {sorted(missing)}")
+        frames: dict[str, SensorFrame] = {}
         for name in names:
             frame = self.cameras[name].read()
             if not isinstance(frame, SensorFrame):
                 raise TypeError(f"Camera {name!r} must return one SensorFrame")
-            frames[name] = frame.data
-            timestamps[name] = frame.capture_monotonic_ns / 1e9 + self._unix_offset_s
-        return {"ok": True, "frames": frames, "timestamps": timestamps}
+            frames[name] = frame
+        return frames
+
+    def _response(self, frames: dict[str, SensorFrame]) -> dict[str, Any]:
+        return {
+            "ok": True,
+            "frames": {name: frame.data for name, frame in frames.items()},
+            "timestamps": {
+                name: frame.capture_monotonic_ns / 1e9 + self._unix_offset_s
+                for name, frame in frames.items()
+            },
+        }
+
+    def _snapshot(self, camera_names: list[str] | None = None) -> dict[str, Any]:
+        """Snapshot the latest color frame from every camera (RGB uint8)."""
+        return self._response(self._read_frames(camera_names))
 
     # ------------------------------------------------------------------
     # Request handling
@@ -162,6 +178,11 @@ class CameraServer:
 
     def _pub_loop(self) -> None:
         assert self._pub is not None
+        # Every TacCap frame carries its own receipt time, so publish each new
+        # frame immediately; other camera types keep the fixed-period stream.
+        if self.cameras and all(isinstance(cam, TacCapSensor) for cam in self.cameras.values()):
+            self._pub_new_frames()
+            return
         next_tick = time.time()
         while not self._stop_event.is_set():
             now = time.time()
@@ -175,6 +196,26 @@ class CameraServer:
                 self._pub.send(pickle.dumps(resp), copy=False)
             except Exception as exc:  # noqa: BLE001 — pub is best-effort
                 logger.warning("PUB tick failed: %s", exc)
+
+    def _pub_new_frames(self) -> None:
+        """Publish the bundle whenever any camera's latest capture time changes."""
+        assert self._pub is not None
+        published = None
+        while not self._stop_event.is_set():
+            # Capture times on the monotonic clock that the published frames carry.
+            stamps = tuple(cam.latest_frame_ns() for cam in self.cameras.values())
+            if None in stamps or stamps == published:
+                time.sleep(NEW_FRAME_POLL_SEC)
+                continue
+            try:
+                frames = self._read_frames()
+                self._pub.send(pickle.dumps(self._response(frames)), copy=False)
+                # A frame that arrived after polling is already in this bundle.
+                published = tuple(frames[name].capture_monotonic_ns for name in self.cameras)
+            except Exception as exc:  # noqa: BLE001 — pub is best-effort
+                # Retry only after another frame arrives, not every poll.
+                published = stamps
+                logger.warning("PUB new frame failed: %s", exc)
 
     def _maybe_heartbeat(self) -> None:
         now = time.time()

@@ -158,6 +158,11 @@ class TacCapCamera:
             self._latest_frame_index = None
         self._frame_ready.clear()
 
+    def latest_frame_ns(self) -> int | None:
+        """Monotonic receipt time of the latest frame, without copying its image."""
+        with self._frame_lock:
+            return self._latest_frame_monotonic_ns
+
     def read_frame(self, name: str) -> SensorFrame:
         """Runtime snapshot with paired RGB, host receipt time and SDK sequence."""
         with self._frame_lock:
@@ -202,6 +207,10 @@ class TacCapSensor(SensorBase):
         if self._camera is None or not self._camera._started:
             raise RuntimeError("TacCap sensor is not started")
         return self._camera.read_frame(self.name)
+
+    def latest_frame_ns(self) -> int | None:
+        """Monotonic receipt time of the latest frame; None before the first frame."""
+        return None if self._camera is None else self._camera.latest_frame_ns()
 
     def close(self) -> None:
         if self._camera is not None:

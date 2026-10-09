@@ -1,33 +1,28 @@
 # TacCap SDK source snapshot
 
 The SDK lives in `sdk/TacCap-Gripper/`. `end_effector.py` provides the ManiMux
-position-control adapter; `geometry.py` provides independent offline geometry.
+impedance and bounded-force position adapter; `geometry.py` provides independent
+offline geometry.
 
-- Upstream: https://github.com/Vertax42/TacCap-Gripper
-- Supplied checkout base revision: `a20647ebafd1faafb90943eeeac2186abf847c0e`.
-- Package version: `0.1.9`.
+- Upstream: https://github.com/XenseRobotics-AI/TacCap-Gripper
+- Supplied checkout revision: `a5e41800a0c90ffb5e1fb2eb929dbd35db404403`
+  (`v0.4.2`).
+- Package version: `0.4.2`.
 - License: Apache-2.0; preserved in the SDK's `LICENSE`.
 
-This snapshot preserves the supplied working-tree contents of the selected
-tracked source files, not a pristine export of the base revision. Two existing
-local changes are intentionally retained:
-
-1. `pyproject.toml`: declares NumPy, adds build/dev/example dependency groups and
-   uv build settings. Its references to `scripts/setup_uv.sh` and `uv.lock` belong
-   to the source checkout's local setup; those untracked files are not included.
-2. `python/examples/gripper_control_test.py`: selects the right device explicitly
-   instead of auto-opening the only gripper. This is an upstream-checkout example,
-   not ManiMux's hardware binding or a script run during copying.
+This snapshot preserves the selected tracked source files from that exact upstream
+tag without local SDK source changes.
 
 Included: root build metadata, license, README/changelog, environment recipe,
 `cpp/` sources/headers/tests/examples, `python/` sources/bindings/tests/examples,
-`docs/`, tracked `scripts/check_protocol_drift.py`, and the vendor `.gitignore`.
-All 109 copied files were checked byte-for-byte against the supplied checkout.
+`docs/`, firmware metadata/documentation, tracked `scripts/check_protocol_drift.py`,
+and the vendor `.gitignore`. All 162 copied files were checked byte-for-byte
+against the supplied checkout.
 
-Excluded: Git metadata/CI and assistant instructions, virtual environments,
-build directories, native binaries, caches, firmware bundles and untracked local
-setup files. Firmware-related source APIs and documentation remain; firmware
-images referenced by OTA examples are not shipped in this snapshot.
+Excluded: Git metadata/CI, virtual environments, build directories, native
+binaries, caches and the two flashable firmware images. Firmware-related source
+APIs, documentation and the image manifest remain; firmware images referenced by
+OTA examples are not shipped in this snapshot.
 
 Build/install the SDK from this vendored source into the ManiMux hardware
 Python environment. The build also needs the native OpenCV, spdlog/fmt and C++
@@ -44,13 +39,14 @@ midpoint as a fixed TCP. It excludes the flange mount and does not model the
 approximately +/-3 mm midpoint movement with opening. A calibrated fixed TCP
 can be provided via `tcp_transform=`. It imports no TacCap SDK and opens no device.
 
-## Position driver
+## Gripper driver
 
 `TacCapGripper(GripperBase)` owns one follower selected by exact firmware serial
 and left/right side. The constructor requires explicit `kp` (Nm/rad) and `kd`
-(Nm*s/rad); it does not import the native SDK or open hardware. Install the
-vendored SDK into the runtime environment before calling `connect()`. No path
-patches or external developer checkout imports are used.
+(Nm*s/rad). `control_mode` is either `impedance` (the backward-compatible
+default) or `force_position`. It does not import the native SDK or open hardware.
+Install the vendored SDK into the runtime environment before calling `connect()`.
+No path patches or external developer checkout imports are used.
 
 - `connect()` opens serial with cameras off, validates the firmware position map,
   and reads feedback. It does not enable, calibrate, home, or clear motor faults.
@@ -60,23 +56,75 @@ patches or external developer checkout imports are used.
   (default 100 ms timeout), at most 30 Hz by default; more frequent calls return
   the cached measured state with its original timestamp. Firmware-internal
   cache age is not available through this read API.
-- `send_command(GripperCommand(opening))` enables on first command and submits
-  a normalized impedance position target with zero feedforward. Submission has
-  no ACK and is not evidence of target completion. Targets are not silently
-  clipped or smoothed. The SDK maps targets through firmware calibration.
+- In `impedance` mode, `send_command(GripperCommand(opening))` enables on first
+  command and submits a normalized impedance position target with zero
+  feedforward. Submission has no ACK and is not evidence of target completion.
+  Targets are not silently clipped or smoothed. The SDK maps targets through
+  firmware calibration.
+- In `force_position` mode, `connect()` additionally requires a persisted motor
+  model and an audited, effective safety envelope. It builds
+  `ForcePositionConfig.for_spec()` and rejects `grasp_torque_nm` above either the
+  motor's continuous-stall rating or the firmware's effective continuous
+  envelope. It never writes either record. The first authorized command starts
+  `ForcePositionController` before enabling the motor; later commands update the
+  same normalized position target. `grasp_torque_nm` is a bounded grip budget,
+  not an extra policy coordinate or a promise that measured torque is constant.
+  Targets at or below normalized opening `0.005` automatically use terminal
+  force hold: after the target is reached, the SDK ramps the total MIT request
+  to `grasp_torque_nm`. No additional action coordinate or driver option is
+  required. With no object this loads the closed mechanical stop.
+- While force-position control runs, `get_state()` reads the controller snapshot,
+  never the synchronous motor API. It preserves stream sequence/timestamp identity,
+  rejects stale or invalid feedback and uses the raw motor angle with the existing
+  position map. Endpoint compression up to 5% of calibrated travel is exposed by
+  `get_force_position_state().unclamped_opening` while the public normalized state
+  remains in `[0, 1]`; larger excursions fail rather than being hidden.
 - Invalid/out-of-range feedback and motor protection flags raise. A command
   failure requests motor disable. There is no autonomous monitoring thread;
-  the robot/runtime must poll feedback and stop on read failure.
+  the SDK force-position mode does own its documented status/submit thread, while
+  the robot/runtime must still poll feedback and stop on read failure.
 - `stop()` disables an owned enabled motor, which can release a grasp. A later
-  command re-enables. `close()` disables before releasing serial; failed cleanup
+  command re-enables; force-position stop first commands zero torque through the
+  SDK controller. `close()` stops control before releasing serial; failed cleanup
   is reported and retains the connection for retry. Repeated successful close
   calls are harmless.
 
-This first version excludes force control, camera/tactile acquisition, automatic
-calibration, and the legacy driver's target-margin behavior. The installation
-must select suitable control gains. Tests use a fake SDK only; the adapter has
-not been exercised on hardware. Map `state.opening` to the kinematic `gripper`
-coordinate when assembling the robot.
+Camera/tactile acquisition, automatic calibration, and the legacy driver's
+target-margin behavior remain excluded. The installation must select suitable
+control gains or a force-position torque budget. Unit tests use a fake SDK; a
+real-device acceptance run remains separate and requires explicit motion
+authorization. Map `state.opening` to the kinematic `gripper` coordinate when
+assembling the robot.
+
+Select force-position control per task through the existing component hardware
+override. Device serials remain in the private station file; the policy action
+layout remains seven arm joints plus one normalized gripper coordinate:
+
+```yaml
+robot:
+  options:
+    component_hardware:
+      left_end_effector:
+        control_mode: force_position
+        grasp_torque_nm: 0.35
+        close_speed_radps: 0.6
+      right_end_effector:
+        control_mode: force_position
+        grasp_torque_nm: 0.35
+        close_speed_radps: 0.6
+```
+
+For the installed EL05 motors, `grasp_torque_nm` must not exceed the persisted
+1.1 Nm continuous envelope. Start thin or soft object trials at a lower explicit
+budget, such as 0.3 Nm, and tune from recorded force-position telemetry. Do not
+change the policy-side opening mapping at the same time as the controller mode;
+the SDK already adds its own `close_speed_radps` setpoint ramp.
+
+Motor firmware qualification remains an installation acceptance step: the SDK
+documents EL05 `1.0.5.0.4` or newer and RS00 `0.0.3.32` or newer. The driver does
+not call `motor_version()` from `connect()` because that diagnostic may stop an
+older motor. Verify or persist the version before authorizing the first physical
+force-position motion; do not infer it from the motor model record.
 
 ## Shared camera SDK
 

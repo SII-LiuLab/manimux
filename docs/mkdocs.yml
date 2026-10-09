@@ -95,6 +95,8 @@ nav:
       - LingBot-VLA2 / YAM: deployment/lingbot-vla2-yam.md
       - XR-1 / YAM: deployment/xiaomi-xr1-yam.md
       - XR-1 / Tianji: deployment/xiaomi-xr1-tianji-taccap.md
+      - Pi05 / Tianji pass ball: deployment/pi05-tianji-taccap.md
+      - Pi05 / Tianji pack plate: deployment/pi05-tianji-pack-plate.md
       - UMI DP / Tianji: deployment/umi-dp-tianji-taccap.md
       - OpenWAM / YAM: deployment/openwam-yam.md
       - StarVLA offline: deployment/starvla-offline.md

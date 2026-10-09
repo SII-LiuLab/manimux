@@ -2,17 +2,38 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import math
+import threading
+import time
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
+
+import numpy as np
 
 from manimux.clock import Clock, SystemClock
 from manimux.embodiments.arm.tianji.arm import TianjiArm, TianjiArmSettings, TianjiController
 from manimux.embodiments.end_effector.gripper import GripperBase
 from manimux.embodiments.robot.base import RobotBase, RobotModel
 from manimux.kinematics.base import KinematicCoordinate, ManipulatorKinematicsBase
-from manimux.types import FloatArray
+from manimux.types import FloatArray, RobotCommand
+
+
+@dataclass(frozen=True, slots=True)
+class TianjiHomeSettings:
+    """Cosine Home motion settings authored in the robot assembly YAML."""
+
+    control_hz: float
+    peak_velocity_deg_s: float
+    tolerance_deg: float
+    settle_timeout_s: float
+
+    def __post_init__(self) -> None:
+        for name in self.__dataclass_fields__:
+            value = getattr(self, name)
+            if not math.isfinite(value) or value <= 0:
+                raise ValueError(f"hardware.home_motion.{name} must be finite and positive")
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,6 +131,181 @@ class TianjiTaccapRobot(RobotBase):
         )
 
     @property
+    def recovery_actions(self) -> tuple[str, ...]:
+        # Each action opens the controller itself, so it needs the bound address.
+        if not (self._execute and self.controller.ip):
+            return ()
+        return ("clear_error", "home", "drag")
+
+    @property
+    def drag_selections(self) -> Mapping[str, tuple[str, ...]]:
+        # RoboGUI uses the Marvin arm labels: A is the left arm, B the right arm.
+        by_side = {arm.channel: name for name, arm in self.arm_components.items()}
+        selections = {
+            label: tuple(by_side[side] for side in sides)
+            for label, sides in (("A", ("left",)), ("B", ("right",)), ("AB", ("left", "right")))
+            if all(side in by_side for side in sides)
+        }
+        return MappingProxyType(selections)
+
+    def clear_errors(self) -> None:
+        """Clear arm controller faults; call before connect(), which rejects faults."""
+        with self._lock:
+            if self._controller_open:
+                raise RuntimeError("clear_errors requires a disconnected robot")
+            self.controller.clear_errors()
+
+    def drag(
+        self,
+        groups: Sequence[str],
+        stop: threading.Event,
+        on_active: Callable[[], None] | None = None,
+    ) -> None:
+        """Hand-guide the named arm groups until stop is set.
+
+        on_active is called once the arms are in drag and may be moved by hand.
+        Opens only the shared arm controller; grippers and sensors stay closed.
+        Requires execute and a disconnected robot; the arms are disabled on return.
+        """
+        groups = tuple(dict.fromkeys(groups))
+        if not groups or set(groups) - set(self.arm_components):
+            raise ValueError("drag groups must name configured arms")
+        sides = tuple(self.arm_components[name].channel for name in groups)
+        with self._lock:
+            if not self._execute:
+                raise RuntimeError("drag requires execute=true")
+            if self._controller_open or self._end_effector_open:
+                raise RuntimeError("drag requires a disconnected robot")
+            self.controller.connect()
+            try:
+                self.controller.drag(tuple(sides), stop, on_active)
+            except Exception as error:
+                try:
+                    self.controller.close()
+                except Exception as cleanup_error:
+                    raise ExceptionGroup(
+                        "drag and cleanup failed", [error, cleanup_error]
+                    ) from None
+                raise
+            self.controller.close()
+
+    def recover_drag(
+        self,
+        groups: Sequence[str],
+        stop: threading.Event,
+        on_active: Callable[[], None] | None = None,
+    ) -> None:
+        """Idle drag; latched faults are cleared first because connect() rejects them."""
+        if not self._execute:
+            raise RuntimeError("drag requires execute=true")
+        self.clear_errors()
+        self.drag(groups, stop, on_active)
+
+    def recover_home(self, stop: threading.Event | None = None) -> None:
+        """Idle Return Home, also the path after an E-stop: clear faults, then home."""
+        previous_control = self._end_effector_control
+        self._recovery_home_stop = stop
+        # Idle Home restores grippers; this device-specific choice belongs here.
+        self._end_effector_control = True
+        try:
+            self._check_home_cancel()
+            self.clear_errors()
+            self._check_home_cancel()
+            super().recover_home()
+        finally:
+            self._recovery_home_stop = None
+            self._end_effector_control = previous_control
+
+    def _check_home_cancel(self) -> None:
+        stop = getattr(self, "_recovery_home_stop", None)
+        if stop is not None and stop.is_set():
+            raise RuntimeError("Tianji-TacCap Home cancelled")
+
+    def _home_wait(self, period_s: float) -> None:
+        stop = getattr(self, "_recovery_home_stop", None)
+        if stop is None:
+            time.sleep(period_s)
+        else:
+            stop.wait(period_s)
+            self._check_home_cancel()
+
+    def home(self) -> None:
+        """Move connected arms to model.home_joints, then fully open the grippers.
+
+        The arms follow the assembly's cosine profile and settle tolerance.
+        Grippers open only with end-effector control. No-op without execute.
+        """
+        if not self._execute:
+            return
+        self._check_home_cancel()
+        targets = {} if self.model is None else dict(self.model.home_joints)
+        if not targets:
+            raise RuntimeError("Tianji-TacCap Home target is not configured")
+        home = self._home_motion
+        period_s = 1.0 / home.control_hz
+        with self._lock:
+            state = self.get_state()
+            if set(targets) != set(state.groups):
+                raise RuntimeError("Home targets do not match the robot groups")
+            start = {name: state.groups[name][: len(q)].copy() for name, q in targets.items()}
+            distance = max(float(np.max(np.abs(q - start[name]))) for name, q in targets.items())
+            duration_s = (math.pi / 2.0) * distance / math.radians(home.peak_velocity_deg_s)
+            deadline = time.monotonic() + duration_s * 2.0 + home.settle_timeout_s
+            groups = {name: values.copy() for name, values in state.groups.items()}
+            tick = 0
+            while True:
+                self._check_home_cancel()
+                elapsed = tick * period_s
+                fraction = (
+                    1.0
+                    if elapsed >= duration_s
+                    else 0.5 * (1.0 - math.cos(math.pi * elapsed / duration_s))
+                )
+                for name, q in targets.items():
+                    groups[name][: len(q)] = start[name] + (q - start[name]) * fraction
+                self._check_home_cancel()
+                self.send_command(RobotCommand(groups, self._clock.now_ns(), None))
+                if fraction >= 1.0:
+                    break
+                if time.monotonic() > deadline:
+                    raise TimeoutError("Tianji-TacCap Home trajectory timed out")
+                tick += 1
+                self._home_wait(period_s)
+
+            deadline = time.monotonic() + home.settle_timeout_s
+            tolerance = math.radians(home.tolerance_deg)
+            while True:
+                self._check_home_cancel()
+                state = self.get_state()
+                if all(
+                    np.max(np.abs(state.groups[name][: len(q)] - q)) <= tolerance
+                    for name, q in targets.items()
+                ):
+                    break
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(
+                        f"Tianji-TacCap did not reach Home within {home.tolerance_deg:g} degrees"
+                    )
+                self._check_home_cancel()
+                self.send_command(RobotCommand(groups, self._clock.now_ns(), None))
+                self._home_wait(period_s)
+
+            if not (self.end_effectors and self._end_effector_control):
+                return
+            for name in self.end_effectors:
+                groups[name][-1] = 1.0
+            self._check_home_cancel()
+            self.send_command(RobotCommand(groups, self._clock.now_ns(), None))
+            deadline = time.monotonic() + home.settle_timeout_s
+            while not all(
+                self.get_state().groups[name][-1] >= 0.98 for name in self.end_effectors
+            ):
+                self._check_home_cancel()
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("Tianji-TacCap grippers did not fully open")
+                self._home_wait(period_s)
+
+    @property
     def arms(self) -> Mapping[str, TianjiArmConfig]:
         """Legacy construction settings; arm_components contains the actual arms."""
         return self._arms
@@ -146,12 +342,22 @@ class TianjiTaccapRobot(RobotBase):
     ) -> None:
         clock = clock if clock is not None else SystemClock()
         control = {**model.hardware, **(hardware or {})}
+        home_motion = {**model.hardware["home_motion"], **control.pop("home_motion")}
+        self._home_motion = TianjiHomeSettings(**home_motion)
         shared_arm_hardware = {
             name: control.pop(name) for name in ("velocity_ratio", "acceleration_ratio")
         }
         # Runtime shaping consumes the rated capability; the SDK only needs percentages.
         control.pop("rated_joint_velocity_rad_s")
         overrides = dict(component_hardware or {})
+        for name, options in overrides.items():
+            # The rate contract derives runtime limits from the shared ratio only.
+            shared = {"velocity_ratio", "acceleration_ratio"}.intersection(options)
+            if shared:
+                raise ValueError(
+                    f"component_hardware.{name} cannot set {sorted(shared)}; set them in "
+                    "robot.options.hardware so the runtime limits use the same ratio"
+                )
         bound = {name: dict(entry["hardware"]) for name, entry in model.components.items()}
         # 按组件名应用本地绑定；拼错名称时由字典索引直接报错。
         for name, options in overrides.items():

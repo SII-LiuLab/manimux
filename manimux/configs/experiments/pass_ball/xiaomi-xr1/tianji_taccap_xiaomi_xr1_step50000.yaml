@@ -8,7 +8,7 @@ run:
 
 robot:
   type: tianji_taccap
-  config: ../../../embodiment/robot/tianji_taccap.yaml
+  config: ../../../embodiment/robot/tianji_taccap_pass_ball.yaml
   control_hz: 100.0
   options:
     execute: false
@@ -36,8 +36,13 @@ policy:
     camera_map:
       cam_left_wrist: left_wrist_camera
       cam_right_wrist: right_wrist_camera
+    # Saturate only small state-dependent delta overshoot at physical bounds.
+    gripper_clip_tolerance: 0.1
     ik_validation_dt_s: 0.004
-  action_decoding: inline
+    ik_backend: diff
+    diff_ik:
+      config: ../../../embodiment/arm/tianji_diff_ik.yaml
+  action_decoding: process
   action_dt_s: 0.03333333333333333
   horizon_policy_steps: 30
   timeout_s: 120.0
@@ -57,6 +62,12 @@ recording:
 inference:
   algorithm: manimux
   config: ../../../inference/tianji_taccap_manimux.yaml
+  # Initial process-decode forecast; tune from recorded decode_stage_ms.
+  expected_decode_s: 0.08
+  decode_forecast_size: 10
+  decode_forecast_mode: max
+  # Arm processes finish together or the entire chunk is rejected.
+  independent_group_decoding: false
 
 executor:
   type: smooth

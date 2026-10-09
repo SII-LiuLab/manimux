@@ -111,6 +111,39 @@ class ActionContext:
     max_source_steps: int | None = None
     decode_budget_ms: float | None = None
     independent_groups: bool = False
+    # Outgoing runtime rows around execution_time_ns for a waypoint handoff.
+    handoff_reference: ActionHorizon | None = None
+    # Source rows a waypoint handoff skips: row join+skip occupies the join row's
+    # time and later rows move up with it; the handoff time does not change.
+    handoff_skip_steps: int = 0
+
+
+@dataclass(slots=True)
+class RuntimeTrajectory:
+    """Adapter-prepared samples used only by the runtime command timeline."""
+
+    start_time_ns: int
+    dt_ns: int
+    groups: GroupTrajectory
+
+    def __post_init__(self) -> None:
+        if self.dt_ns <= 0:
+            raise ValueError("runtime trajectory dt_ns must be positive")
+        self.groups = _trajectory_groups(self.groups, label="runtime trajectory")
+
+    @property
+    def horizon_steps(self) -> int:
+        return int(next(iter(self.groups.values())).shape[0])
+
+
+@dataclass(frozen=True, slots=True)
+class AppliedHandoff:
+    """Waypoint handoff an adapter used; the timeline verifies it at commit."""
+
+    plan_id: str  # Runtime plan the handoff starts from.
+    time_ns: int  # Handoff time; the outgoing plan runs until then.
+    reference: GroupVector  # Outgoing command at time_ns used as the decode seed.
+    skipped_steps: int = 0  # Source rows the adapter skipped before planning the lead-in.
 
 
 @dataclass(slots=True)
@@ -125,6 +158,10 @@ class ActionChunk:
     source_offset_steps: int = 0  # Leading source rows already removed by the adapter.
     metadata: dict[str, object] = field(default_factory=dict)  # Adapter-specific plan details.
     hold_from_step: dict[str, int] = field(default_factory=dict)  # First invalid row by group.
+    # Optional denser joint path prepared by an adapter. Source groups/dt/horizon
+    # remain the model-side contract used by scheduling, RTC and visualization.
+    runtime_trajectory: RuntimeTrajectory | None = None
+    handoff: AppliedHandoff | None = None  # Set when the chunk starts from a waypoint handoff.
 
     def __post_init__(self) -> None:
         if self.dt_ns <= 0:
@@ -132,6 +169,10 @@ class ActionChunk:
         if self.source_offset_steps < 0:
             raise ValueError("action chunk source_offset_steps must be non-negative")
         self.groups = _trajectory_groups(self.groups, label="action chunk")
+        if self.runtime_trajectory is not None and set(self.runtime_trajectory.groups) != set(
+            self.groups
+        ):
+            raise ValueError("runtime trajectory groups must match action chunk groups")
         for name, step in self.hold_from_step.items():
             if name not in self.groups or not 0 <= step < self.horizon_steps:
                 raise ValueError("invalid action chunk hold_from_step")
@@ -189,4 +230,17 @@ def copy_action_chunk(chunk: ActionChunk) -> ActionChunk:
         source_offset_steps=chunk.source_offset_steps,
         metadata=dict(chunk.metadata),
         hold_from_step=dict(chunk.hold_from_step),
+        runtime_trajectory=(
+            None
+            if chunk.runtime_trajectory is None
+            else RuntimeTrajectory(
+                start_time_ns=chunk.runtime_trajectory.start_time_ns,
+                dt_ns=chunk.runtime_trajectory.dt_ns,
+                groups={
+                    name: values.copy()
+                    for name, values in chunk.runtime_trajectory.groups.items()
+                },
+            )
+        ),
+        handoff=chunk.handoff,
     )

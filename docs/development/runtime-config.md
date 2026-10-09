@@ -29,10 +29,52 @@ requests or hardware sessions. Follow the actual executor construction in
 Per-group gripper indices come from assembly layout, not a universal last-column
 assumption. Reject unsupported behavior rather than silently choosing another mode.
 
+`executor.smooth.gripper.mode` is a tagged, mutually exclusive aperture mapping:
+`continuous` forwards normalized model openings, `curve` applies its required
+`deadzone` and `exponent` before IK and timeline commit, and `close_latch` owns the
+stateful close/open thresholds in the executor. Do not place curve parameters in
+`policy.adapter` or latch thresholds beside a continuous/curve mode. Common
+`group_indices` and motion rates remain valid for every mode. The loader derives the
+adapter-side stateless mapping from this single authored block so recorded plans,
+IK and hardware commands use the same aperture.
+
+Curve mapping is supported by `JointAdapter`, Tianji absolute-EE adapters (XR-1
+and Pi05), and the Tianji UMI-DP adapter. Other adapters reject this mode at
+construction. An adapter must declare `supports_gripper_mapping = True` only when
+it maps decoded tool coordinates before timeline commit and inversely maps RTC
+conditions back into model units. Use the shared `GripperMapping`; leave measured
+observations and arm coordinates unchanged. Zero-weight RTC padding stays padding.
+`hysteresis` initializes its closed/open state from measured aperture; `close_latch`
+retains its separate explicit-reset and inference-hold behavior.
+
 For scheduling changes use a deterministic clock and synthetic chunks to check
 timestamps, overlap, delayed/rejected responses and reset as relevant. For executor
 changes check actual arm/tool limits and output groups. Preserve capability checks;
 an algorithm setting alone does not implement the model's sampling hooks.
+
+### RTC waypoint handoff skip
+
+With `inference.algorithm: rtc`, `handoff: waypoint`, and `blend_policy_steps: 0`,
+`handoff_skip_steps: S` uses the same waypoint semantics as ManiMux/UMI-DP: model
+row `k+S` occupies source time slot `k`, without moving the handoff time. The adapter
+plans the lead-in to that shifted target before IK; the timeline verifies the
+reference seed and does not skip the already-shifted chunk a second time.
+
+RTC places the condition for slot `k` and its weight at model row `k+S`. Leading
+skipped rows have zero guidance. Requests retain the checkpoint's full model horizon
+`H`, but a skipped waypoint plan has only `H-S` effective time slots; discarded
+prefix slots are retained for index bookkeeping, not execution. The next request
+uses this actual shorter horizon and zero-pads unknown conditioning rows to `H`.
+UMI's history wrapper also aligns against shifted slot timestamps while preserving
+the checkpoint's first-action offset. No model/server changes are needed.
+
+The first chunk is unskipped. A conditioned response with shifted guidance is
+rejected if it cannot acquire its matching waypoint handoff; executing it on the
+unshifted clock would violate its guidance. Empty overlap uses default sampling.
+Choose `S < H` and, for a numeric initial delay, `2*initial_delay_policy_steps <= H-S`.
+The measured delay remains wall-clock latency and does not include intentional skip.
+Acceptance events distinguish `rtc_source_horizon` (`H`), `rtc_effective_horizon`
+(`H-S` for a skipped waypoint), and `rtc_handoff_skip_steps`.
 
 <a id="robogui-replay-and-recording"></a>
 
@@ -109,6 +151,21 @@ recording or session behavior. Verify action replay with a named NPZ and a final
 Record runtime evidence under `manimux/recording/`. Distinguish predicted actions,
 sent commands and measured motion; RoboGUI refresh rate is not control frequency.
 Do not reintroduce teleoperation or demonstration collection as part of replay.
+
+Idle recovery between rollouts (**Clear error**, **Return Home**, **Start drag**) is
+scheduled by the `manimux serve` session and implemented by the robot assembly. The
+session reads the assembly's `recovery_actions` and `drag_selections` and calls
+`clear_errors()`, `recover_home(stop)` or `recover_drag()` on a fresh, disconnected assembly
+using the configured construction options; it contains no robot-specific code. Service
+shutdown sets the recovery stop event before joining the worker. Idle Home implementations
+must cancel further motion and release owned resources before returning. For Tianji-TacCap,
+Home moves the arms to
+`home.joints_deg` on a 9 deg/s cosine joint profile, confirms arrival within 0.5 degrees,
+then opens the grippers when end-effector control is enabled. Idle recovery Home enables
+gripper control within the Tianji assembly itself. Loading or displaying Home never moves
+hardware. The shared `tianji_taccap.yaml` retains the original pass-ball Home; experiments
+explicitly select `tianji_taccap_pass_ball.yaml` or `tianji_taccap_pack_plate.yaml` for
+their task's destination.
 
 ## Which YAML owns the setting?
 

@@ -122,3 +122,33 @@ def inpainting_condition(
     remaining = actions[int(executed_steps) :]
     targets[: len(remaining)] = remaining
     return targets, weights
+
+
+def waypoint_condition(
+    targets: np.ndarray,
+    weights: np.ndarray,
+    *,
+    model_horizon: int,
+    skip_steps: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Put guidance on the source rows a waypoint handoff will execute.
+
+    Source row k+skip occupies time slot k. Its target and weight therefore
+    belong at index k+skip in the model request, not at index k. Leading skipped
+    rows and any unknown tail have zero weight. The previous executable chunk
+    can be shorter than the fixed model horizon after its own handoff skip.
+    """
+    targets = np.asarray(targets)
+    weights = np.asarray(weights)
+    if targets.ndim != 2 or weights.shape != (len(targets),):
+        raise ValueError("RTC waypoint condition requires matching target and weight rows")
+    if type(skip_steps) is not int or not 0 <= skip_steps < model_horizon:
+        raise ValueError("RTC waypoint skip must be within the model horizon")
+    if not 0 < len(targets) <= model_horizon:
+        raise ValueError("RTC waypoint condition exceeds the model horizon")
+    aligned = np.zeros((model_horizon, targets.shape[1]), dtype=targets.dtype)
+    aligned_weights = np.zeros(model_horizon, dtype=weights.dtype)
+    count = min(len(targets), model_horizon - skip_steps)
+    aligned[skip_steps : skip_steps + count] = targets[:count]
+    aligned_weights[skip_steps : skip_steps + count] = weights[:count]
+    return aligned, aligned_weights

@@ -175,6 +175,10 @@ class EdgeRuntime:
             self._adapter, "supports_independent_group_decode", False
         ):
             raise ValueError("adapter does not support independent group decoding")
+        if config["inference"]["handoff"] == "waypoint" and not getattr(
+            self._adapter, "supports_waypoint_handoff", False
+        ):
+            raise ValueError("adapter does not support waypoint handoff")
         self._strategy = strategy or DefaultChunkStrategy(config)
         self._decoder = None
         if config["policy"]["action_decoding"] == "process":
@@ -452,6 +456,10 @@ class EdgeRuntime:
             }
             # 当前整机未提供手动拖动恢复；RoboGUI 不展示已退役的驱动能力。
             robogui_episode_metadata["recovery_available"] = False
+            # The active runtime owns Home; idle recovery remains service-owned.
+            robogui_episode_metadata["home_available"] = (
+                "home" in self._robot.recovery_actions
+            )
             self._robogui.set_state_metadata(robogui_episode_metadata)
             with stage("robogui_publish_event"):
                 self._robogui.publish_event(
@@ -672,6 +680,20 @@ class EdgeRuntime:
                             except ValueError as exc:
                                 response = replace(response, error=f"decode_seed_unavailable:{exc}")
                             else:
+                                handoff_reference = None
+                                if self._config["inference"][
+                                    "handoff"
+                                ] == "waypoint" and self._strategy.decode_handoff(
+                                    response=response
+                                ):
+                                    # The adapter aligns the handoff within one source row.
+                                    start_ns += int(
+                                        self._config["inference"]["handoff_margin_s"] * 1e9
+                                    )
+                                    handoff_reference = self._timeline.handoff_reference(
+                                        start_ns,
+                                        round(action_interval(self._config["policy"]) * 1e9),
+                                    )
                                 with stage("decoder_submit"):
                                     self._decoder.submit(
                                         response,
@@ -681,6 +703,16 @@ class EdgeRuntime:
                                             created_time_ns=response.finished_time_ns,
                                             execution_time_ns=start_ns,
                                             measured_state=seed,
+                                            handoff_reference=handoff_reference,
+                                            # A waypoint lead-in is planned to the skipped
+                                            # row, so the skip happens here, not at commit.
+                                            handoff_skip_steps=(
+                                                0
+                                                if handoff_reference is None
+                                                else self._config["inference"][
+                                                    "handoff_skip_steps"
+                                                ]
+                                            ),
                                             max_source_steps=self._config["inference"][
                                                 "max_chunk_policy_steps"
                                             ],
@@ -703,6 +735,11 @@ class EdgeRuntime:
                                     seed_time_ns=seed.monotonic_ns,
                                     seed_source=seed_source,
                                     expected_start_ns=start_ns,
+                                    handoff_plan_id=(
+                                        None
+                                        if handoff_reference is None
+                                        else handoff_reference.plan_id
+                                    ),
                                     seed_to_expected_start_ms=(
                                         start_ns - seed.monotonic_ns
                                     )
@@ -909,12 +946,19 @@ class EdgeRuntime:
                                         ),
                                         current_command=commit.current_command,
                                         blend_steps=commit.blend_steps,
+                                        handoff_skip_steps=self._config["inference"][
+                                            "handoff_skip_steps"
+                                        ],
                                     )
                             if result.accepted:
                                 accepted_plans += 1
                                 last_inference_ms = response.inference_ms
                                 chunk.metadata["timeline_latency_ms"] = (
                                     result.timeline_latency_ns / 1_000_000
+                                )
+                                chunk.metadata["time_trimmed_steps"] = result.time_trimmed_steps
+                                chunk.metadata["handoff_skipped_steps"] = (
+                                    result.handoff_skipped_steps
                                 )
                                 committed = self._timeline.active_horizon()
                                 if committed is None:
@@ -964,6 +1008,11 @@ class EdgeRuntime:
                                             committed=committed,
                                         ),
                                     )
+                                # A waypoint chunk arrives with its skipped rows already
+                                # removed; RoboGUI draws them like a commit-time skip.
+                                upstream_skip = (
+                                    0 if chunk.handoff is None else chunk.handoff.skipped_steps
+                                )
                                 with stage("robogui_publish_plan"):
                                     self._robogui.publish_plan(
                                         chunk,
@@ -971,9 +1020,14 @@ class EdgeRuntime:
                                         committed=committed,
                                         metadata={
                                             "runtime": self._strategy.name,
-                                            "raw_horizon_steps": chunk.horizon_steps,
+                                            "raw_horizon_steps": (
+                                                chunk.horizon_steps + upstream_skip
+                                            ),
                                             "committed_horizon_steps": committed.horizon_steps,
-                                            "trimmed_steps": result.trimmed_steps,
+                                            "time_trimmed_steps": result.time_trimmed_steps,
+                                            "handoff_skipped_steps": (
+                                                result.handoff_skipped_steps
+                                            ),
                                             "timeline_latency_ms": (
                                                 result.timeline_latency_ns / 1_000_000
                                             ),
@@ -998,6 +1052,8 @@ class EdgeRuntime:
                                             ),
                                             **submission_visuals,
                                             **event_fields,
+                                            # After event_fields, which repeat the timeline's count.
+                                            "trimmed_steps": result.trimmed_steps + upstream_skip,
                                         },
                                     )
                                 pending_visuals.pop(response.request_seq, None)

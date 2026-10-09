@@ -6,20 +6,29 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
+
+import numpy as np
 
 from manimux.embodiments.layout import group_layouts
 from manimux.policies.actions import action_groups
 from manimux.policies.base import action_interval
 from manimux.policy_adapter.base import PolicyAdapter
+from manimux.policy_adapter.gripper_mapping import GripperMapping
 from manimux.types import ActionChunk, ActionContext, ObservationSnapshot
 
 
 class JointAdapter(PolicyAdapter):
     """Translate canonical grouped joint targets into timed robot chunks."""
 
+    supports_gripper_mapping = True
+
     def __init__(self, robot: dict, policy: dict, *, kinematics=None) -> None:
         self._dimensions = dict(robot["group_dims"])
         self._layouts = group_layouts(self._dimensions, policy["adapter"])
+        self._gripper_mapping = GripperMapping.from_options(
+            policy["adapter"].get("gripper_mapping")
+        )
         self._camera_map = dict(policy["adapter"].get("camera_map", {}))
         self._required_cameras = tuple(self._camera_map.values())
         self._action_dt_ns = int(action_interval(policy) * 1_000_000_000)
@@ -51,6 +60,11 @@ class JointAdapter(PolicyAdapter):
                 f"{' or 2..' + str(self._horizon_steps) if self._allow_short_horizon else ''}, "
                 f"got {sorted(horizons)}"
             )
+        if self._gripper_mapping.mode == "curve":
+            for name, values in groups.items():
+                tool = slice(self._layouts[name]["arm_dofs"], None)
+                groups[name] = values.copy()
+                groups[name][:, tool] = self._gripper_mapping.map(values[:, tool])
         return ActionChunk(
             plan_id=f"joint-{context.request_seq}-{uuid.uuid4().hex[:8]}",
             request_seq=context.request_seq,
@@ -60,6 +74,26 @@ class JointAdapter(PolicyAdapter):
             dt_ns=self._action_dt_ns,
             groups=groups,
         )
+
+    def prepare_request(self, request):
+        """Return RTC guidance to model aperture units without changing observations."""
+        condition = getattr(request, "action_condition", None)
+        if condition is None or self._gripper_mapping.mode != "curve":
+            return request
+        condition = np.asarray(condition, dtype=np.float64).copy()
+        weights = np.asarray(request.condition_weights, dtype=np.float64)
+        if (
+            condition.shape != (self._horizon_steps, sum(self._dimensions.values()))
+            or weights.shape != (self._horizon_steps,)
+        ):
+            raise ValueError("Joint RTC condition must match the configured horizon and groups")
+        active = weights > 0
+        offset = 0
+        for name, width in self._dimensions.items():
+            tool = slice(offset + self._layouts[name]["arm_dofs"], offset + width)
+            condition[active, tool] = self._gripper_mapping.inverse(condition[active, tool])
+            offset += width
+        return replace(request, action_condition=condition)
 
     def validate(self, robot: dict, policy: dict) -> None:
         del policy

@@ -95,23 +95,22 @@ the body's calibrated geometry/limits. Matching every CalibWrist execution
 detail is a separate reproduction objective, not a prerequisite for Tianji
 body support.
 
-If Cartesian path reproduction is required, add a reusable trajectory
-preparation mode before IK, with dense joint output passed into the same
-runtime and driver. A future configuration could distinguish `joint` and
-`cartesian` preparation; no such configuration field is implemented by this
-audit. It must remain separate from `motion_limits.arm.mode`, which selects
-velocity shaping, and from the IK solver choice.
+UMI differential IK can opt into `execute_diff_ik_substeps`, which passes the
+joint samples already computed along each Cartesian segment to the same runtime
+and driver. The option is adapter-local, defaults off and is rejected for the
+analytic backend; it is not available to policies that already predict joints.
+It remains separate from `motion_limits.arm.mode`, which selects velocity
+shaping, and does not change the model action horizon or interval.
 
-Existing `direct/smooth/mpc` choices do not select interpolation space:
-`ActionTimeline.sample` already linearly interpolates joint rows before the
-executor sees them. Likewise, `ik_validation_dt_s` currently changes temporary
-IK substeps, not the retained output samples.
+Existing `direct/smooth/mpc` choices do not select interpolation space. With the
+option disabled, the timeline retains its prior joint-knot interpolation. With
+it enabled, only the executor-facing runtime trajectory uses the dense diff-IK
+samples; Viewer, RTC and other source-horizon consumers keep the model knots.
 
-A dense mode needs an explicit model-step versus control-sample contract:
-observation timestamp, first target timestamp, execution sample times, source
-indices, chunk caps and RTC masks cannot all share the present `dt_ns` and row
-index meanings. In particular, changing checkpoint `action_dt_s` to 4 ms would
-change model semantics rather than implement a 250 Hz sampler.
+A separate runtime trajectory carries its own start timestamp, interval and
+samples. Source indices, chunk caps and RTC masks continue to use the original
+`ActionChunk` fields. In particular, the checkpoint `action_dt_s` remains 30 Hz;
+the dense execution interval does not change model semantics.
 
 Preparation should use the existing process decoder. UMI currently depends on
 parent-side request anchors; it must first support immutable decode context.

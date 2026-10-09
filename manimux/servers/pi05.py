@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Launch the managed XPolicyLab Pi_05 server for a configured YAM checkpoint."""
+"""Launch the managed XPolicyLab Pi_05 server for an explicitly selected profile."""
 
 from __future__ import annotations
 
@@ -66,6 +66,28 @@ def _validate_paths(config: dict[str, Any]) -> tuple[Path, Path]:
 
 def _resolved_contract(config_path: Path, config: dict[str, Any]) -> dict[str, Any]:
     _prepare_imports()
+    if config.get("observation_profile") == "tianji_taccap_pi05_zero_pose":
+        from XPolicyLab.policy.Pi_05.pass_ball_contract import validate_artifacts
+
+        return {
+            **validate_artifacts(config),
+            "model_python": str(MODEL_PYTHON),
+            "server_config": str(config_path),
+            "checkpoint_variant": config["checkpoint_variant"],
+            "runtime_status": "environment_present_forward_not_verified"
+                if MODEL_PYTHON.is_file() else "blocked_missing_model_environment",
+        }
+    if config.get("observation_profile") == "tianji_taccap_pi05_pack_plate":
+        from XPolicyLab.policy.Pi_05.pack_plate_contract import validate_artifacts
+
+        return {
+            **validate_artifacts(config),
+            "model_python": str(MODEL_PYTHON),
+            "server_config": str(config_path),
+            "checkpoint_variant": config["checkpoint_variant"],
+            "runtime_status": "environment_present_forward_not_verified"
+                if MODEL_PYTHON.is_file() else "blocked_missing_model_environment",
+        }
     from openpi.training import config as openpi_config
 
     train_config = openpi_config.get_config(str(config["train_config_name"]))
@@ -131,6 +153,11 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         help="Station bindings (default: manimux/configs/local/station.yaml)",
     )
+    parser.add_argument(
+        "--checkpoint", type=Path,
+        help="Explicit step directory for the Tianji zero-pose profile",
+    )
+    parser.add_argument("--norm-stats", type=Path, help="Zero-pose normalization directory")
     parser.add_argument("--check", action="store_true", help="validate and print resolved setup")
     args = parser.parse_args(argv)
 
@@ -142,6 +169,20 @@ def main(argv: list[str] | None = None) -> int:
         config = read_experiment(config_path, local=local)["policy_server"]
     else:
         config = bind_station({"policy_server": _load_config(config_path)}, local)["policy_server"]
+    if args.checkpoint is not None or args.norm_stats is not None:
+        profile = config.get("observation_profile")
+        if profile not in {"tianji_taccap_pi05_zero_pose", "tianji_taccap_pi05_pack_plate"}:
+            raise ValueError("artifact overrides require a Tianji zero-pose profile")
+        if args.checkpoint is not None:
+            checkpoint = args.checkpoint.expanduser().resolve()
+            config["model_path"] = str(checkpoint)
+            if profile == "tianji_taccap_pi05_pack_plate":
+                asset_name = Path(config["norm_stats_path"]).name
+                config["norm_stats_path"] = str(checkpoint / "assets" / asset_name)
+            else:
+                config["norm_stats_path"] = str(checkpoint.parent.parent / "normalization")
+        if args.norm_stats is not None:
+            config["norm_stats_path"] = str(args.norm_stats.expanduser().resolve())
     model_root, stats_dir = _validate_paths(config)
     contract = _resolved_contract(config_path, config)
     contract.update(
@@ -149,7 +190,7 @@ def main(argv: list[str] | None = None) -> int:
         norm_stats=str(stats_dir / "norm_stats.json"),
         local=str(local),
     )
-    print("[pi05-yam-server] resolved setup", flush=True)
+    print("[pi05-server] resolved setup", flush=True)
     print(json.dumps(contract, indent=2), flush=True)
 
     if args.check:

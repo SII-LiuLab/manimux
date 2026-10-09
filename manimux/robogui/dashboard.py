@@ -558,8 +558,8 @@ class PolicyRoboGUI:
             self.paused = True
             self.finish_requested = True
             self._clear_warmup_preview()
-            # The new assembly has no Home trajectory. Its primary Finish
-            # action must save/close cleanly instead of requesting robot.home().
+            # Tianji closes a rollout without homing. Return Home is a separate
+            # explicit action, either while paused or through idle recovery.
             self.finish_home = (
                 False if self.robot.name == "tianji-taccap"
                 else home if self.robot.name == "tianji" else None
@@ -1049,7 +1049,12 @@ class PolicyRoboGUI:
         )
         self.pause_btn.disabled = not allowed or self.paused
         self.home_btn.disabled = (
-            not allowed or not self.paused or self.robot.name == "tianji-taccap"
+            not allowed
+            or not self.paused
+            or (
+                self.robot.name == "tianji-taccap"
+                and not getattr(self, "active_home_available", False)
+            )
         )
         self.finish_btn.disabled = not allowed
         if hasattr(self, "finish_no_home_btn"):
@@ -1520,6 +1525,7 @@ class PolicyRoboGUI:
                 self.service_id = incoming_service_id
                 self.records.root.value = incoming_service_id
             self.observe_only = metadata.get("control_mode", "observe") == "observe"
+            self.active_home_available = bool(metadata.get("home_available", False))
             self.paused = True
             self.rollout_started = False
             self.service_ready = False

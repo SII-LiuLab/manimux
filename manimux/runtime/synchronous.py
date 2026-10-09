@@ -80,6 +80,11 @@ class SynchronousChunkStrategy:
             anchor_source="measured_state",
         )
 
+    def decode_handoff(self, *, response) -> bool:
+        """response: model output about to be decoded; this strategy keeps its own trajectory."""
+        del response
+        return False
+
     def prepare_chunk(self, *, chunk, response, now_ns) -> ActionChunk:
         del now_ns
         execution_steps = chunk.horizon_steps

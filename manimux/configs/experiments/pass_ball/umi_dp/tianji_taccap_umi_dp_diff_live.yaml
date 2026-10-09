@@ -10,7 +10,7 @@ run:
 
 robot:
   type: tianji_taccap
-  config: ../../../embodiment/robot/tianji_taccap.yaml
+  config: ../../../embodiment/robot/tianji_taccap_pass_ball.yaml
   control_hz: 100.0
   options:
     execute: true
@@ -43,6 +43,15 @@ policy:
       cam_right_wrist_prev: right_wrist_camera_prev
     ik_validation_dt_s: 0.004
     ik_backend: diff
+    # Execute the joint samples already produced by differential IK instead of
+    # reconstructing each 30 Hz model segment with joint-space interpolation.
+    execute_diff_ik_substeps: true
+    # Per-segment EE speed limits for inference.handoff: waypoint (unused while
+    # handoff: blend). They apply to every row after a switch, so they sit above the
+    # task's typical EE speed (p90 about 0.1 m/s) and mainly act on switch jumps.
+    handoff_waypoint:
+      max_pos_speed_m_s: 0.2
+      max_rot_speed_rad_s: 1.2
     diff_ik:
       config: ../../../embodiment/arm/tianji_diff_ik.yaml
   horizon_policy_steps: 16
