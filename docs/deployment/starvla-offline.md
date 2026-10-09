@@ -29,7 +29,7 @@ Experiments are under `manimux/configs/experiments/offline/starvla/`.
 | `arx_pi_v3_serial.yaml` | RoboDojo QwenPI_v3, three RGB views, 14D joint state, 50 × 14 absolute joints |
 | `arx_pi_v3_manimux.yaml` | Same PI-v3 recipe, asynchronous scheduling |
 | `arx_pi_v3_act_temporal_ensemble.yaml` | Same PI-v3 recipe, temporal ensembling |
-| `arx_pi_v3_{rtc,paint,aac,autohorizon,dvac}.yaml` | Same PI-v3 recipe, the selected flow sampling mode |
+| `arx_pi_v3_{rtc,paint,aac,autohorizon}.yaml` | Same PI-v3 recipe, the selected flow sampling mode |
 | `libero_groot_serial.yaml` | LIBERO QwenGR00T, one RGB view, no state, 8 × 7 native EEF feedback deltas |
 | `libero_fast_serial.yaml` | LIBERO QwenFast, same EEF contract, matching action-token VLM and FAST processor |
 
@@ -153,7 +153,7 @@ the included offline fixtures.
 | Omit `--runtime` | Check inference and action conversion only |
 | `--runtime --executor smooth` or `mpc` | Exercise another existing executor |
 | `--deterministic` | Require identical repeated/reset predictions; use for OFT or deterministic FAST |
-| `--sampling-matrix` | Exercise all five specialized joint sampling requests on the PI-v3 server |
+| `--sampling-matrix` | Exercise all four specialized joint sampling requests on the PI-v3 server |
 
 Outputs include a JSON report, decoded NumPy arrays, and optional rollout recordings.
 The synthetic AAC example uses offline YAM FK and fixture statistics to test the
@@ -195,8 +195,7 @@ interval. The analytic plant checks this contract, not LIBERO physics or Franka 
 OFT/FAST expose default inference only. QwenGR00T and QwenPI_v3 have actual flow
 sampler hooks; enabled modes are checked against the loaded head. The PI-v3 recipe
 requires canonical DiT forwarding. AutoHorizon requires self-attention and at
-least three denoising steps; PI-v3 legacy forwarding does not advertise it. DVAC
-requires at least two. The tested GR00T EEF recipe exposes default inference only. Conditioned EEF sampling is unsupported, as in the
+least three denoising steps; PI-v3 legacy forwarding does not advertise it. The tested GR00T EEF recipe exposes default inference only. Conditioned EEF sampling is unsupported, as in the
 existing Pi05 YAM EEF path. Framework integration does not imply every architecture,
 checkpoint, embodiment and sampler combination is supported.
 
@@ -225,7 +224,7 @@ Follow the data path in this order when reviewing the integration:
 | `manimux/servers/starvla.py` | Resolve the existing configuration and launch the independent native service |
 | `StarVLA/deployment/model_server/serve.py` | Load the checkpoint and start native serving |
 | `StarVLA/deployment/model_server/serving_contract.py` | Validate deployment identity and inspect loaded sampler capabilities |
-| `StarVLA/deployment/model_server/sampling_session.py` | Validate sampler inputs; own reset and per-connection DVAC calibration |
+| `StarVLA/deployment/model_server/sampling_session.py` | Validate sampler inputs; own per-connection sampling sessions and reset |
 | `manimux/policies/starvla/client.py` | Own the connection, verify identity, exchange requests and select AAC candidates |
 | `manimux/policies/starvla/codec.py` and `eef.py` | Convert native arrays to canonical robot groups and pose conventions |
 | `manimux/policies/capabilities.py` | Shared backend identity comparison for clients and runtime |

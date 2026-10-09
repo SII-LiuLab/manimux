@@ -243,7 +243,7 @@ class XPolicyLabWsClient:
         if not isinstance(payload, dict) or "actions" not in payload:
             raise XPolicyLabProtocolError("infer reply has no actions")
         if (
-            sampling.get("mode") in {"aac", "paint", "autohorizon", "dvac"}
+            sampling.get("mode") in {"aac", "paint", "autohorizon"}
             or "action_semantics" in payload
         ):
             return dict(payload)

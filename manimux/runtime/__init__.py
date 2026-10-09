@@ -73,16 +73,17 @@ def executor_parameters(**options) -> dict:
 def inference_parameters(*, executor: dict, **options) -> dict:
     """补齐推理调度参数；算法与执行器在实验中分别选择。"""
     from manimux.runtime.aac import aac_parameters
-    from manimux.runtime.dvac import dvac_parameters
     from manimux.runtime.paint import paint_parameters
     from manimux.runtime.rtc.strategy import rtc_parameters
     from manimux.runtime.temporal_ensemble import temporal_ensemble_parameters
 
-    unsupported = {"chunk_steps", "blend_steps", "max_chunk_steps", "commit_lead_s"}.intersection(
-        options
-    )
+    unsupported = {
+        "chunk_steps", "blend_steps", "max_chunk_steps", "commit_lead_s", "dvac",
+    }.intersection(options)
     if unsupported:
         raise ValueError(f"unsupported inference fields: {sorted(unsupported)}")
+    if options.get("algorithm") == "dvac":
+        raise ValueError("inference.algorithm=dvac is no longer supported")
     # chunk_policy_steps 只是各调度方式已有步数参数的统一入口。
     options = dict(options)
     if options.get("chunk_policy_steps") is not None:
@@ -91,7 +92,6 @@ def inference_parameters(*, executor: dict, **options) -> dict:
             "rtc": ("rtc", "min_execute_policy_steps"),
             "paint": ("paint", "execution_policy_steps"),
             "act_temporal_ensemble": ("temporal_ensemble", "query_interval_policy_steps"),
-            "dvac": ("dvac", "max_execution_policy_steps"),
         }
         section, field = paths[options.get("algorithm", "manimux")]
         destination = options if section is None else dict(options.get(section, {}))
@@ -126,7 +126,6 @@ def inference_parameters(*, executor: dict, **options) -> dict:
         "temporal_ensemble": {},
         "aac": {},
         "paint": {},
-        "dvac": {},
         **options,
     }
     if values.get("rtc") is not None:
@@ -137,8 +136,6 @@ def inference_parameters(*, executor: dict, **options) -> dict:
         values["aac"] = aac_parameters(**values["aac"])
     if values.get("paint") is not None:
         values["paint"] = paint_parameters(**values["paint"])
-    if values.get("dvac") is not None:
-        values["dvac"] = dvac_parameters(**values["dvac"])
     # 字典可能已补齐默认值；默认调度字段不应被误认成用户为其他模式新增的参数。
     inactive_defaults = {"inference_schedule": "deadline", "refill_threshold_s": 0.4}
     provided = {
@@ -236,18 +233,6 @@ def validate_runtime_parameters(config: dict) -> None:
                 "PAINT requires initial_delay_policy_steps <= execution_policy_steps <= "
                 "horizon_policy_steps - initial_delay_policy_steps"
             )
-    if config["inference"]["algorithm"] == "dvac":
-        dvac = config["inference"]["dvac"]
-        maximum = dvac["max_execution_policy_steps"] or config["policy"]["horizon_policy_steps"]
-        if not (
-            dvac["min_execution_policy_steps"]
-            <= maximum
-            <= config["policy"]["horizon_policy_steps"]
-        ):
-            raise ValueError(
-                "DVAC requires min_execution_policy_steps <= "
-                "max_execution_policy_steps <= policy.horizon_policy_steps"
-            )
 
 
 def validate_inference_parameters(values: dict, executor: dict, *, provided=frozenset()) -> None:
@@ -285,7 +270,6 @@ def validate_inference_parameters(values: dict, executor: dict, *, provided=froz
         "aac": "AAC",
         "paint": "PAINT",
         "autohorizon": "AutoHorizon",
-        "dvac": "DVAC",
     }
     runtime = values["algorithm"]
     if runtime == "aac" and not values["aac"]["ee_stats_path"]:

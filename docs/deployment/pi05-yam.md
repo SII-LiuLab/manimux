@@ -113,12 +113,11 @@ envs/yam/.venv/bin/manimux run \
 | `aac` | `aac` | 20 个候选，motion threshold 0.2，backward beta 0.99 |
 | `paint` | `paint` | execution steps 12，初始延迟 10 步，延迟历史窗口 10 |
 | `autohorizon` | `autohorizon` | 使用已接入的 JAX selector，由模型返回执行长度 |
-| `dvac` | `dvac` | tail 5，alpha 2.0，滚动窗口 5，执行长度 1–50 |
 
 统一的底层设置为 `executor.type: smooth`、100 Hz 控制、8 Hz cutoff、关节速度上限
 `0.25 rad/s`、加速度上限 `0.5 rad/s²`、绝对位置上限 `3.14 rad`；左右夹爪均为
 连续 `0–1`，速度上限 `1.0 /s`、加速度上限 `12.0 /s²`。
-这些设置和原有螺丝刀 ManiMux / RTC 一致。ACT、AAC、PAINT、AutoHorizon、DVAC 按各自
+这些设置和原有螺丝刀 ManiMux / RTC 一致。ACT、AAC、PAINT、AutoHorizon 按各自
 契约保留 `blend_policy_steps: 0`；blend 属于 Timeline 拼接，不是底层 SmoothExecutor 参数。
 
 AAC 继续使用现有 `yam_60ep_ee_increment.json` 作为**候选评分用** EE 增量统计；
@@ -126,8 +125,8 @@ AAC 继续使用现有 `yam_60ep_ee_increment.json` 作为**候选评分用** EE
 各方法保留已有的冷启动 timeout，输出分别写入
 `data/experiments/pi05-assemble-screwdriver-step15000/<算法前缀>/`。
 
-2026-09-08 补齐 ACT、AAC、PAINT、AutoHorizon、DVAC 五份螺丝刀配置。
-这表示复用现有算法实现并完成配置/单元回归，不代表新增的五种组合已在该 checkpoint 上
+2026-09-08 补齐 ACT、AAC、PAINT、AutoHorizon 四份螺丝刀配置。
+这表示复用现有算法实现并完成配置/单元回归，不代表新增的四种组合已在该 checkpoint 上
 完成 GPU 或真机测试；既有算法的实测记录见下方方法文档。历史红球和 Robocurve 配置保留不变。
 
 先在 `/home/ubuntu/manimux` 启动同一个 Pi05 policy server：
@@ -155,7 +154,7 @@ envs/yam/.venv/bin/manimux serve \
   --config manimux/configs/experiments/assemble_screwdriver/pi05/yam_pi05_rtc_step15000.yaml
 ```
 
-七种 runtime 选择一种运行，共用上面的同一个 policy server。
+六种 runtime 选择一种运行，共用上面的同一个 policy server。
 
 Pi05 上的训练免推理方法由方法文档单独维护：
 
@@ -163,9 +162,6 @@ Pi05 上的训练免推理方法由方法文档单独维护：
 - AAC：[`reproductions/aac-pi05.md`](../advanced/reproductions/aac-pi05.md)；
 - PAINT：[`reproductions/paint-pi05.md`](../advanced/reproductions/paint-pi05.md)；
 - AutoHorizon：[`reproductions/autohorizon-pi05.md`](../advanced/reproductions/autohorizon-pi05.md)。
-- DVAC：[`reproductions/dvac-pi05.md`](../advanced/reproductions/dvac-pi05.md)。
-  先用 `scripts/validation/xpolicylab_yam_dvac_probe.py --requests 3` 验证同一 session 内的滚动阈值，
-  再决定是否开放真机命令。
 
 以下章节记录先前 Robocurve 16-step checkpoint 的独立实验，不要与本地 50-step 配置混用。
 

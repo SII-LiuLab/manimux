@@ -224,7 +224,7 @@ additional server fields are allowed.
 
 | Field | Meaning |
 | --- | --- |
-| `inference.algorithm` | Strategy, including `manimux`, `act_temporal_ensemble`, `rtc`, `aac`, `paint`, `autohorizon`, `dvac`, an entry point or `module:factory`. |
+| `inference.algorithm` | Strategy, including `manimux`, `act_temporal_ensemble`, `rtc`, `aac`, `paint`, `autohorizon`, an entry point or `module:factory`. |
 | `inference.refill_threshold_s` | Default strategy: request another chunk when the timeline has less remaining duration. |
 | `inference.inference_schedule` | Default strategy: `deadline` or `single_inflight`. |
 | `inference.max_plan_age_s` | Maximum age measured from the chunk's observation time. |
@@ -242,7 +242,6 @@ An accepted, decoded chunk takes effect at commit time without an additional swi
 | `temporal_ensemble` | `coefficient: 0.01`; `query_interval_policy_steps: 1`. |
 | `aac` | `num_samples: 20`, `motion_threshold`, required `ee_stats_path`, `chunk_id_selector`, `backward_beta: 0.99`. |
 | `paint` | `execution_policy_steps: 10`, `initial_delay_policy_steps: 4`, `delay_buffer_size: 10`. |
-| `dvac` | `tail_policy_steps: 5`, `alpha: 2.0`, `rolling_window_size: 5`, `min_execution_policy_steps: 1`, `max_execution_policy_steps` defaulting to horizon. |
 
 ACT uses official exponential weights `w_i ∝ exp(-coefficient × i)` from commit `742c753`.
 Its queries are asynchronous; `blend_policy_steps: 0` prevents an extra seam blend after aggregation.
@@ -263,11 +262,6 @@ prefix from the action expert's third denoising-step self-attention. It requires
 `blend_policy_steps: 0` and synchronous prefix execution. The JAX port uses upstream commit
 `c7504f1`; numerical parity with the upstream PyTorch implementation remains a separate
 validation boundary. See [AutoHorizon](../../docs/advanced/reproductions/autohorizon-pi05.md).
-
-DVAC synchronously executes the server's stable prefix, with `blend_policy_steps: 0`.
-The Pi05/YAM implementation initializes the rolling buffer from the first request and
-scores the 14 effective normalized action dimensions, excluding OpenPI padding.
-See the [DVAC audit](../../docs/advanced/reproductions/dvac-pi05.md) for the paper/implementation boundary.
 
 ### Executors
 

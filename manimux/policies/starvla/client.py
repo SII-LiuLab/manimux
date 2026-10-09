@@ -123,7 +123,7 @@ class StarVlaPolicyModel:
             return self._select_aac(request, actions)
         decoded = self.codec.decode(actions[0])
         mode = sampling["mode"]
-        if mode in {"paint", "autohorizon", "dvac"}:
+        if mode in {"paint", "autohorizon"}:
             if mode not in result:
                 raise ValueError(f"StarVLA omitted {mode} sampler metadata")
             decoded[mode] = result[mode]
@@ -146,7 +146,6 @@ class StarVlaPolicyModel:
                 ("paint", prefix is not None),
                 ("aac", count is not None),
                 ("autohorizon", getattr(request, "autohorizon", False)),
-                ("dvac", getattr(request, "dvac", False)),
             ]
             if used
         ]
@@ -168,15 +167,6 @@ class StarVlaPolicyModel:
             )
         if mode == "aac":
             return dict(mode=mode, num_samples=count)
-        if mode == "dvac":
-            return dict(
-                mode=mode,
-                tail_steps=request.dvac_tail_steps,
-                alpha=request.dvac_alpha,
-                rolling_window_size=request.dvac_rolling_window_size,
-                min_execution_steps=request.dvac_min_execution_steps,
-                max_execution_steps=request.dvac_max_execution_steps,
-            )
         return {"mode": mode}
 
     def _select_aac(self, request, actions):

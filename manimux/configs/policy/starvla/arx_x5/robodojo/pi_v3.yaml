@@ -28,5 +28,5 @@ backend_identity:
   - camera_names
   - image_size
   model:
-    sampling_modes: [default, aac, autohorizon, dvac, paint, rtc]
-enabled_sampling_modes: [rtc, paint, aac, autohorizon, dvac]
+    sampling_modes: [default, aac, autohorizon, paint, rtc]
+enabled_sampling_modes: [rtc, paint, aac, autohorizon]

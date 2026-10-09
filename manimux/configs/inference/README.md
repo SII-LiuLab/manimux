@@ -1,7 +1,7 @@
 # Inference presets
 
 Experiments explicitly select `inference.algorithm`: `manimux`, `rtc`, `aac`,
-`paint`, `dvac`, `autohorizon`, or `act_temporal_ensemble`. Sampler capability
+`paint`, `autohorizon`, or `act_temporal_ensemble`. Sampler capability
 requirements remain unchanged.
 
 An optional `config` supplies reusable parameters. Inline fields override that
