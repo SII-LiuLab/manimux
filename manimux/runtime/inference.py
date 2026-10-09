@@ -23,6 +23,7 @@ class RequestState:
     in_flight: bool
     last_submitted_seq: int
     last_deadline_ns: int
+    multi_flight: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,6 +105,10 @@ class DefaultChunkStrategy:
         self._config = config
 
     @property
+    def discard_plans_while_paused(self) -> bool:
+        return self._config["inference"]["inference_schedule"] == "multi_inflight"
+
+    @property
     def name(self) -> str:
         return self._config["inference"].get("algorithm", "manimux")
 
@@ -116,7 +121,7 @@ class DefaultChunkStrategy:
         return frozenset({"default"})
 
     def reset(self) -> None:
-        return None
+        pass
 
     def build_submission(
         self,
@@ -131,7 +136,10 @@ class DefaultChunkStrategy:
         runtime_state: RuntimeState,
     ) -> InferenceSubmission | None:
         schedule = self._config["inference"]["inference_schedule"]
-        if schedule == "serial":
+        if request_state.multi_flight:
+            if runtime_state != RuntimeState.RUNNING:
+                return None
+        elif schedule == "serial":
             if (
                 runtime_state != RuntimeState.RUNNING
                 or request_state.in_flight

@@ -17,7 +17,9 @@ between separate RPCs.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 
 import numpy as np
 
@@ -40,7 +42,8 @@ from manimux.policies.xpolicylab.codec import (
     encode_observation,
 )
 from manimux.policies.xpolicylab.ws_client import XPolicyLabWsClient
-from manimux.types import InferenceRequest
+from manimux.runtime.rtc.request import RtcInferenceRequest
+from manimux.types import InferenceRequest, InferenceResponse
 
 
 class XPolicyLabWsPolicyModel:
@@ -80,6 +83,7 @@ class XPolicyLabWsPolicyModel:
         self._layouts: tuple[GroupLayout, ...] = ()
         self._session_id: str | None = None
         self._client: XPolicyLabWsClient | None = None
+        self._pending: dict[str, tuple[InferenceResponse, int]] = {}
 
     def reset(self, session_id: str) -> None:
         if self._client is not None:
@@ -87,6 +91,7 @@ class XPolicyLabWsPolicyModel:
                 # Keep the socket so RESET can fence replies from timed-out
                 # warmup requests before resetting the model's RNG/history.
                 self._client.reset()
+                self._pending.clear()
                 self._aac_previous = None
                 return
             self._client.drain()
@@ -108,7 +113,7 @@ class XPolicyLabWsPolicyModel:
         raw = self._infer_wire(request)
         return decode_policy_actions(raw, layouts=self._layouts, format=self._action_format)
 
-    def _infer_wire(self, request: InferenceRequest) -> object:
+    def _encode_observation(self, request: InferenceRequest) -> dict:
         if request.session_id != self._session_id:
             raise RuntimeError("XPolicyLab session is not initialized")
         client = self._client
@@ -146,11 +151,16 @@ class XPolicyLabWsPolicyModel:
             merged = dict(observation.get("additional_info") or {})
             merged.update(dict(extra_info))
             observation["additional_info"] = merged
+        return observation
+
+    def _infer_wire(self, request: InferenceRequest) -> object:
+        observation = self._encode_observation(request)
+        client = self._client
+        assert client is not None
+        snapshot = request.observation
         request = getattr(request, "sampling_request", None) or request
+        sampling = self._rtc_sampling(request)
         condition = getattr(request, "action_condition", None)
-        weights = getattr(request, "condition_weights", None)
-        if (condition is None) != (weights is None):
-            raise ValueError("RTC action_condition and condition_weights must be provided together")
         aac_num_samples = getattr(request, "aac_num_samples", None)
         autohorizon = bool(getattr(request, "autohorizon", False))
         paint_prefix = getattr(request, "paint_action_prefix", None)
@@ -234,8 +244,16 @@ class XPolicyLabWsPolicyModel:
             if condition is not None:
                 raise ValueError("AutoHorizon cannot be combined with RTC sampling")
             return client.infer(observation, sampling={"mode": "autohorizon"})
+        return client.infer(observation, sampling=sampling)
+
+    def _rtc_sampling(self, request: InferenceRequest) -> dict:
+        """Encode the same RTC condition for blocking and streaming requests."""
+        condition = getattr(request, "action_condition", None)
+        weights = getattr(request, "condition_weights", None)
+        if (condition is None) != (weights is None):
+            raise ValueError("RTC action_condition and condition_weights must be provided together")
         if condition is None:
-            return client.infer(observation, sampling={"mode": "default"})
+            return {"mode": "default"}
 
         beta = float(getattr(request, "rtc_beta", 5.0))
         if not np.isfinite(beta) or beta <= 0:
@@ -259,19 +277,81 @@ class XPolicyLabWsPolicyModel:
                 f"RTC condition_weights must have shape {(condition_array.shape[0],)}, "
                 f"got {weights_array.shape}"
             )
-        return client.infer(
-            observation,
-            sampling={
-                "mode": "rtc",
-                "action_condition": condition_array,
-                "condition_weights": weights_array,
-                "beta": beta,
-            },
+        return {
+            "mode": "rtc",
+            "action_condition": condition_array,
+            "condition_weights": weights_array,
+            "beta": beta,
+        }
+
+    def submit(self, request: InferenceRequest) -> bool:
+        if type(request) not in (InferenceRequest, RtcInferenceRequest):
+            raise ValueError("multi_inflight supports only default and RTC requests")
+        # Bound transport buffering too, even when a server or network stalls.
+        # Superseded acknowledgements release credits without producing actions.
+        if len(self._pending) >= 16:
+            return False
+        started_ns = time.monotonic_ns()
+        observation = self._encode_observation(request)
+        assert self._client is not None
+        request_id = self._client.submit_infer(observation, sampling=self._rtc_sampling(request))
+        self._pending[request_id] = (
+            InferenceResponse(
+                session_id=request.session_id,
+                request_seq=request.request_seq,
+                observation_time_ns=request.observation_time_ns,
+                deadline_ns=request.deadline_ns,
+                finished_time_ns=0,
+                inference_ms=0.0,
+                raw_action=None,
+            ),
+            started_ns,
         )
+        return True
+
+    def poll(self) -> InferenceResponse | None:
+        client = self._client
+        if client is None:
+            raise RuntimeError("XPolicyLab client is not connected")
+        # Drain acknowledgements before considering transport timeouts.
+        while (reply := client.poll_infer()) is not None:
+            pending = self._pending.pop(reply.get("message_id"), None)
+            if pending is None:
+                continue
+            response, started_ns = pending
+            payload = reply.get("payload")
+            if isinstance(payload, dict) and payload.get("superseded") is True:
+                continue
+            finished_ns = time.monotonic_ns()
+            raw, error = None, None
+            try:
+                if reply.get("message_type") != "infer_result":
+                    raise RuntimeError(f"inference failed: {payload}")
+                if not isinstance(payload, dict) or "actions" not in payload:
+                    raise ValueError("infer reply has no actions")
+                result = payload if "action_semantics" in payload else payload["actions"]
+                raw = decode_policy_actions(
+                    result, layouts=self._layouts, format=self._action_format,
+                )
+            except Exception as exc:
+                error = f"model_error:{type(exc).__name__}:{exc}"
+            return replace(
+                response,
+                finished_time_ns=finished_ns,
+                inference_ms=(finished_ns - started_ns) / 1_000_000,
+                raw_action=raw,
+                error=error,
+            )
+        if self._pending:
+            _, started_ns = next(iter(self._pending.values()))
+            if time.monotonic_ns() - started_ns > self._request_timeout_s * 1e9:
+                raise TimeoutError("multi_inflight transport timed out awaiting a response")
+        return None
 
     def close(self) -> None:
         client, self._client = self._client, None
         self._session_id = None
+        self._pending.clear()
         if client is not None:
             client.close()
 
@@ -283,7 +363,11 @@ class XPolicyLabWsPolicyModel:
             else getattr(client, "sampling_modes", frozenset({"default"}))
         )
         metadata = {} if client is None else getattr(client, "backend_metadata", {})
-        return PolicyCapabilities(sampling_modes=modes, backend_metadata=dict(metadata))
+        return PolicyCapabilities(
+            sampling_modes=modes,
+            backend_metadata=dict(metadata),
+            multi_inflight=client is not None and getattr(client, "multi_inflight", False),
+        )
 
 
 def build_model(config: dict) -> XPolicyLabWsPolicyModel:

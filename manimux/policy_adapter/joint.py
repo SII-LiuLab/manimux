@@ -22,6 +22,7 @@ class JointAdapter(PolicyAdapter):
     """Translate canonical grouped joint targets into timed robot chunks."""
 
     supports_gripper_mapping = True
+    supports_multi_inflight = True
 
     def __init__(self, robot: dict, policy: dict, *, kinematics=None) -> None:
         self._dimensions = dict(robot["group_dims"])

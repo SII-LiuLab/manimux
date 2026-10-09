@@ -39,6 +39,40 @@ responses are aligned and trimmed by the selected strategy/timeline contract.
 RTC additionally requires real sampler conditioning support from the backend;
 changing a YAML algorithm name cannot add missing model-side hooks.
 
+### Continuous observation uploads (`multi_inflight`)
+
+```yaml
+inference:
+  algorithm: manimux
+  inference_schedule: multi_inflight
+  observation_hz: 30.0
+  action_start_mode: drop_infer_latency
+  blend_policy_steps: 4
+```
+
+The runtime caps uploads at `observation_hz` (also limited by its control ticks
+and transport capacity). The ordinary ManiMux strategy publishes independently
+of the remaining action chunk and previous inference responses. ManiMux's
+`StreamingPolicyServer` extends the unchanged XPolicyLab server to run one inference
+at a time and keep one replaceable waiting observation. As soon as inference finishes,
+it selects the newest waiting input and sends the completed result independently.
+It waits when no fresh input exists; it does not repeatedly infer the same input.
+This is a transport/scheduling mode, not concurrent GPU model execution.
+
+ACT and RTC can also select `inference_schedule: multi_inflight`, so that the runtime
+passes `RequestState.multi_flight=True`. For RTC, it records which accepted plan each
+request used. If that plan has been replaced before the result arrives, the result
+is rejected as `rtc_condition_plan_replaced`. This prevents a queued request from
+replacing a newer plan using an obsolete condition, but can discard computed results.
+
+For the Pi05 joint experiment above, select one of these inference presets:
+```yaml
+inference:
+  config: ../../../inference/yam_multi_inflight.yaml
+  # Or config: ../../../inference/yam_act_multi_inflight.yaml
+  # Or: ../../../inference/yam_rtc_multi_inflight.yaml
+```
+
 ## Meaning of `chunk_policy_steps`
 
 | Strategy | Meaning |
@@ -75,8 +109,9 @@ inference:
 
 The interval is in model action steps, not control ticks. Setting it above one
 changes the original every-step query cadence and must be reported as ManiMux's
-asynchronous adaptation. Timeline seam blending must be zero for this strategy;
-executor filtering/limits remain a separate deployment choice.
+asynchronous adaptation. The ACT presets use zero timeline seam blending to retain
+the ensemble output; a positive value adds a separate handoff blend. Executor
+filtering/limits remain a separate deployment choice.
 
 Source: [official ACT implementation at the audited revision](https://github.com/tonyzhaozh/act/blob/742c753c0d4a5d87076c8f69e5628c79a8cc5488/imitate_episodes.py#L191-L259).
 

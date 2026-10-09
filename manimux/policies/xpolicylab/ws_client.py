@@ -109,11 +109,11 @@ def _utc_now_iso() -> str:
 
 
 class XPolicyLabWsClient:
-    """A blocking request/response client for one policy server connection.
+    """Single-threaded RPC and streaming I/O for one policy server connection.
 
-    The connection is driven from a single thread -- the ManiMux policy worker
-    loop -- so no locking is needed, but the object is correspondingly *not*
-    safe to share between threads.
+    Ordinary requests block for their reply; streaming separates upload and
+    polling. The ManiMux worker drives both from one thread, so no locking is
+    needed, but this object is not safe to share between threads.
     """
 
     def __init__(
@@ -137,6 +137,7 @@ class XPolicyLabWsClient:
         self._conn: Any | None = None
         self._step = 0
         self._sampling_modes = frozenset({"default"})
+        self.multi_inflight = False
         self._backend_metadata: dict[str, object] = {}
         self._pending_requests: set[str] = set()
 
@@ -184,6 +185,9 @@ class XPolicyLabWsClient:
             modes = capabilities.get("sampling_modes") if isinstance(capabilities, dict) else None
             if isinstance(modes, list) and modes and all(isinstance(mode, str) for mode in modes):
                 self._sampling_modes = frozenset(modes)
+            self.multi_inflight = (
+                isinstance(capabilities, dict) and capabilities.get("multi_inflight") is True
+            )
             if isinstance(payload, dict):
                 model_metadata = payload.get("model_metadata")
                 self._backend_metadata = {
@@ -258,6 +262,41 @@ class XPolicyLabWsClient:
     ) -> dict[str, Any]:
         """Send one frame and block until its matching reply arrives."""
 
+        request_id = self._send(message_type, payload)
+        return self._await_reply(
+            self._conn,
+            request_id=request_id,
+            message_type=message_type,
+            timeout_s=self._request_timeout_s if timeout_s is None else timeout_s,
+        )
+
+    def submit_infer(
+        self, observation: dict[str, Any], *, sampling: dict[str, Any] | None = None,
+    ) -> str:
+        """Upload an observation without waiting for model execution."""
+        if not self.multi_inflight:
+            raise XPolicyLabProtocolError("server does not support multi_inflight")
+        request_id = self._send(INFER, {
+            "observation": observation,
+            "sampling": {"mode": "default"} if sampling is None else sampling,
+            "latest_only": True,
+        })
+        self._step += 1
+        return request_id
+
+    def poll_infer(self) -> dict[str, Any] | None:
+        """Receive one available result or superseded acknowledgement."""
+        if self._conn is None:
+            raise XPolicyLabProtocolError("client is not connected")
+        try:
+            reply = unpack_frame(self._conn.recv(timeout=0))
+        except TimeoutError:
+            return None
+        self._pending_requests.discard(reply.get("message_id"))
+        return reply
+
+    def _send(self, message_type: str, payload: dict[str, Any]) -> str:
+
         conn = self._conn
         if conn is None:
             raise XPolicyLabProtocolError("client is not connected")
@@ -278,12 +317,7 @@ class XPolicyLabWsClient:
             )
         )
         self._pending_requests.add(request_id)
-        return self._await_reply(
-            conn,
-            request_id=request_id,
-            message_type=message_type,
-            timeout_s=self._request_timeout_s if timeout_s is None else timeout_s,
-        )
+        return request_id
 
     def _await_reply(
         self,

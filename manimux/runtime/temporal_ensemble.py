@@ -37,6 +37,7 @@ class _StoredChunk:
     start_step: int
     end_step: int
     groups: GroupTrajectory
+    request_seq: int
 
 
 class ACTTemporalEnsembler:
@@ -60,6 +61,7 @@ class ACTTemporalEnsembler:
             start_step=start_step,
             end_step=start_step + chunk.horizon_steps - 1,
             groups={name: values.copy() for name, values in chunk.groups.items()},
+            request_seq=chunk.request_seq,
         )
         self._chunks.append(stored)
         self._chunks = [item for item in self._chunks if item.end_step >= start_step]
@@ -89,6 +91,9 @@ class ACTTemporalEnsembler:
             dt_ns=chunk.dt_ns,
             groups={name: np.stack(values) for name, values in output.items()},
         )
+
+    def discard(self, request_seq: int) -> None:
+        self._chunks = [item for item in self._chunks if item.request_seq != request_seq]
 
     def _start_step(self, chunk: ActionChunk) -> int:
         if self._origin_time_ns is None:
@@ -126,6 +131,7 @@ class ACTTemporalEnsembleStrategy:
         )
         self._ensembler = ACTTemporalEnsembler(settings["coefficient"])
         self._next_query_ns: int | None = None
+        self._pending_ensemble_seq: int | None = None
 
     @property
     def name(self) -> str:
@@ -142,6 +148,7 @@ class ACTTemporalEnsembleStrategy:
     def reset(self) -> None:
         self._ensembler.reset()
         self._next_query_ns = None
+        self._pending_ensemble_seq = None
 
     def build_submission(
         self,
@@ -156,7 +163,7 @@ class ACTTemporalEnsembleStrategy:
         runtime_state: RuntimeState,
     ) -> InferenceSubmission | None:
         del timeline, runtime_state
-        if request_state.in_flight:
+        if request_state.in_flight and not request_state.multi_flight:
             return None
         if self._next_query_ns is not None and now_ns < self._next_query_ns:
             return None
@@ -186,7 +193,9 @@ class ACTTemporalEnsembleStrategy:
         response: InferenceResponse,
         now_ns: int,
     ) -> ActionChunk:
-        del response, now_ns
+        del now_ns
+        if self._config["inference"]["inference_schedule"] == "multi_inflight":
+            self._pending_ensemble_seq = response.request_seq
         return self._ensembler.aggregate(chunk)
 
     def decode_handoff(self, *, response: InferenceResponse) -> bool:
@@ -217,6 +226,7 @@ class ACTTemporalEnsembleStrategy:
         now_ns: int,
     ) -> dict[str, object]:
         del chunk, response, now_ns
+        self._pending_ensemble_seq = None
         counts = self._ensembler.last_contributor_counts
         return {
             "trimmed_steps": result.trimmed_steps,
@@ -225,7 +235,9 @@ class ACTTemporalEnsembleStrategy:
         }
 
     def on_response_rejected(self, response: InferenceResponse) -> None:
-        del response
+        if response.request_seq == self._pending_ensemble_seq:
+            self._ensembler.discard(response.request_seq)
+            self._pending_ensemble_seq = None
 
     def take_runtime_events(self, *, step: int) -> list[tuple[str, dict[str, object]]]:
         del step

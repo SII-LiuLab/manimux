@@ -163,9 +163,14 @@ class EdgeRuntime:
         self._sensors = [build_sensor(sensor, self._clock) for sensor in config["sensors"]]
         # 运行时直接复用整机的运动学；解码子进程从同一配置加载离线模型。
         self._adapter = self._build_adapter()
+        self._multi_inflight = config["inference"]["inference_schedule"] == "multi_inflight"
+        if self._multi_inflight and not getattr(self._adapter, "supports_multi_inflight", False):
+            raise ValueError("multi_inflight requires an adapter with streaming-safe decoding")
         self._decode_seed_source = getattr(
             self._adapter, "decode_seed_source", "execution_reference"
         )
+        if self._multi_inflight and self._decode_seed_source != "execution_reference":
+            raise ValueError("multi_inflight does not retain request-observation decode seeds")
         if self._decode_seed_source not in {"execution_reference", "observation_state"}:
             raise ValueError(
                 "adapter decode_seed_source must be 'execution_reference' or "
@@ -198,7 +203,9 @@ class EdgeRuntime:
             mode=config["inference"]["decode_forecast_mode"],
         )
         self._session_id = f"session-{uuid.uuid4().hex}"
-        self._worker = PolicyWorkerClient(config["policy"], self._session_id)
+        self._worker = PolicyWorkerClient(
+            config["policy"], self._session_id, multi_inflight=self._multi_inflight,
+        )
         self._timeline = self._build_timeline()
         self._executor = self._build_executor()
         self._launch_mode = launch_mode
@@ -378,6 +385,7 @@ class EdgeRuntime:
         last_submitted_seq = -1
         last_request_deadline_ns = 0
         request_in_flight = False
+        next_observation_ns = 0
         last_inference_ms: float | None = None
         discard_responses_through = -1
         pending_visuals: dict[int, dict[str, object]] = {}
@@ -519,6 +527,7 @@ class EdgeRuntime:
                     self._timeline = self._build_timeline()
                     self._executor.reset(state)
                     self._strategy.reset()
+                    next_observation_ns = 0
                     previous_command = copy_group_vector(state.groups)
                     last_command = copy_group_vector(state.groups)
                     discard_responses_through = max(discard_responses_through, request_seq)
@@ -607,6 +616,7 @@ class EdgeRuntime:
                     continue
                 if robogui_control.paused and (
                     self._decoder is not None
+                    or self._multi_inflight
                     or self._config["inference"]["inference_schedule"] == "serial"
                     or getattr(self._strategy, "discard_plans_while_paused", False)
                 ):
@@ -614,6 +624,7 @@ class EdgeRuntime:
                     # by Pause/Hold while a decoder response is still pending.
                     if self._state != RuntimeState.PAUSED:
                         self._strategy.reset()
+                        next_observation_ns = 0
                     self._timeline = self._build_timeline()
                     discard_responses_through = max(discard_responses_through, request_seq)
                     pending_observation_states.clear()
@@ -763,10 +774,20 @@ class EdgeRuntime:
                         rejection_reason = "session_mismatch"
                     elif response.request_seq <= discard_responses_through:
                         rejection_reason = "invalidated_by_pause_or_home"
-                    elif response.request_seq < last_submitted_seq:
+                    elif not self._multi_inflight and response.request_seq < last_submitted_seq:
                         rejection_reason = "superseded_response"
-                    elif response.finished_time_ns > last_request_deadline_ns:
+                    elif (
+                        self._multi_inflight
+                        and response.request_seq <= self._timeline.accepted_request_seq
+                    ):
+                        # Reject before ACT can add an out-of-order chunk to its history.
+                        rejection_reason = "stale_request_seq"
+                    elif response.finished_time_ns > (
+                        response.deadline_ns if self._multi_inflight else last_request_deadline_ns
+                    ):
                         rejection_reason = "inference_deadline_exceeded"
+                    elif self._multi_inflight and self._clock.now_ns() > response.deadline_ns:
+                        rejection_reason = "deadline_exceeded_before_decode"
                     elif response.raw_action is None:
                         rejection_reason = "missing_action"
                     if rejection_reason is not None:
@@ -1088,10 +1109,11 @@ class EdgeRuntime:
                 if self._worker.is_alive and not (
                     (
                         self._decoder is not None
+                        or self._multi_inflight
                         or getattr(self._strategy, "discard_plans_while_paused", False)
                     )
                     and self._state != RuntimeState.RUNNING
-                ):
+                ) and (not self._multi_inflight or now_ns >= next_observation_ns):
                     snapshot = ObservationSnapshot(state=state, frames=frames)
                     with stage("policy_schedule"):
                         submission = self._strategy.build_submission(
@@ -1105,6 +1127,7 @@ class EdgeRuntime:
                                 in_flight=request_in_flight,
                                 last_submitted_seq=last_submitted_seq,
                                 last_deadline_ns=last_request_deadline_ns,
+                                multi_flight=self._multi_inflight,
                             ),
                             runtime_state=self._state,
                         )
@@ -1141,6 +1164,10 @@ class EdgeRuntime:
                         request_in_flight = True
                         last_submitted_seq = request_seq
                         last_request_deadline_ns = prepared_request.deadline_ns
+                        if self._multi_inflight:
+                            next_observation_ns = now_ns + round(
+                                1_000_000_000 / self._config["inference"]["observation_hz"]
+                            )
                         recorder.event(
                             "inference_submitted",
                             request_seq=request_seq,
@@ -1172,6 +1199,11 @@ class EdgeRuntime:
                                 submission.event_fields.get("forecast_delay", 0)
                             )
                         pending_visuals[request_seq] = visual_fields
+                        if self._multi_inflight:
+                            # Coalesced uploads never produce a plan. Keep diagnostic
+                            # history bounded independently of model/network latency.
+                            while len(pending_visuals) > 128:
+                                pending_visuals.pop(next(iter(pending_visuals)))
                         with stage("robogui_publish_event"):
                             self._robogui.publish_event(
                                 "inference_submitted",

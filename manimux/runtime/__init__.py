@@ -6,6 +6,7 @@ ensembling, Physical Intelligence real-time chunking, or a strategy plugin.
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -117,6 +118,7 @@ def inference_parameters(*, executor: dict, **options) -> dict:
         "chunk_policy_steps": None,
         "inference_schedule": "deadline",
         "refill_threshold_s": 0.4,
+        "observation_hz": 30.0,
         "handoff_skip_steps": 0,
         "max_plan_age_s": 1.0,
         "blend_policy_steps": 2,
@@ -145,7 +147,9 @@ def inference_parameters(*, executor: dict, **options) -> dict:
     if values.get("paint") is not None:
         values["paint"] = paint_parameters(**values["paint"])
     # 字典可能已补齐默认值；默认调度字段不应被误认成用户为其他模式新增的参数。
-    inactive_defaults = {"inference_schedule": "deadline", "refill_threshold_s": 0.4}
+    inactive_defaults = {
+        "inference_schedule": "deadline", "refill_threshold_s": 0.4, "observation_hz": 30.0,
+    }
     provided = {
         key
         for key in options
@@ -157,6 +161,11 @@ def inference_parameters(*, executor: dict, **options) -> dict:
 
 def validate_runtime_parameters(config: dict) -> None:
     """保留调度、动作解码和执行限位之间的必要约束。"""
+    if (
+        config["inference"]["inference_schedule"] == "multi_inflight"
+        and config["policy"]["action_decoding"] != "inline"
+    ):
+        raise ValueError("multi_inflight currently requires inline action decoding")
     if config["run"].get("warmup_before_start", False):
         if not config["robogui"]["enabled"]:
             raise ValueError("run.warmup_before_start requires RoboGUI Start control")
@@ -263,6 +272,19 @@ def validate_runtime_parameters(config: dict) -> None:
 
 def validate_inference_parameters(values: dict, executor: dict, *, provided=frozenset()) -> None:
     """检查调度和执行方式的组合；provided 仅用于识别 YAML 中明确给出的字段。"""
+    schedule = values["inference_schedule"]
+    if schedule == "multi_inflight":
+        if values["algorithm"] not in {
+            "manimux", "async", "act_temporal_ensemble", "rtc",
+        } or values["strategy"] is not None:
+            raise ValueError("multi_inflight requires a built-in ManiMux, ACT or RTC strategy")
+        rate = values["observation_hz"]
+        if isinstance(rate, bool) or not isinstance(rate, int | float) or not (
+            math.isfinite(rate) and rate > 0
+        ):
+            raise ValueError("inference.observation_hz must be finite and positive")
+        if "refill_threshold_s" in provided:
+            raise ValueError("multi_inflight does not use refill_threshold_s")
     skip_steps = values["handoff_skip_steps"]
     if type(skip_steps) is not int or skip_steps < 0:
         raise ValueError("inference.handoff_skip_steps must be a non-negative integer")
@@ -322,6 +344,8 @@ def validate_inference_parameters(values: dict, executor: dict, *, provided=froz
         raise ValueError("inference.aac.ee_stats_path is required by AAC")
     if runtime in names:
         ignored = {"inference_schedule", "refill_threshold_s"}.intersection(provided)
+        if schedule == "multi_inflight":
+            ignored.discard("inference_schedule")
         if ignored:
             fields = ", ".join(sorted(ignored))
             raise ValueError(f"inference fields are not used by {names[runtime]}: {fields}")
