@@ -76,6 +76,7 @@ nav:
       - Free and study rollouts: usage/research.md
       - Records and their meaning: usage/records.md
       - Offline replay: usage/replay.md
+      - Chunk speed diagnostics: usage/chunk-speed.md
       - Reference images: usage/reference-images.md
       - Optional video evaluation: usage/evaluation.md
   - Develop with your agent:
@@ -105,6 +106,7 @@ nav:
       - Isaac 0.5 offline: deployment/isaac05-offline.md
   - Algorithms and technical reference:
       - Scheduling and action clocks: advanced/inference.md
+      - Model sampling matrix: advanced/inference-matrix.md
       - Execution and IK: advanced/execution.md
       - Control-loop timing: advanced/control-timing.md
       - Submitted and sent commands: advanced/sent-command-recording.md
