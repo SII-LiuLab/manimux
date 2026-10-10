@@ -16,7 +16,7 @@ and a runtime designed for **100–200 Hz command execution**.
 [![Agent skills](https://img.shields.io/badge/Develop-Agent%20skills-8B5CF6?style=flat-square)](.agents/skills/manimux-development/SKILL.md)
 
 [![Policy recipes: 13](https://img.shields.io/badge/Policy%20recipes-13-F59E0B?style=flat-square)](#included-integrations)
-[![Inference modes: 7](https://img.shields.io/badge/Inference%20modes-7-EC4899?style=flat-square)](#included-integrations)
+[![Inference modes: 8](https://img.shields.io/badge/Inference%20modes-8-EC4899?style=flat-square)](#included-integrations)
 [![Embodiments: 4](https://img.shields.io/badge/Embodiments-4-06B6D4?style=flat-square)](#included-integrations)
 [![Actively maintained](https://img.shields.io/badge/Status-Actively%20maintained-14B8A6?style=flat-square)](https://github.com/SII-LiuLab/manimux/commits/main/)
 
@@ -50,7 +50,7 @@ in a separate, hardware-free view. [Research workflow →](docs/usage/research.m
 
 - **Policies with robot deployment recipes (9):** Pi05, DP, SAPolicy, ABC-DiT, GR00T N1.7, LingBot-VLA2, Xiaomi XR-1, UMI DP and OpenWAM.
 - **Policies with offline recipes (5):** Isaac 0.5 and StarVLA's QwenOFT, QwenPI-v3, QwenGR00T and QwenFast.
-- **Inference modes (7):** Serial, asynchronous chunking, RTC, ACT temporal ensembling, AAC, PAINT and AutoHorizon.
+- **Base inference modes (8), plus opt-in combinations:** Serial, asynchronous chunking, RTC, ACT temporal ensembling, AAC, PAINT, AutoHorizon and BID backward-only.
 - **Hardware integrations (4):** YAM, Tianji–TacCap, and experimental ARX X5 / PiPER. **Executors:** Direct, Smooth and MPC.
 
 [ALOHA-AgileX follower-arm assets](docs/usage/aloha.md) and
@@ -63,6 +63,102 @@ Policy serving uses **XPolicyLab** or **StarVLA**. Counts describe included inte
 not all model × method × robot combinations or completed hardware validation.
 See the [support catalog](docs/usage/deployments.md#integration-counts) for scope and recipes.
 Evaluation is optional; choose your own research protocol and metrics.
+
+## Inference strategies and combinations
+
+Choose a base algorithm, a request schedule, and optional ACT fusion. The eight base
+modes remain available; combinations reuse their existing samplers and do not require
+changes to XPolicyLab or model weights.
+
+| Purpose | Modes | Behavior |
+| --- | --- | --- |
+| Execution scheduling | Serial, asynchronous chunking | Infer after the selected prefix finishes, or overlap inference with execution |
+| Consistency between chunks | RTC, PAINT, ACT temporal ensembling, BID backward-only | Guide sampling, adjust initial noise, average aligned predictions, or select a coherent candidate |
+| Adaptive execution length | AAC, AutoHorizon | Select a source prefix using candidate uncertainty/motion or action attention |
+
+The current compatibility matrix is:
+
+| Base algorithm | Serial | Async `single_inflight` | Async `multi_inflight` | Optional ACT fusion |
+| --- | --- | --- | --- | --- |
+| Ordinary chunking (`manimux`) | Yes | Yes | Yes | Select `act_temporal_ensemble` |
+| ACT temporal ensembling | **New** | Yes | Yes | Already enabled |
+| RTC | — | Yes | Yes | **New** |
+| PAINT | — | Yes | **New** | **New** |
+| BID backward-only | Yes | Yes | Yes | **New** |
+| AAC | Yes | **New** | **New** | **New** |
+| AutoHorizon | Yes | **New** | **New** | **New** |
+
+**BID + AAC adaptive horizon** is available under
+`algorithm: bid_backward` with `bid.execution_horizon: aac`: one candidate batch
+supplies AAC's execution length and BID's candidate selection. It supports serial,
+single-inflight, deadline and multi-inflight execution, and optional ACT fusion. This is separate
+from AAC's existing `aac.chunk_id_selector: backward`, which compares candidate batches
+in normalized end-effector motion space.
+
+**ACT + serial** uses `chunk_policy_steps` as its execution horizon:
+
+```yaml
+inference:
+  algorithm: act_temporal_ensemble
+  inference_schedule: serial
+  chunk_policy_steps: 5
+  action_start_mode: first_step_when_ready
+  blend_policy_steps: 0
+```
+
+It retains full predictions for fusion, executes five policy steps, then requests
+the next chunk. Fusion aligns predictions by their actual commit times, including
+the inference gap and fractional action intervals. No valid overlap means the new
+prediction is used alone. Omitting `chunk_policy_steps` executes the full chunk.
+The asynchronous ACT query interval is unchanged and does not control serial execution.
+
+For example, in a Pi05 experiment under `configs/experiments/put_bottles/pi05/`:
+
+```yaml
+inference:
+  config: ../../../inference/yam_autohorizon_multi_inflight.yaml
+  temporal_ensemble:
+    enabled: true       # AutoHorizon + asynchronous requests + ACT fusion
+```
+
+```yaml
+inference:
+  config: ../../../inference/yam_bid_aac.yaml  # Serial BID + AAC execution length
+  # Optional: temporal_ensemble: {enabled: true}
+```
+
+New selecting presets are `yam_{aac,autohorizon}_{single_inflight,multi_inflight}.yaml`,
+`yam_paint_multi_inflight.yaml`, `yam_bid_aac.yaml`, and `yam_act_serial.yaml` in
+[the inference config directory](manimux/configs/inference/README.md).
+To add ACT to RTC, PAINT or BID, retain that algorithm/preset, set
+`temporal_ensemble.enabled: true`, and use `blend_policy_steps: 0`.
+The base algorithm retains its request cadence; ACT's standalone query interval does
+not override it. Serial ensembles may have no valid overlap.
+
+- `single_inflight` allows one outstanding request. `multi_inflight` uploads at an
+  explicit `observation_hz`; the server keeps the latest waiting observation and runs
+  one model call at a time. `request_trigger` separately chooses refill or continuous
+  requests for ordinary/BID/AAC/AutoHorizon paths.
+- Legacy `deadline` remains actual deadline scheduling for ordinary chunking and BID.
+  For RTC/PAINT/ACT it resolves to single-inflight; for AAC/AutoHorizon it resolves to
+  serial, preserving existing presets.
+- Adaptive asynchronous horizons use `drop_infer_latency`: expired rows consume the
+  selected source prefix. A reply with no eligible future rows is rejected. Execution
+  does not extend past the selected prefix to compensate for delay.
+- RTC/PAINT streaming rejects results based on replaced reference plans. With ACT,
+  the next condition uses the accepted fused plan. The new RTC/PAINT combinations
+  sample conditioning targets at the observation's exact timestamps. BID retains its selected, unfused
+  prediction for its own scoring history. Rejected replies never enter new combination
+  histories.
+- New combinations require inline, complete absolute-joint decoding (`JointAdapter`
+  family), zero extra blending/skip for ACT and adaptive async, and the backend's real
+  sampling capabilities. AAC composition uses the ManiMux XPolicyLab client and needs
+  appropriate EE statistics. Existing serial AAC/AutoHorizon and asynchronous ACT keep
+  their original paths. The new combinations are offline-tested adaptations, not claims
+  of improved task success or completed real-model/robot validation.
+
+RTC + PAINT, conditioned multi-candidate sampling, and AutoHorizon attention combined
+with another sampler remain unsupported. See [timing and composition contracts](docs/advanced/inference.md).
 
 ## Architecture
 

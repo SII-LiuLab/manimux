@@ -10,6 +10,7 @@ from manimux.runtime.safety import RuntimeState
 from manimux.runtime.timeline import ActionTimeline, CommitResult
 from manimux.types import (
     ActionChunk,
+    ActionContext,
     GroupVector,
     InferenceRequest,
     InferenceResponse,
@@ -208,6 +209,7 @@ _STRATEGY_BUILTINS: dict[str, InferenceStrategyFactory | str] = {
     "rtc": "manimux.runtime.rtc.strategy:RtcInferenceStrategy",
     "act_temporal_ensemble": "manimux.runtime.temporal_ensemble:ACTTemporalEnsembleStrategy",
     "aac": "manimux.runtime.aac:AacInferenceStrategy",
+    "bid_backward": "manimux.runtime.bid:BidBackwardStrategy",
     "paint": "manimux.runtime.paint:PaintInferenceStrategy",
     "autohorizon": "manimux.runtime.autohorizon:AutoHorizonInferenceStrategy",
 }
@@ -219,7 +221,28 @@ def build_inference_strategy(config: dict) -> InferenceStrategy:
         group="manimux.inference_strategies",
         builtins=_STRATEGY_BUILTINS,
     )
-    return factory(config)
+    settings = config["inference"]
+    ensemble = (settings.get("temporal_ensemble") or {}).get("enabled", False)
+    serial_act = (
+        settings["algorithm"] == "act_temporal_ensemble"
+        and settings["inference_schedule"] == "serial"
+    )
+    if serial_act:
+        from manimux.runtime.temporal_ensemble import SerialACTStrategy
+
+        factory = SerialACTStrategy
+    elif settings["algorithm"] == "aac" and (
+        settings["inference_schedule"] != "serial" or ensemble
+    ):
+        from manimux.runtime.aac import CandidateAacStrategy
+
+        factory = CandidateAacStrategy
+    strategy = factory(config)
+    if serial_act or (ensemble and settings["algorithm"] != "act_temporal_ensemble"):
+        from manimux.runtime.temporal_ensemble import EnsembleStrategy
+
+        strategy = EnsembleStrategy(strategy, config)
+    return strategy
 
 
 def build_warmup_submission(
@@ -280,3 +303,13 @@ def prepare_strategy_chunk(
     if not callable(method):
         return chunk
     return method(chunk=chunk, response=response, now_ns=now_ns)
+
+
+def decode_strategy_action(
+    strategy: InferenceStrategy, adapter: PolicyAdapter, raw: object, context: ActionContext,
+) -> ActionChunk:
+    """Let candidate selectors reuse adapter decoding; ordinary strategies decode once."""
+    method = getattr(strategy, "decode_action", None)
+    if callable(method):
+        return method(raw, context, adapter=adapter)
+    return adapter.decode_action(raw, context)

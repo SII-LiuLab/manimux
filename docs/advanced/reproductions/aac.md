@@ -1,5 +1,9 @@
 # Adaptive Action Chunking Reproduction Record
 
+For optional asynchronous execution and ACT/BID/AAC composition, see the
+[current runtime contract](../inference.md#optional-algorithm-composition).
+The original/default reproduction described below remains available.
+
 ## 0. Status Snapshot
 
 - **Recorded:** 2026-08-21.

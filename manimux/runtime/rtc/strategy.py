@@ -8,6 +8,7 @@ import numpy as np
 
 from manimux.policies.base import action_interval
 from manimux.policy_adapter.base import PolicyAdapter
+from manimux.runtime.candidates import sample_reference
 from manimux.runtime.inference import (
     CommitSettings,
     InferenceSubmission,
@@ -210,6 +211,21 @@ class RtcInferenceStrategy:
                         skip_steps=self._waypoint_skip,
                     )
                     forecast_used = delay
+                    if (self._config["inference"].get("temporal_ensemble") or {}).get(
+                        "enabled", False,
+                    ):
+                        # ACT compositions condition the accepted fused timeline on
+                        # the new observation grid, including fractional intervals.
+                        valid, condition = sample_reference(
+                            timeline, origin_ns=snapshot.state.monotonic_ns,
+                            dt_ns=int(action_interval(self._config["policy"]) * 1e9),
+                            steps=horizon, group_order=self._group_order,
+                        )
+                        if condition is None or not valid[:delay].all():
+                            condition = weights = None
+                            forecast_used = 0
+                        else:
+                            weights[~valid] = 0
         if not ready:
             return None
 

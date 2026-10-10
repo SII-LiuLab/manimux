@@ -1,7 +1,7 @@
 # Inference presets
 
 Experiments explicitly select `inference.algorithm`: `manimux`, `rtc`, `aac`,
-`paint`, `autohorizon`, or `act_temporal_ensemble`. Sampler capability
+`paint`, `autohorizon`, `bid_backward`, or `act_temporal_ensemble`. Sampler capability
 requirements remain unchanged.
 
 An optional `config` supplies reusable parameters. Inline fields override that
@@ -14,6 +14,20 @@ is no longer hidden in `policy.options.history_strategy`.
 `chunk_policy_steps` retains each algorithm's original meaning, such as RTC's minimum
 execution prefix or PAINT's execution window. It does not change policy action
 interval, model horizon, robot control rate or executor smoothing.
+
+`yam_act_serial.yaml` selects ACT with serial scheduling and a five-step execution
+prefix. Here `chunk_policy_steps` is K (1..H, or null for the full prediction);
+asynchronous ACT keeps its existing query-interval meaning. Serial ACT retains full
+predictions and aligns their overlap at commit timestamps, including inference gaps.
+It requires inline absolute-joint decoding, `first_step_when_ready`, zero blend and
+zero skip; no additional `temporal_ensemble.enabled` flag is needed.
+
+For `bid_backward`, it caps the execution prefix at K future policy rows. Serial
+replanning waits for that prefix; asynchronous request timing comes from the shared
+scheduler. `yam_bid_single_inflight.yaml`, `yam_bid_deadline.yaml`, and
+`yam_bid_multi_inflight.yaml` select time-aligned asynchronous variants.
+`yam_bid_backward.yaml` selects N=16 candidates, rho=0.9, and K=5. This is BID's
+backward-coherence criterion only; see the [integration record](../../../docs/advanced/reproductions/bid-backward.md).
 
 `action_start_mode` states how a returned action chunk starts:
 
@@ -48,3 +62,19 @@ are rounded up to policy steps; the predictor uses the maximum of the latest ten
 Starting without calibration samples is explicitly reported and uses zero until
 formal accepted plans update the estimate. Numeric initial values keep their legacy
 behavior. Other model experiments have not been migrated to these aligned presets.
+
+## Optional combinations
+
+- `yam_aac_single_inflight.yaml` / `yam_aac_multi_inflight.yaml`: asynchronous AAC.
+- `yam_autohorizon_single_inflight.yaml` / `yam_autohorizon_multi_inflight.yaml`: asynchronous AutoHorizon.
+- `yam_paint_multi_inflight.yaml`: streaming PAINT with reference-plan rejection.
+- `yam_bid_aac.yaml`: serial BID selection with AAC's adaptive execution length.
+- `yam_act_serial.yaml`: serial ACT fusion with a configurable execution prefix.
+
+Add `temporal_ensemble: {enabled: true}` to an experiment using RTC, PAINT, BID, AAC
+or AutoHorizon to fuse aligned predictions. Keep `blend_policy_steps: 0` and no
+handoff skip/waypoint. The base method still controls request timing. For asynchronous
+BID+AAC, override `inference_schedule: single_inflight` (or `deadline`, or `multi_inflight` with
+`observation_hz`), and `action_start_mode: drop_infer_latency`. AAC's EE statistics
+must match the selected embodiment; these are selecting examples, not tuned or
+hardware-validated settings. See [composition contracts](../../../docs/advanced/inference.md#optional-algorithm-composition).

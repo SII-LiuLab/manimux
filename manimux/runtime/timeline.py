@@ -14,6 +14,12 @@ from manimux.types import (
 )
 
 
+def first_future_step(observation_time_ns: int, dt_ns: int, now_ns: int) -> int:
+    """First source row on or after the handoff time, rounding up on the row grid."""
+    age_ns = max(0, now_ns - observation_time_ns)
+    return (age_ns + dt_ns - 1) // dt_ns
+
+
 @dataclass(frozen=True, slots=True)
 class CommitResult:
     accepted: bool
@@ -182,11 +188,7 @@ class ActionTimeline:
         # First source row whose timestamp is not earlier than earliest_ns.
         # An exact row boundary keeps that row; a start between rows discards
         # the earlier row instead of retiming an already-expired target.
-        source_cursor = int(
-            (age_at_commit_ns + chunk.dt_ns - 1) // chunk.dt_ns
-            if age_at_commit_ns
-            else 0
-        )
+        source_cursor = first_future_step(chunk.observation_time_ns, chunk.dt_ns, earliest_ns)
         # Rows to remove from this chunk, excluding rows already removed upstream.
         time_trimmed_steps = (
             0 if self._starts_at_commit else max(0, source_cursor - chunk.source_offset_steps)

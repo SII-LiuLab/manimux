@@ -1,5 +1,9 @@
 # AutoHorizon on Pi05/YAM Reproduction Record
 
+For optional asynchronous execution and ACT/BID/AAC composition, see the
+[current runtime contract](../inference.md#optional-algorithm-composition).
+The original/default reproduction described below remains available.
+
 ## 1. Scope and Claim Boundary
 
 - **Method:** AutoHorizon, *VLA Knows Its Limits: Adaptive Execution Horizons for Robot Policies*.

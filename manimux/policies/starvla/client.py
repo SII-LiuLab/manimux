@@ -119,6 +119,8 @@ class StarVlaPolicyModel:
         expected = (count, self.contract["action_horizon"], self.contract["action_dim"])
         if actions.shape != expected or not np.isfinite(actions).all():
             raise ValueError(f"StarVLA returned invalid actions; expected {expected}")
+        if getattr(request, "bid_num_samples", None) is not None:
+            return {"bid_candidates": [self.codec.decode(rows) for rows in actions]}
         if sampling["mode"] == "aac":
             return self._select_aac(request, actions)
         decoded = self.codec.decode(actions[0])
@@ -139,6 +141,11 @@ class StarVlaPolicyModel:
         if (prefix is None) != (delay is None):
             raise ValueError("PAINT prefix and delay must be supplied together")
         count = getattr(request, "aac_num_samples", None)
+        bid_count = getattr(request, "bid_num_samples", None)
+        if bid_count is not None:
+            if count is not None:
+                raise ValueError("BID and AAC selection cannot be combined")
+            count = bid_count
         modes = [
             m
             for m, used in [

@@ -46,8 +46,12 @@ class StreamingPolicyServer(PolicyServer):
             return response
 
         sampling = frame.payload.get("sampling") or {"mode": "default"}
-        if not isinstance(sampling, Mapping) or sampling.get("mode") not in {"default", "rtc"}:
-            raise WsError(ErrorCode.INVALID_FRAME, "latest_only requires default or RTC sampling")
+        if not isinstance(sampling, Mapping) or sampling.get("mode") not in {
+            "default", "rtc", "aac", "paint", "autohorizon",
+        }:
+            raise WsError(
+                ErrorCode.INVALID_FRAME, "unsupported latest_only sampling mode",
+            )
 
         # The upstream execution wrapper owns duplicate IDs, caching and reset
         # generations. Each connection adds just one replaceable waiting input.

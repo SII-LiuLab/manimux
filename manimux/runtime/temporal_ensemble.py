@@ -8,14 +8,16 @@ temporal-aggregation cadence.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 
 from manimux.policies.base import action_interval
 from manimux.policy_adapter.base import PolicyAdapter
+from manimux.runtime.candidates import align_prediction
 from manimux.runtime.inference import (
     CommitSettings,
+    DefaultChunkStrategy,
     InferenceSubmission,
     RequestState,
 )
@@ -53,6 +55,7 @@ class ACTTemporalEnsembler:
         self._origin_time_ns: int | None = None
         self._dt_ns: int | None = None
         self._chunks: list[_StoredChunk] = []
+        self._timed_chunks: list[tuple[int, int, ActionChunk]] = []
         self.last_contributor_counts: tuple[int, ...] = ()
 
     def aggregate(self, chunk: ActionChunk) -> ActionChunk:
@@ -94,6 +97,46 @@ class ACTTemporalEnsembler:
 
     def discard(self, request_seq: int) -> None:
         self._chunks = [item for item in self._chunks if item.request_seq != request_seq]
+        self._timed_chunks = [
+            item for item in self._timed_chunks if item[2].request_seq != request_seq
+        ]
+
+    def aggregate_aligned(self, chunk, *, origin_ns, first_step):
+        """Compose strategies on exact action times, retaining chunk metadata."""
+        times = origin_ns + np.arange(chunk.horizon_steps) * chunk.dt_ns
+        self._timed_chunks = [
+            item for item in self._timed_chunks
+            if item[0] + (item[2].horizon_steps - 1) * item[2].dt_ns >= times[0]
+        ]
+        groups = {name: rows.copy() for name, rows in chunk.groups.items()}
+        counts = np.ones(chunk.horizon_steps, dtype=int)
+        contributions = []
+        for origin, start, previous in self._timed_chunks:
+            if previous.dt_ns != chunk.dt_ns:
+                raise ValueError("temporal ensemble requires constant action dt")
+            aligned = {}
+            for name, rows in previous.groups.items():
+                future_mask, aligned[name] = align_prediction(
+                    rows, origin, times[first_step:], chunk.dt_ns, first_step=start,
+                )
+            mask = np.zeros(len(times), dtype=bool)
+            mask[first_step:] = future_mask
+            contributions.append((mask, aligned))
+            counts += mask
+        for step in range(first_step, chunk.horizon_steps):
+            for name in groups:
+                predictions = [
+                    rows[name][np.count_nonzero(mask[:step])]
+                    for mask, rows in contributions if mask[step]
+                ] + [chunk.groups[name][step]]
+                groups[name][step] = np.sum(
+                    np.stack(predictions) * self._weights(len(predictions))[:, None], axis=0,
+                )
+        self._timed_chunks.append((origin_ns, first_step, replace(
+            chunk, groups={name: rows.copy() for name, rows in chunk.groups.items()},
+        )))
+        self.last_contributor_counts = tuple(map(int, counts[first_step:]))
+        return replace(chunk, groups=groups, metadata=dict(chunk.metadata))
 
     def _start_step(self, chunk: ActionChunk) -> int:
         if self._origin_time_ns is None:
@@ -251,8 +294,91 @@ def temporal_ensemble_parameters(**options) -> dict:
     if "query_interval_steps" in options:
         raise ValueError("unsupported temporal ensemble field: query_interval_steps")
     values = {
+        "enabled": False,
         "coefficient": 0.01,
         "query_interval_policy_steps": 1,
         **options,
     }
     return values
+
+
+class SerialACTStrategy(DefaultChunkStrategy):
+    """Serial request admission with a prefix cropped after full-horizon ACT fusion."""
+
+    hold_last_step = True
+
+    def prepare_chunk(self, *, chunk, response, now_ns):
+        steps = self._config["inference"]["chunk_policy_steps"] or chunk.horizon_steps
+        return replace(
+            chunk, groups={name: rows[:steps].copy() for name, rows in chunk.groups.items()},
+        )
+
+
+class EnsembleStrategy:
+    """Optional ACT fusion around one existing algorithm and its lifecycle."""
+
+    discard_plans_while_paused = True
+
+    def __init__(self, strategy, config):
+        self._strategy = strategy
+        self._config = config
+        self._ensembler = ACTTemporalEnsembler(
+            config["inference"]["temporal_ensemble"]["coefficient"],
+        )
+
+    def __getattr__(self, name):
+        return getattr(self._strategy, name)
+
+    def reset(self):
+        self._strategy.reset()
+        self._ensembler.reset()
+
+    def decode_action(self, raw, context, *, adapter):
+        from manimux.runtime.inference import decode_strategy_action
+
+        chunk = decode_strategy_action(self._strategy, adapter, raw, context)
+        if (
+            chunk.action_space != "joint_position" or chunk.source_offset_steps
+            or chunk.hold_from_step or chunk.handoff or chunk.runtime_trajectory
+        ):
+            raise ValueError("ACT composition requires complete absolute-joint source rows")
+        return chunk
+
+    def select_chunk(self, *, chunk, now_ns):
+        select = getattr(self._strategy, "select_chunk", None)
+        return select(chunk=chunk, now_ns=now_ns) if callable(select) else chunk
+
+    def prepare_chunk(self, *, chunk, response, now_ns):
+        from manimux.runtime.timeline import first_future_step
+
+        # Fixed BID and serial ACT retain full predictions before prefix execution.
+        # Adaptive horizon methods limit each prediction's ensemble contribution.
+        bid = self.name == "bid_backward"
+        adaptive_bid = bid and self._config["inference"]["bid"]["execution_horizon"] == "aac"
+        full_prediction = (bid and not adaptive_bid) or self.name == "act_temporal_ensemble"
+        if not full_prediction:
+            chunk = self._strategy.prepare_chunk(chunk=chunk, response=response, now_ns=now_ns)
+        origin = (
+            now_ns if self._config["inference"]["action_start_mode"] == "first_step_when_ready"
+            else chunk.observation_time_ns
+        )
+        start = first_future_step(origin, chunk.dt_ns, now_ns)
+        if start >= chunk.horizon_steps:
+            return chunk  # Timeline rejects it; it must not enter ensemble history.
+        chunk = self._ensembler.aggregate_aligned(chunk, origin_ns=origin, first_step=start)
+        if full_prediction:
+            chunk = self._strategy.prepare_chunk(chunk=chunk, response=response, now_ns=now_ns)
+        return chunk
+
+    def on_plan_accepted(self, **kwargs):
+        fields = self._strategy.on_plan_accepted(**kwargs)
+        counts = self._ensembler.last_contributor_counts
+        return {
+            **fields,
+            "temporal_ensemble_min_contributors": min(counts, default=0),
+            "temporal_ensemble_max_contributors": max(counts, default=0),
+        }
+
+    def on_response_rejected(self, response):
+        self._ensembler.discard(response.request_seq)
+        self._strategy.on_response_rejected(response)

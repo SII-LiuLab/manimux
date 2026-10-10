@@ -33,6 +33,7 @@ from manimux.runtime.inference import (
     InferenceStrategy,
     RequestState,
     build_inference_strategy,
+    decode_strategy_action,
     prepare_strategy_chunk,
     seed_strategy_warmup,
 )
@@ -164,6 +165,18 @@ class EdgeRuntime:
         self._sensors = [build_sensor(sensor, self._clock) for sensor in config["sensors"]]
         # 运行时直接复用整机的运动学；解码子进程从同一配置加载离线模型。
         self._adapter = self._build_adapter()
+        if (
+            (config["inference"].get("temporal_ensemble") or {}).get("enabled", False)
+            or (
+                config["inference"]["algorithm"] == "act_temporal_ensemble"
+                and config["inference"]["inference_schedule"] == "serial"
+            )
+            or (
+                config["inference"]["algorithm"] in {"aac", "autohorizon"}
+                and config["inference"]["inference_schedule"] != "serial"
+            )
+        ) and not getattr(self._adapter, "supports_bid_backward", False):
+            raise ValueError("inference composition requires complete absolute-joint decoding")
         self._scheduler = RequestScheduler(config["inference"])
         self._multi_inflight = self._scheduler.multi_inflight
         if self._multi_inflight and not getattr(self._adapter, "supports_multi_inflight", False):
@@ -187,6 +200,10 @@ class EdgeRuntime:
         ):
             raise ValueError("adapter does not support waypoint handoff")
         self._strategy = strategy or DefaultChunkStrategy(config)
+        if self._strategy.name == "bid_backward" and not getattr(
+            self._adapter, "supports_bid_backward", False,
+        ):
+            raise ValueError("BID requires an adapter with candidate decoding support")
         self._decoder = None
         if config["policy"]["action_decoding"] == "process":
             # A plugin may wrap the default strategy (the UMI history plugin
@@ -280,8 +297,11 @@ class EdgeRuntime:
             max_source_steps=self._config["inference"]["max_chunk_policy_steps"],
             action_start_mode=self._config["inference"]["action_start_mode"],
             hold_last_step=(
-                self._config["inference"]["inference_schedule"] == "serial"
-                and self._config["inference"]["algorithm"] in {"manimux", "async", "serial"}
+                (
+                    self._config["inference"]["inference_schedule"] == "serial"
+                    and self._config["inference"]["algorithm"] in {"manimux", "async", "serial"}
+                )
+                or getattr(self._strategy, "hold_last_step", False)
             ),
         )
 
@@ -830,7 +850,8 @@ class EdgeRuntime:
                                 chunk = (
                                     decoded_chunk
                                     if decoded_chunk is not None
-                                    else self._adapter.decode_action(
+                                    else decode_strategy_action(
+                                        self._strategy, self._adapter,
                                         response.raw_action,
                                         ActionContext(
                                             request_seq=response.request_seq,
@@ -905,7 +926,8 @@ class EdgeRuntime:
                             pending_visuals.pop(response.request_seq, None)
                             chunk = None
                         canonical_raw = None if chunk is None else copy_action_chunk(chunk)
-                        if chunk is not None:
+                        select_chunk = getattr(self._strategy, "select_chunk", None)
+                        if chunk is not None and not callable(select_chunk):
                             try:
                                 with stage("strategy_prepare_chunk"):
                                     chunk = prepare_strategy_chunk(
@@ -974,19 +996,34 @@ class EdgeRuntime:
                                 result = CommitResult(False, "no_future_horizon")
                             else:
                                 with stage("timeline_commit"):
-                                    result = self._timeline.commit(
-                                        chunk,
-                                        now_ns=now_ns,
-                                        max_plan_age_ns=int(
-                                            self._config["inference"]["max_plan_age_s"]
-                                            * 1_000_000_000
-                                        ),
-                                        current_command=commit.current_command,
-                                        blend_steps=commit.blend_steps,
-                                        handoff_skip_steps=self._config["inference"][
-                                            "handoff_skip_steps"
-                                        ],
-                                    )
+                                    try:
+                                        if callable(select_chunk):
+                                            # Selection and trimming share one handoff clock.
+                                            chunk = select_chunk(chunk=chunk, now_ns=now_ns)
+                                            canonical_raw = copy_action_chunk(chunk)
+                                            chunk = prepare_strategy_chunk(
+                                                self._strategy, chunk=chunk,
+                                                response=response, now_ns=now_ns,
+                                            )
+                                    except (TypeError, ValueError) as exc:
+                                        result = CommitResult(
+                                            False,
+                                            f"invalid_strategy_chunk:{type(exc).__name__}:{exc}",
+                                        )
+                                    else:
+                                        result = self._timeline.commit(
+                                            chunk,
+                                            now_ns=now_ns,
+                                            max_plan_age_ns=int(
+                                                self._config["inference"]["max_plan_age_s"]
+                                                * 1_000_000_000
+                                            ),
+                                            current_command=commit.current_command,
+                                            blend_steps=commit.blend_steps,
+                                            handoff_skip_steps=self._config["inference"][
+                                                "handoff_skip_steps"
+                                            ],
+                                        )
                             if result.accepted:
                                 accepted_plans += 1
                                 last_inference_ms = response.inference_ms

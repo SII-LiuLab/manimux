@@ -16,7 +16,7 @@ ManiMux 是一个**可扩展的 real-world manipulation harness（真机操作�
 [![Agent skills](https://img.shields.io/badge/Develop-Agent%20skills-8B5CF6?style=flat-square)](.agents/skills/manimux-development/SKILL.md)
 
 [![Policy recipes: 13](https://img.shields.io/badge/Policy%20recipes-13-F59E0B?style=flat-square)](#included-integrations)
-[![Inference modes: 7](https://img.shields.io/badge/Inference%20modes-7-EC4899?style=flat-square)](#included-integrations)
+[![Inference modes: 8](https://img.shields.io/badge/Inference%20modes-8-EC4899?style=flat-square)](#included-integrations)
 [![Embodiments: 4](https://img.shields.io/badge/Embodiments-4-06B6D4?style=flat-square)](#included-integrations)
 [![Actively maintained](https://img.shields.io/badge/Status-Actively%20maintained-14B8A6?style=flat-square)](https://github.com/SII-LiuLab/manimux/commits/main/)
 
@@ -54,7 +54,7 @@ ManiMux 是一个**可扩展的 real-world manipulation harness（真机操作�
 
 - **有机器人部署配置的策略（9 类）：** Pi05、DP、SAPolicy、ABC-DiT、GR00T N1.7、LingBot-VLA2、Xiaomi XR-1、UMI DP、OpenWAM。
 - **有离线配置的策略（5 类）：** Isaac 0.5，以及 StarVLA 的 QwenOFT、QwenPI-v3、QwenGR00T、QwenFast。
-- **推理模式（7 种）：** Serial、异步 chunk、RTC、ACT temporal ensembling、AAC、PAINT、AutoHorizon。
+- **基础推理模式（8 种），并支持可选组合：** Serial、异步 chunk、RTC、ACT temporal ensembling、AAC、PAINT、AutoHorizon，以及[仅后向一致性的 BID](docs/advanced/reproductions/bid-backward.md)。
 - **硬件接入（4 种）：** YAM、Tianji–TacCap，以及实验性的 ARX X5 / PiPER。**执行器：** Direct、Smooth、MPC。
 
 另提供 [ALOHA-AgileX 从臂资产](docs/usage/aloha.md)和[标准 PiPER 资产](docs/usage/piper.md)，
@@ -66,6 +66,75 @@ ManiMux 是一个**可扩展的 real-world manipulation harness（真机操作�
 策略通过 **XPolicyLab** 或 **StarVLA** 提供服务。以上统计已有接入，
 不代表所有模型 × 算法 × 本体组合都可用或已通过真机验证。
 具体配置与范围见[支持目录](docs/usage/deployments.md#integration-counts)。评价是可选能力，实验设计和指标由研究者决定。
+
+## 推理策略与组合
+
+分别选择基础算法、请求调度，以及可选的 ACT 时间融合。原有八种基础模式保留，
+新组合复用现有采样接口，不修改 XPolicyLab 或模型权重。
+
+| 基础算法 | Serial | 异步 single_inflight | 异步 multi_inflight | 可选 ACT 融合 |
+| --- | --- | --- | --- | --- |
+| 普通 chunk（manimux） | 支持 | 支持 | 支持 | 使用 act_temporal_ensemble |
+| ACT 时间融合 | 新增，可配置执行前缀 | 支持 | 支持 | 已启用 |
+| RTC | — | 支持 | 支持 | 新增 |
+| PAINT | — | 支持 | 新增 | 新增 |
+| 仅后向 BID | 支持 | 支持 | 支持 | 新增 |
+| AAC | 支持 | 新增 | 新增 | 新增 |
+| AutoHorizon | 支持 | 新增 | 新增 | 新增 |
+
+新增 **BID + AAC 自适应执行长度**：设置 `algorithm: bid_backward` 和
+`bid.execution_horizon: aac`，同一批候选用于 AAC 选择执行长度、BID 选择动作候选。
+支持 serial、single_inflight、deadline 和 multi_inflight，也可叠加 ACT。这与 AAC 原有的
+`aac.chunk_id_selector: backward` 不同，后者在归一化末端运动空间按候选编号比较批次。
+
+新增 **ACT + serial**，`chunk_policy_steps` 表示执行长度：
+
+```yaml
+inference:
+  algorithm: act_temporal_ensemble
+  inference_schedule: serial
+  chunk_policy_steps: 5
+  action_start_mode: first_step_when_ready
+  blend_policy_steps: 0
+```
+
+保留完整预测用于融合，执行五个策略步后再请求下一次推理。融合按各预测实际提交的时间对齐，
+包含推理等待和不足一个策略步的时间偏移；没有有效重叠时仅使用新预测。
+不设置 `chunk_policy_steps` 时执行完整 chunk。异步 ACT 的查询间隔保持原义，不控制串行执行。
+
+位于 `configs/experiments/put_bottles/pi05/` 的实验可这样选择：
+
+```yaml
+inference:
+  config: ../../../inference/yam_autohorizon_multi_inflight.yaml
+  temporal_ensemble:
+    enabled: true
+```
+
+使用 `yam_bid_aac.yaml` 可选择串行 BID + AAC；新增预设还包括
+`yam_{aac,autohorizon}_{single_inflight,multi_inflight}.yaml` 和
+`yam_paint_multi_inflight.yaml`，串行 ACT 可选择 `yam_act_serial.yaml`。
+RTC、PAINT、BID 等预设可保留基础算法并添加
+`temporal_ensemble.enabled: true`，同时设置 `blend_policy_steps: 0`。
+基础算法仍决定请求时机，ACT 独立模式的查询间隔不会覆盖它；串行融合可能没有有效重叠。
+
+单请求异步等待上一次返回，多请求异步按 `observation_hz` 上传，服务器只保留最新待处理观测，
+模型仍串行执行。普通 chunk/BID/AAC/AutoHorizon 的 `request_trigger` 可选择 refill 或 continuous。
+旧 `deadline` 对普通 chunk/BID 保持原义；RTC/PAINT/ACT 转为 single_inflight，
+AAC/AutoHorizon 转为 serial，保持旧配置行为。
+
+异步自适应模式使用 `drop_infer_latency`，延迟消耗选定的源动作前缀，不能从回复时刻重新执行
+同样数量的动作；前缀全部过期时拒绝回复。RTC/PAINT 多请求模式拒绝引用旧计划的回复，
+叠加 ACT 后基于实际接收的融合计划构建下一次条件；新增 RTC/PAINT 组合按观测的精确时间戳
+采样条件目标。BID 仍保留未融合的选中预测用于后向评分。
+新组合的历史仅在计划接收后生效。
+
+新组合限定为 inline 完整绝对关节解码（JointAdapter 系列），ACT 和异步自适应禁用额外
+blending/skip。AAC 组合使用 ManiMux 的 XPolicyLab 客户端并需要适合该本体的 EE 统计。
+服务器仍须提供真实采样能力。原有串行 AAC/AutoHorizon 和异步 ACT 保持原有路径。
+新组合已进行离线检查，尚未验证真实权重、机器人表现或任务收益。
+RTC + PAINT、多候选条件采样及 AutoHorizon 与其他采样器的组合仍不支持。
+详情见[调度与组合契约](docs/advanced/inference.md)和[预设目录](manimux/configs/inference/README.md)。
 
 <a id="architecture"></a>
 

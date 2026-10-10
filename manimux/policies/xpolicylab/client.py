@@ -42,6 +42,10 @@ from manimux.policies.xpolicylab.codec import (
     encode_observation,
 )
 from manimux.policies.xpolicylab.ws_client import XPolicyLabWsClient
+from manimux.runtime.aac import AacInferenceRequest
+from manimux.runtime.autohorizon import AutoHorizonInferenceRequest
+from manimux.runtime.bid import BidInferenceRequest
+from manimux.runtime.paint import PaintInferenceRequest
 from manimux.runtime.rtc.request import RtcInferenceRequest
 from manimux.types import InferenceRequest, InferenceResponse
 
@@ -83,7 +87,7 @@ class XPolicyLabWsPolicyModel:
         self._layouts: tuple[GroupLayout, ...] = ()
         self._session_id: str | None = None
         self._client: XPolicyLabWsClient | None = None
-        self._pending: dict[str, tuple[InferenceResponse, int]] = {}
+        self._pending: dict[str, tuple[InferenceResponse, int, int | InferenceRequest | None]] = {}
         self._expired: set[str] = set()
 
     def reset(self, session_id: str) -> None:
@@ -112,8 +116,32 @@ class XPolicyLabWsPolicyModel:
         self._aac_previous = None
 
     def infer(self, request: InferenceRequest) -> object:
-        raw = self._infer_wire(request)
+        return self._decode_wire(self._infer_wire(request))
+
+    def _decode_wire(self, raw) -> object:
+        if isinstance(raw, Mapping):
+            for key in ("bid_candidates", "aac_candidates"):
+                if key in raw:
+                    return {**raw, key: [
+                        decode_policy_actions(
+                            candidate, layouts=self._layouts, format=self._action_format,
+                        )
+                        for candidate in raw[key]
+                    ]}
         return decode_policy_actions(raw, layouts=self._layouts, format=self._action_format)
+
+    @staticmethod
+    def _candidate_chunks(result, num_samples, label):
+        if not isinstance(result, Mapping):
+            raise ValueError(f"{label} server response must be a mapping")
+        candidates = result.get("actions")
+        if not isinstance(candidates, Sequence) or isinstance(candidates, str | bytes):
+            raise ValueError(f"{label} server response must contain candidate chunks")
+        if len(candidates) != int(num_samples):
+            raise ValueError(
+                f"{label} expected {int(num_samples)} candidates, got {len(candidates)}"
+            )
+        return candidates
 
     def _encode_observation(self, request: InferenceRequest) -> dict:
         if request.session_id != self._session_id:
@@ -159,11 +187,19 @@ class XPolicyLabWsPolicyModel:
         observation = self._encode_observation(request)
         client = self._client
         assert client is not None
-        snapshot = request.observation
-        request = getattr(request, "sampling_request", None) or request
+        sampling_request = getattr(request, "sampling_request", None) or request
+        result = client.infer(observation, sampling=self._sampling(sampling_request))
+        return self._process_result(result, sampling_request, request.observation)
+
+    def _sampling(self, request):
+        """Share sampling validation across blocking and streaming transports."""
         sampling = self._rtc_sampling(request)
         condition = getattr(request, "action_condition", None)
         aac_num_samples = getattr(request, "aac_num_samples", None)
+        bid_num_samples = getattr(request, "bid_num_samples", None)
+        if aac_num_samples is not None and bid_num_samples is not None:
+            raise ValueError("BID and AAC selection cannot be combined")
+        num_samples = aac_num_samples if bid_num_samples is None else bid_num_samples
         autohorizon = bool(getattr(request, "autohorizon", False))
         paint_prefix = getattr(request, "paint_action_prefix", None)
         paint_delay_steps = getattr(request, "paint_delay_steps", None)
@@ -172,7 +208,7 @@ class XPolicyLabWsPolicyModel:
                 "PAINT paint_action_prefix and paint_delay_steps must be provided together"
             )
         if paint_prefix is not None:
-            if condition is not None or aac_num_samples is not None or autohorizon:
+            if condition is not None or num_samples is not None or autohorizon:
                 raise ValueError(
                     "PAINT cannot be combined with RTC, AAC, or AutoHorizon sampling"
                 )
@@ -189,64 +225,67 @@ class XPolicyLabWsPolicyModel:
                     "PAINT action prefix must be finite with shape "
                     f"({delay_steps}, native_dim), got {prefix_array.shape}"
                 )
-            return client.infer(
-                observation,
-                sampling={
-                    "mode": "paint",
-                    "action_prefix": prefix_array,
-                    "delay_steps": delay_steps,
-                },
-            )
-        if aac_num_samples is not None:
+            return {"mode": "paint", "action_prefix": prefix_array, "delay_steps": delay_steps}
+        if num_samples is not None:
+            label = "AAC" if bid_num_samples is None else "BID"
             if condition is not None or autohorizon:
-                raise ValueError("AAC cannot be combined with RTC or AutoHorizon sampling")
-            result = client.infer(
-                observation,
-                sampling={
-                    "mode": "aac",
-                    "num_samples": int(aac_num_samples),
-                },
-            )
-            if not isinstance(result, Mapping):
-                raise ValueError("AAC server response must be a mapping")
-            candidates = result.get("actions")
-            if not isinstance(candidates, Sequence) or isinstance(candidates, str | bytes):
-                raise ValueError("AAC server response must contain candidate chunks")
-            if len(candidates) != int(aac_num_samples):
-                raise ValueError(
-                    f"AAC expected {int(aac_num_samples)} candidates, got {len(candidates)}"
-                )
-            robot_config = getattr(request, "aac_robot_config", None)
-            if not robot_config:
-                raise ValueError("AAC requires the runtime's robot.config")
-            if self._aac_kinematics is None or self._aac_robot_config != robot_config:
-                from manimux.embodiments.robot.base import RobotModel
-
-                self._aac_kinematics = RobotModel.from_config(robot_config).kinematics
-                self._aac_robot_config = robot_config
-            stats_path = getattr(request, "aac_ee_stats_path", None)
-            if not isinstance(stats_path, str) or not stats_path:
-                raise ValueError("AAC requires aac_ee_stats_path")
-            if self._aac_ee_stats is None or self._aac_ee_stats_path != stats_path:
-                self._aac_ee_stats = load_ee_action_stats(stats_path, layouts=self._layouts)
-                self._aac_ee_stats_path = stats_path
-            selected, self._aac_previous = select_native_chunk(
-                candidates,
-                layouts=self._layouts,
-                current_groups=snapshot.state.groups,
-                kinematics=self._aac_kinematics,
-                ee_stats=self._aac_ee_stats,
-                motion_threshold=float(getattr(request, "aac_motion_threshold", 3.0)),
-                chunk_id_selector=str(getattr(request, "aac_chunk_id_selector", "0")),
-                previous=self._aac_previous,
-                backward_beta=float(getattr(request, "aac_backward_beta", 0.99)),
-            )
-            return selected
+                raise ValueError(f"{label} cannot be combined with RTC or AutoHorizon sampling")
+            return {"mode": "aac", "num_samples": int(num_samples)}
         if autohorizon:
             if condition is not None:
                 raise ValueError("AutoHorizon cannot be combined with RTC sampling")
-            return client.infer(observation, sampling={"mode": "autohorizon"})
-        return client.infer(observation, sampling=sampling)
+            return {"mode": "autohorizon"}
+        return sampling
+
+    def _process_result(self, result, request, snapshot):
+        bid_count = getattr(request, "bid_num_samples", None)
+        count = bid_count if bid_count is not None else getattr(request, "aac_num_samples", None)
+        if count is None:
+            return result
+        candidates = self._candidate_chunks(
+            result, count, "BID" if bid_count is not None else "AAC",
+        )
+        horizon = getattr(request, "aac_horizon", None)
+        if bid_count is not None and horizon is None:
+            return {"bid_candidates": candidates}
+        deferred = bool(getattr(request, "aac_defer_selection", False)) or horizon is not None
+        options = horizon or {
+            "robot_config": request.aac_robot_config,
+            "ee_stats_path": request.aac_ee_stats_path,
+            "motion_threshold": request.aac_motion_threshold,
+            "chunk_id_selector": request.aac_chunk_id_selector,
+            "backward_beta": request.aac_backward_beta,
+        }
+        robot_config = options["robot_config"]
+        if not robot_config:
+            raise ValueError("AAC requires the runtime's robot.config")
+        if self._aac_kinematics is None or self._aac_robot_config != robot_config:
+            from manimux.embodiments.robot.base import RobotModel
+
+            self._aac_kinematics = RobotModel.from_config(robot_config).kinematics
+            self._aac_robot_config = robot_config
+        stats_path = options["ee_stats_path"]
+        if not isinstance(stats_path, str) or not stats_path:
+            raise ValueError("AAC requires aac_ee_stats_path")
+        if self._aac_ee_stats is None or self._aac_ee_stats_path != stats_path:
+            self._aac_ee_stats = load_ee_action_stats(stats_path, layouts=self._layouts)
+            self._aac_ee_stats_path = stats_path
+        selected, previous = select_native_chunk(
+            candidates, layouts=self._layouts, current_groups=snapshot.state.groups,
+            kinematics=self._aac_kinematics, ee_stats=self._aac_ee_stats,
+            motion_threshold=float(options["motion_threshold"]),
+            chunk_id_selector="0" if deferred else str(options["chunk_id_selector"]),
+            previous=None if deferred else self._aac_previous,
+            backward_beta=float(options["backward_beta"]),
+        )
+        if deferred:
+            key = "bid_candidates" if bid_count is not None else "aac_candidates"
+            output = {key: candidates, "aac": selected["aac"]}
+            if bid_count is None:
+                output["aac_features"] = previous.ee_features
+            return output
+        self._aac_previous = previous
+        return selected
 
     def _rtc_sampling(self, request: InferenceRequest) -> dict:
         """Encode the same RTC condition for blocking and streaming requests."""
@@ -287,8 +326,11 @@ class XPolicyLabWsPolicyModel:
         }
 
     def submit(self, request: InferenceRequest) -> bool:
-        if type(request) not in (InferenceRequest, RtcInferenceRequest):
-            raise ValueError("multi_inflight supports only default and RTC requests")
+        if type(request) not in (
+            InferenceRequest, RtcInferenceRequest, BidInferenceRequest, AacInferenceRequest,
+            AutoHorizonInferenceRequest, PaintInferenceRequest,
+        ):
+            raise ValueError("unsupported multi_inflight request type")
         # Bound transport buffering too, even when a server or network stalls.
         # Superseded acknowledgements release credits without producing actions.
         if len(self._pending) >= 16:
@@ -296,7 +338,12 @@ class XPolicyLabWsPolicyModel:
         started_ns = time.monotonic_ns()
         observation = self._encode_observation(request)
         assert self._client is not None
-        request_id = self._client.submit_infer(observation, sampling=self._rtc_sampling(request))
+        num_samples = getattr(request, "bid_num_samples", None)
+        sampling = self._sampling(request)
+        context = num_samples
+        if isinstance(request, AacInferenceRequest) or getattr(request, "aac_horizon", None):
+            context = request
+        request_id = self._client.submit_infer(observation, sampling=sampling)
         self._pending[request_id] = (
             InferenceResponse(
                 session_id=request.session_id,
@@ -308,6 +355,7 @@ class XPolicyLabWsPolicyModel:
                 raw_action=None,
             ),
             started_ns,
+            context,
         )
         return True
 
@@ -324,7 +372,7 @@ class XPolicyLabWsPolicyModel:
                 continue
             if pending is None:
                 continue
-            response, started_ns = pending
+            response, started_ns, num_samples = pending
             payload = reply.get("payload")
             if isinstance(payload, dict) and payload.get("superseded") is True:
                 continue
@@ -335,10 +383,15 @@ class XPolicyLabWsPolicyModel:
                     raise RuntimeError(f"inference failed: {payload}")
                 if not isinstance(payload, dict) or "actions" not in payload:
                     raise ValueError("infer reply has no actions")
-                result = payload if "action_semantics" in payload else payload["actions"]
-                raw = decode_policy_actions(
-                    result, layouts=self._layouts, format=self._action_format,
+                result = (
+                    payload if {"action_semantics", "autohorizon", "paint"}.intersection(payload)
+                    else payload["actions"]
                 )
+                if isinstance(num_samples, InferenceRequest):
+                    result = self._process_result(payload, num_samples, num_samples.observation)
+                elif num_samples is not None:
+                    result = {"bid_candidates": self._candidate_chunks(payload, num_samples, "BID")}
+                raw = self._decode_wire(result)
             except Exception as exc:
                 error = f"model_error:{type(exc).__name__}:{exc}"
             return replace(
@@ -348,7 +401,7 @@ class XPolicyLabWsPolicyModel:
                 raw_action=raw,
                 error=error,
             )
-        for request_id, (response, started_ns) in self._pending.items():
+        for request_id, (response, started_ns, _) in self._pending.items():
             if request_id in self._expired:
                 continue
             if time.monotonic_ns() - started_ns > self._request_timeout_s * 1e9:

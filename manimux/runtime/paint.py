@@ -9,13 +9,14 @@ from numpy.typing import NDArray
 
 from manimux.policies.base import action_interval
 from manimux.policy_adapter.base import PolicyAdapter
+from manimux.runtime.candidates import sample_reference
 from manimux.runtime.inference import (
     CommitSettings,
     InferenceSubmission,
     RequestState,
 )
 from manimux.runtime.safety import RuntimeState
-from manimux.runtime.timeline import ActionTimeline, CommitResult
+from manimux.runtime.timeline import ActionTimeline, CommitResult, first_future_step
 from manimux.types import (
     ActionChunk,
     GroupVector,
@@ -45,6 +46,10 @@ class PaintInferenceStrategy:
         self._execution_steps = int(paint["execution_policy_steps"])
         self._initial_delay_steps = int(paint["initial_delay_policy_steps"])
         self._delay_buffer_size = int(paint["delay_buffer_size"])
+        self._time_aligned = (
+            config["inference"]["inference_schedule"] == "multi_inflight"
+            or (config["inference"].get("temporal_ensemble") or {}).get("enabled", False)
+        )
         self._active_rows: np.ndarray | None
         self._active_offset: int
         self._delay_forecast: deque[int]
@@ -71,6 +76,8 @@ class PaintInferenceStrategy:
         return frozenset({"paint"})
 
     def reset(self) -> None:
+        self._active_request_seq = -1
+        self._request_reference_seq: dict[int, int] = {}
         self._active_rows = None
         self._active_offset = 0
         self._delay_forecast = deque(
@@ -101,6 +108,12 @@ class PaintInferenceStrategy:
         if runtime_state != RuntimeState.RUNNING:
             return None
 
+        if request_state.multi_flight:
+            timeout = int(self._config["policy"]["timeout_s"] * 1e9)
+            for seq, started in list(self._request_started_ns.items()):
+                if now_ns - started > timeout:
+                    self._forget_request(seq)
+
         deadline_ns = now_ns + int(self._config["policy"]["timeout_s"] * 1_000_000_000)
         request_fields = {
             "session_id": session_id,
@@ -112,6 +125,8 @@ class PaintInferenceStrategy:
         }
         active = self._active_rows
         if active is None:
+            if request_state.multi_flight:
+                self._request_reference_seq[request_seq] = timeline.accepted_request_seq
             self._request_started_ns[request_seq] = now_ns
             self._request_forecast[request_seq] = 0
             self._request_execution[request_seq] = 0
@@ -130,6 +145,14 @@ class PaintInferenceStrategy:
             return None
 
         prefix = active[executed : executed + delay].astype(np.float64, copy=True)
+        if self._time_aligned and delay:
+            valid, prefix = sample_reference(
+                timeline, origin_ns=snapshot.state.monotonic_ns,
+                dt_ns=int(action_interval(self._config["policy"]) * 1e9),
+                steps=delay, group_order=self._group_order,
+            )
+            if not valid.all():
+                return None  # PAINT needs a complete anchored prefix.
         request = PaintInferenceRequest(
             **request_fields,
             paint_action_prefix=prefix,
@@ -140,6 +163,8 @@ class PaintInferenceStrategy:
         self._request_forecast[request_seq] = delay
         self._request_execution[request_seq] = executed
         self._conditioned_requests.add(request_seq)
+        if request_state.multi_flight:
+            self._request_reference_seq[request_seq] = timeline.accepted_request_seq
         return InferenceSubmission(
             request=request,
             event_fields={
@@ -170,6 +195,9 @@ class PaintInferenceStrategy:
 
     def _actual_trimmed_steps(self, chunk: ActionChunk, now_ns: int) -> int:
         age_ns = max(0, now_ns - chunk.observation_time_ns)
+        if self._time_aligned:
+            # New combinations use Timeline's first-future-row convention.
+            return first_future_step(chunk.observation_time_ns, chunk.dt_ns, now_ns)
         return int(age_ns // chunk.dt_ns)
 
     def prepare_chunk(
@@ -179,6 +207,10 @@ class PaintInferenceStrategy:
         response: InferenceResponse,
         now_ns: int,
     ) -> ActionChunk:
+        if self._config["inference"]["inference_schedule"] == "multi_inflight" and (
+            self._request_reference_seq.get(response.request_seq) != self._active_request_seq
+        ):
+            raise ValueError("paint_condition_plan_replaced")
         forecast = self._request_forecast.get(response.request_seq, 0)
         if forecast == 0:
             return chunk
@@ -199,6 +231,8 @@ class PaintInferenceStrategy:
         response: InferenceResponse,
         now_ns: int,
     ) -> dict[str, object]:
+        self._active_request_seq = response.request_seq
+        self._request_reference_seq.pop(response.request_seq, None)
         self._active_rows = np.concatenate(
             [chunk.groups[name] for name in self._group_order],
             axis=1,
@@ -236,6 +270,7 @@ class PaintInferenceStrategy:
         return fields
 
     def on_response_rejected(self, response: InferenceResponse) -> None:
+        self._request_reference_seq.pop(response.request_seq, None)
         started_ns = self._request_started_ns.pop(response.request_seq, None)
         forecast = self._request_forecast.pop(response.request_seq, 0)
         self._request_execution.pop(response.request_seq, None)
@@ -244,6 +279,13 @@ class PaintInferenceStrategy:
             elapsed_ns = max(0, response.finished_time_ns - started_ns)
             dt_ns = int(action_interval(self._config["policy"]) * 1_000_000_000)
             self._delay_forecast.append(int(np.ceil(elapsed_ns / dt_ns)))
+
+    def _forget_request(self, seq):
+        self._request_reference_seq.pop(seq, None)
+        self._request_started_ns.pop(seq, None)
+        self._request_forecast.pop(seq, None)
+        self._request_execution.pop(seq, None)
+        self._conditioned_requests.discard(seq)
 
     def take_runtime_events(self, *, step: int) -> list[tuple[str, dict[str, object]]]:
         pending = self._infeasible_pending

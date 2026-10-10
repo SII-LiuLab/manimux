@@ -23,6 +23,7 @@ class JointAdapter(PolicyAdapter):
 
     supports_gripper_mapping = True
     supports_multi_inflight = True
+    supports_bid_backward = True
 
     def __init__(self, robot: dict, policy: dict, *, kinematics=None) -> None:
         self._dimensions = dict(robot["group_dims"])

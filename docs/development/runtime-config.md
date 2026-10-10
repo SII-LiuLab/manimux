@@ -30,6 +30,21 @@ same scheduler as their delegate. Streaming/continuous custom strategies remain
 unsupported until their lifecycle and action-reference handling are validated.
 See [scheduling and action clocks](../advanced/inference.md) for the config matrix.
 
+An optional strategy `decode_action(raw, context, *, adapter)` hook decodes
+candidate predictions using the existing adapter. `decode_strategy_action` uses it
+for inline execution and warmup; other strategies retain the original single decode.
+An optional `select_chunk(chunk=..., now_ns=...)` hook defers candidate selection
+until immediately before commit. For this path, selection and `prepare_chunk` use
+the same timestamp as timeline commit, and recording captures the selected full
+prediction before prefix preparation. Warmup selects only a preview and never
+accepts a plan. Strategies without this hook retain their existing preparation path.
+
+BID uses these hooks with adapters declaring `supports_bid_backward`; it retains
+its full reference and timing only after plan acceptance. Its `hold_last_step`
+flag gives each executed prefix row a full policy interval. The timeline's shared
+`first_future_step` defines latency rounding for both selection and commit.
+Model sampling and wire conversion remain in the backend.
+
 `manimux/runtime/timeline.py` owns `ActionTimeline`: committing and sampling decoded
 joint trajectories on the runtime clock. Keep chunk handoff here and in the
 strategy. Do not fake measured state or modify observations to implement another
@@ -257,3 +272,28 @@ per-tick vendor branch. There is currently no general executor entry-point loade
 The live dashboard's `records.py` reads finalized records; `action_replay.py` owns
 hardware-free trajectory display. Keep these consumers out of the control loop.
 The [research workflow](../usage/research.md) describes current UI and identity fields.
+
+## Opt-in inference composition
+
+The factory retains one base strategy and optionally wraps it with `EnsembleStrategy`
+when `temporal_ensemble.enabled` is true. Composition reuses existing decode, selection,
+prepare, acceptance and rejection hooks; it introduces no second runtime loop.
+`bid.execution_horizon` is `fixed` by default and accepts `aac` for candidate selection
+with an adaptive prefix. These new paths use complete inline absolute-joint decoding.
+
+Serial ACT also uses `EnsembleStrategy`, around a small `SerialACTStrategy` that
+reuses default request construction and crops the execution prefix after fusion.
+`chunk_policy_steps` sets K (null means H); the asynchronous query-interval alias
+is bypassed in serial mode. Full unfused predictions remain in the ensemble history,
+anchored at each commit time. The existing serial scheduler and final-row hold enforce
+K action intervals; the model horizon, observation timestamps and asynchronous ACT
+strategy remain unchanged.
+
+AAC/AutoHorizon retain serial defaults but permit explicit single/multi-inflight
+schedules. Asynchronous adaptive preparation caps source rows before Timeline removes
+expired rows. AAC defers candidate selection/history until commit for asynchronous or
+ensemble paths; plain serial AAC retains its existing client behavior. PAINT streaming
+retains the accepted-plan identity with each condition and rejects replaced references.
+The streaming wrapper accepts existing PAINT/AutoHorizon sampler modes without changing
+XPolicyLab. See [the composition timing contract](../advanced/inference.md#optional-algorithm-composition)
+for reference history, horizon validity and unsupported combinations.

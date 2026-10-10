@@ -6,10 +6,13 @@ import math
 
 from manimux.runtime.safety import RuntimeState
 
-_ORDINARY = {"manimux", "async", "serial"}
+_CHUNK_STRATEGIES = {"manimux", "async", "serial", "bid_backward"}
 _SINGLE = {"rtc", "paint", "act_temporal_ensemble"}
-_SYNCHRONOUS = {"aac", "autohorizon"}
-_STREAMING = {"manimux", "async", "rtc", "act_temporal_ensemble"}
+_ADAPTIVE = {"aac", "autohorizon"}
+_STREAMING = {
+    "manimux", "async", "rtc", "act_temporal_ensemble", "bid_backward",
+    "paint", "aac", "autohorizon",
+}
 
 
 def resolve_request_schedule(values: dict) -> None:
@@ -20,11 +23,11 @@ def resolve_request_schedule(values: dict) -> None:
     if schedule == "deadline":
         if algorithm in _SINGLE:
             values["inference_schedule"] = "single_inflight"
-        elif algorithm in _SYNCHRONOUS:
+        elif algorithm in _ADAPTIVE:
             values["inference_schedule"] = "serial"
     if values["request_trigger"] is None:
         values["request_trigger"] = (
-            "refill" if algorithm in _ORDINARY
+            "refill" if algorithm in _CHUNK_STRATEGIES | _ADAPTIVE
             and values["inference_schedule"] != "serial" else "algorithm"
         )
 
@@ -43,15 +46,16 @@ def validate_request_schedule(values: dict, *, provided=frozenset()) -> None:
         raise ValueError("custom strategies do not support streaming or continuous requests")
     if schedule == "multi_inflight" and algorithm not in _STREAMING:
         raise ValueError(f"multi_inflight is not supported by {algorithm}")
-    if algorithm in _SINGLE and schedule not in {"single_inflight", "multi_inflight"}:
+    serial_act = algorithm == "act_temporal_ensemble" and schedule == "serial"
+    if algorithm in _SINGLE and not serial_act and schedule not in {
+        "single_inflight", "multi_inflight",
+    }:
         raise ValueError(f"{algorithm} requires single_inflight or a supported multi_inflight")
-    if algorithm in _SYNCHRONOUS and schedule != "serial":
-        raise ValueError(f"{algorithm} requires serial scheduling")
-    if schedule == "serial" and algorithm not in _ORDINARY | _SYNCHRONOUS:
+    if schedule == "serial" and not serial_act and algorithm not in _CHUNK_STRATEGIES | _ADAPTIVE:
         raise ValueError(f"serial scheduling is not supported by {algorithm}")
     if algorithm == "serial" and schedule != "serial":
         raise ValueError("inference.algorithm=serial requires inference_schedule=serial")
-    ordinary_async = algorithm in _ORDINARY and schedule != "serial"
+    ordinary_async = algorithm in _CHUNK_STRATEGIES | _ADAPTIVE and schedule != "serial"
     if ordinary_async and trigger not in {"refill", "continuous"}:
         raise ValueError("ordinary asynchronous requests require refill or continuous trigger")
     if not ordinary_async and trigger != "algorithm":

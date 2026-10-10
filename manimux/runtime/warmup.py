@@ -10,6 +10,7 @@ from manimux.policy_adapter.base import PolicyAdapter
 from manimux.runtime.inference import (
     InferenceStrategy,
     build_warmup_submission,
+    decode_strategy_action,
     seed_strategy_warmup,
 )
 from manimux.timing import stage
@@ -117,7 +118,8 @@ class PolicyWarmup:
                 if error is None:
                     try:
                         with stage("policy_decode"):
-                            chunk = self.adapter.decode_action(
+                            chunk = decode_strategy_action(
+                                self.strategy, self.adapter,
                                 response.raw_action,
                                 ActionContext(
                                     request_seq=response.request_seq,
@@ -127,6 +129,9 @@ class PolicyWarmup:
                                     max_source_steps=self.config["policy"]["horizon_policy_steps"],
                                 ),
                             )
+                        select_chunk = getattr(self.strategy, "select_chunk", None)
+                        if callable(select_chunk):
+                            chunk = select_chunk(chunk=chunk, now_ns=self.clock.now_ns())
                         if chunk.action_space != "joint_position":
                             raise ValueError("Warmup requires canonical joint-position output")
                     except Exception as exc:  # Keep model/adapter failures visible without motion.
