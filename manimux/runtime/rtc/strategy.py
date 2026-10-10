@@ -87,6 +87,8 @@ class RtcInferenceStrategy:
         self._request_started_ns = {}
         self._request_observation_ns = {}
         self._request_forecast = {}
+        self._request_reference_seq: dict[int, int] = {}
+        self._active_request_seq = -1
         self._infeasible_reported = False
         self._infeasible_pending = None
         self._latency = []
@@ -169,8 +171,16 @@ class RtcInferenceStrategy:
         request_state: RequestState,
         runtime_state: RuntimeState,
     ) -> InferenceSubmission | None:
-        if request_state.in_flight or runtime_state != RuntimeState.RUNNING:
+        if runtime_state != RuntimeState.RUNNING:
             return None
+
+        if request_state.multi_flight:
+            # Coalesced uploads never return a model result. Retire their bookkeeping
+            # once their deadlines pass, just as the runtime rejects late responses.
+            timeout_ns = int(self._config["policy"]["timeout_s"] * 1_000_000_000)
+            for seq, started_ns in list(self._request_started_ns.items()):
+                if now_ns - started_ns > timeout_ns:
+                    self._forget_request(seq)
 
         active = self._active_rows
         condition = None
@@ -220,6 +230,8 @@ class RtcInferenceStrategy:
         self._request_started_ns[request_seq] = now_ns
         self._request_observation_ns[request_seq] = snapshot.state.monotonic_ns
         self._request_forecast[request_seq] = forecast_used
+        if request_state.multi_flight:
+            self._request_reference_seq[request_seq] = timeline.accepted_request_seq
         return InferenceSubmission(
             request=request,
             event_fields={
@@ -271,6 +283,10 @@ class RtcInferenceStrategy:
         now_ns: int,
     ) -> ActionChunk:
         del now_ns
+        if self._config["inference"]["inference_schedule"] == "multi_inflight" and (
+            self._request_reference_seq.get(response.request_seq) != self._active_request_seq
+        ):
+            raise ValueError("rtc_condition_plan_replaced")
         skipped = 0 if chunk.handoff is None else chunk.handoff.skipped_steps
         if chunk.handoff is not None and skipped != self._waypoint_skip:
             raise ValueError("RTC waypoint handoff skip differs from the configured skip")
@@ -303,6 +319,8 @@ class RtcInferenceStrategy:
         # Do not fabricate a repeated/zero-weight executable tail to restore H.
         self._active_rows = np.pad(rows, ((chunk.source_offset_steps, 0), (0, 0)))
         self._active_offset = chunk.source_offset_steps + result.trimmed_steps
+        self._active_request_seq = response.request_seq
+        self._request_reference_seq.pop(response.request_seq, None)
         started_ns = self._request_started_ns.pop(response.request_seq, now_ns)
         observation_ns = self._request_observation_ns.pop(response.request_seq, started_ns)
         forecast_used = self._request_forecast.pop(response.request_seq, 0)
@@ -335,10 +353,14 @@ class RtcInferenceStrategy:
         }
 
     def on_response_rejected(self, response: InferenceResponse) -> None:
-        self._conditioned_requests.discard(response.request_seq)
-        self._request_started_ns.pop(response.request_seq, None)
-        self._request_observation_ns.pop(response.request_seq, None)
-        self._request_forecast.pop(response.request_seq, None)
+        self._forget_request(response.request_seq)
+
+    def _forget_request(self, request_seq: int) -> None:
+        self._conditioned_requests.discard(request_seq)
+        self._request_started_ns.pop(request_seq, None)
+        self._request_observation_ns.pop(request_seq, None)
+        self._request_forecast.pop(request_seq, None)
+        self._request_reference_seq.pop(request_seq, None)
 
     def take_runtime_events(self, *, step: int) -> list[tuple[str, dict[str, object]]]:
         pending = self._infeasible_pending

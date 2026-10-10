@@ -75,6 +75,7 @@ def inference_parameters(*, executor: dict, **options) -> dict:
     from manimux.runtime.aac import aac_parameters
     from manimux.runtime.paint import paint_parameters
     from manimux.runtime.rtc.strategy import rtc_parameters
+    from manimux.runtime.scheduling import resolve_request_schedule
     from manimux.runtime.temporal_ensemble import temporal_ensemble_parameters
 
     unsupported = {
@@ -117,6 +118,8 @@ def inference_parameters(*, executor: dict, **options) -> dict:
         "chunk_policy_steps": None,
         "inference_schedule": "deadline",
         "refill_threshold_s": 0.4,
+        "observation_hz": None,
+        "request_trigger": None,
         "handoff_skip_steps": 0,
         "max_plan_age_s": 1.0,
         "blend_policy_steps": 2,
@@ -145,18 +148,27 @@ def inference_parameters(*, executor: dict, **options) -> dict:
     if values.get("paint") is not None:
         values["paint"] = paint_parameters(**values["paint"])
     # 字典可能已补齐默认值；默认调度字段不应被误认成用户为其他模式新增的参数。
-    inactive_defaults = {"inference_schedule": "deadline", "refill_threshold_s": 0.4}
+    inactive_defaults = {
+        "inference_schedule": "deadline", "refill_threshold_s": 0.4,
+        "observation_hz": None, "request_trigger": None,
+    }
     provided = {
         key
         for key in options
         if key not in inactive_defaults or options[key] != inactive_defaults[key]
     }
+    resolve_request_schedule(values)
     validate_inference_parameters(values, executor, provided=provided)
     return values
 
 
 def validate_runtime_parameters(config: dict) -> None:
     """保留调度、动作解码和执行限位之间的必要约束。"""
+    if (
+        config["inference"]["inference_schedule"] == "multi_inflight"
+        and config["policy"]["action_decoding"] != "inline"
+    ):
+        raise ValueError("multi_inflight currently requires inline action decoding")
     if config["run"].get("warmup_before_start", False):
         if not config["robogui"]["enabled"]:
             raise ValueError("run.warmup_before_start requires RoboGUI Start control")
@@ -263,6 +275,9 @@ def validate_runtime_parameters(config: dict) -> None:
 
 def validate_inference_parameters(values: dict, executor: dict, *, provided=frozenset()) -> None:
     """检查调度和执行方式的组合；provided 仅用于识别 YAML 中明确给出的字段。"""
+    from manimux.runtime.scheduling import validate_request_schedule
+
+    validate_request_schedule(values, provided=provided)
     skip_steps = values["handoff_skip_steps"]
     if type(skip_steps) is not int or skip_steps < 0:
         raise ValueError("inference.handoff_skip_steps must be a non-negative integer")
@@ -287,13 +302,6 @@ def validate_inference_parameters(values: dict, executor: dict, *, provided=froz
     # The handoff time lies on the source row grid, which first_step_when_ready discards.
     if values["handoff"] == "waypoint" and values["action_start_mode"] != "drop_infer_latency":
         raise ValueError("inference.handoff=waypoint requires action_start_mode=drop_infer_latency")
-    if values["inference_schedule"] == "serial":
-        if values["algorithm"] not in {"manimux", "serial"}:
-            raise ValueError("serial scheduling requires inference.algorithm=serial")
-        if "refill_threshold_s" in provided:
-            raise ValueError("serial scheduling does not use refill_threshold_s")
-    elif values["algorithm"] == "serial":
-        raise ValueError("inference.algorithm=serial requires inference_schedule=serial")
     if values["independent_group_decoding"] and (
         values["algorithm"] not in {"manimux", "async"}
         or executor["type"] != "smooth"
@@ -309,19 +317,5 @@ def validate_inference_parameters(values: dict, executor: dict, *, provided=froz
         or executor["type"] not in {"smooth", "direct", "mpc"}
     ):
         raise ValueError("max_chunk_policy_steps requires the ordinary ManiMux joint timeline")
-    # 这些策略自行决定请求时机，不使用普通 timeline 的补充调度参数。
-    names = {
-        "rtc": "RTC",
-        "act_temporal_ensemble": "ACT temporal ensembling",
-        "aac": "AAC",
-        "paint": "PAINT",
-        "autohorizon": "AutoHorizon",
-    }
-    runtime = values["algorithm"]
-    if runtime == "aac" and not values["aac"]["ee_stats_path"]:
+    if values["algorithm"] == "aac" and not values["aac"]["ee_stats_path"]:
         raise ValueError("inference.aac.ee_stats_path is required by AAC")
-    if runtime in names:
-        ignored = {"inference_schedule", "refill_threshold_s"}.intersection(provided)
-        if ignored:
-            fields = ", ".join(sorted(ignored))
-            raise ValueError(f"inference fields are not used by {names[runtime]}: {fields}")

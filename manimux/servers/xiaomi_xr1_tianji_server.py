@@ -206,7 +206,7 @@ def main() -> int:
         raise RuntimeError(
             "policy environment is missing dependencies: " + ", ".join(missing)
         )
-    from XPolicyLab.setup_policy_server import main as serve
+    from manimux.policies.xpolicylab.server import serve
 
     serve(config)
     return 0

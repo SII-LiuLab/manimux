@@ -6,15 +6,29 @@ Source paths below are relative to the repository root.
 
 ## Inference algorithm versus executor
 
-Read `manimux/runtime/inference.py` (`InferenceStrategy`,
-`build_inference_strategy`) and the selected strategy, such as
-`runtime/rtc/strategy.py`. A new inference algorithm controls when to submit,
-sampling requirements, chunk preparation, commit settings and response feedback.
-Use those hooks and their existing strategy factory. `inference.strategy` can select
-`module:factory` or a `manimux.inference_strategies` entry point; the factory receives
-the resolved experiment. `inference.algorithm` still selects parameter defaults and
-capability behavior, so inspect its parser when introducing a new algorithm family.
-Do not add algorithm-specific branches to adapters.
+Read `manimux/runtime/scheduling.py` (`RequestScheduler`) and
+`manimux/runtime/inference.py` (`InferenceStrategy`, `build_inference_strategy`).
+The scheduler owns request admission: in-flight capacity, optional frequency cap,
+ordinary refill/continuous triggers, and serial execution completion. It calls the
+strategy only when transport admission allows a request. The strategy retains
+algorithm readiness (RTC/PAINT execution windows, ACT query interval, selected
+AAC/AutoHorizon prefix), sampling fields, chunk preparation and response feedback.
+Do not reimplement transport busy checks in each algorithm.
+
+On each eligible control tick, the scheduler calls the optional
+`observe_snapshot(snapshot)` hook **before** admission checks. DP/UMI history plugins
+use it to retain camera/state samples while inference is busy. `build_submission`
+then consumes that history and may return `None` for algorithm reasons. Call
+`scheduler.on_submitted(now_ns)` only after submitting the prepared request, and
+reset the scheduler together with the strategy. Warmup keeps its independent,
+reset-fenced single-request lifecycle. Request-sequence invalidation, deadlines,
+and paused/Home response filtering remain in the runtime.
+
+`inference.strategy` still selects `module:factory` or a
+`manimux.inference_strategies` entry point. Existing history wrappers share the
+same scheduler as their delegate. Streaming/continuous custom strategies remain
+unsupported until their lifecycle and action-reference handling are validated.
+See [scheduling and action clocks](../advanced/inference.md) for the config matrix.
 
 `manimux/runtime/timeline.py` owns `ActionTimeline`: committing and sampling decoded
 joint trajectories on the runtime clock. Keep chunk handoff here and in the

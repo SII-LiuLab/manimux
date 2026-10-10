@@ -191,6 +191,8 @@ class InferenceResponse:
     raw_action: object | None
     error: str | None = None
     observation_time_ns: int = 0
+    # Streaming results must retain their own deadline while newer requests arrive.
+    deadline_ns: int = 0
 
 
 @dataclass(slots=True)
