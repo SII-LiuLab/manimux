@@ -135,27 +135,7 @@ class DefaultChunkStrategy:
         request_state: RequestState,
         runtime_state: RuntimeState,
     ) -> InferenceSubmission | None:
-        schedule = self._config["inference"]["inference_schedule"]
-        if request_state.multi_flight:
-            if runtime_state != RuntimeState.RUNNING:
-                return None
-        elif schedule == "serial":
-            if (
-                runtime_state != RuntimeState.RUNNING
-                or request_state.in_flight
-                or timeline.remaining_ns(now_ns) > 0
-            ):
-                return None
-        else:
-            refill_ns = int(self._config["inference"]["refill_threshold_s"] * 1_000_000_000)
-            request_expired = now_ns > request_state.last_deadline_ns
-            request_ready = (
-                not request_state.in_flight
-                if schedule == "single_inflight"
-                else request_state.last_submitted_seq < 0 or request_expired
-            )
-            if timeline.remaining_ns(now_ns) >= refill_ns or not request_ready:
-                return None
+        # RequestScheduler owns transport admission and ordinary refill timing.
         deadline_ns = now_ns + int(self._config["policy"]["timeout_s"] * 1_000_000_000)
         request = InferenceRequest(
             session_id=session_id,

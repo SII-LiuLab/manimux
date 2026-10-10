@@ -1,7 +1,8 @@
 # Continuously upload fresh observations; the server keeps only the newest waiting input.
 algorithm: manimux
 inference_schedule: multi_inflight
+request_trigger: continuous
 observation_hz: 30.0
 max_plan_age_s: 2.0 # Time (s) to reject an outdated chunk
-blend_policy_steps: 0 # Disable blending default 
+blend_policy_steps: 0 # Explicit experiment choice; independent of scheduling.
 action_start_mode: drop_infer_latency

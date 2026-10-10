@@ -163,8 +163,6 @@ class ACTTemporalEnsembleStrategy:
         runtime_state: RuntimeState,
     ) -> InferenceSubmission | None:
         del timeline, runtime_state
-        if request_state.in_flight and not request_state.multi_flight:
-            return None
         if self._next_query_ns is not None and now_ns < self._next_query_ns:
             return None
 

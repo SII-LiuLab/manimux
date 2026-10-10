@@ -52,8 +52,10 @@ class HistoryStrategy:
         self.history.reset()
         self.delegate.reset()
 
+    def observe_snapshot(self, snapshot):
+        self.history.observe(snapshot)
+
     def build_submission(self, **kwargs):
-        self.history.observe(kwargs["snapshot"])
         samples = list(self.history.samples)
         if len(samples) < 3:
             return None

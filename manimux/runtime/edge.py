@@ -24,6 +24,7 @@ from manimux.policies.worker import PolicyWorkerClient
 from manimux.policy_adapter import build_policy_adapter
 from manimux.recording import EpisodeRecorder
 from manimux.recording.provenance import state_evidence
+from manimux.robogui import RoboGUIBridge
 from manimux.runtime.decode_forecast import DecodeForecast
 from manimux.runtime.diagnostics import build_plan_boundary_payload
 from manimux.runtime.executors import DirectExecutor, Executor, MPCExecutor, SmoothExecutor
@@ -36,6 +37,7 @@ from manimux.runtime.inference import (
     seed_strategy_warmup,
 )
 from manimux.runtime.safety import RuntimeState, SafetyGuard
+from manimux.runtime.scheduling import RequestScheduler
 from manimux.runtime.timeline import ActionTimeline, CommitResult
 from manimux.runtime.warmup import PolicyWarmup
 from manimux.timing import LoopTiming, stage
@@ -48,7 +50,6 @@ from manimux.types import (
     copy_action_chunk,
     copy_group_vector,
 )
-from manimux.robogui import RoboGUIBridge
 
 logger = logging.getLogger(__name__)
 
@@ -163,7 +164,8 @@ class EdgeRuntime:
         self._sensors = [build_sensor(sensor, self._clock) for sensor in config["sensors"]]
         # 运行时直接复用整机的运动学；解码子进程从同一配置加载离线模型。
         self._adapter = self._build_adapter()
-        self._multi_inflight = config["inference"]["inference_schedule"] == "multi_inflight"
+        self._scheduler = RequestScheduler(config["inference"])
+        self._multi_inflight = self._scheduler.multi_inflight
         if self._multi_inflight and not getattr(self._adapter, "supports_multi_inflight", False):
             raise ValueError("multi_inflight requires an adapter with streaming-safe decoding")
         self._decode_seed_source = getattr(
@@ -277,7 +279,10 @@ class EdgeRuntime:
             self._config["robot"]["group_dims"],
             max_source_steps=self._config["inference"]["max_chunk_policy_steps"],
             action_start_mode=self._config["inference"]["action_start_mode"],
-            hold_last_step=self._config["inference"]["inference_schedule"] == "serial",
+            hold_last_step=(
+                self._config["inference"]["inference_schedule"] == "serial"
+                and self._config["inference"]["algorithm"] in {"manimux", "async", "serial"}
+            ),
         )
 
     def _hold_command(self, now_ns: int, groups: GroupVector) -> RobotCommand:
@@ -360,6 +365,9 @@ class EdgeRuntime:
                     else None
                 ),
                 "runtime": self._strategy.name,
+                "inference_schedule": self._scheduler.mode,
+                "request_trigger": self._scheduler.trigger,
+                "observation_hz": self._config["inference"]["observation_hz"],
                 "policy_label": self._config["robogui"]["policy_label"],
                 "policy_worker": self._config["policy"]["worker"],
                 "policy_adapter": self._config["policy"]["adapter"]["type"],
@@ -385,7 +393,6 @@ class EdgeRuntime:
         last_submitted_seq = -1
         last_request_deadline_ns = 0
         request_in_flight = False
-        next_observation_ns = 0
         last_inference_ms: float | None = None
         discard_responses_through = -1
         pending_visuals: dict[int, dict[str, object]] = {}
@@ -434,6 +441,7 @@ class EdgeRuntime:
             self._safety.reset(initial_state)
             self._executor.reset(initial_state)
             self._strategy.reset()
+            self._scheduler.reset()
             recorder.update_metadata(
                 robot_backend=self._robot.runtime_metadata(),
                 initial_state=state_evidence(
@@ -527,7 +535,7 @@ class EdgeRuntime:
                     self._timeline = self._build_timeline()
                     self._executor.reset(state)
                     self._strategy.reset()
-                    next_observation_ns = 0
+                    self._scheduler.reset()
                     previous_command = copy_group_vector(state.groups)
                     last_command = copy_group_vector(state.groups)
                     discard_responses_through = max(discard_responses_through, request_seq)
@@ -568,6 +576,7 @@ class EdgeRuntime:
                     if warmup.complete:
                         self._validate_policy_capabilities()
                         self._strategy.reset()
+                        self._scheduler.reset()
                         seed_strategy_warmup(self._strategy, latency_ns=list(warmup.latency_ns))
                         self._timeline = self._build_timeline()
                         recorder.event(
@@ -617,14 +626,17 @@ class EdgeRuntime:
                 if robogui_control.paused and (
                     self._decoder is not None
                     or self._multi_inflight
-                    or self._config["inference"]["inference_schedule"] == "serial"
+                    or (
+                        self._config["inference"]["inference_schedule"] == "serial"
+                        and self._config["inference"]["algorithm"] in {"manimux", "async", "serial"}
+                    )
                     or getattr(self._strategy, "discard_plans_while_paused", False)
                 ):
                     # RTC conditions must not refer to the timeline discarded
                     # by Pause/Hold while a decoder response is still pending.
                     if self._state != RuntimeState.PAUSED:
                         self._strategy.reset()
-                        next_observation_ns = 0
+                        self._scheduler.reset()
                     self._timeline = self._build_timeline()
                     discard_responses_through = max(discard_responses_through, request_seq)
                     pending_observation_states.clear()
@@ -1113,22 +1125,24 @@ class EdgeRuntime:
                         or getattr(self._strategy, "discard_plans_while_paused", False)
                     )
                     and self._state != RuntimeState.RUNNING
-                ) and (not self._multi_inflight or now_ns >= next_observation_ns):
+                ):
                     snapshot = ObservationSnapshot(state=state, frames=frames)
+                    request_state = RequestState(
+                        in_flight=request_in_flight,
+                        last_submitted_seq=last_submitted_seq,
+                        last_deadline_ns=last_request_deadline_ns,
+                        multi_flight=self._multi_inflight,
+                    )
                     with stage("policy_schedule"):
-                        submission = self._strategy.build_submission(
+                        submission = self._scheduler.build_submission(
+                            self._strategy,
                             session_id=self._session_id,
                             request_seq=request_seq + 1,
                             now_ns=now_ns,
                             snapshot=snapshot,
                             adapter=self._adapter,
                             timeline=self._timeline,
-                            request_state=RequestState(
-                                in_flight=request_in_flight,
-                                last_submitted_seq=last_submitted_seq,
-                                last_deadline_ns=last_request_deadline_ns,
-                                multi_flight=self._multi_inflight,
-                            ),
+                            request_state=request_state,
                             runtime_state=self._state,
                         )
                     if submission is not None:
@@ -1164,10 +1178,7 @@ class EdgeRuntime:
                         request_in_flight = True
                         last_submitted_seq = request_seq
                         last_request_deadline_ns = prepared_request.deadline_ns
-                        if self._multi_inflight:
-                            next_observation_ns = now_ns + round(
-                                1_000_000_000 / self._config["inference"]["observation_hz"]
-                            )
+                        self._scheduler.on_submitted(now_ns)
                         recorder.event(
                             "inference_submitted",
                             request_seq=request_seq,

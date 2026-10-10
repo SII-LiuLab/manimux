@@ -171,9 +171,7 @@ class RtcInferenceStrategy:
         request_state: RequestState,
         runtime_state: RuntimeState,
     ) -> InferenceSubmission | None:
-        if (
-            request_state.in_flight and not request_state.multi_flight
-        ) or runtime_state != RuntimeState.RUNNING:
+        if runtime_state != RuntimeState.RUNNING:
             return None
 
         if request_state.multi_flight:

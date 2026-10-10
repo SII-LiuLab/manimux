@@ -1,7 +1,7 @@
 """Measured observation history decorating existing inference strategies.
 
-build_submission already runs once per control tick. This plugin only gates
-history readiness and supplies observations; scheduling stays in the delegate.
+observe_snapshot runs once per control tick, independently of request admission.
+This plugin gates history readiness and supplies observations to its delegate.
 """
 
 from __future__ import annotations
@@ -205,8 +205,10 @@ class HistoryStrategy:
         self.history.reset()
         self.delegate.reset()
 
+    def observe_snapshot(self, snapshot):
+        self.history.observe(snapshot)
+
     def build_submission(self, **kwargs):
-        self.history.observe(kwargs["snapshot"])
         window = self.history.window(kwargs["now_ns"])
         if window is None:
             return None

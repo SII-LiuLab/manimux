@@ -84,6 +84,7 @@ class XPolicyLabWsPolicyModel:
         self._session_id: str | None = None
         self._client: XPolicyLabWsClient | None = None
         self._pending: dict[str, tuple[InferenceResponse, int]] = {}
+        self._expired: set[str] = set()
 
     def reset(self, session_id: str) -> None:
         if self._client is not None:
@@ -92,6 +93,7 @@ class XPolicyLabWsPolicyModel:
                 # warmup requests before resetting the model's RNG/history.
                 self._client.reset()
                 self._pending.clear()
+                self._expired.clear()
                 self._aac_previous = None
                 return
             self._client.drain()
@@ -315,7 +317,11 @@ class XPolicyLabWsPolicyModel:
             raise RuntimeError("XPolicyLab client is not connected")
         # Drain acknowledgements before considering transport timeouts.
         while (reply := client.poll_infer()) is not None:
-            pending = self._pending.pop(reply.get("message_id"), None)
+            request_id = reply.get("message_id")
+            pending = self._pending.pop(request_id, None)
+            if request_id in self._expired:
+                self._expired.remove(request_id)
+                continue
             if pending is None:
                 continue
             response, started_ns = pending
@@ -342,16 +348,26 @@ class XPolicyLabWsPolicyModel:
                 raw_action=raw,
                 error=error,
             )
-        if self._pending:
-            _, started_ns = next(iter(self._pending.values()))
+        for request_id, (response, started_ns) in self._pending.items():
+            if request_id in self._expired:
+                continue
             if time.monotonic_ns() - started_ns > self._request_timeout_s * 1e9:
-                raise TimeoutError("multi_inflight transport timed out awaiting a response")
+                # Report once, keeping its transport credit occupied until the
+                # late reply is drained. A stalled peer must stay bounded.
+                self._expired.add(request_id)
+                finished_ns = time.monotonic_ns()
+                return replace(
+                    response, finished_time_ns=finished_ns,
+                    inference_ms=(finished_ns - started_ns) / 1_000_000,
+                    error="model_error:TimeoutError:multi_inflight response timed out",
+                )
         return None
 
     def close(self) -> None:
         client, self._client = self._client, None
         self._session_id = None
         self._pending.clear()
+        self._expired.clear()
         if client is not None:
             client.close()
 

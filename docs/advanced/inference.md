@@ -1,7 +1,8 @@
 # Scheduling and action clocks
 
-The model predicts a chunk. An inference strategy decides when to request another
-chunk and how to hand it off. `ActionTimeline` manages the accepted trajectory;
+The model predicts a chunk. `RequestScheduler` admits requests according to transport
+capacity, request frequency and a configurable trigger. The inference strategy
+retains algorithm-specific readiness, sampling and fusion. `ActionTimeline` manages the accepted trajectory;
 the executor samples references at the command rate. Scheduling does not change
 camera acquisition timestamps or pretend an old observation is new.
 
@@ -45,25 +46,68 @@ changing a YAML algorithm name cannot add missing model-side hooks.
 inference:
   algorithm: manimux
   inference_schedule: multi_inflight
+  request_trigger: continuous
   observation_hz: 30.0
   action_start_mode: drop_infer_latency
   blend_policy_steps: 4
 ```
 
-The runtime caps uploads at `observation_hz` (also limited by its control ticks
-and transport capacity). The ordinary ManiMux strategy publishes independently
-of the remaining action chunk and previous inference responses. ManiMux's
+The scheduler caps requests at `observation_hz` (also limited by control ticks,
+algorithm readiness and transport capacity). With `request_trigger: continuous`,
+ordinary asynchronous chunking requests independently of the remaining action chunk.
+`multi_inflight` permits submissions before previous responses arrive. ManiMux's
 `StreamingPolicyServer` extends the unchanged XPolicyLab server to run one inference
 at a time and keep one replaceable waiting observation. As soon as inference finishes,
 it selects the newest waiting input and sends the completed result independently.
 It waits when no fresh input exists; it does not repeatedly infer the same input.
 This is a transport/scheduling mode, not concurrent GPU model execution.
 
+Scheduling and request triggers are independent:
+
+| Setting | Meaning |
+| --- | --- |
+| `inference_schedule: single_inflight` | Wait for the previous request to finish before admitting another |
+| `inference_schedule: multi_inflight` | Allow overlapping requests; backend keeps the newest waiting input |
+| `inference_schedule: serial` | Wait for both inference completion and execution of the selected prefix |
+| `inference_schedule: deadline` | Legacy ordinary schedule: first request, then resubmit after its deadline when the trigger permits |
+| `request_trigger: refill` | Ordinary async: submit only below `refill_threshold_s` |
+| `request_trigger: continuous` | Ordinary async: no remaining-chunk threshold |
+| `request_trigger: algorithm` | Retain specialized algorithm readiness, or serial execution completion |
+
+For ordinary async, the default trigger remains `refill` even when switching to
+`multi_inflight`; continuous prediction must be explicit. For serial and specialized
+algorithms the default is `algorithm`. `observation_hz` can cap either single or
+multi-inflight requests; it defaults to no extra cap for existing configurations
+and must be explicitly positive for multi-inflight. It does not set camera FPS or
+robot control frequency. Pause, Home and post-warmup reset clear the scheduler's
+rate limit when the corresponding strategy is reset.
+
+Existing ordinary `deadline`, `single_inflight` and serial presets retain their
+cadence. The previously ignored `deadline` default resolves to `single_inflight`
+for RTC/PAINT/ACT, and to `serial` for AAC/AutoHorizon, preserving their algorithm
+execution rules. PAINT only supports single-inflight; AAC/AutoHorizon only support
+serial. Unsupported combinations fail during configuration loading. Multi-inflight
+also requires inline, streaming-safe action decoding (currently `JointAdapter`)
+and a backend advertising the capability. Custom strategy plugins are not enabled
+for multi-inflight or continuous triggers.
+
 ACT and RTC can also select `inference_schedule: multi_inflight`, so that the runtime
 passes `RequestState.multi_flight=True`. For RTC, it records which accepted plan each
 request used. If that plan has been replaced before the result arrives, the result
 is rejected as `rtc_condition_plan_replaced`. This prevents a queued request from
 replacing a newer plan using an obsolete condition, but can discard computed results.
+RTC's minimum execution window and ACT's query interval remain algorithm gates;
+neither is overridden by the scheduler. Streaming timeouts produce a rejected
+response rather than killing the worker; their transport credits remain occupied
+until late replies are drained, preventing unbounded uploads to a stalled server.
+
+Action fusion is unchanged: ACT aggregates overlapping predictions, RTC conditions
+sampling, and the timeline applies the explicitly selected `blend_policy_steps`.
+Changing the schedule never changes blending, horizon, executor or checkpoint.
+The supplied streaming presets explicitly use zero blending; when measuring a
+schedule-only comparison, keep all of those settings and the request trigger equal.
+Continuous prediction can increase model utilization but is not evidence of faster
+individual inference, smoother motion or higher task success.
 
 For the Pi05 joint experiment above, select one of these inference presets:
 ```yaml

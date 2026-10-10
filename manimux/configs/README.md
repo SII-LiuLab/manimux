@@ -226,7 +226,9 @@ additional server fields are allowed.
 | --- | --- |
 | `inference.algorithm` | Strategy, including `manimux`, `act_temporal_ensemble`, `rtc`, `aac`, `paint`, `autohorizon`, an entry point or `module:factory`. |
 | `inference.refill_threshold_s` | Default strategy: request another chunk when the timeline has less remaining duration. |
-| `inference.inference_schedule` | Default strategy: `deadline` or `single_inflight`. |
+| `inference.inference_schedule` | Request admission: `deadline`, `single_inflight`, `multi_inflight` or `serial`; valid combinations depend on the algorithm. |
+| `inference.request_trigger` | Ordinary async: `refill` (default) or `continuous`; specialized/serial: `algorithm`. Independent of in-flight capacity. |
+| `inference.observation_hz` | Optional request frequency cap for single or multi-inflight; explicitly required for multi-inflight. Does not change camera or control frequency. |
 | `inference.handoff_skip_steps` | Additional leading source rows skipped at a chunk handoff without delaying its start; defaults to `0` and does not affect the first chunk. Skipped rows shorten the remaining horizon and may increase the handoff jump. A waypoint handoff skips them before decoding and requires `algorithm: manimux`. |
 | `inference.max_plan_age_s` | Maximum age measured from the chunk's observation time. |
 | `inference.blend_policy_steps` | Number of leading accepted policy points blended from the measured command; zero disables it. |
@@ -235,7 +237,7 @@ additional server fields are allowed.
 
 Strategies have different scheduling contracts. RTC uses its horizon/execution/delay
 contract; ACT temporal ensembling uses query intervals; AAC waits for its selected short
-chunk; PAINT uses an asynchronous prefix. Default-strategy scheduling fields are rejected
+chunk; PAINT uses an asynchronous prefix. Unsupported scheduler/algorithm combinations are rejected
 where they do not apply. Strategies share the robot, timeline and executor infrastructure.
 An accepted, decoded chunk takes effect at commit time without an additional switch delay.
 

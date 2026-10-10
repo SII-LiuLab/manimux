@@ -98,7 +98,7 @@ class PaintInferenceStrategy:
         request_state: RequestState,
         runtime_state: RuntimeState,
     ) -> InferenceSubmission | None:
-        if request_state.in_flight or runtime_state != RuntimeState.RUNNING:
+        if runtime_state != RuntimeState.RUNNING:
             return None
 
         deadline_ns = now_ns + int(self._config["policy"]["timeout_s"] * 1_000_000_000)

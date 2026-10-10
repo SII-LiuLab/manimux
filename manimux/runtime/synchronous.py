@@ -52,10 +52,9 @@ class SynchronousChunkStrategy:
         request_state,
         runtime_state,
     ) -> InferenceSubmission | None:
-        # 当前动作执行完且无在途请求时，才采集下一次推理的观测。
+        # Selected execution length is an algorithm requirement, even with a scheduler.
         if (
-            request_state.in_flight
-            or runtime_state != RuntimeState.RUNNING
+            runtime_state != RuntimeState.RUNNING
             or timeline.remaining_ns(now_ns) > 0
         ):
             return None
