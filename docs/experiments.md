@@ -557,6 +557,193 @@ FK配置hash不覆盖其引用资产，不自动证明历史运动学一致性�
 67/67/66。该记录不能计入当前aligned setting的正式成绩。
 产物：`data/analysis/pi05-joint-20260922-rollout-002-overlap-windows-20260929/`。
 
+### 10.3.2 DP ManiMux 与 train-time RTC 的 overlap 诊断（2026-10-10）
+
+用户本轮选择 **DP ManiMux 异步记录作为对照，不使用普通 RTC**。复现入口为
+`scripts/validation/compare_dp_chunk_overlap.py`，指标定义及命令见
+[DP chunk overlap](advanced/dp-chunk-overlap.md)。主口径为左右臂独立的 FK XYZ
+首/尾点 MSE、首/尾 20% 窗口 MSE、整体 MSE / 距离 RMSE / 平均距离误差、
+速度 cosine / RMSE、起点中心化 shape RMSE，另报去夹爪的关节 MSE 和 committed seam。
+
+本次 cohort 为 `data/experiments/umi-dp-tianji-pack-plate-tracker-fixed-chunk32-diff`
+与 `data/experiments/umi-dp-tianji-pack-plate-train-time-rtc` 下全部已发现 H32 尝试。
+共盘点 88 条：ManiMux 63 条 finalized 中 60 条有可分析 chunk，3 条为空，另有
+13 条 partial；train-time RTC 7 条 finalized 中 6 条可分析，1 条为空，另有
+5 条 partial。所有排除保留在 cohort 清单，不按任务成功筛选。
+
+默认 tick 相邻接管子集为 ManiMux **1,750** 对、train-time RTC **193** 对；
+ManiMux 另有 1 对涉及未观察到执行的计划，保留为其他候选。该筛选不等于完整
+pause/hold 验证，结果保持探索性，不写入正式任务成绩表。
+
+按 rollout 等权，committed 位置 gap 的左/右均值为 ManiMux **8.646 / 11.363 mm**，
+train-time RTC **2.211 / 6.466 mm**。切换后固定 100 ms 的距离 RMSE 为
+**15.125 / 23.071 mm → 7.957 / 15.321 mm**；该窗口 ManiMux 的分母为
+59 条 rollout、1,690 对边界，train-time RTC 为 6 条、193 对，覆盖不足保留缺失。
+Decoded full overlap 的距离 RMSE 为 **16.315 / 25.953 mm → 16.817 / 28.765 mm**；
+full overlap 平均长度约 **183.303 → 480.390 ms**，首尾相对窗口对应的时长不同，
+不能据此把整体误差直接解释为方法优劣。
+
+两组还存在 checkpoint、日期、布局及 handoff 设置差异：ManiMux 为 waypoint，
+skip 含 0/1/2/3/5/10；train-time RTC 为 blend 模式但 blend_steps=0。保存的
+`canonical_raw` 已经过适配器/IK，可能包含 waypoint 修改，不是原生模型预测。
+source clock 已计入 `source_offset_steps`，不重复加 first-action offset。
+Train-time RTC 201 次提交中 103 次被记录为 `prefix_in_training_support=false`；
+HTML 可按训练内前缀、训练外前缀和未 conditioned 请求分层查看。
+
+产物：[`index.html`](../data/analysis/pack-plate-dp-overlap-20261010-v3/index.html)，
+同目录包含 `cohort.jsonl`、`episode-metrics.json`、`boundary-metrics.csv`、
+`summary.json` 和 `provenance.json`。原始记录未修改。数值回归覆盖时间偏移、
+不同采样间隔、端点覆盖、恒定偏移、方向反转、静止 cosine、首尾窗口、缺失值、
+tick 缺口和 rollout 等权汇总；报告提供四种窗口、左右臂、handoff 与前缀条件筛选。
+后续正式比较仍需匹配采集设置，并补齐暂停/hold 与历史运动学证据。
+
+### 10.3.3 固定 prefix=5 的 first-100-ms 复查（2026-10-11）
+
+冻结 §10.3.2 的 v3 cohort，与最新 finalized 记录
+`session-20261010T125431Z-d7ed7b06/rollout-002` 单独比较，不合并回旧组。
+本轮 30 次提交为首个 prefix=0、其余 29 次 prefix=5，29 个 accepted plans，
+28 对 observed tick transitions；`chunk_policy_steps=24`，旧 train-time RTC 六条均为 16。
+新旧 train-time RTC 的 checkpoint SHA 与 FK assembly 文件 hash 一致；这不证明历史资产完全相同。
+
+保持原页面严格 committed first 100 ms 定义及 rollout 等权：距离 RMSE 左/右为
+ManiMux **15.125 / 23.071 mm**、旧 train-time RTC **7.957 / 15.321 mm**、
+最新固定 5 **13.411 / 23.606 mm**。相对旧 train-time RTC 增加 **68.5% / 54.1%**。
+但最新只有 **8/28** 对满足完整窗口；19 对覆盖 99.55–100 ms，另 1 对约 66.65 ms。
+严格子集首点 MSE 左/右为 **1.147 / 17.677 mm²**，不代表全部 28 对首点改善。
+
+补充统一 **99 ms** 敏感性检查，三组都从原始轨迹重新计算且不外推：ManiMux
+**15.175 / 23.136 mm**、旧 train-time RTC **8.136 / 15.582 mm**、最新
+**15.555 / 27.089 mm**。最新覆盖 **27/28** 对，旧两组分别为 59 条/1,690 对与
+6 条/193 对；误差未改善的描述仍成立，不能从单条、不同 K 的记录归因于固定前缀。
+
+时序线索：最新 28 个带前缀的已接收计划中，23 个最后固定目标在切换时刻，4 个
+在切换后 33.33 ms，1 个在切换前 33.33 ms。prefix=5 因而不等于约束切换后整段
+100 ms；这里只审计固定目标时钟，不声称 IK 后的 EE 或实际运动严格相等。
+
+产物：[`comparison.json`](../data/analysis/pack-plate-prefix5-first100-20261011/comparison.json)，
+同目录保存最新逐边界数据、99 ms 全组重算数据、cohort、provenance 与
+[`reproduce.py`](../data/analysis/pack-plate-prefix5-first100-20261011/reproduce.py)。
+67 条参与复查的选定轨迹数组 hash 均通过核对，原报告及原始记录未修改。
+本节为探索性诊断，不填正式任务成绩表。
+
+### 10.3.4 IK seed 改为 active reference 后的前 100 ms（2026-10-11）
+
+以 §10.3.3 的固定 prefix=5 记录为直接对照，最新记录为
+`session-20261011T054911Z-eabcfea6/rollout-001.partial`。新旧完整 resolved config
+一致（K24、prefix5），checkpoint SHA 与 FK assembly hash 一致。旧记录 29 个计划的
+`ik_seed_source` 全为 `observation_state`；最新 27 个计划中首个为 `observation_state`，
+其余 26 个为 `active_reference`。最新记录因 `left: controller fault 13, state 1`
+中断，仅对中断前连续 tick 切换做诊断，不视为完成试验或任务成功。
+
+严格 committed first 100 ms：旧记录有效 **8/28** 对，最新 **24/26** 对。
+以下均为旧→最新，左/右臂分别汇总：
+
+- start XYZ MSE：左 **1.14693→0.00013 mm²**，右 **17.67742→0.00139 mm²**。
+- last XYZ MSE：左 **185.941→180.871 mm²（−2.7%）**，右 **639.918→572.087 mm²（−10.6%）**。
+- 全窗口平均 XYZ MSE：左 **94.007→93.592 mm²（−0.4%）**，右 **312.013→269.630 mm²（−13.6%）**。
+- 平均欧氏距离：左 **11.480→12.227 mm（+6.5%）**，右 **21.256→21.710 mm（+2.1%）**。
+
+平均 MSE、平均距离及逐边界 RMSE 的均值是不同聚合量，不能混用。
+为检查覆盖门槛偏差，同口径 99 ms 重算覆盖旧 **27/28**、最新 **26/26** 对：
+last MSE 左 **249.268→184.831**、右 **603.539→543.247 mm²**；平均 MSE 左
+**124.700→99.624**、右 **318.409→266.533 mm²**，降低 **20.1% / 16.3%**；
+平均距离左 **13.642→12.567**、右 **24.665→21.280 mm**，降低 **7.9% / 13.7%**。
+
+首点改善不依赖完整 100 ms 的筛选：全部有覆盖的切换点（旧 28、最新 26）平均
+位置接缝为左 **3.329→0.0115 mm**、右 **9.958→0.0359 mm**。
+最新 26 个带前缀的已接收计划，其最后一个固定目标均落在切换时刻；因此首点近乎
+重合不等于后续 100 ms 都被固定。以上是 IK 后参考轨迹差异，不是机器人实测跟踪误差。
+不同 rollout 未配对，历史 dirty runtime 源码也未完整留存，不能仅据此断言全部变化
+由 seed 修改导致。原 v3 页面六条 train-time RTC 的 last / average MSE 仍低于最新记录。
+
+同时检查当日较早的两条 active-reference partial：
+`session-20261011T054019Z-6b030f65/rollout-001.partial` 与 `rollout-002.partial`，
+严格 100 ms 分别覆盖 **38/46**、**11/16** 对；首点同样接近零，末点/平均改善幅度不同，
+三条逐条保留，不混合成 finalized cohort。
+产物为 [`comparison.json`](../data/analysis/pack-plate-ik-seed-first100-20261011/comparison.json)，
+同目录有 `episode-metrics.json`、`cohort.jsonl`、`provenance.json` 和 `reproduce.py`。
+旧记录两种窗口重算与前次所有指标精确一致，选定数组 hash 验证通过；未更新 canvas。
+
+### 10.3.5 原生目标与 diff IK 的归因核查（2026-10-11）
+
+继续核查 §10.3.4 的最新 partial。原记录仅含 IK 后参考点，未保存原生 EE 目标、
+精确 seed 关节点或完整 dense 轨迹；服务器的 `last_native_action` 仅为最后一次的
+内存缓存，不能恢复历史请求。现有 `worst_lag_mm` 是整块全部 substeps 的最大法兰
+残差，不能当成切换后 100 ms 的 TCP 误差。右臂 27 个计划中 25 个该最大值超过
+5 mm，中位数 **56.20 mm**、最大 **139.77 mm**，证明存在较大的 IK 跟踪残差，
+但不能据此确定当前 gap 的来源或占比。
+
+离线替换目标对照：对严格 100 ms 有效的 24 对，将新 chunk 的目标替换为旧 committed
+轨迹在新目标时钟上的 FK，使用相同 diff IK、速度限制和完整 pose 目标。seed 由旧
+30 Hz 参考插值得到，因此这是反事实对照，不是原生输出/精确 dense seed 的重放。
+末点在 +99.999999 ms，右臂目标残差平均 **0.0565 mm**、最大 **0.3722 mm**，
+实际记录新旧差平均 **36.5761 mm**；左臂对照平均 **0.0127 mm**、最大 **0.0939 mm**。
+右臂前 5 点与实际新 chunk 的 FK 差最大 **0.00883 mm**，实际分叉从第 6 个未固定
+点开始。该证据说明连续的旧参考可被这套求解器跟踪，支持继续检查自由后缀目标，
+但未恢复旧模型原生目标，不能据此排除 diff IK 在实际两次推理中的残差贡献。
+
+诊断补充：UMI adapter 现在将原生目标、送入 IK 的 source-knot 目标及精确 seed
+存入 `ee_target_trace`，无需改变控制配置。离线
+`scripts/validation/attribute_dp_overlap.py` 可分解模型目标差、适配器目标修改和
+IK 后参考残差差；旧记录明确显示缺失。使用该记录需要重启 serving runtime 后再采集。
+本轮没有启动/停止服务或机器人，也没有修改推理/控制参数。
+
+证据目录：[`pack-plate-ik-attribution-20261011`](../data/analysis/pack-plate-ik-attribution-20261011/)，
+包含 `replay_reference.py`、`counterfactual.json`、`native-attribution.json`、
+`lag-audit.json` 与 provenance。仍为探索性诊断，不填正式任务成绩表。
+
+### 10.3.6 最新三次 UMI DP 逐 chunk 回拉诊断（2026-10-12）
+
+按用户指定的 Pi05 串行报告形式，分别分析 tracker-fixed H32 DP 最新三次有效记录：
+`session-20261012T082005Z-f8a5ceeb/rollout-002`（R1）、
+`session-20261012T082749Z-ca0e7b2f/rollout-001`（R2）、
+`session-20261012T083110Z-05c0ba9a/rollout-001`（R3）。均为 single_inflight、
+waypoint、skip=3、blend=0；R1/R2 refill=0.4 s，R3=0.6 s，不能当成受控比较。
+已执行 chunk 为 58/105/75；R3 最后的 75 号 accepted plan 无 tick 执行证据，排除。
+
+主方向为接管前最多 0.2 s 的实测 TCP 位移，要求 ≥2 mm；窗口为接管后 0.2 s，
+仅使用连续 tick 接管且本 chunk 窗口完整的边界。回退 ≥2 mm 的左/右计数分别为
+R1 **12/52、17/56**，R2 **42/99、32/102**，R3 **15/69、19/74**；最大回退
+左/右分别为 **24.96/15.18、30.84/26.53、17.39/28.81 mm**。分母不同来自方向和
+窗口资格，不是任务成功率。正常转向也可能触发，保留旧调度参考方向的辅助结果。
+
+`ee_target_trace` 支持查看模型目标、waypoint 后目标、IK 后结点及 command/state。
+目标时钟按 intentional skip 的实际选行提前 0.1 s 对齐；committed 等于相应 raw
+裁切的数值核验通过。R3 右臂 chunk 05/06/07 在 2.15–2.88 s 附近实测回退
+10.97/13.78/7.54 mm，同口径模型目标、调度和命令没有回退，需继续查实际跟踪或
+反馈链路；未保存硬件采样时间戳和视频，无法进一步区分二者。
+
+checkpoint 配置指向 `pack-plate-tracker-fixed`。扫描当前库 115 episodes 的所有完整
+32-action 窗口（步长1，包含验证 episode），自身净方向 ≥5 mm 时，前7点回退 ≥2 mm
+的左/右窗口为 **27,445/169,212、27,678/170,006**。这是重叠几何窗口，不是独立事件；
+示教中存在折返不能证明某次实机回拉由示教学得，仍缺对应观测的预测/示教对照。
+
+已完成数值重算、相关记录源码 hash 和离线页面交互检查。报告含逐轮时间轴、全部
+235 个接缝、双臂曲线、示教 episode/frame 及原采集目录。证据：
+[`逐轮 HTML`](../data/analysis/20261012-umi-dp-latest3-recoil/index.html)、
+[`cohort`](../data/analysis/20261012-umi-dp-latest3-recoil/cohort.jsonl)、
+[`provenance`](../data/analysis/20261012-umi-dp-latest3-recoil/provenance.json)。
+探索性诊断，不更新正式任务成绩或人工标签；原始记录与运行时配置未修改。
+
+**同日追加：seed / overlap 的来源分解。** 137 个实测回拉的接缝×手臂实例中，
+119 个在 IK 前、同一 source 时刻的新目标比旧目标向后偏移 ≥2 mm；81 个新目标在
+实际执行前 0.2 s 内部继续后退不足 2 mm。R1 右臂 11→12 的新旧目标沿回拉方向差
+为 −63.83 mm，旧目标到 seed 为 +0.94 mm，新目标到 seed 为 −62.89 mm。
+此例观测位置平移对齐后仍有 63.10 mm 目标差，不能仅归于锚点位置滞后。
+
+235 个接缝均为正确上一 plan 的 active_reference seed，时间与 handoff 一致。
+离线重建 238 个已执行 chunk 的双臂 waypoint/diffIK，canonical 数组最大绝对差
+1.16e-5（包含关节与夹爪维度）；保存 seed 与重建旧 dense reference 在 seed 时刻的
+最大 TCP 差低于 0.000002 mm。未裁切 dense row0 与 seed 完全相同，随后 skip=3
+裁掉 27 个 dense 点且不推迟接入，裁后起点到 seed 距离中位数 14.08 mm、最大
+47.31 mm。此为局部选行反事实，不证明移除 skip 后整个实机回拉会消失。
+
+结论：主要近因是跨预测目标不一致，skip 破坏局部参考起点连续性；没有发现 seed
+取错的证据。普通 DP 请求未条件化旧动作前缀，overlap 不一致不能直接定性为训练
+错误；仍需相同观测、多采样及前缀约束对照。新增证据均在同目录：
+`seed-overlap-attribution.json`、`seed-replay-check.json`、
+`observation-anchor-check.json` 及各自复现脚本，已补入 HTML。
+
 ### 10.4 最小实现范围与验收
 
 1. **记录身份与分段证据**：layout、repeat、参考图身份已接入现有 RoboGUI/session/runtime metadata 路径，尚待交互验收；有时间戳的暂停/恢复分段仍待实现，需结合已保存 tick plan ID 判断交接。旧数据缺证据则标未知，不猜 repeat 或拼接跨段边界。
