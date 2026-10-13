@@ -10,7 +10,7 @@ ASSET_DIRECTORY = Path(__file__).parent / "assets" / "umi_follower"
 
 
 class TacCapGeometry(FixedToolGeometry):
-    """Fixed closed-pad midpoint from the 从夹爪组件0720 CAD.
+    """Fixed closed-pad midpoint from the follower gripper assembly 0720 CAD.
 
     The default T_tool_base_tcp is the ``tcp`` in
     embodiments/end_effector/taccap/assets/umi_follower/end_effector.yaml. It contains no mount.
@@ -30,7 +30,7 @@ class TacCapGeometry(FixedToolGeometry):
         tcp_frame: str = "taccap_tcp",
     ) -> None:
         if tcp_transform is None:
-            # 与整机和可视模型共用资源中的 TCP，不在 Python 中再维护一套数值。
+            # Share the TCP asset with the robot and visual model rather than duplicating its values in Python.
             tcp_transform = load_end_effector(ASSET_DIRECTORY).spec.tcp.matrix()
         super().__init__(
             tcp_transform,

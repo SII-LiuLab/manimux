@@ -213,7 +213,7 @@ class ActionDecoderClient:
             return DecodeResult(response, None, ";".join(errors))
         ordered = [self._pieces[p] for p in self._partitions]
         merged = ordered[0][0]
-        # 各分区返回 ActionChunk；合并前只核对时间、动作语义和分组是否一致。
+        # Each partition returns ActionChunk; check timing, action semantics and groups before merging.
         fields = (
             "request_seq",
             "observation_time_ns",

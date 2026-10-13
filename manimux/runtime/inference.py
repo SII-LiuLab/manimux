@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Literal, Protocol, runtime_checkable
 
 from manimux.plugins import load_plugin
 from manimux.policy_adapter.base import PolicyAdapter
@@ -10,6 +10,7 @@ from manimux.runtime.safety import RuntimeState
 from manimux.runtime.timeline import ActionTimeline, CommitResult
 from manimux.types import (
     ActionChunk,
+    ActionContext,
     GroupVector,
     InferenceRequest,
     InferenceResponse,
@@ -23,6 +24,7 @@ class RequestState:
     in_flight: bool
     last_submitted_seq: int
     last_deadline_ns: int
+    multi_flight: bool = False
     # Shared process-decode forecast at submission time; zero for inline decoding.
     expected_decode_ns: int = 0
 
@@ -40,7 +42,52 @@ class CommitSettings:
     anchor_source: str
 
 
+@runtime_checkable
+class StrategyActionDecoder(Protocol):
+    """Optional adapter-backed decode stage, shared by execution and warmup.
+
+    Return one canonical full chunk; a candidate strategy may retain the other
+    decoded candidates keyed by request_seq. This does not accept a plan or
+    advance reference history. Reject/reset must discard pending candidates.
+    """
+
+    def decode_action(
+        self, raw: object, context: ActionContext, *, adapter: PolicyAdapter,
+    ) -> ActionChunk: ...
+
+
+@runtime_checkable
+class StrategyChunkSelector(Protocol):
+    """Optional selection after decoding, immediately before preparation/commit.
+
+    now_ns is the same timestamp used by prepare_chunk and Timeline.commit.
+    Warmup may select a preview without accepting it. Only on_plan_accepted may
+    advance accepted reference history; rejection/reset discard pending state.
+    """
+
+    def select_chunk(self, *, chunk: ActionChunk, now_ns: int) -> ActionChunk: ...
+
+
+EnsembleScope = Literal["full_prediction", "execution_prefix"]
+
+
+@runtime_checkable
+class EnsembleSource(Protocol):
+    """Declare which rows may contribute to temporal ensembling.
+
+    full_prediction: fuse/store the full prediction, then prepare its execution
+    prefix. execution_prefix: prepare/validate first, then fuse/store only those
+    rows. prepare_chunk is called once in either case. Scope must stay fixed for
+    the strategy's lifetime; changing configuration requires a new strategy.
+    """
+
+    @property
+    def ensemble_scope(self) -> EnsembleScope: ...
+
+
 class InferenceStrategy(Protocol):
+    """Core lifecycle; decode/selection/fusion use the optional protocols above."""
+
     @property
     def name(self) -> str: ...
 
@@ -100,14 +147,18 @@ class InferenceStrategy(Protocol):
 
 
 class DefaultChunkStrategy:
-    """Original ManiMux latest-chunk scheduling, isolated from the control loop."""
+    """Shared Serial/Async chunk scheduling, isolated from the control loop."""
 
     def __init__(self, config: dict) -> None:
         self._config = config
 
     @property
+    def discard_plans_while_paused(self) -> bool:
+        return self._config["inference"]["inference_schedule"] == "multi_inflight"
+
+    @property
     def name(self) -> str:
-        return "manimux"
+        return "serial" if self._config["inference"]["inference_schedule"] == "serial" else "async"
 
     @property
     def control_mode(self) -> str:
@@ -118,7 +169,7 @@ class DefaultChunkStrategy:
         return frozenset({"default"})
 
     def reset(self) -> None:
-        return None
+        pass
 
     def build_submission(
         self,
@@ -132,24 +183,7 @@ class DefaultChunkStrategy:
         request_state: RequestState,
         runtime_state: RuntimeState,
     ) -> InferenceSubmission | None:
-        schedule = self._config["inference"]["inference_schedule"]
-        if schedule == "serial":
-            if (
-                runtime_state != RuntimeState.RUNNING
-                or request_state.in_flight
-                or timeline.remaining_ns(now_ns) > 0
-            ):
-                return None
-        else:
-            refill_ns = int(self._config["inference"]["refill_threshold_s"] * 1_000_000_000)
-            request_expired = now_ns > request_state.last_deadline_ns
-            request_ready = (
-                not request_state.in_flight
-                if schedule == "single_inflight"
-                else request_state.last_submitted_seq < 0 or request_expired
-            )
-            if timeline.remaining_ns(now_ns) >= refill_ns or not request_ready:
-                return None
+        # RequestScheduler owns transport admission and ordinary refill timing.
         deadline_ns = now_ns + int(self._config["policy"]["timeout_s"] * 1_000_000_000)
         request = InferenceRequest(
             session_id=session_id,
@@ -216,15 +250,18 @@ InferenceStrategyFactory = Callable[[dict], InferenceStrategy]
 
 
 _STRATEGY_BUILTINS: dict[str, InferenceStrategyFactory | str] = {
-    "manimux": DefaultChunkStrategy,
+    "async": DefaultChunkStrategy,
+    "serial": DefaultChunkStrategy,
     "rtc": "manimux.runtime.rtc.strategy:RtcInferenceStrategy",
     "train_time_rtc": "manimux.runtime.train_time_rtc:TrainTimeRtcInferenceStrategy",
     "act_temporal_ensemble": "manimux.runtime.temporal_ensemble:ACTTemporalEnsembleStrategy",
     "aac": "manimux.runtime.aac:AacInferenceStrategy",
+    "bid_backward": "manimux.runtime.bid:BidBackwardStrategy",
     "paint": "manimux.runtime.paint:PaintInferenceStrategy",
     "autohorizon": "manimux.runtime.autohorizon:AutoHorizonInferenceStrategy",
-    "dvac": "manimux.runtime.dvac:DvacInferenceStrategy",
 }
+
+INFERENCE_ALGORITHMS = frozenset(_STRATEGY_BUILTINS)
 
 
 def build_inference_strategy(config: dict) -> InferenceStrategy:
@@ -233,7 +270,28 @@ def build_inference_strategy(config: dict) -> InferenceStrategy:
         group="manimux.inference_strategies",
         builtins=_STRATEGY_BUILTINS,
     )
-    return factory(config)
+    settings = config["inference"]
+    ensemble = (settings.get("temporal_ensemble") or {}).get("enabled", False)
+    serial_act = (
+        settings["algorithm"] == "act_temporal_ensemble"
+        and settings["inference_schedule"] == "serial"
+    )
+    if serial_act:
+        from manimux.runtime.temporal_ensemble import SerialACTStrategy
+
+        factory = SerialACTStrategy
+    elif settings["algorithm"] == "aac" and (
+        settings["inference_schedule"] != "serial" or ensemble
+    ):
+        from manimux.runtime.aac import CandidateAacStrategy
+
+        factory = CandidateAacStrategy
+    strategy = factory(config)
+    if serial_act or (ensemble and settings["algorithm"] != "act_temporal_ensemble"):
+        from manimux.runtime.temporal_ensemble import EnsembleStrategy
+
+        strategy = EnsembleStrategy(strategy, config)
+    return strategy
 
 
 def build_warmup_submission(
@@ -294,3 +352,12 @@ def prepare_strategy_chunk(
     if not callable(method):
         return chunk
     return method(chunk=chunk, response=response, now_ns=now_ns)
+
+
+def decode_strategy_action(
+    strategy: InferenceStrategy, adapter: PolicyAdapter, raw: object, context: ActionContext,
+) -> ActionChunk:
+    """Let candidate selectors reuse adapter decoding; ordinary strategies decode once."""
+    if isinstance(strategy, StrategyActionDecoder):
+        return strategy.decode_action(raw, context, adapter=adapter)
+    return adapter.decode_action(raw, context)

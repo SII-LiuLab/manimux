@@ -58,7 +58,7 @@ sensors:
     camera_names: [d405_left, d405_front, d405_right]
 
 policy:
-  action_dt_s: 0.03333333333333333  # 相邻模型动作点的间隔（秒）；不决定下发频率。
+  action_dt_s: 0.03333333333333333  # Interval between adjacent model action points in seconds; independent of command frequency.
   worker: xpolicylab_ws
   service: policy
   adapter:

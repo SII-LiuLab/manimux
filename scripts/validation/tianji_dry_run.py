@@ -31,7 +31,7 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--config", type=Path,
-        default=REPO / "manimux/configs/experiments/pass_ball/umi_dp/tianji_taccap_umi_dp.yaml",
+        required=True,
     )
     parser.add_argument("--local", type=Path, help="local controller and component bindings")
     parser.add_argument("--robot-ip", help="override robot.options.hardware.ip")
@@ -47,7 +47,7 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     config = load_config(args.config, local=args.local)
     options = config["robot"]["options"]
-    # 复用整机装配与设备绑定；此入口只读反馈，不启用机械臂或夹爪控制。
+    # Reuse robot assembly and device bindings; this entry point reads feedback without enabling arm or gripper control.
     options["execute"] = False
     options["end_effector_control"] = False
     if args.robot_ip:

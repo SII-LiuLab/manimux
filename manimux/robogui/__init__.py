@@ -14,7 +14,7 @@ __all__ = [
 
 
 def robogui_parameters(**options) -> dict:
-    """补齐显示发布参数；不启动 RoboGUI 服务。"""
+    """Fill in display publishing parameters without starting RoboGUI."""
 
     values = {
         "enabled": False,

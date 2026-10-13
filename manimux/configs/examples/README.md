@@ -29,7 +29,7 @@ Algorithm-specific prefix handling remains in the inference strategy.
 References resolve relative to each YAML. If you copy this file into
 `experiments/<task>/<model>/`, change component references from `../` to `../../../`.
 Output paths are relative to the launch working directory. Device bindings, service
-addresses and checkpoint roots belong in the [local station file](../../../docs/usage/station.md).
+addresses and checkpoint roots belong in the [local station file](../../../.agents/skills/manimux-station-setup/references/station.md).
 
 ## `run`, `serve` and experiment mode
 
@@ -44,10 +44,11 @@ service waits for the next Prepare. Both commands use `EdgeRuntime.run()` for th
 control loop. `serve` does not start camera or model servers for you.
 
 `run.experiment_mode` defaults to false for the single-rollout `run` entry point.
-Under `serve`, Prepare free / Prepare study chooses the mode for each rollout:
+Under `serve`, use the two RoboGUI buttons **Prepare Run / Prepare Experiment**:
+The experiment template only constrains Experiment; it never prevents a free Run.
 
-- Free: no human evaluation is required before preparing the next rollout.
-- Study: after finishing, save the task result, failure tags and notes,
+- Run: no layout or human evaluation is required before preparing the next rollout.
+- Experiment: select a layout; after finishing, save the task result, failure tags and notes,
   or click `Skip evaluation` to continue without a label. Either choice enables the next
   Prepare once the runtime service is ready. Skipping does not write a human-label file.
 
@@ -101,5 +102,5 @@ envs/yam/.venv/bin/python -m manimux run \
 ## Optional research template
 
 The commented `run.experiment_template` in the example shows custom layout IDs,
-repeat counts and optional reference images. The [research guide](../../../docs/usage/research.md)
+repeat counts and optional reference images. The [research guide](../../../guideline.html#experiments)
 explains free/study rollouts, identity fields, record locations and GUI replay.

@@ -9,16 +9,16 @@ components:
   left_camera:
     config: ../sensor/realsense.yaml
     parent: left_yam
-    mount: null  # 未提供标定，不猜测相机外参。
+    mount: null  # No calibration supplied; do not infer camera extrinsics.
   front_camera:
     config: ../sensor/realsense.yaml
-    mount: null  # 未提供标定，不猜测相机外参。
+    mount: null  # No calibration supplied; do not infer camera extrinsics.
   right_camera:
     config: ../sensor/realsense.yaml
     parent: right_yam
-    mount: null  # 未提供标定，不猜测相机外参。
+    mount: null  # No calibration supplied; do not infer camera extrinsics.
 groups:
-  # null 仅表示没有额外挂接的末端，YAM 自带夹爪始终属于组件的第七维。
+  # null means no additional end effector; the built-in YAM gripper remains the seventh component coordinate.
   left_arm: {arm: left_yam, end_effector: null}
   right_arm: {arm: right_yam, end_effector: null}
 action_contract:

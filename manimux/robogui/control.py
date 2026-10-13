@@ -6,6 +6,7 @@ import logging
 import math
 import threading
 import time
+from copy import deepcopy
 
 from .communication import ControlClient
 
@@ -48,6 +49,7 @@ class RuntimeControlClient:
         self._errors = 0
         self._reply_rtt_ms: float | None = None
         self._server_timing: dict = {}
+        self._episode_control: dict = {}
         self._thread = threading.Thread(
             target=self._run, name="runtime-robogui-controls", daemon=True,
         )
@@ -60,6 +62,12 @@ class RuntimeControlClient:
         # Only literal False enables execution; missing/malformed values fail closed.
         paused = state.get("paused") is not False
         with self._lock:
+            self._episode_control = {
+                "episode_id": state.get("episode_id", ""),
+                "control_run_dir": state.get("control_run_dir", ""),
+                "warmup_requested": state.get("warmup_requested") is True,
+                "start_identity": deepcopy(state.get("start_identity")),
+            }
             self._paused = paused
             self._pause_pending |= paused
             self._home |= state.get("home_requested") is True
@@ -97,6 +105,8 @@ class RuntimeControlClient:
                 "home_requested": self._home and not self._finished,
                 "finish_requested": self._finish,
                 "finish_home": self._finish_home if self._finish else None,
+                **(deepcopy(self._episode_control)
+                   if reason in {"running", "robogui_pause"} else {}),
                 "diagnostics": {
                     "reason": reason, "transport_status": self._transport_status,
                     "control_age_ms": None if age is None else age * 1000,

@@ -70,12 +70,11 @@ recording:
   video_fps: 30.0
 
 inference:
-  algorithm: manimux
+  algorithm: async
   config: ../../../inference/yam_manimux_chunk20.yaml
 
 executor:
-  type: smooth
-  config: ../../../executor/yam_smooth_standard.yaml
+  type: direct
 
 policy_server:
   config: ../../../policy/pi05/yam/put-bottles/eef-from-joint-ee-step30000.yaml

@@ -26,8 +26,6 @@ from manimux.runtime.rtc.mask import inpainting_condition
 from manimux.runtime.rtc.request import RtcInferenceRequest
 from manimux.types import ActionContext, InferenceRequest, ObservationSnapshot
 
-DEFAULT_CONFIG = Path("manimux/configs/experiments/pick_red_object/pi05/yam_pi05_base_rtc.yaml")
-
 
 def _request(
     session_id: str,
@@ -62,7 +60,7 @@ def _decode(model: Any, adapter: Any, request: InferenceRequest) -> tuple[Any, f
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+    parser.add_argument("--config", type=Path, required=True)
     args = parser.parse_args()
 
     config = load_config(args.config)

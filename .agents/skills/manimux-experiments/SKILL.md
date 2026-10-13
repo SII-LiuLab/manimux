@@ -1,18 +1,18 @@
 ---
 name: manimux-experiments
-description: Maintain ManiMux experiment settings, progress, and per-task result tables. Use to plan or review an evaluation campaign, locate recorded rollouts, read human scores, analyze chunk seams, run PRM-as-a-Judge, and update the experiment Markdown with traceable results. Read current settings from the experiment register rather than assuming presets from this skill.
+description: Configure custom ManiMux studies and scoring rules, maintain experiment progress and per-task results. Use to agree success criteria and optional partial scores, plan or review an evaluation campaign, locate rollouts, analyze human scores or chunk seams, run PRM-as-a-Judge, and update traceable result tables. Read current settings from the selected study rather than assuming presets.
 ---
 
 # ManiMux Experiments
 
-Work from the ManiMux checkout. Paths written as `docs/...`, `manimux/...`,
+Work from the ManiMux checkout. Paths written as `.agents/...`, `manimux/...`,
 `scripts/...`, or `PRM-as-a-Judge/...` are relative to its root. Read the
-[repository guide](../../../docs/development/agent-guide.md) before editing. This skill owns experiment operation and reporting;
+[repository guide](../manimux-development/references/agent-guide.md) before editing. This skill owns experiment operation and reporting;
 use the development skill when the request changes recording or runtime behavior.
 
 ## User research versus team studies
 
-Read [the research workflow](../../../docs/usage/research.md) for free rollouts and
+Read [the research workflow](../../../guideline.html#experiments) for free rollouts and
 optional templates. Do not require a study register, fixed layout count, human
 labels or PRM when the user only wants inference or experiment management. Use the
 SOP below only for a requested evaluation, applying the user's chosen metrics.
@@ -20,8 +20,8 @@ SOP below only for a requested evaluation, applying the user's chosen metrics.
 ## Read the current agreement
 
 Start with the user's selected experiment and saved session. Read their study
-register when one is provided; this checkout maintains it in `docs/experiments.md`,
-which is excluded from the public documentation site. Preserve the existing file;
+register when one is provided; this checkout maintains it in `experiments.md`,
+which is private and ignored by Git. Preserve the existing file;
 do not recreate its task roster or results from memory. If a requested evaluation
 needs a register and none exists, establish it from the user's actual study choices.
 The register owns selected policies, proposed versus confirmed settings, metrics,
@@ -29,7 +29,7 @@ result rows and progress. Do not copy tasks, checkpoints, numeric presets or jud
 defaults into this skill. If the user changes a setting, update its decision and
 status without treating unrelated proposals as approved.
 
-`docs/usage/records.md` supplies study principles and the operation/evidence contract.
+`.agents/skills/manimux-experiments/references/records.md` supplies study principles and the operation/evidence contract.
 Current source and stored artifacts decide what actually happened. In particular,
 the register describes intended settings; a session manifest describes its run.
 An old rollout is not automatically evidence for a newly confirmed preset.
@@ -42,6 +42,58 @@ Load only the needed reference:
   [human and seam metrics](references/human-and-seam.md).
 - PRM manifests, inference, quality checks, and output fields:
   [PRM evaluation](references/prm.md).
+- Demonstration grasp/release scope drawn on a camera frame (layout vs. training
+  data, teleop visualization, report figures): follow
+  [the manipulation scope skill](../../../manimux/evaluation/manipulation_scope/SKILL.md).
+
+## Define a custom study with the user
+
+For a set of tasks/methods sharing one deployment, use
+`manimux serve --config-list manimux/configs/experiment_lists/<name>.yaml`.
+See [Task & method switching](../../../guideline.html#experiment-lists).
+List entries reference existing experiment YAMLs under `experiments/<task>/<model>/`;
+do not duplicate prompts or algorithm parameters in the list. Shared model recipes
+belong under `policy/<model>/<robot>/<dataset>/`. The list loader rejects different
+model initialization, normalization, camera or robot contracts. Give each setting a
+distinct output directory and preserve historical configs/results. UI selection is
+idle-only, after evaluation is saved/skipped; it does not start hardware. Task changes
+also change rubric/reference/progress. Keep the two Prepare Run / Prepare Experiment
+buttons and never silently substitute a checkpoint to enable a method.
+
+Use [Set study rules and run experiments](../../../guideline.html#experiments)
+as the user-facing guide. First inspect the selected experiment, referenced rubric
+and prior decisions. Ask only unresolved questions, in small batches:
+
+- What observable outcome counts as complete success? Is binary success enough,
+  or does the user want partial credit? Ask this explicitly when scoring is in
+  scope and the choice has not been made; do not invent milestone weights.
+- For partial credit, confirm completed counts or named stages, their total scores,
+  and when they are judged (final state or an achieved milestone). Clarify reversal
+  cases that matter, such as a stack falling before Finish. Map the agreed rule to
+  `binary`, `count` or `stages`; unsupported aggregation is a separate code change.
+- Confirm only the missing study choices: compared methods/checkpoints, layouts,
+  repetitions/reset, stopping rule, invalid-attempt criteria, selected metrics
+  and output location. Do not impose this checkout's task roster or sample budget.
+
+If the user wants free inference, do not force an evaluation questionnaire. If
+they decline partial credit, use binary scoring. PRM is optional and separate
+from human labels. Summarize the agreed rules and identify remaining decisions;
+do not treat suggestions as frozen protocol.
+
+When configuration work is requested, reference a user-editable scoring YAML via
+`evaluation.config`; keep layout/repeat constraints in `run.experiment_template`.
+RoboGUI exposes two buttons: Prepare Run and Prepare Experiment, with one Layout selector.
+Prepare Run requires no layout or scoring. Prepare Experiment uses the selected layout,
+the configured template and offers scoring after Finish. Layout attaches its matching
+Top reference automatically; repeat numbers come from finalized valid human-scored
+records in the method output directory. Keep task/model/condition settings in YAML;
+operator notes and failure details belong after Finish. Do not add an in-page
+template editor as part of routine study setup. Preserve episode rubric snapshots,
+version changed rules, and reload the runtime before collecting under a new rubric.
+Do not mix different rubric versions in one mean score. Validate with the loader
+without creating hardware, then deliver exact config paths, launch commands,
+operation sequence and resolved recording/report locations. Configuration work
+does not by itself authorize starting services or moving hardware.
 
 ## Evaluation SOP
 
@@ -49,6 +101,7 @@ Load only the needed reference:
    representation, setting ID/version, dev/test split, and metric/judge profile.
    Resolve pending decisions from the register and the user's latest instruction.
    Avoid asking again about already confirmed settings.
+   For a new or customized study, follow the rule-setting conversation below.
 2. **Prepare the experiment.** Trace the experiment and referenced YAML through
    the real loader without constructing hardware. Compare intended settings with
    the actual configuration, including Serial scheduling, executor, model steps,

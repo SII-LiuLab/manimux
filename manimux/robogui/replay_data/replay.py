@@ -34,7 +34,7 @@ class JointReplay:
     target_hz: float = 100.0
     low_hz: float = 30.0
     native: dict[str, np.ndarray] = field(default_factory=dict)
-    reference_label: str = "原始实测"
+    reference_label: str = "Original measurement"
     source_note: str = ""
     resampled: dict[str, dict[str, np.ndarray]] = field(default_factory=dict)
     resample_rates_hz: dict[str, float] = field(default_factory=dict)
@@ -314,13 +314,13 @@ def load_joint_replay(episode: Path | str, source: str = "feedback") -> JointRep
         cameras,
         source_rates,
         native={k: v[interval] for k, v in native_groups.items()},
-        reference_label=("已录 command" if source == "command" else "已录 joint")
+        reference_label=("Recorded command" if source == "command" else "Recorded joints")
         if multirate and native is None
-        else "原始实测",
+        else "Original measurement",
         source_note=(
-            f"采集设置 {meta['control_hz']:g} Hz；相机按自身时间戳独立记录。"
-            "蓝色为保存的数据直接取到 100 Hz 网格；另两组先降到 30 Hz，再保持或线性插值。"
-            "100 Hz 是比较网格，不保证每格都有新测量；夹爪各组使用同一份已录数据。"
+            f"Capture setting {meta['control_hz']:g} Hz; cameras are recorded independently using their own timestamps. "
+            "Blue shows recorded data on a 100 Hz grid; the other series are downsampled to 30 Hz, then held or interpolated. "
+            "100 Hz is a comparison grid, not a guarantee of new measurements at each tick; all gripper series share the same recording."
         )
         if multirate
         else "",

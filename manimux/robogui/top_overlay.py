@@ -87,6 +87,8 @@ class TopViewOverlay:
         self._reference_identity: dict[str, Any] | None = None
         self._selection_enabled = True
         self._error = ""
+        self._task = EMPTY_TASK
+        self._slot = EMPTY_SLOT
         # Keep the native image as the anchor's direct sibling, like the camera panel.
         # Only its binary image data changes on a frame; never replace the HTML subtree.
         container = display_container if display_container is not None else gui.add_folder(None)
@@ -98,11 +100,7 @@ class TopViewOverlay:
                 format="jpeg",
                 jpeg_quality=90,
             )
-        with gui.add_folder("Reference layout · Top", expand_by_default=True):
-            tasks = self.layouts.tasks()
-            self.task = gui.add_dropdown("Task", tasks or (EMPTY_TASK,))
-            self.slot = gui.add_dropdown("Reference image", (EMPTY_SLOT,))
-            self.refresh = gui.add_button("Refresh reference library")
+        with gui.add_folder("Reference appearance", expand_by_default=True):
             self.enabled = gui.add_checkbox("Show reference overlay", True)
             self.opacity = gui.add_slider(
                 "Reference opacity", min=0.0, max=1.0, step=0.05, initial_value=0.5
@@ -112,27 +110,6 @@ class TopViewOverlay:
             )
             self.status = gui.add_markdown("")
 
-        @self.task.on_update
-        def _task(_event: Any) -> None:
-            with self._lock:
-                self._load_slots()
-
-        @self.slot.on_update
-        def _slot(_event: Any) -> None:
-            with self._lock:
-                self._load_reference()
-
-        @self.refresh.on_click
-        def _refresh(_event: Any) -> None:
-            with self._lock:
-                if not self._selection_enabled:
-                    return
-                tasks = self.layouts.tasks() or (EMPTY_TASK,)
-                selected = self.task.value
-                self.task.options = tasks
-                self.task.value = selected if selected in tasks else tasks[0]
-                self._load_slots()
-
         @self.enabled.on_update
         @self.opacity.on_update
         @self.white.on_update
@@ -140,47 +117,34 @@ class TopViewOverlay:
             with self._lock:
                 self._render()
 
-        self._load_slots()
-
-    def _load_slots(self) -> None:
-        if not self._selection_enabled:
-            return
-        slots = self.layouts.slots(self.task.value) if self.task.value != EMPTY_TASK else ()
-        selected = self.slot.value
-        self.slot.options = slots or (EMPTY_SLOT,)
-        self.slot.value = selected if selected in slots else self.slot.options[0]
-        self._load_reference()
-
-    def _load_reference(self) -> None:
-        if not self._selection_enabled:
-            return
-        self._reference = None
-        self._reference_identity = None
-        self._error = ""
-        if self.task.value != EMPTY_TASK and self.slot.value != EMPTY_SLOT:
-            try:
-                self._reference, self._reference_identity = self.layouts.snapshot(
-                    self.task.value, self.slot.value
-                )
-            except (OSError, ValueError) as exc:
-                self._error = f"Could not load reference image: {exc}"
         self._render()
+
+    def select(self, task: str, slot: str) -> None:
+        """The dashboard's single Layout selector owns both preview and identity."""
+        with self._lock:
+            if not self._selection_enabled:
+                return
+            self._task, self._slot = task or EMPTY_TASK, slot or EMPTY_SLOT
+            self._reference = None
+            self._reference_identity = None
+            self._error = ""
+            if task and slot:
+                try:
+                    self._reference, self._reference_identity = self.layouts.snapshot(task, slot)
+                except (OSError, ValueError) as exc:
+                    self._error = f"Could not load reference image: {exc}"
+            self._render()
 
     def set_selection_enabled(self, enabled: bool) -> None:
         with self._lock:
-            changed = enabled != self._selection_enabled
             self._selection_enabled = enabled
-            for handle in (self.task, self.slot, self.refresh):
-                handle.disabled = not enabled
-            if changed and enabled:
-                self._load_slots()
 
     def freeze_selection(self) -> dict[str, Any]:
-        """Freeze the reference shown for this Prepare; no work runs on control ticks."""
+        """Snapshot and lock the selected reference; no work runs on control ticks."""
         with self._lock:
-            if self.task.value == EMPTY_TASK or self.slot.value == EMPTY_SLOT:
+            if self._task == EMPTY_TASK or self._slot == EMPTY_SLOT:
                 raise ValueError("Select a task and a saved reference image first.")
-            pixels, identity = self.layouts.snapshot(self.task.value, self.slot.value)
+            pixels, identity = self.layouts.snapshot(self._task, self._slot)
             self._reference = pixels
             self._reference_identity = identity
             self._error = ""
@@ -194,12 +158,7 @@ class TopViewOverlay:
             self.set_selection_enabled(False)
             reference = identity["reference_layout"]
             task, slot = reference["task"], identity["layout_id"]
-            if task not in self.task.options:
-                self.task.options = (*self.task.options, task)
-            self.task.value = task
-            if slot not in self.slot.options:
-                self.slot.options = (*self.slot.options, slot)
-            self.slot.value = slot
+            self._task, self._slot = task, slot
             if identity == self._reference_identity:
                 return
             self._reference_identity = deepcopy(identity)
@@ -226,7 +185,7 @@ class TopViewOverlay:
         label = (
             f"{identity['reference_layout']['task']} / {identity['layout_id']}"
             if identity is not None
-            else f"{self.task.value} / {self.slot.value}"
+            else f"{self._task} / {self._slot}"
         )
         display = self._live
         note = (

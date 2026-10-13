@@ -1,4 +1,4 @@
-# 执行器参数；关节角使用 rad，时间使用 s，归一化夹爪沿用各本体约定。
+# Executor parameters: joint angles in rad, time in s, and normalized grippers follow each embodiment's convention.
 smooth:
   cutoff_hz: 8.0
   position_limit_abs: 3.14

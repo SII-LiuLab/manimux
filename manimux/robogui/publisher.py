@@ -19,6 +19,10 @@ class RoboGUIControl:
     finish_requested: bool = False
     finish_home: bool | None = None
     diagnostics: dict[str, Any] | None = None
+    episode_id: str = ""
+    control_run_dir: str = ""
+    warmup_requested: bool = False
+    start_identity: dict[str, Any] | None = None
 
 
 class RoboGUIBridge:
@@ -100,6 +104,10 @@ class RoboGUIBridge:
                 state.get("finish_home") if isinstance(state.get("finish_home"), bool) else None
             ),
             diagnostics=state.get("diagnostics"),
+            episode_id=state.get("episode_id", ""),
+            control_run_dir=state.get("control_run_dir", ""),
+            warmup_requested=state.get("warmup_requested") is True,
+            start_identity=state.get("start_identity"),
         )
 
     def set_state_metadata(self, metadata: dict[str, object]) -> None:

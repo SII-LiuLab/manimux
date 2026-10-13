@@ -4,7 +4,7 @@ __all__ = ["EpisodeRecorder"]
 
 
 def recording_parameters(**options) -> dict:
-    """保留记录与视频默认值；不打开文件或启动编码进程。"""
+    """Preserve recording and video defaults without opening files or starting encoders."""
 
     values = {
         "enabled": True,

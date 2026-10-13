@@ -82,7 +82,7 @@ recording:
 
 # Inference controls requests and chunk handoff; the executor controls smoothing and limits.
 inference:
-  algorithm: manimux
+  algorithm: serial
   config: ../../../inference/aligned/yam_serial_chunk16.yaml
 
 executor:

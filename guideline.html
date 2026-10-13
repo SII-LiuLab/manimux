@@ -1,0 +1,2212 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="ManiMux guide: deployment, inference algorithms and experiment rules."><title>ManiMux Guide</title><style>
+:root{--ink:#29342f;--muted:#626f68;--accent:#246c56;--rule:#e0e6e2;--soft:#f5f7f6}
+*{box-sizing:border-box}html{scroll-padding-top:80px}body{margin:0;background:#fff;color:var(--ink);font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline;text-underline-offset:3px}a:focus-visible,button:focus-visible,input:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:3px}[hidden]{display:none!important}
+.topbar{position:fixed;inset:0 0 auto;height:56px;background:white;border-bottom:1px solid var(--rule);z-index:30;display:flex;align-items:center;padding:0 28px;gap:22px}.brand{font-size:18px;letter-spacing:-.3px;font-weight:700;color:#233630;white-space:nowrap}.current{color:var(--muted);font-size:14px}.search-box{margin-left:auto;position:relative;width:270px}.search-box input{width:100%;padding:8px 12px;border:0;background:#f1f4f2;border-radius:3px;font:inherit;font-size:14px}.search-results{position:absolute;right:0;top:42px;width:420px;max-height:65vh;overflow:auto;background:#fff;border:1px solid var(--rule);box-shadow:0 8px 20px #142c191c}.search-results a{display:block;padding:12px 16px;border-bottom:1px solid var(--rule)}.search-results strong,.search-results small{display:block}.search-results small{color:var(--muted);font-size:12px;margin-top:3px}.search-results p{padding:10px 16px}.repo{font-size:13px;color:var(--ink);white-space:nowrap}
+.layout{max-width:1450px;margin:auto;padding-top:56px;display:grid;grid-template-columns:248px minmax(0,1fr) 180px;gap:34px}.sidebar{position:sticky;top:56px;height:calc(100vh - 56px);overflow:auto;border-right:1px solid var(--rule);padding:28px 18px 28px 22px}.sidebar-title{font-weight:700;font-size:14px;margin-bottom:15px}.sidebar nav a{display:block;color:var(--ink);font-size:13px;padding:5px 9px;line-height:1.55;border-left:2px solid transparent}.sidebar nav a[aria-current="page"]{color:var(--accent);font-weight:650;border-left-color:var(--accent);background:#f1f6f3}.nav-group{margin:10px 0}.nav-group summary{font-weight:650;font-size:13px;cursor:pointer;padding:6px 0}.nav-group>div{padding-left:8px}.sidebar-tools{border-top:1px solid var(--rule);margin-top:20px;padding-top:14px}button{font:inherit;color:var(--accent);background:white;border:1px solid var(--rule);padding:5px 10px;border-radius:3px;cursor:pointer;font-size:12px}
+main{min-width:0;padding:36px 0 50px}.breadcrumb{font-size:12px;color:var(--muted);margin-bottom:22px}.guide-page h2{font-size:30px;line-height:1.25;letter-spacing:-.8px;margin:0 0 26px;font-weight:650}.guide-page h3{font-size:21px;line-height:1.35;font-weight:650;letter-spacing:-.4px;border-top:1px solid var(--rule);padding-top:22px;margin:32px 0 16px}.guide-page p{margin:14px 0}.guide-page a{border-bottom:1px solid #c7d8ce}.table-wrap{overflow:auto;margin:22px 0}table{width:100%;border-collapse:collapse;font-size:13px;line-height:1.6;border:1px solid var(--rule)}td,th{border-bottom:1px solid var(--rule);padding:11px 13px;text-align:left;vertical-align:top}th{background:#f7f9f8;font-weight:650}td:first-child{min-width:115px}code{font:12px/1.65 "SFMono-Regular",Consolas,monospace;background:var(--soft);border-radius:2px;padding:2px 4px;overflow-wrap:anywhere}pre{position:relative;overflow:auto;background:var(--soft);padding:19px 18px;margin:20px 0;border-radius:3px}pre code{padding:0;white-space:pre;overflow-wrap:normal}pre .copy{position:absolute;right:6px;top:6px;background:#fff;font-size:11px;padding:2px 7px}.guide-page details{padding:12px 16px;border:1px solid var(--rule);border-radius:3px;margin:22px 0}.guide-page summary{cursor:pointer;font-weight:650;color:var(--accent)}li{margin:7px 0}.kicker{font:600 10px/1.5 "SFMono-Regular",Consolas,monospace;letter-spacing:1px;color:#66746b;text-transform:uppercase}.overview h1{font-size:52px;line-height:1.1;letter-spacing:-2.8px;margin:10px 0 16px;font-weight:650}.overview .lead{font-size:21px;line-height:1.4;color:#344c40}.quicklinks{display:flex;gap:25px;flex-wrap:wrap;margin:24px 0 30px;font-size:14px;font-weight:650}.quicklinks a{border-bottom:1px solid #a7c1b5;padding-bottom:3px}.overview-grid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(200px,1fr);gap:25px;align-items:start}.overview-grid figure{margin:0}video{display:block;width:100%;border:1px solid var(--rule);border-radius:3px;background:var(--soft)}figcaption{font-size:11px;color:var(--muted);margin-top:8px}.start-links>a{display:grid;grid-template-columns:20px 1fr 15px;gap:10px;padding:15px 0;border-bottom:1px solid var(--rule);color:var(--ink)}.start-links .kicker{padding-bottom:10px}.start-links small{display:block;font-size:12px;line-height:1.5;color:var(--muted);margin-top:3px}.start-links span{font-size:11px;color:var(--muted)}.toc{position:sticky;top:86px;align-self:start;padding-right:18px;font-size:12px}.toc-title{font-weight:650;margin-bottom:10px}.toc a{display:block;color:var(--muted);margin:8px 0;line-height:1.5}.page-footer{margin-top:45px;padding-top:18px;border-top:1px solid var(--rule);display:flex;justify-content:space-between;gap:20px;font-size:13px}.page-footer a{display:flex;flex-direction:column;max-width:48%}.page-footer small{color:var(--muted)}.copyright{color:var(--muted);font-size:11px;margin-top:30px}.menu-button{display:none;border:0;font-size:22px;padding:0}.backdrop{display:none}.skip{position:fixed;top:-60px;left:16px;z-index:100;background:white;padding:8px}.skip:focus{top:6px}
+@media(min-width:1500px){.layout{gap:42px}}@media(max-width:1150px){.layout{grid-template-columns:232px minmax(0,1fr);gap:28px;padding-right:26px}.toc{display:none}.overview-grid{grid-template-columns:1fr}.search-box{width:225px}.current{display:none}}@media(max-width:760px){.topbar{padding:0 16px;gap:15px}.repo{display:none}.brand{font-size:16px}.menu-button{display:block}.search-box{width:min(45vw,250px)}.search-results{width:min(90vw,420px)}.layout{display:block;padding:76px 22px 0}.sidebar{position:fixed;top:56px;left:0;width:270px;z-index:25;background:white;transform:translateX(-100%);transition:transform .15s ease}.nav-open .sidebar{transform:translateX(0)}.nav-open .backdrop{display:block;position:fixed;inset:56px 0 0;background:#0005;z-index:20}main{padding-top:10px}.overview h1{font-size:44px}.guide-page h2{font-size:27px}.overview-grid{grid-template-columns:1fr}.breadcrumb{margin-bottom:18px}}@media print{.topbar,.sidebar,.toc,.page-footer,.copy,.breadcrumb,.backdrop{display:none!important}.layout{display:block;padding:0;max-width:none}main{padding:0}.guide-page{display:block!important;break-before:page}.guide-page.overview{break-before:auto}body{font-size:11px}table{font-size:10px}pre code{white-space:pre-wrap;font-size:10px}video{display:none}.guide-page h2,.guide-page h3{break-after:avoid}tr{break-inside:avoid}.table-wrap{overflow:visible}.copyright{display:none}}
+</style></head>
+<body><a class="skip" href="#overview">Skip to content</a>
+<header class="topbar"><button class="menu-button" id="menu" aria-label="Toggle navigation" aria-expanded="false" aria-controls="sidebar">☰</button><a class="brand" href="#overview">ManiMux Guide</a><span class="current" id="current-title">Overview</span><div class="search-box"><input id="guide-search" type="search" placeholder="Search sections" aria-label="Search guide" autocomplete="off"><div id="search-results" class="search-results" hidden></div></div><a class="repo" href="https://github.com/SII-LiuLab/manimux">SII-LiuLab / ManiMux ↗</a></header>
+<div id="backdrop" class="backdrop"></div><div class="layout"><aside class="sidebar" id="sidebar"><div class="sidebar-title">ManiMux Guide</div><nav aria-label="Guide sections"><a href="#overview" data-page="overview">Overview</a><details class="nav-group" open><summary>Start here</summary><div><a href="#install" data-page="install">Install &amp; preview</a><a href="#configuration" data-page="configuration">Configure a deployment</a><a href="#launch" data-page="launch">Launch commands</a></div></details><details class="nav-group" open><summary>Inference algorithms</summary><div><a href="#shared-parameters" data-page="shared-parameters">Shared parameters</a><a href="#algorithms" data-page="algorithms">Choose an algorithm</a><a href="#serial" data-page="serial">Serial</a><a href="#async" data-page="async">Async</a><a href="#act-temporal-ensemble" data-page="act-temporal-ensemble">ACT temporal ensemble</a><a href="#rtc" data-page="rtc">RTC</a><a href="#train-time-rtc" data-page="train-time-rtc">Train-time RTC</a><a href="#paint" data-page="paint">PAINT</a><a href="#aac" data-page="aac">AAC</a><a href="#autohorizon" data-page="autohorizon">AutoHorizon</a><a href="#bid-backward" data-page="bid-backward">BID backward-only</a><a href="#optional-algorithm-composition" data-page="optional-algorithm-composition">Supported combinations</a><a href="#support" data-page="support">Model support &amp; presets</a></div></details><details class="nav-group" open><summary>Experiments</summary><div><a href="#experiment-lists" data-page="experiment-lists">Task &amp; method switching</a><a href="#experiments" data-page="experiments">Rules, templates &amp; scoring</a><a href="#records" data-page="records">Records &amp; replay</a><a href="#reports" data-page="reports">Evaluation reports</a></div></details><details class="nav-group" open><summary>Development</summary><div><a href="#agent-references" data-page="agent-references">Work with your agent</a><a href="#troubleshooting" data-page="troubleshooting">Troubleshooting</a></div></details></nav><div class="sidebar-tools"><button id="print">Print entire guide / PDF</button></div></aside>
+<main id="content"><div class="breadcrumb" id="breadcrumb">ManiMux Guide / Overview</div><section aria-labelledby="overview" class="guide-page overview" data-page-id="overview" data-title="Overview">
+<div class="kicker">Documentation / Real-robot research</div>
+<h1 id="overview">ManiMux</h1>
+<p class="lead">An extensible real-world manipulation harness.</p>
+<p><strong>Any embodiment. Any policy. Any inference strategy.</strong></p>
+<p>Configure your deployment, run it through RoboGUI, and keep experiments traceable.</p>
+<div class="quicklinks"><a href="#install">Get started ↗</a><a href="#agent-references">Development protocols ↗</a><a href="https://github.com/SII-LiuLab/manimux">GitHub ↗</a></div>
+<div class="overview-grid"><figure><video aria-label="RoboGUI demonstration with a YAM robot" controls="" playsinline="" poster="assets/manimux-robogui-demo.webp" preload="none"><source src="assets/manimux_2026-09-05_23-17-35-00.00.03.144-00.00.34.914-seg1-00.00.02.596-00.00.34.966.mp4" type="video/mp4"/></video><figcaption>RoboGUI · YAM deployment. Demo footage; some controls have since changed.</figcaption></figure>
+<div class="start-links"><div class="kicker">Start with your setup</div>
+<a href="#install"><span>01</span><div><strong>Try RoboGUI</strong><small>Explore the demo without hardware.</small></div><span>→</span></a>
+<a href="#configuration"><span>02</span><div><strong>Connect your station</strong><small>Bind robots, cameras and services.</small></div><span>→</span></a>
+<a href="#launch"><span>03</span><div><strong>Run a policy</strong><small>Choose a recipe and start inference.</small></div><span>→</span></a>
+<a href="#experiments"><span>04</span><div><strong>Manage experiments</strong><small>Set rules, collect trials and score results.</small></div><span>→</span></a>
+</div></div>
+<h3 id="workflow">One workflow, interchangeable components</h3>
+<p>Observation → Policy → Adapter / Timeline → Executor → Robot</p>
+<p>Model frameworks own inference. ManiMux handles scheduling, execution, recording and RoboGUI operation.</p>
+</section>
+<section aria-labelledby="install" class="guide-page" data-page-id="install" data-title="Install &amp; preview" hidden=""><h2 id="install">Install</h2>
+<p>Run commands from the repository root. Python 3.11/3.12 are supported.</p>
+<pre><code class="language-bash">uv sync --dev
+uv run manimux-robogui --robot yam --demo --host 127.0.0.1 --port 8086
+</code></pre>
+<p>Open <code>http://127.0.0.1:8086</code>. This demo does not connect hardware.
+Use <code>--robot piper</code> or <code>--robot aloha</code> for the corresponding asset preview.</p>
+<table>
+<thead>
+<tr>
+<th>Environment</th>
+<th>Owns</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Root <code>.venv/</code></td>
+<td>Core development and offline RoboGUI</td>
+</tr>
+<tr>
+<td><code>envs/yam/.venv/</code></td>
+<td>YAM SDK, cameras, runtime and RoboGUI</td>
+</tr>
+<tr>
+<td>Model environment</td>
+<td>JAX/PyTorch, weights and the XPolicyLab policy server</td>
+</tr>
+</tbody>
+</table>
+<p>For an existing hardware environment, install the current checkout explicitly:</p>
+<pre><code class="language-bash">uv pip install --python envs/yam/.venv/bin/python -e '.[replay,realsense,xpolicylab]'
+</code></pre>
+<p>This does not install the robot SDK or create the model environment. Follow the
+<a href=".agents/skills/manimux-station-setup/references/station.md">station setup reference</a>
+and the selected <a href="#support">model runbook</a>. Do not run root <code>uv sync</code> against an
+independent hardware/model environment; it can remove dependencies absent from the root lockfile.</p>
+</section>
+<section aria-labelledby="configuration" class="guide-page" data-page-id="configuration" data-title="Configure a deployment" hidden=""><h2 id="configuration">Configuration</h2>
+<p>One experiment YAML selects the deployment. Keep common settings in their owning component YAML
+and reference them with <code>config:</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Edit here</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Task prompt, output, step budget</td>
+<td>Experiment <code>run</code></td>
+</tr>
+<tr>
+<td>Layout IDs / repeats / reference requirement</td>
+<td><code>run.experiment_template</code></td>
+</tr>
+<tr>
+<td>Scoring rules</td>
+<td><code>evaluation.config</code> → rubric YAML</td>
+</tr>
+<tr>
+<td>CAN/IP, camera serials, service endpoints, local paths</td>
+<td><code>manimux/configs/local/station.yaml</code></td>
+</tr>
+<tr>
+<td>Robot assembly, control frequency</td>
+<td><code>robot.config</code>, <code>robot.control_hz</code></td>
+</tr>
+<tr>
+<td>Geometry, joint order, TCP and limits</td>
+<td>Embodiment / control profile YAML</td>
+</tr>
+<tr>
+<td>Camera FPS, resolution and exposure</td>
+<td><code>camera_server.config</code> → camera-set YAML</td>
+</tr>
+<tr>
+<td>Model camera mapping and action conversion</td>
+<td><code>policy.adapter</code></td>
+</tr>
+<tr>
+<td>Model action interval and horizon</td>
+<td><code>policy.action_dt_s</code>, <code>policy.horizon_policy_steps</code></td>
+</tr>
+<tr>
+<td>Checkpoint, normalization, sampler steps and seed</td>
+<td><code>policy_server.config</code> → model recipe</td>
+</tr>
+<tr>
+<td>Scheduling / chunk handoff</td>
+<td><code>inference</code> or its referenced YAML</td>
+</tr>
+<tr>
+<td>Command generation</td>
+<td><code>executor</code> — current team experiments use <code>type: direct</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Station setup:</strong> copy <a href="manimux/configs/local/yam_example.yaml">yam_example.yaml</a> to
+<code>station.yaml</code> only if a private station file does not already exist. Fill actual CAN
+interfaces, camera serials, endpoints and checkpoint roots. Preserve component names.</p>
+<p><code>config:</code> paths resolve relative to the containing YAML; mappings merge and lists replace.
+Experiment <code>run.output_dir</code> is relative to the launch directory. Station-local paths resolve
+relative to the station file; <code>paths.output_dir</code> can override the recording directory.</p>
+<p>Use the same <code>--local PATH</code> on entry points that support station binding. Pi05, camera and runtime
+support it; RoboGUI network options remain separate. A model launcher taking only <code>--config</code>
+must use the recipe paired with the experiment. See <a href=".agents/skills/manimux-station-setup/references/station.md#scope-and-remaining-independent-entry-points">entry-point scope</a>.</p>
+<p><strong>Before launch, inspect the resolved config without connecting hardware:</strong></p>
+<pre><code class="language-bash">envs/yam/.venv/bin/python - &lt;&lt;'PY'
+from manimux.cli import load_config
+cfg = load_config('manimux/configs/experiments/coin/pi05/yam_pi05_rtc_joint_step50000.yaml')
+for key in ('run', 'policy', 'inference', 'executor', 'evaluation'):
+    print(key, cfg[key])
+PY
+</code></pre>
+<p>Edit YAML before loading the experiment. Restart the affected process after changes;
+editing a file does not hot-reload a running deployment.</p>
+</section>
+<section aria-labelledby="launch" class="guide-page" data-page-id="launch" data-title="Launch commands" hidden=""><h2 id="launch">Launch</h2>
+<p><strong>Complete Pi05 coin / YAM example.</strong> Requires installed hardware/model environments,
+the checkpoint selected by the recipe, and a configured station. Run from the repository
+root in four terminals, using the same experiment in cameras, model and runtime.</p>
+<h3 id="1-camera-service">1 · Camera service</h3>
+<pre><code class="language-bash">envs/yam/.venv/bin/python -m manimux.servers.camera.server \
+  --experiment manimux/configs/experiments/coin/pi05/yam_pi05_rtc_joint_step50000.yaml
+</code></pre>
+<h3 id="2-robogui">2 · RoboGUI</h3>
+<pre><code class="language-bash">envs/yam/.venv/bin/python -m manimux.robogui.dashboard \
+  --robot yam --host 127.0.0.1 --port 8086
+</code></pre>
+<h3 id="3-pi05-model-service">3 · Pi05 model service</h3>
+<pre><code class="language-bash">XPolicyLab/policy/Pi_05/openpi/.venv/bin/python -m manimux.servers.pi05 \
+  --experiment manimux/configs/experiments/coin/pi05/yam_pi05_rtc_joint_step50000.yaml
+</code></pre>
+<h3 id="4-runtime">4 · Runtime</h3>
+<pre><code class="language-bash">envs/yam/.venv/bin/python -m manimux serve \
+  --config manimux/configs/experiments/coin/pi05/yam_pi05_rtc_joint_step50000.yaml
+</code></pre>
+<p>Open <code>http://127.0.0.1:8086</code>. <code>serve</code> waits for GUI preparation; it does not launch the other
+three services. <strong>Prepare can connect hardware and move to the configured start pose.</strong>
+Use <strong>Prepare → adjust layout → Activate Warmup → Start rollout → Finish</strong>.</p><p>Recovery controls follow the connected runtime's declared capabilities and arm selections. When idle Home is available, <strong>Finish rollout</strong> does not home; use <strong>Return Home</strong>, which applies to all configured arms. Otherwise Finish preserves the experiment's <code>home_on_close</code>. Drag and Release finish an active rollout without homing. Tianji Release offers continuous or five-second cooperative hand-guiding when declared; loss of the recovery lease cancels it.</p><p>Pack-plate deployments select <code>tianji_taccap_pack_plate.yaml</code> for the saved <code>pack_plate_start</code> Home. Update older bound configurations and restart the runtime to load a changed assembly.</p><p>
+Warmup is explicit when <code>run.warmup_before_start: true</code>; otherwise go directly to Start. Follow the selected Finish/Home behavior before
+stopping runtime, then stop model, camera and GUI processes.</p>
+<p>For another method, use its YAML in all experiment-aware commands. For another model,
+replace terminal 3 with that model's environment and launcher; do not reuse Pi05's interpreter.</p>
+<details><summary>Other model-server command forms</summary>
+<p>These forms use explicit placeholders: resolve <code>MM_MODEL_PY</code>, <code>MM_RECIPE</code> and <code>MM_EXPERIMENT</code>
+from the chosen deployment. They are not additional services to run alongside Pi05.</p>
+<pre><code class="language-bash"># XR1: matching standalone model recipe
+"$MM_MODEL_PY" -m manimux.servers.xr1 --config "$MM_RECIPE"
+
+# LingBot: shared XPolicyLab server, matching model recipe
+"$MM_MODEL_PY" XPolicyLab/setup_policy_server.py --config-path "$MM_RECIPE"
+
+# DP: recipe selected from the experiment
+"$MM_MODEL_PY" -m manimux.servers.dp --experiment "$MM_EXPERIMENT"
+
+# OpenWAM: matching standalone model recipe
+"$MM_MODEL_PY" -m manimux.servers.openwam --config "$MM_RECIPE"
+</code></pre>
+</details>
+</section>
+<section aria-labelledby="shared-parameters" class="guide-page" data-page-id="shared-parameters" data-title="Shared parameters" hidden=""><h2 id="shared-parameters">Shared parameters</h2>
+<p>Use this guide to configure Serial, asynchronous chunking, RTC, ACT temporal
+ensembling, AAC, PAINT, AutoHorizon and backward-only BID, including their supported
+combinations. Start from an experiment that already works with your robot and policy;
+keep its checkpoint, cameras, action representation and executor settings.</p>
+<h3 id="configure-an-experiment">Configure an experiment</h3>
+<p>Set <code>inference.algorithm</code> and <code>inference.inference_schedule</code> explicitly. The examples
+below replace the experiment's entire <code>inference</code> section unless described as overrides.
+They assume a model horizon <strong>H = 50</strong>; adjust the example windows for your model's
+actual H. Do not shorten <code>policy.horizon_policy_steps</code> to change how long a chunk executes.</p>
+<p>You can instead load an <a href="manimux/configs/inference/README.md">inference preset</a>
+and override its settings:</p>
+<pre><code class="language-yaml">inference:
+  config: ../../../inference/yam_act_serial.yaml
+  algorithm: act_temporal_ensemble
+  chunk_policy_steps: 8
+</code></pre>
+<p>This relative path is for an experiment under
+<code>manimux/configs/experiments/&lt;task&gt;/&lt;model&gt;/</code>. <code>config</code> paths are relative to the
+experiment YAML. Nested mappings merge; omitted fields remain inherited. Each
+section loads one preset, without recursive <code>config</code> references.
+When switching methods, remove incompatible inherited limits, triggers and blending.
+Some presets contain only parameters, so select the algorithm explicitly.</p>
+<p>The examples use <code>policy.action_decoding: inline</code> (the default). Verify that the
+deployment's adapter and action format meet the compatibility requirements below
+before enabling a combination. See <a href="#configuration">configuration</a> and
+<a href="#support">deployment recipes</a> for the rest of the experiment and launch procedure.</p>
+<h3 id="request-schedules-and-triggers">Request schedules and triggers</h3>
+<table>
+<thead>
+<tr>
+<th><code>inference_schedule</code></th>
+<th>When a new request may start</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>serial</code></td>
+<td>After the selected execution prefix finishes and the preceding response or error is processed. The robot holds its last command while waiting for inference.</td>
+</tr>
+<tr>
+<td><code>single_inflight</code></td>
+<td>After the preceding response or error is processed, including process decoding when enabled; the current chunk may still be executing.</td>
+</tr>
+<tr>
+<td><code>deadline</code></td>
+<td>First request immediately when its trigger permits; later requests only after the preceding request's <code>policy.timeout_s</code> deadline, even if its reply arrived earlier. See the algorithm-specific resolutions above.</td>
+</tr>
+<tr>
+<td><code>multi_inflight</code></td>
+<td>Before earlier replies arrive, subject to the observation-rate cap, trigger and algorithm readiness.</td>
+</tr>
+</tbody>
+</table>
+<p>Serial waits for scheduled execution time, not measured arrival at the target.
+Reaching <code>policy.timeout_s</code> alone does not release a single-inflight request; the
+client must return a response or error. It also does not cancel a remote model call.</p>
+<table>
+<thead>
+<tr>
+<th><code>request_trigger</code></th>
+<th>Applies to</th>
+<th>Behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>refill</code></td>
+<td>Asynchronous ordinary chunking, BID, AAC and AutoHorizon</td>
+<td>Submit when remaining prepared action time is <strong>strictly below</strong> <code>refill_threshold_s</code>. Default for these algorithms, including multi-inflight.</td>
+</tr>
+<tr>
+<td><code>continuous</code></td>
+<td>The same asynchronous algorithms</td>
+<td>Submit without checking remaining action time. Schedule and rate limits still apply.</td>
+</tr>
+<tr>
+<td><code>algorithm</code></td>
+<td>All serial configurations, RTC, PAINT and standalone ACT</td>
+<td>Use the selected algorithm's execution/query timing. Default and required for these cases.</td>
+</tr>
+</tbody>
+</table>
+<p>With <code>multi_inflight</code>, the server runs one model call at a time and replaces its
+waiting observation with the newest available one. It starts another call when a
+fresh observation is available; this is not parallel model execution. RTC/PAINT
+execution windows and ACT query intervals still limit submissions.</p>
+<h3 id="time-rate-and-handoff-parameters">Time, rate and handoff parameters</h3>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Default</th>
+<th>Usage</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>policy.action_dt_s</code></td>
+<td>Required</td>
+<td>Seconds per model action row, unless <code>trajectory_duration_s</code> overrides it. Keep the checkpoint's interval.</td>
+</tr>
+<tr>
+<td><code>policy.horizon_policy_steps</code></td>
+<td>Required</td>
+<td>Full predicted horizon H, not an execution limit.</td>
+</tr>
+<tr>
+<td><code>inference.refill_threshold_s</code></td>
+<td><code>0.4</code></td>
+<td>Seconds of remaining actions at which refill becomes eligible; <code>0.1</code> means 100 ms. Use a positive value. Zero prevents refill even with an empty timeline.</td>
+</tr>
+<tr>
+<td><code>inference.observation_hz</code></td>
+<td><code>null</code></td>
+<td>Maximum request submission rate. A finite positive value is required for multi-inflight; other schedules may also use it. It does not change camera FPS or robot control rate.</td>
+</tr>
+<tr>
+<td><code>policy.timeout_s</code></td>
+<td><code>1.0</code></td>
+<td>Runtime request deadline, in seconds; also sets the resubmission deadline for actual deadline scheduling.</td>
+</tr>
+<tr>
+<td><code>policy.options.request_timeout_s</code></td>
+<td><code>policy.timeout_s</code> for <code>xpolicylab_ws</code></td>
+<td>Client transport timeout, distinct from the runtime deadline.</td>
+</tr>
+<tr>
+<td><code>inference.max_plan_age_s</code></td>
+<td><code>1.0</code></td>
+<td>Maximum observation-to-acceptance age of a plan, in seconds. Separate from the request deadline.</td>
+</tr>
+<tr>
+<td><code>inference.action_start_mode</code></td>
+<td><code>drop_infer_latency</code></td>
+<td>Choose the playback clock described below.</td>
+</tr>
+<tr>
+<td><code>inference.blend_policy_steps</code></td>
+<td><code>2</code></td>
+<td>Number of model action steps used for the handoff from the measured/last command to the new trajectory. <code>0</code> disables this blend. This is separate from ACT ensembling.</td>
+</tr>
+<tr>
+<td><code>inference.handoff_skip_steps</code></td>
+<td><code>0</code></td>
+<td>Intentional action-row skip, not a latency estimate. Leave at zero for the combinations in this guide.</td>
+</tr>
+</tbody>
+</table>
+<p>Choose a refill threshold that leaves time for preparation, transport, inference
+and decoding. Outside refill mode, only the default <code>0.4</code> is tolerated and ignored;
+other explicit values, including <code>null</code>, are rejected. If a preset supplies another
+value, use a different preset or override it to <code>0.4</code> when changing triggers.</p>
+<p><code>first_step_when_ready</code> starts row zero when the result is accepted. Use it for the
+serial examples below. <code>drop_infer_latency</code> keeps the observation-based action
+clock and discards source rows whose times have passed before acceptance. Use it
+for the asynchronous examples. Neither setting changes the recorded observation
+timestamp. A late reply can have too few usable rows and be rejected.</p>
+<h3 id="meaning-of-chunk_policy_steps">Meaning of <code>chunk_policy_steps</code></h3>
+<p>Step counts are <strong>model action rows</strong>, not control-loop ticks. The row interval dt
+is normally <code>policy.action_dt_s</code>. If <code>policy.trajectory_duration_s</code> is set, it
+overrides dt with <code>trajectory_duration_s / (H - 1)</code>.</p>
+<p>K rows span <code>(K - 1) * dt</code> between their first and last targets. Ordinary serial,
+serial ACT and BID additionally hold the last row for one interval, giving K * dt
+for K usable rows. AAC/AutoHorizon do not add that interval. Thus 12 rows at 30 Hz
+span about 0.367 s, or 0.4 s with the last-row hold; the control-loop rate does not
+change these times.</p>
+<table>
+<thead>
+<tr>
+<th>Algorithm</th>
+<th>Meaning of <code>chunk_policy_steps</code></th>
+<th>Valid setting / omitted value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Ordinary chunking</td>
+<td>Maximum source prefix; asynchronous latency trimming can shorten it further</td>
+<td>Integer 2 through H; omitted/null leaves <code>max_chunk_policy_steps</code> in control, whose default is null (full horizon)</td>
+</tr>
+<tr>
+<td>RTC</td>
+<td>Minimum execution window used to time the next request, adjusted for predicted delay; execution continues during inference</td>
+<td>Positive integer up to H; omitted uses <code>rtc.min_execute_policy_steps</code>, default roughly H/2</td>
+</tr>
+<tr>
+<td>PAINT</td>
+<td>Source-action window that triggers the next request; execution continues during inference</td>
+<td>K must satisfy <code>d &lt;= K &lt;= H - d</code>; omitted uses <code>paint.execution_policy_steps</code>, default 10</td>
+</tr>
+<tr>
+<td>ACT, asynchronous</td>
+<td>Interval between eligible queries</td>
+<td>Integer 1 through H−1; omitted uses <code>temporal_ensemble.query_interval_policy_steps</code>, default 1</td>
+</tr>
+<tr>
+<td>ACT, serial</td>
+<td>Execution prefix K</td>
+<td>Integer 1 through H; omitted/null executes H</td>
+</tr>
+<tr>
+<td>BID, fixed horizon</td>
+<td>Up to K future rows after alignment; fewer if the prediction ends earlier</td>
+<td>Integer 1 through H−1; omitted uses <code>bid.replan_policy_steps</code>, default 5</td>
+</tr>
+<tr>
+<td>AAC, AutoHorizon, BID + AAC horizon</td>
+<td>Chosen adaptively for each prediction</td>
+<td>Omit this field</td>
+</tr>
+</tbody>
+</table>
+<p>Use either <code>chunk_policy_steps</code> or its method-specific counterpart. Conflicting
+values are rejected; setting <code>chunk_policy_steps: null</code> does not clear an inherited
+counterpart. Remove/reset that field too. Do not carry <code>max_chunk_policy_steps</code> into
+a specialized method.</p>
+<h3 id="related-deployment-controls">Related deployment controls</h3>
+<table><thead><tr><th>Parameter</th><th>Meaning</th><th>Usage</th></tr></thead><tbody>
+<tr>
+<td><code>policy_server.num_steps</code></td>
+<td>Sampler iterations for Pi05/XR1</td>
+<td>More iterations cost compute; key names differ by model recipe</td>
+</tr>
+<tr>
+<td><code>policy_server.inference_seed</code></td>
+<td>Sampling seed where supported</td>
+<td>Freeze for a controlled comparison; follow that backend's RESET behavior</td>
+</tr>
+<tr>
+<td><code>robot.control_hz</code></td>
+<td>Commands per second</td>
+<td>Independent of camera FPS and model action rate</td>
+</tr>
+<tr>
+<td><code>run.max_control_steps</code></td>
+<td>Control-step budget</td>
+<td>A step limit, not a precisely measured wall-clock task timeout</td>
+</tr>
+<tr>
+<td><code>run.warmup_before_start</code></td>
+<td>Show Activate Warmup after Prepare; Start drains warmup and resets the backend</td>
+<td>Separates cold compilation from trial operation</td>
+</tr>
+</tbody></table>
+</section>
+<section aria-labelledby="algorithms" class="guide-page" data-page-id="algorithms" data-title="Choose an algorithm" hidden=""><h2 id="algorithms">Algorithms</h2>
+<table>
+<thead>
+<tr>
+<th>Method / <code>inference.algorithm</code></th>
+<th>Execution</th>
+<th>Main controls</th>
+<th>Requires model hook</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="#serial">Serial</a> / <code>serial</code></td>
+<td>Infer after the selected prefix ends; hold while waiting</td>
+<td>K</td>
+<td>Default sampling</td>
+</tr>
+<tr>
+<td><a href="#async">Async</a> / <code>async</code></td>
+<td>Infer while the current prefix executes</td>
+<td>K, refill threshold</td>
+<td>Default sampling</td>
+</tr>
+<tr>
+<td><a href="#act-temporal-ensemble">ACT</a> / <code>act_temporal_ensemble</code></td>
+<td>Combine overlapping predictions at the same action time</td>
+<td>Query interval or serial prefix, coefficient</td>
+<td>Default sampling</td>
+</tr>
+<tr>
+<td><a href="#rtc">RTC</a> / <code>rtc</code></td>
+<td>Condition the new chunk on the old trajectory during inference</td>
+<td>Minimum execution, delay forecast, beta</td>
+<td>RTC</td>
+</tr>
+<tr>
+<td><a href="#paint">PAINT</a> / <code>paint</code></td>
+<td>Prefix-conditioned generation with an explicit predicted delay</td>
+<td>Execution trigger, delay forecast</td>
+<td>PAINT</td>
+</tr>
+<tr>
+<td><a href="#aac">AAC</a> / <code>aac</code></td>
+<td>Sample candidates, select a chunk and adaptive length</td>
+<td>Samples, motion threshold, selector, stats</td>
+<td>AAC</td>
+</tr>
+<tr>
+<td><a href="#autohorizon">AutoHorizon</a> / <code>autohorizon</code></td>
+<td>Attention-selected execution length</td>
+<td>Fixed upstream attention rule</td>
+<td>AutoHorizon</td>
+</tr>
+<tr><td><a href="#bid-backward">BID backward-only</a> / <code>bid_backward</code></td><td>Select a candidate consistent with the previous accepted prediction</td><td>Samples, decay, fixed or AAC horizon</td><td>AAC candidate sampling</td></tr>
+</tbody>
+</table>
+<p>ACT here is temporal ensembling, not the ACT policy architecture. <code>algorithm: manimux</code>
+is removed; use <code>async</code>. Executors are configured separately.</p>
+<h3 id="compatibility">Compatibility</h3>
+<p>“Yes” means a supported built-in runtime combination, subject to the requirements
+below; “—” means unsupported. ACT means temporal ensembling, not an ACT policy checkpoint.</p>
+<table>
+<thead>
+<tr>
+<th>Base algorithm</th>
+<th><code>serial</code></th>
+<th><code>single_inflight</code></th>
+<th><code>deadline</code></th>
+<th><code>multi_inflight</code></th>
+<th>Add ACT ensembling</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Ordinary chunking: <code>serial</code> / <code>async</code></td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Select <code>act_temporal_ensemble</code> instead</td>
+</tr>
+<tr>
+<td><code>act_temporal_ensemble</code></td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Resolves to <code>single_inflight</code></td>
+<td>Yes</td>
+<td>Already enabled</td>
+</tr>
+<tr>
+<td><code>rtc</code></td>
+<td>—</td>
+<td>Yes</td>
+<td>Resolves to <code>single_inflight</code></td>
+<td>Yes</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td><code>paint</code></td>
+<td>—</td>
+<td>Yes</td>
+<td>Resolves to <code>single_inflight</code></td>
+<td>Yes</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td><code>aac</code></td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Resolves to <code>serial</code></td>
+<td>Yes</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td><code>autohorizon</code></td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Resolves to <code>serial</code></td>
+<td>Yes</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td><code>bid_backward</code></td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td><code>bid_backward</code> + AAC horizon</td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Yes</td>
+</tr>
+</tbody>
+</table>
+<p>The <code>deadline</code> resolutions also apply with ACT enabled. The final column adds ACT
+to the base method under each of its supported schedules; it does not enable other
+pairs such as RTC + PAINT.</p>
+<h4 id="policy-and-decoding-requirements">Policy and decoding requirements</h4>
+<ul>
+<li>Ordinary chunking and standalone ACT use the policy's default sampling mode.
+  RTC, PAINT, AAC and AutoHorizon require the corresponding advertised sampling mode
+  (<code>rtc</code>, <code>paint</code>, <code>aac</code>, <code>autohorizon</code>). BID also requires <code>aac</code> candidate sampling.
+  Adding ACT does not change the base algorithm's sampling requirement. Check the
+  <a href=".agents/skills/manimux-inference/references/inference-matrix.md">model sampling matrix</a> and the running server's capabilities;
+  a YAML setting cannot enable a missing model hook.</li>
+<li>Process decoding supports ordinary <code>async</code>, <code>serial</code>, RTC and train-time RTC without ACT,
+  using a compatible adapter and a non-streaming schedule. Serial preserves its complete
+  selected prefix through inference and decoding. Multi-inflight requires inline decoding.</li>
+<li>Multi-inflight requires a streaming-capable client/server and adapter. The supplied
+  path uses <code>xpolicylab_ws</code>, ManiMux's streaming server, and
+  <code>manimux.policy_adapter.joint:JointAdapter</code>. An upstream server without the
+  <code>multi_inflight</code> capability cannot run these configurations.</li>
+<li>BID, serial ACT, ACT added to another algorithm, and asynchronous AAC/AutoHorizon
+  require complete absolute-joint trajectories with inline decoding. The supplied
+  adapter is <code>JointAdapter</code>; do not pass delta-joint or end-effector actions directly
+  to it. These combinations do not support dense IK or waypoint handoffs.</li>
+<li>Asynchronous AAC, AAC + ACT, and BID + AAC require <code>policy.worker: xpolicylab_ws</code>.
+  Every use of AAC, including BID + AAC, needs an explicit <code>robot.config</code> and
+  matching dual-arm end-effector increment statistics.</li>
+<li>Custom <code>inference.strategy</code> plugins do not support multi-inflight, continuous
+  requests, serial ACT or ACT composition. A model recipe that needs its own history
+  or decoding adapter cannot gain these combinations by replacing its adapter name.</li>
+</ul>
+</section>
+<section aria-labelledby="serial" class="guide-page" data-page-id="serial" data-title="Serial" hidden=""><h2 id="serial">Serial</h2>
+<pre><code class="language-yaml">inference:
+  algorithm: serial
+  inference_schedule: serial
+  chunk_policy_steps: 12
+  action_start_mode: first_step_when_ready
+  blend_policy_steps: 0
+</code></pre>
+<p>Executes the selected prefix, including a full interval for its last row, before
+observing and requesting again. Omit <code>chunk_policy_steps</code> to execute the full chunk.
+<code>algorithm: serial</code> defaults to serial and requires that schedule.</p>
+</section>
+<section aria-labelledby="async" class="guide-page" data-page-id="async" data-title="Async" hidden=""><h2 id="async">Async</h2>
+<pre><code class="language-yaml">inference:
+  algorithm: async
+  inference_schedule: single_inflight
+  request_trigger: refill
+  refill_threshold_s: 0.4
+  action_start_mode: drop_infer_latency
+  blend_policy_steps: 0
+</code></pre>
+<p>This uses the full available prediction and refills while actions are still executing.
+Optionally add <code>chunk_policy_steps</code> to cap its source prefix. Change only
+<code>inference_schedule</code> to <code>deadline</code> for deadline admission, or use the
+<a href="#multi-inflight-and-continuous-requests">multi-inflight example</a> below.
+The defaults are <code>async</code> and <code>deadline</code>. With only <code>inference_schedule: serial</code>,
+the algorithm defaults to <code>serial</code>. The old <code>algorithm: manimux</code> selector is no longer accepted.</p>
+</section>
+<section aria-labelledby="act-temporal-ensemble" class="guide-page" data-page-id="act-temporal-ensemble" data-title="ACT temporal ensemble" hidden=""><h2 id="act-temporal-ensemble">ACT temporal ensemble</h2>
+<pre><code class="language-yaml">inference:
+  algorithm: act_temporal_ensemble
+  inference_schedule: single_inflight
+  chunk_policy_steps: 1
+  action_start_mode: drop_infer_latency
+  blend_policy_steps: 0
+  temporal_ensemble:
+    coefficient: 0.01
+</code></pre>
+<p><code>coefficient</code> must be non-negative: zero weights overlapping predictions equally;
+positive values favor older contributing predictions. The default is <code>0.01</code>.
+No <code>temporal_ensemble.enabled</code> flag is needed for this algorithm.</p>
+<p>Standalone asynchronous ACT permits a positive <code>blend_policy_steps</code>, which adds a
+separate handoff blend. Keep it zero to use only temporal ensembling.</p>
+<h3 id="serial-act-with-a-configurable-execution-horizon">Serial ACT with a configurable execution horizon</h3>
+<pre><code class="language-yaml">inference:
+  algorithm: act_temporal_ensemble
+  inference_schedule: serial
+  chunk_policy_steps: 5
+  action_start_mode: first_step_when_ready
+  blend_policy_steps: 0
+  temporal_ensemble:
+    coefficient: 0.01
+</code></pre>
+<p>Full predictions contribute at their actual execution times, including inference
+gaps. Set K below H to leave potential overlap; K = H or long gaps may leave only
+the current prediction. <code>query_interval_policy_steps</code> is unused in serial mode.
+Keep blending and handoff skip at zero.</p>
+</section>
+<section aria-labelledby="rtc" class="guide-page" data-page-id="rtc" data-title="RTC" hidden=""><h2 id="rtc">RTC</h2>
+<pre><code class="language-yaml">inference:
+  algorithm: rtc
+  inference_schedule: single_inflight
+  chunk_policy_steps: 12
+  action_start_mode: drop_infer_latency
+  blend_policy_steps: 0
+  rtc:
+    initial_delay_policy_steps: 4
+    delay_buffer_size: 10
+    beta: 5.0
+</code></pre>
+<p>The <code>rtc</code> values above are the defaults:</p>
+<ul>
+<li><code>initial_delay_policy_steps</code> initializes latency in model steps; require
+  <code>2 * initial_delay_policy_steps &lt;= H</code>.</li>
+<li><code>delay_buffer_size</code> sets the number of recent samples whose maximum predicts delay.</li>
+<li><code>beta</code> controls conditioning strength and must be finite and positive.</li>
+<li><code>initial_delay_policy_steps: null</code> initializes from pre-Start warmup samples.
+  To use that workflow, enable <code>run.warmup_before_start: true</code>, choose <strong>Activate Warmup</strong>
+  after Prepare in RoboGUI, and use inline
+  decoding. Without calibration samples, the initial estimate is zero. See the
+  <a href="manimux/configs/inference/README.md">preset guide</a> for warmup controls.</li>
+</ul>
+</section>
+<section aria-labelledby="train-time-rtc" class="guide-page" data-page-id="train-time-rtc" data-title="Train-time RTC" hidden=""><h2 id="train-time-rtc">Train-time RTC</h2>
+<p>Prefix-trained UMI-DP checkpoints use <code>algorithm: train_time_rtc</code> and <code>inference_schedule: single_inflight</code>. They advertise the separate <code>train_time_rtc</code> sampling capability; ordinary RTC guidance checkpoints do not support this mode.</p>
+<p>The pack-plate recipe fixes five leading action rows with <code>delay_estimator: fixed</code> and <code>fixed_prefix_steps: 5</code>. The first request and unavailable committed prefixes are unconditioned. Fixed prefixes do not guarantee latency coverage. Dynamic <code>decode_max</code> and <code>end_to_end_max</code> estimators are also available.</p>
+<p>Use <code>action_start_mode: drop_infer_latency</code>, <code>blend_policy_steps: 0</code> and <code>handoff_skip_steps: 0</code>. Both inline and process decoding are supported. Select <code>manimux/configs/experiments/pack_plate/umi_dp/tianji_taccap_umi_dp_train_time_rtc.yaml</code>.</p>
+<p>See the <a href=".agents/skills/manimux-inference/references/inference.md#train-time-rtc">timing contract</a> and <a href=".agents/skills/manimux-inference/references/deployment/umi-dp-tianji-taccap.md#pack-plate-train-time-rtc">deployment reference</a>.</p></section>
+<section aria-labelledby="paint" class="guide-page" data-page-id="paint" data-title="PAINT" hidden=""><h2 id="paint">PAINT</h2>
+<pre><code class="language-yaml">inference:
+  algorithm: paint
+  inference_schedule: single_inflight
+  chunk_policy_steps: 12
+  action_start_mode: drop_infer_latency
+  blend_policy_steps: 0
+  paint:
+    initial_delay_policy_steps: 4
+    delay_buffer_size: 10
+</code></pre>
+<p>Use a positive initial delay <strong>d</strong> and execution/query window <strong>K</strong> satisfying
+<code>d &lt;= K &lt;= H - d</code>. The defaults are d = 4, K = 10 and a delay buffer of 10 samples.
+Unlike RTC, PAINT does not accept <code>null</code> for its initial delay. Its delay estimate
+must cover observation age, queueing, transport, inference and decoding; higher
+observed delays can make the window infeasible. Select K and d for the actual model
+horizon and measured latency.</p>
+</section>
+<section aria-labelledby="aac" class="guide-page" data-page-id="aac" data-title="AAC" hidden=""><h2 id="aac">AAC</h2>
+<pre><code class="language-yaml">inference:
+  algorithm: aac
+  inference_schedule: serial
+  action_start_mode: first_step_when_ready
+  blend_policy_steps: 0
+  aac:
+    num_samples: 20
+    motion_threshold: 0.2
+    ee_stats_path: manimux/policies/xpolicylab/norm_stats/yam_60ep_ee_increment.json
+    chunk_id_selector: &quot;0&quot;
+    backward_beta: 0.99
+</code></pre>
+<p>This example uses YAM statistics and a YAM preset threshold. Replace them for a
+different embodiment or dataset. Relative <code>ee_stats_path</code> values resolve from the
+launch working directory, unlike <code>config</code>; run from the repository root for this
+example or use an absolute path.</p>
+<table>
+<thead>
+<tr>
+<th>AAC parameter</th>
+<th>Usage</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>num_samples</code></td>
+<td>Number of independent candidate chunks, at least 2; default 20. More samples increase inference/memory demand.</td>
+</tr>
+<tr>
+<td><code>motion_threshold</code></td>
+<td>Finite non-negative threshold used to choose the execution horizon; larger values can raise the minimum execution length. Core default is 3.0; the example uses 0.2.</td>
+</tr>
+<tr>
+<td><code>ee_stats_path</code></td>
+<td>Required normalization statistics for dual-arm end-effector increments.</td>
+</tr>
+<tr>
+<td><code>chunk_id_selector</code></td>
+<td><code>"0"</code>: first candidate; <code>"mean"</code>: candidate closest to the mean; <code>"backward"</code>: continuity-based selection using previous predictions. Quote <code>"0"</code> in YAML.</td>
+</tr>
+<tr>
+<td><code>backward_beta</code></td>
+<td>Decay for <code>"backward"</code> selection, in <code>(0, 1]</code>; default 0.99.</td>
+</tr>
+</tbody>
+</table>
+<p>AAC's <code>"backward"</code> selector is distinct from <code>algorithm: bid_backward</code>.</p>
+</section>
+<section aria-labelledby="autohorizon" class="guide-page" data-page-id="autohorizon" data-title="AutoHorizon" hidden=""><h2 id="autohorizon">AutoHorizon</h2>
+<pre><code class="language-yaml">inference:
+  algorithm: autohorizon
+  inference_schedule: serial
+  action_start_mode: first_step_when_ready
+  blend_policy_steps: 0
+</code></pre>
+<p>The policy chooses the execution length; omit fixed chunk limits. There is no
+runtime <code>autohorizon</code> parameter block. Model-side settings belong to the
+<a href=".agents/skills/manimux-inference/references/inference-matrix.md">model recipe and sampling matrix</a>.</p>
+</section>
+<section aria-labelledby="bid-backward" class="guide-page" data-page-id="bid-backward" data-title="BID backward-only" hidden=""><h2 id="bid-backward">BID backward-only</h2>
+<pre><code class="language-yaml">inference:
+  algorithm: bid_backward
+  inference_schedule: serial
+  chunk_policy_steps: 5
+  action_start_mode: first_step_when_ready
+  blend_policy_steps: 0
+  bid:
+    num_samples: 16
+    rho: 0.9
+    execution_horizon: fixed
+</code></pre>
+<p>Uses candidates from one policy and BID's backward criterion; no forward criterion
+or second policy is used.</p>
+<ul>
+<li><code>num_samples</code>: integer at least 2, default 16.</li>
+<li><code>rho</code>: backward score decay, in <code>(0, 1]</code>, default 0.9. Smaller values emphasize
+  earlier overlapping action times more strongly.</li>
+<li><code>execution_horizon</code>: <code>fixed</code> (default), using K, or <code>aac</code> as shown below.</li>
+<li>Fixed K must be smaller than H. Keep <code>handoff_skip_steps: 0</code>.</li>
+</ul>
+<p>Serial BID requires <code>first_step_when_ready</code>. Fixed-horizon asynchronous BID accepts
+either action-start mode; the examples use <code>drop_infer_latency</code> to discard expired rows.
+Asynchronous scoring compares overlapping future action times; its K counts future
+rows remaining after latency alignment, not already-expired source rows.</p>
+</section>
+<section aria-labelledby="optional-algorithm-composition" class="guide-page" data-page-id="optional-algorithm-composition" data-title="Supported combinations" hidden=""><h2 id="optional-algorithm-composition">Supported combinations</h2>
+<p>Choose one base <code>algorithm</code>. Add ACT with <code>temporal_ensemble.enabled</code>, or select
+AAC's execution horizon through <code>bid.execution_horizon</code>. Merely adding an <code>rtc</code>,
+<code>paint</code> or <code>aac</code> parameter block does not activate a second algorithm.</p>
+<h3 id="what-ensemble-adds">What ensemble adds</h3>
+<p>Standalone <code>algorithm: act_temporal_ensemble</code> already performs temporal ensembling.
+The optional combination wraps another algorithm, such as RTC, with the same kind of output fusion.
+It uses predictions from different inference requests for the <strong>same future action time</strong>.
+It does not combine measured state with actions, call another model, or add another executor.</p>
+<pre><code class="language-text">RTC only:
+Scheduler → RTC request/condition → model → adapter → Timeline → executor
+
+RTC + ACT:
+Scheduler → RTC request/condition → model → adapter → ACT ensemble → Timeline → executor
+
+BID + ACT:
+model candidates → adapter decodes each → BID selects one → ACT ensemble → Timeline → executor</code></pre>
+<p>The factory creates <code>EnsembleStrategy(base_strategy, config)</code> only when the combination
+is enabled. The base strategy still constructs requests. The wrapper aligns and averages overlapping
+predictions before Timeline commit. Reset clears both the base strategy and ensemble history.</p>
+<table><thead><tr><th>Mechanism</th><th>Where it runs</th><th>What it changes</th></tr></thead><tbody>
+<tr><td>RTC conditioning</td><td>Inside model sampling</td><td>Uses the existing action plan and weights to guide generation of a new chunk.</td></tr>
+<tr><td><code>blend_policy_steps</code></td><td>Timeline handoff</td><td>Interpolates the beginning of a new plan from its configured command/state anchor.</td></tr>
+<tr><td>ACT temporal ensemble</td><td>After decoding, before Timeline</td><td>Weights predictions from multiple chunks at matching future timestamps.</td></tr>
+</tbody></table>
+<p>RTC + ACT keeps RTC conditioning and adds one output ensemble. It requires
+<code>blend_policy_steps: 0</code> so handoff interpolation is not added as well.
+This is a supported combination, not evidence that it improves task success. The next RTC condition
+uses the accepted fused timeline. No arbitrary stack of fusion algorithms is configured here.</p>
+<h3 id="add-act-to-rtc-paint-bid-aac-or-autohorizon">Add ACT to RTC, PAINT, BID, AAC or AutoHorizon</h3>
+<p>For example, RTC + ACT using a preset:</p>
+<pre><code class="language-yaml">inference:
+  config: ../../../inference/yam_rtc.yaml
+  algorithm: rtc
+  inference_schedule: single_inflight
+  blend_policy_steps: 0
+  temporal_ensemble:
+    enabled: true
+    coefficient: 0.01
+</code></pre>
+<p><strong>Disable the added ensemble:</strong> keep the base algorithm and set the flag to false
+in the experiment YAML. These are overrides to the same RTC experiment:</p>
+<pre><code class="language-yaml">inference:
+  algorithm: rtc
+  temporal_ensemble:
+    enabled: false</code></pre>
+<p>The combination flag defaults to false. Explicit false also overrides an enabled referenced preset.
+After changing YAML, finish the current rollout and restart <code>manimux serve --config ...</code>
+before preparing the next trial. The same model server can stay running for this flag change.
+For a controlled comparison, leave the other settings unchanged.</p>
+<p><code>coefficient: 0</code> still averages predictions with equal weights; it does not disable
+ensemble. A positive coefficient follows ACT's oldest-to-newest exponential weighting and gives
+older overlapping predictions more weight. Changing <code>enabled</code> to false does not disable
+the standalone <code>act_temporal_ensemble</code> algorithm; select another base algorithm to remove it.</p>
+<p>Apply the same <code>temporal_ensemble</code> block to PAINT, BID, AAC or AutoHorizon. Require
+inline complete absolute-joint decoding, <code>blend_policy_steps: 0</code>,
+<code>handoff_skip_steps: 0</code>, and the default <code>handoff: blend</code>. RTC/PAINT + ACT require
+<code>drop_infer_latency</code>; serial combinations use <code>first_step_when_ready</code>.</p>
+<p>The base algorithm retains its query/execution timing; ACT's
+<code>query_interval_policy_steps</code> is unused in these combinations. Only overlapping
+action times contribute, so serial AAC/AutoHorizon may have no effective overlap.</p>
+<h3 id="ensemble-contribution-scope">Which prediction rows participate</h3>
+<p>Prediction length and execution length are different. A model may predict 50 steps while this
+request executes only 5. The base strategy declares <code>ensemble_scope</code> in code;
+this is a developer contract, not another operator YAML setting.</p>
+<table><thead><tr><th>Source strategy</th><th>Declared scope</th><th>Order</th></tr></thead><tbody>
+<tr><td>Fixed-horizon BID, Serial ACT</td><td><code>full_prediction</code></td><td>Fuse and retain the full prediction; then crop the execution prefix.</td></tr>
+<tr><td>AAC, AutoHorizon, BID + AAC</td><td><code>execution_prefix</code></td><td>Crop to the selected execution length first; fuse and retain only those rows.</td></tr>
+<tr><td>RTC, PAINT</td><td><code>execution_prefix</code></td><td>Run the strategy's condition/plan validity checks first; fuse the returned chunk, which currently retains the full horizon.</td></tr>
+</tbody></table>
+<p>Only future, overlapping timestamps contribute in either mode. Cropping uses source-row indices;
+expired rows are still removed by Timeline. The ensemble wrapper reads this declaration rather than
+matching algorithm names. Keep the chosen scope fixed for a strategy instance.</p>
+<h3 id="strategy-extension-contracts">For agents and strategy developers</h3>
+<p>Use the optional protocols in <code>manimux/runtime/inference.py</code> when extending the existing
+strategy path. Do not introduce another control loop or move model sampling into the executor.</p>
+<table><thead><tr><th>Contract</th><th>Responsibility and call order</th></tr></thead><tbody>
+<tr><td><code>StrategyActionDecoder.decode_action(raw, context, *, adapter)</code></td><td>Decode through the existing adapter after the response arrives. Candidate methods may retain pending candidates by request ID. Warmup uses this same path.</td></tr>
+<tr><td><code>StrategyChunkSelector.select_chunk(*, chunk, now_ns)</code></td><td>Select after decoding. Execution uses the same timestamp for selection, preparation and Timeline commit. Warmup selects a preview without accepting a plan.</td></tr>
+<tr><td><code>EnsembleSource.ensemble_scope</code></td><td>Declare full_prediction or execution_prefix. The wrapper calls prepare_chunk once, after or before fusion respectively.</td></tr>
+<tr><td><code>on_plan_accepted / on_response_rejected / reset</code></td><td>Advance accepted reference history only after commit succeeds. Remove rejected pending state and rejected ensemble contributions; reset clears history before reuse.</td></tr>
+<tr><td><code>PolicyAdapter.supports_candidate_decoding</code></td><td>Opt in only when each candidate decodes to full, untrimmed absolute-joint rows on the policy grid, without handoff or runtime-trajectory data. Used by BID and deferred AAC; model sampling capability is checked separately.</td></tr>
+</tbody></table>
+<h3 id="asynchronous-adaptive-horizons">Asynchronous adaptive horizons</h3>
+<p>To use AAC or AutoHorizon with single-inflight, keep the selected method's parameters
+and replace its serial settings with these overrides:</p>
+<pre><code class="language-yaml">inference:
+  inference_schedule: single_inflight
+  request_trigger: refill
+  refill_threshold_s: 0.4
+  action_start_mode: drop_infer_latency
+  blend_policy_steps: 0
+</code></pre>
+<p>Merge these overrides into the base example. They also work for BID and BID + AAC.
+Asynchronous AAC, AutoHorizon and BID + AAC require <code>drop_infer_latency</code>, zero
+blending/skip, and the decoding/client requirements above. ACT may also be added.</p>
+<p>For an adaptive horizon of e source rows, if d rows expire before acceptance, only
+the remaining e−d rows are eligible. When d reaches e, the reply is rejected. The
+runtime does not extend the selected horizon to compensate for latency; short
+horizons and slow inference can therefore cause holds.</p>
+<h3 id="multi-inflight-and-continuous-requests">Multi-inflight and continuous requests</h3>
+<p>Ordinary asynchronous chunking with continuous observation uploads:</p>
+<pre><code class="language-yaml">inference:
+  algorithm: async
+  inference_schedule: multi_inflight
+  request_trigger: continuous
+  observation_hz: 30.0
+  action_start_mode: drop_infer_latency
+  blend_policy_steps: 0
+</code></pre>
+<p>For BID, AAC or AutoHorizon, keep its <code>algorithm</code> and method parameters and apply
+the other settings in this example, including <code>action_start_mode</code>. For refill-based uploads,
+use <code>request_trigger: refill</code> and a positive <code>refill_threshold_s</code> instead.
+<code>continuous</code> can also be used with <code>single_inflight</code> or actual <code>deadline</code> scheduling.</p>
+<p>RTC, PAINT and standalone ACT require <code>request_trigger: algorithm</code>. For example,
+RTC + ACT + multi-inflight:</p>
+<pre><code class="language-yaml">inference:
+  config: ../../../inference/yam_rtc_multi_inflight.yaml
+  algorithm: rtc
+  inference_schedule: multi_inflight
+  request_trigger: algorithm
+  observation_hz: 30.0
+  temporal_ensemble:
+    enabled: true
+    coefficient: 0.01
+</code></pre>
+<p>For standalone RTC, PAINT or ACT, start from its own individual example and set
+<code>inference_schedule: multi_inflight</code>, <code>observation_hz</code>, and <code>request_trigger: algorithm</code>.
+Keep its algorithm and method parameters. Streaming PAINT requires
+<code>drop_infer_latency</code> and zero blending/skip. Add ACT to RTC/PAINT as shown above.</p>
+<p>RTC/PAINT replies can be rejected when the plan they were conditioned on has already
+been replaced. PAINT also rejects replies that arrive beyond the usable conditioned
+prefix. A higher upload rate can increase such rejections; it does not remove model
+latency or guarantee uninterrupted execution.</p>
+<h3 id="bid-with-aacs-execution-horizon">BID with AAC's execution horizon</h3>
+<p>Use the dedicated preset to avoid inheriting a fixed K:</p>
+<pre><code class="language-yaml">inference:
+  config: ../../../inference/yam_bid_aac.yaml
+  algorithm: bid_backward
+  inference_schedule: serial
+  bid:
+    execution_horizon: aac
+    num_samples: 16
+    rho: 0.9
+</code></pre>
+<p>The preset supplies serial scheduling, <code>first_step_when_ready</code>, zero blending,
+YAM EE statistics and AAC's motion threshold. Override <code>aac.ee_stats_path</code> and
+<code>aac.motion_threshold</code> for your deployment as described in the AAC section.</p>
+<p><code>bid.num_samples</code> sets the shared batch size. AAC's sample-count/selector settings
+and BID's fixed replan length do not control this combination; leave them at defaults.
+Omit <code>chunk_policy_steps</code>, or set it to <code>null</code> to clear an inherited fixed K.
+Apply the asynchronous overrides above for single-inflight or multi-inflight;
+<code>deadline</code> also works. To add ACT, use the earlier <code>temporal_ensemble</code> block.</p>
+<h3 id="unsupported-combinations">Unsupported combinations</h3>
+<ul>
+<li>RTC + PAINT, and RTC/PAINT with BID or AAC candidate selection.</li>
+<li>AutoHorizon with RTC, PAINT, BID or AAC sampling/horizon selection.</li>
+</ul>
+<h3 id="further-configuration">Further configuration</h3>
+<p>For model-specific sampler options, use the <a href=".agents/skills/manimux-inference/references/inference-matrix.md">sampling matrix</a>.
+For executor smoothing, limits and IK, use <a href=".agents/skills/manimux-development/references/execution.md">execution and IK</a>.
+Algorithm sources and derivations are kept in the <a href=".agents/skills/manimux-inference/references/reproductions/README.md">reproduction records</a>;
+advanced decoder/waypoint configuration is covered by the
+<a href=".agents/skills/manimux-development/references/runtime-config.md">runtime configuration reference</a>.</p>
+</section>
+<section aria-labelledby="support" class="guide-page" data-page-id="support" data-title="Model support &amp; presets" hidden=""><h2 id="support">Support</h2>
+<p>BID requires AAC candidate sampling plus complete absolute-joint decoding. Adding ACT or asynchronous adaptive horizons also requires the decoding and client constraints in the <a href="#algorithms">compatibility table</a>; a model hook alone is insufficient.</p>
+<p>This matrix covers the current <strong>YAM adapters</strong>, not every checkpoint or embodiment.
+“Hook” means an implementation path; the loaded server's <code>HELLO.capabilities.sampling_modes</code>
+decides availability. It does not establish task performance.</p>
+<table>
+<thead>
+<tr>
+<th>Model</th>
+<th>Serial / Async / ACT</th>
+<th>RTC</th>
+<th>PAINT</th>
+<th>AAC</th>
+<th>AutoHorizon</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Pi05 JAX joint</td>
+<td>Yes</td>
+<td>Hook</td>
+<td>Hook</td>
+<td>Hook</td>
+<td>Hook</td>
+</tr>
+<tr>
+<td>Xiaomi XR1</td>
+<td>Yes</td>
+<td>Hook</td>
+<td>Hook</td>
+<td>Hook</td>
+<td>Hook</td>
+</tr>
+<tr>
+<td>LingBot-VLA2</td>
+<td>Yes</td>
+<td>Hook</td>
+<td>Hook</td>
+<td>Hook</td>
+<td>Hook</td>
+</tr>
+<tr>
+<td>DP U-Net DDPM</td>
+<td>Yes</td>
+<td>VP-guidance adaptation</td>
+<td>No</td>
+<td>Hook</td>
+<td>No</td>
+</tr>
+<tr>
+<td>OpenWAM joint flow</td>
+<td>Yes</td>
+<td>Adaptation</td>
+<td>Adaptation</td>
+<td>Hook</td>
+<td>Hook</td>
+</tr>
+</tbody>
+</table>
+<p>OpenWAM specialized modes require compilation and DiT cache disabled, CFG scale 1;
+AutoHorizon also requires the joint-attention driver. LingBot conditioned/attention modes
+require the native horizon; attention capture needs eager execution. Pi05 PyTorch and
+Pi05 EEF are outside this matrix. <a href=".agents/skills/manimux-inference/references/inference-matrix.md">Detailed model contracts</a></p>
+<p><strong>Generate selecting configs from one existing deployment, without launching services:</strong></p>
+<pre><code class="language-bash">PYTHONPATH=. envs/yam/.venv/bin/python scripts/experiments/build_inference_matrix.py \
+  --base manimux/configs/experiments/coin/pi05/yam_pi05_rtc_joint_step50000.yaml \
+  --output-dir data/configs/coin-pi05-comparison-v1 \
+  --execution-steps 16 --paint-delay-steps 4 \
+  --aac-stats manimux/policies/xpolicylab/norm_stats/yam_60ep_ee_increment.json \
+  --methods serial async act rtc paint aac autohorizon
+</code></pre>
+<p>The generator preserves the base checkpoint, adapter and executor, skips unsupported DP
+methods, validates configs, and refuses to overwrite outputs. The AAC stats must exist and
+be suitable for the study; omitting AAC removes that requirement. Generated values are
+starting presets, not a frozen protocol.</p>
+<table>
+<thead>
+<tr>
+<th>Model deployment details</th>
+<th>Model environment / entry</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href=".agents/skills/manimux-inference/references/deployment/pi05-yam.md">Pi05 / YAM</a></td>
+<td>OpenPI environment; <code>manimux.servers.pi05 --experiment</code></td>
+</tr>
+<tr>
+<td><a href=".agents/skills/manimux-inference/references/deployment/xiaomi-xr1-yam.md">XR1 / YAM</a></td>
+<td>XR1 environment; <code>manimux.servers.xr1 --config</code></td>
+</tr>
+<tr>
+<td><a href=".agents/skills/manimux-inference/references/deployment/lingbot-vla2-yam.md">LingBot / YAM</a></td>
+<td>LingBot environment; XPolicyLab <code>setup_policy_server.py --config-path</code></td>
+</tr>
+<tr>
+<td><a href=".agents/skills/manimux-inference/references/deployment/dp-yam.md">DP / YAM</a></td>
+<td>DP environment; <code>manimux.servers.dp --experiment</code></td>
+</tr>
+<tr>
+<td><a href=".agents/skills/manimux-inference/references/deployment/openwam-yam.md">OpenWAM / YAM</a></td>
+<td>OpenWAM environment; <code>manimux.servers.openwam --config</code></td>
+</tr>
+</tbody>
+</table>
+<p>Use each selected experiment's actual <code>policy_server</code> recipe; changing only runtime algorithm
+cannot add a missing sampler hook. Historical runbook measurements apply to their recorded
+revisions, not automatically to a new checkpoint.</p>
+</section>
+<section aria-labelledby="experiment-lists" class="guide-page" data-page-id="experiment-lists" data-title="Task &amp; method switching" hidden=""><h2 id="experiment-lists">Task &amp; method switching</h2>
+<p>Use <code>serve --config-list</code> to choose experiments in RoboGUI while keeping the same model and camera services running. A list references complete experiment YAMLs; it does not override their parameters.</p>
+<h3 id="experiment-config-locations">Where configurations live</h3>
+<table><thead><tr><th>File</th><th>Owns</th></tr></thead><tbody>
+<tr><td><code>manimux/configs/experiment_lists/*.yaml</code></td><td>The experiments available in this session. First entry is the initial selection.</td></tr>
+<tr><td><code>manimux/configs/experiments/&lt;task&gt;/&lt;model&gt;/*.yaml</code></td><td>Task prompt, inference method, executor, output directory, layout/repeat rules and rubric reference.</td></tr>
+<tr><td><code>manimux/configs/policy/&lt;model&gt;/&lt;robot&gt;/&lt;dataset&gt;/*.yaml</code></td><td>Shared checkpoint, normalization, model initialization and backend identity.</td></tr>
+<tr><td><code>manimux/configs/inference/*.yaml</code></td><td>Reusable method parameters, referenced by the experiment.</td></tr>
+<tr><td><code>manimux/configs/evaluation/*.yaml</code></td><td>Task scoring rules; existing episode snapshots remain unchanged.</td></tr>
+</tbody></table>
+<pre><code class="language-yaml"># manimux/configs/experiment_lists/yam_pi05_mixed300ep.yaml
+experiments:
+  - id: coin_rtc
+    label: RTC
+    config: ../experiments/coin/pi05/yam_pi05_mixed300ep_rtc_step30000.yaml
+  - id: coin_serial
+    label: Serial
+    config: ../experiments/coin/pi05/yam_pi05_mixed300ep_serial_step30000.yaml
+  - id: stack_blocks_small_rtc
+    label: RTC
+    config: ../experiments/stack_blocks_small/pi05/yam_pi05_mixed300ep_rtc_step30000.yaml
+</code></pre>
+<p><code>id</code> must be unique. <code>config</code> is relative to the list file. Optional <code>label</code> is shown as Method / Config and defaults to the ID. Task and algorithm come from the resolved experiment, so they are not repeated in the list. Give parameter variants distinct labels and output directories.</p>
+<h3 id="mixed300ep-launch">Launch the mixed-task Pi05 30k experiments</h3>
+<p>The complete list contains six tasks × four methods: RTC, Serial, Async and PAINT. All use the shared <code>policy/pi05/yam/mixed/joint-step30000.yaml</code> recipe and direct executor. The checkpoint is <code>pi05_yam_mixed_20261011_300ep_30k/30000</code>; it is separate from the older single-task coin/block checkpoints.</p>
+<p>Stop teleoperation before using the same robot/cameras for inference. Run these commands in four terminals. Camera and model services use the first experiment's shared settings; keep them running when changing the UI selection.</p>
+<pre><code class="language-bash"># Terminal 1 — cameras
+cd /home/ubuntu/manimux
+envs/yam/.venv/bin/python -m manimux.servers.camera.server \
+  --experiment manimux/configs/experiments/coin/pi05/yam_pi05_mixed300ep_rtc_step30000.yaml
+
+# Terminal 2 — RoboGUI
+cd /home/ubuntu/manimux
+envs/yam/.venv/bin/python -m manimux.robogui.dashboard \
+  --robot yam --host 127.0.0.1 --port 8086
+
+# Terminal 3 — model (loads weights once)
+cd /home/ubuntu/manimux
+XPolicyLab/policy/Pi_05/openpi/.venv/bin/python -m manimux.servers.pi05 \
+  --experiment manimux/configs/experiments/coin/pi05/yam_pi05_mixed300ep_rtc_step30000.yaml
+
+# Terminal 4 — selectable runtime
+cd /home/ubuntu/manimux
+envs/yam/.venv/bin/python -m manimux serve \
+  --config-list manimux/configs/experiment_lists/yam_pi05_mixed300ep.yaml
+</code></pre>
+<p>Open <a href="http://127.0.0.1:8086">RoboGUI</a>. Choose <strong>Task → Method / Config → Layout → Prepare Run / Prepare Experiment</strong>. Then Activate Warmup → Start rollout. After Finish, save or skip evaluation before selecting another configuration. Prepare Run needs neither a layout nor scoring. Prepare may move the robot to its configured start pose.</p>
+<h3 id="experiment-switch-boundaries">What changes at selection</h3>
+<table><thead><tr><th>Changes</th><th>Behavior</th></tr></thead><tbody>
+<tr><td>Task</td><td>Update prompt, rubric, reference layout library and per-method repeat progress. The mixed model receives the task instruction in each observation.</td></tr>
+<tr><td>Runtime method / parameters</td><td>Create a fresh runtime on the next Prepare: new worker, strategy, timeline and warmup. No old chunk or ensemble history is reused.</td></tr>
+<tr><td>Checkpoint, normalization, model initialization (including num_steps), cameras, robot or action contract</td><td>Rejected within one list. Use a separate list and launch its matching services. Same weights alone are insufficient for service reuse.</td></tr>
+<tr><td>YAML edited on disk</td><td>Lists are loaded and validated at serve startup. Restart serve to load edits; model/camera changes also require their services to restart.</td></tr>
+</tbody></table>
+<p>Task/config selection is disabled while preparing, running, recovering or awaiting evaluation. Switching never starts a rollout. Backend identity and sampling capability checks remain enabled. In the mixed recipe, task_name identifies the shared deployment; <code>run.task</code> owns the actual instruction.</p>
+<h3 id="experiment-list-records">Output and provenance</h3>
+<pre><code>data/experiments/pi05-mixed300ep-step30000/
+  coin/rtc/session-.../
+    session-manifest.json
+    rollout-001/...
+  coin/serial/session-.../
+  stack_blocks_small/rtc/session-.../
+</code></pre>
+<p>Each selection opens a new session under that experiment's output directory. The session manifest saves the selected ID, list path/hash, experiment path/hash and complete resolved configuration. Repeat progress includes prior finalized scored records in the same method directory. New checkpoint configs do not overwrite historical experiment YAMLs or results.</p>
+<p>Coin retains stages 0 / 0.1 / 0.3 / 0.5 / 1; both stacking tasks retain 0 / 0.5 / 1; bottles retain the existing count rubric. Clock and moving-cube configs currently use binary scoring. Their ten-layout templates require saved task reference images for Prepare Experiment; use Prepare Run for a trial without a reference.</p>
+</section>
+<section aria-labelledby="experiments" class="guide-page" data-page-id="experiments" data-title="Rules, templates &amp; scoring" hidden=""><h2 id="experiments">Experiments</h2>
+<h3 id="agree-on-the-rule-before-collection">Agree on the rule before collection</h3>
+<table>
+<thead>
+<tr>
+<th>Decision</th>
+<th>Record</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Complete success</td>
+<td>Observable outcome and when it is judged</td>
+</tr>
+<tr>
+<td>Partial credit</td>
+<td>None, completed count, or named stages with explicit total scores</td>
+</tr>
+<tr>
+<td>Progress lost later</td>
+<td>Whether final state or a previously reached milestone determines the score</td>
+</tr>
+<tr>
+<td>Comparison</td>
+<td>Model/checkpoint + inference, controlled settings and chosen metrics</td>
+</tr>
+<tr>
+<td>Trials</td>
+<td>Layout/reset, repeat budget, order, stopping rule and invalid-attempt criteria</td>
+</tr>
+</tbody>
+</table>
+<p>An agent setting up a custom scored study should ask whether partial credit is needed,
+unless already agreed. It should not invent weights or require scoring for free inference.
+Keep PRM optional. Record protocol choices separately from runtime configuration.</p>
+<h3 id="configure-two-independent-templates">Configure two independent templates</h3>
+<p>Merge this fragment into a complete experiment under
+<code>manimux/configs/experiments/&lt;task&gt;/&lt;model&gt;/</code>. The sample values are replaceable.</p>
+<pre><code class="language-yaml">run:
+  experiment_name: coin-study-v1
+  condition: rtc
+  output_dir: ./data/experiments/coin-study-v1/rtc
+  experiment_template:
+    name: Two layouts, three repeats
+    layout_ids: [near, far]
+    repeats: 3
+    require_reference: false
+evaluation:
+  config: ../../../evaluation/coin.yaml
+recording:
+  enabled: true
+</code></pre>
+<p><strong>Prepare Run / Prepare Experiment.</strong> Both buttons are available before a rollout.
+Prepare Run needs no layout or scoring. For Prepare Experiment, select Layout once;
+its reference is attached automatically and scoring is offered after Finish.
+The <strong>Images</strong> panel is expanded by default. Historical replay has a separate command below.
+Task, policy and executor are read-only. Keep experiment name, condition and model parameters in YAML.
+The Top gallery matches <code>run.task</code> ignoring case, punctuation and spaces versus underscores;
+store images in <code>data/evaluation_layouts/&lt;task&gt;/&lt;layout&gt;.png</code>.</p>
+<p>Repeat numbers are suggested from finalized, scored trials across sessions under the same
+<code>run.output_dir</code>, matched by task, experiment name, condition, layout and reference hash.
+Successful and failed tasks count; invalid, skipped and unstarted attempts remain recorded but do not
+consume a repeat. When a layout is complete, select another. Use a separate output directory for each
+model/checkpoint/method or changed scoring rule. No repeat counter is stored only in the browser.</p>
+<p><code>run.experiment_template</code> constrains layouts/repeats/reference images. It does not schedule
+or randomize the study. <code>evaluation.config</code> selects the scoring YAML. There is no UI template
+editor; edit the files and reload the runtime before the next study condition.</p>
+<table>
+<thead>
+<tr>
+<th>Rubric <code>kind</code></th>
+<th>Operator choice</th>
+<th>Score</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>binary</code></td>
+<td>Completed / Not completed</td>
+<td>Success rate only</td>
+</tr>
+<tr>
+<td><code>count</code></td>
+<td>Completed count</td>
+<td>Count / target</td>
+</tr>
+<tr>
+<td><code>stages</code></td>
+<td>One outcome</td>
+<td>Selected total score; never sum milestones</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Coin example — stage template:</strong></p>
+<pre><code class="language-yaml">kind: stages
+task_id: coin
+rubric_id: coin_stages_v2
+label: Coin transfer and deposit
+options:
+  - {id: incomplete, label: No coin picked up, score: 0, success: false}
+  - {id: picked_up, label: Coin picked up by one hand, score: 0.1, success: false}
+  - {id: handover, label: Handed over, score: 0.3, success: false}
+  - {id: above_bank, label: Coin held above piggy bank, score: 0.5, success: false}
+  - {id: deposited, label: Deposited in target, score: 1, success: true}
+</code></pre>
+<p><strong>Stacking example — count template:</strong></p>
+<pre><code class="language-yaml">kind: count
+task_id: stack_blocks
+rubric_id: stack_blocks_count2_v1
+label: Stack blocks
+count_label: Completed stacks
+target_count: 2
+</code></pre>
+<p>This gives 0 / 0.5 / 1. A minimal binary file is <code>kind: binary</code>.
+Stage IDs and labels must be unique; scores must be finite in [0, 1], with <code>success: true</code>
+exactly for score 1. Keep longer judgment criteria in the study record, not unknown YAML fields.</p>
+<p>Use one rubric across compared methods. Version <code>rubric_id</code> when criteria change.
+Each rollout saves a snapshot; later YAML edits do not change historical scores.
+<a href="manimux/configs/evaluation/coin.yaml">Current coin template</a> · <a href="manimux/configs/evaluation/stack_blocks.yaml">Stacking template</a></p>
+<h3 id="operate-each-trial">Operate each trial</h3>
+<ol>
+<li>Use <strong>Prepare Run</strong> for a free trial. For a scored trial, reset the scene, select <strong>Layout</strong>, then click <strong>Prepare Experiment</strong>; its Top reference is attached automatically.</li>
+<li><strong>Prepare → adjust layout → Activate Warmup → Start rollout.</strong>
+Layout stays editable until first Start. The suggested repeat updates with the selected layout.
+Start validates the template and freezes layout, repeat and image hash; Pause/Resume keeps that selection locked.
+Warmup only previews predictions; it never executes them. Keep reset and stopping rules consistent.</li>
+<li><strong>Finish</strong>, select one score option, then <strong>Save evaluation</strong>.
+The scoring template supplies the expanded single-choice options: stage labels and scores,
+or counts with their derived scores (for example 0 / 0.5 / 1). Without partial-credit rules,
+choose <strong>1 · Completed</strong> or <strong>0 · Not completed</strong>. Nothing is preselected.</li>
+<li>For an unusable trial, mark invalid and state the reason. <strong>Skip evaluation</strong> leaves it unreviewed.</li>
+<li>Start a fresh rollout for the next trial. Preserve failed attempts and separately identify retries.</li>
+</ol>
+<p>For completion time, annotate seconds from formal Start to the success criterion, only for
+successful attempts. Do not substitute the full recording duration. Free rollouts have no
+scoring step. Optional operator notes and failure details are entered after Finish.</p>
+<p>If a finished experiment was skipped or the GUI was restarted, <strong>New rollout</strong>
+shows <strong>Unscored experiment → Score selected experiment</strong> while the runtime is idle.
+It lists started, finalized, unlabelled experiments for the same task and method output directory.
+Select the session/rollout and score it in the existing form using its saved rubric;
+new YAML rules do not replace historical scoring rules. Free runs and partial attempts are excluded.</p>
+</section>
+<section aria-labelledby="records" class="guide-page" data-page-id="records" data-title="Records &amp; replay" hidden=""><h2 id="records">Records</h2>
+<pre><code class="language-text">&lt;run.output_dir&gt;/
+└── session-.../
+    ├── session-manifest.json
+    └── rollout-.../
+        ├── meta.json
+        ├── result.json
+        ├── events.jsonl
+        ├── data.zarr/           # ticks + raw / strategy / committed plans
+        ├── videos/             # camera video + index.json
+        └── evaluation/
+            └── human-label.json
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>File / field</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>session-manifest.json</code></td>
+<td>Resolved configuration, entry-file hash and source identities</td>
+</tr>
+<tr>
+<td><code>meta.json</code></td>
+<td>Task/layout/repeat, policy identity and frozen rubric</td>
+</tr>
+<tr>
+<td><code>result.json.run_completed</code></td>
+<td>Runtime completion, <strong>not task success</strong></td>
+</tr>
+<tr>
+<td><code>human-label.json</code></td>
+<td>Human task result, partial score where configured, rule snapshot and reviewer</td>
+</tr>
+<tr>
+<td><code>ticks</code></td>
+<td>Measured state, scheduled reference, executor command; command is not a hardware receipt</td>
+</tr>
+<tr>
+<td><code>plans</code></td>
+<td>Raw policy chunks, strategy output and committed trajectory</td>
+</tr>
+<tr>
+<td><code>videos/index.json</code></td>
+<td>Timestamps, counts, dropped bundles and encoder errors</td>
+</tr>
+</tbody>
+</table>
+<h3 id="evaluation-inputs">What evaluation actually reads</h3>
+<p><strong>Read results first, traces second.</strong> Human labels hold task outcomes; metadata identifies the trial. Zarr holds numerical motion data. Events explain lifecycle changes, inference and handoffs; they are not the score sheet.</p>
+<table><thead><tr><th>Question / metric</th><th>Files and fields</th><th>Current use</th></tr></thead><tbody>
+<tr><td>Which trial and method?</td><td><code>meta.json</code>: task, layout_id, repeat_id, policy_backend, evaluation; <code>session-manifest.json</code>: config. The task report config selects the cohort and expected identities.</td><td>Validate grouping and rule consistency before aggregation.</td></tr>
+<tr><td>Human score / success rate</td><td><code>evaluation/human-label.json</code>: task_result, stage_id / completed_count, score, evaluation; compare against <code>meta.evaluation</code>.</td><td>Implemented. Rubric options are possible outcomes, not the selected result. Skip leaves no label.</td></tr>
+<tr><td>Successful completion time</td><td><code>human-label.json: completion_time.seconds</code>, with origin, endpoint and source.</td><td>Implemented for successful, explicitly annotated trials. Do not use result.wall_time_s.</td></tr>
+<tr><td>NLDLJ / NSPARC</td><td><code>data.zarr/ticks</code>: scheduled/{arm}, monotonic_ns, plan_id; <code>events.jsonl</code>: pause and Home events; configured FK and metric profile.</td><td>Implemented when configured. Measures the scheduled end-effector reference, not measured state. Rejects unsupported gaps or interruptions.</td></tr>
+<tr><td>Chunk jumps and 10/20/30-step comparisons</td><td><code>data.zarr/plans/*/committed</code>: joint arrays, start_time_ns, dt_ns, plan_id; canonical_raw and its observation_time_ns for diagnostic plots. Events and tick plan identities support execution review.</td><td>Offline candidate diagnostics exist; the report imports existing comparison artifacts and plots. Formal executed-handoff qualification is not integrated.</td></tr>
+<tr><td>PRM-as-a-Judge</td><td><code>videos/*.mp4</code>, <code>videos/index.json</code>, task prompt and fixed judge/goal/sampling profile.</td><td>Separate PRM tooling exists; matched result import into the task report is not integrated.</td></tr>
+<tr><td>Why was a trial slow or interrupted?</td><td><code>events.jsonl</code>: kind and event-specific request, timing, pause/Home and boundary fields; <code>result.json</code>: run_completed, terminal_reason, video_recording.</td><td>Diagnostics and eligibility checks; runtime completion is not task success.</td></tr>
+</tbody></table>
+<p><code>data.zarr/ticks/state</code> is measured motion; <code>scheduled</code> is the timeline reference; <code>command</code> is the executor submission to the SDK. <code>plans</code> includes predicted future points that may never execute. JSON Unicode escapes such as <code>\u4e22</code> are valid Chinese text encodings; new JSON records preserve readable UTF-8 text. Existing records and their hashes are unchanged.</p>
+<div><h3 id="record-field-reference">Saved-record field reference</h3><p>Field paths below cover the recorded Pi05/RTC schema, with repeated arms, cameras and source-file entries written as placeholders. A value being saved does not mean its algorithm is active: RTC/direct snapshots also include inactive AAC, PAINT, Smooth and MPC settings. Session config holds defaults; meta.json holds the actual trial identity.</p><p>All monotonic timestamps are host-clock nanoseconds, not UTC. Do not subtract them directly from Unix timestamps. Model steps, command ticks, video frames and inference requests are different counters.</p>
+<details><summary>session-manifest.json — identity/provenance</summary><table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody>
+<tr><td><code>config_path</code></td><td>Entry experiment YAML path.</td></tr>
+<tr><td><code>config_sha256</code></td><td>SHA-256 of the entry YAML bytes, not the fully resolved config and not every referenced file.</td></tr>
+<tr><td><code>created_at</code></td><td>UTC wall-clock creation timestamp of the session manifest.</td></tr>
+<tr><td><code>deployment_artifacts.declared_identity.checkpoint_source</code></td><td>Declared checkpoint training/export identity.</td></tr>
+<tr><td><code>deployment_artifacts.declared_identity.checkpoint_variant</code></td><td>Named deployment/checkpoint variant for matching client and server.</td></tr>
+<tr><td><code>deployment_artifacts.declared_identity.norm_stats_source</code></td><td>Declared normalization-statistics identity/fingerprint.</td></tr>
+<tr><td><code>deployment_artifacts.declared_identity.train_config_name</code></td><td>Model training configuration name used to reconstruct/load the policy.</td></tr>
+<tr><td><code>deployment_artifacts.model_path.available</code></td><td>Whether the artifact/source/SDK could be inspected.</td></tr>
+<tr><td><code>deployment_artifacts.model_path.content_sha256</code></td><td>Optional content hash of a deployment artifact; null with not_hashed means no full content hash was computed.</td></tr>
+<tr><td><code>deployment_artifacts.model_path.hash_reason</code></td><td>Why content_sha256 is unavailable.</td></tr>
+<tr><td><code>deployment_artifacts.model_path.is_directory</code></td><td>Whether the artifact path was a directory when inspected.</td></tr>
+<tr><td><code>deployment_artifacts.model_path.mtime_ns</code></td><td>Filesystem modification time, Unix nanoseconds.</td></tr>
+<tr><td><code>deployment_artifacts.model_path.path</code></td><td>Absolute path of the referenced image, file or deployment artifact; identity evidence, not embedded file contents.</td></tr>
+<tr><td><code>deployment_artifacts.model_path.size_bytes</code></td><td>File size from stat(); for a directory it is the directory entry size, NOT total checkpoint bytes.</td></tr>
+<tr><td><code>deployment_artifacts.norm_stats_path.available</code></td><td>Whether the artifact/source/SDK could be inspected.</td></tr>
+<tr><td><code>deployment_artifacts.norm_stats_path.content_sha256</code></td><td>Optional content hash of a deployment artifact; null with not_hashed means no full content hash was computed.</td></tr>
+<tr><td><code>deployment_artifacts.norm_stats_path.hash_reason</code></td><td>Why content_sha256 is unavailable.</td></tr>
+<tr><td><code>deployment_artifacts.norm_stats_path.is_directory</code></td><td>Whether the artifact path was a directory when inspected.</td></tr>
+<tr><td><code>deployment_artifacts.norm_stats_path.mtime_ns</code></td><td>Filesystem modification time, Unix nanoseconds.</td></tr>
+<tr><td><code>deployment_artifacts.norm_stats_path.path</code></td><td>Absolute path of the referenced image, file or deployment artifact; identity evidence, not embedded file contents.</td></tr>
+<tr><td><code>deployment_artifacts.norm_stats_path.size_bytes</code></td><td>File size from stat(); for a directory it is the directory entry size, NOT total checkpoint bytes.</td></tr>
+<tr><td><code>git_sha</code></td><td>ManiMux HEAD commit at session creation; dirty source is captured separately.</td></tr>
+<tr><td><code>mode</code></td><td>Context-dependent mode: manifest run/serve; source-file POSIX permission bits; sensor read mode or executor limit mode in config.</td></tr>
+<tr><td><code>session_id</code></td><td>Manifest: runtime-service session/directory ID. meta: per-rollout worker/reset session ID; these intentionally differ.</td></tr>
+<tr><td><code>source_provenance.captured_at</code></td><td>UTC wall-clock time of provenance capture.</td></tr>
+<tr><td><code>source_provenance.coverage</code></td><td>Declared scope of the provenance collection.</td></tr>
+<tr><td><code>source_provenance.excluded</code></td><td>Categories intentionally omitted from source fingerprinting.</td></tr>
+<tr><td><code>source_provenance.repositories.{repository}.available</code></td><td>Whether the artifact/source/SDK could be inspected.</td></tr>
+<tr><td><code>source_provenance.repositories.{repository}.changed_source_paths</code></td><td>Selected source paths differing from HEAD or untracked at capture.</td></tr>
+<tr><td><code>source_provenance.repositories.{repository}.complete</code></td><td>Whether all selected source fingerprints were obtained; not hardware health or experiment success.</td></tr>
+<tr><td><code>source_provenance.repositories.{repository}.dirty_source</code></td><td>Whether the selected source scope contains uncommitted/untracked changes.</td></tr>
+<tr><td><code>source_provenance.repositories.{repository}.files.{file}.mode</code></td><td>POSIX permission bits from stat(), stored as an integer; not an inference mode.</td></tr>
+<tr><td><code>source_provenance.repositories.{repository}.files.{file}.reason</code></td><td>Context-specific reason code: for control, running / robogui_pause / stale_control / not_ready / home / finish / control_thread_stopped; for provenance, why evidence is unavailable.</td></tr>
+<tr><td><code>source_provenance.repositories.{repository}.files.{file}.sha256</code></td><td>SHA-256 of the identified file&#x27;s bytes. null means that hash was unavailable.</td></tr>
+<tr><td><code>source_provenance.repositories.{repository}.files.{file}.size_bytes</code></td><td>File size from stat(); for a directory it is the directory entry size, NOT total checkpoint bytes.</td></tr>
+<tr><td><code>source_provenance.repositories.{repository}.files.{file}.stable_read</code></td><td>Whether file size and modification time stayed unchanged during fingerprinting.</td></tr>
+<tr><td><code>source_provenance.repositories.{repository}.files.{file}.tracked</code></td><td>Whether Git tracked the file at capture.</td></tr>
+<tr><td><code>source_provenance.repositories.{repository}.head</code></td><td>Repository HEAD revision at capture.</td></tr>
+<tr><td><code>source_provenance.repositories.{repository}.scope</code></td><td>Source paths selected for fingerprinting.</td></tr>
+<tr><td><code>source_provenance.repositories.{repository}.source_sha256</code></td><td>Fingerprint of the selected source manifest, including recorded file evidence; not necessarily a whole-repository archive hash.</td></tr>
+<tr><td><code>source_provenance.repositories.{repository}.submodules</code></td><td>Nested source fingerprints for selected submodules; empty means none in this selected snapshot.</td></tr>
+<tr><td><code>source_provenance.schema</code></td><td>Version tag describing the structure of this document.</td></tr>
+<tr><td><code>xpolicylab_git_sha</code></td><td>XPolicyLab HEAD commit at session creation.</td></tr>
+</tbody></table></details>
+<details><summary>session-manifest.json — config</summary><table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody>
+<tr><td><code>config.camera_server.cameras.{camera}.component</code></td><td>Robot assembly component name supplying the device binding.</td></tr>
+<tr><td><code>config.camera_server.cameras.{camera}.config</code></td><td>Path of a referenced YAML/configuration file; config at manifest root is the entire resolved experiment configuration.</td></tr>
+<tr><td><code>config.camera_server.cameras.{camera}.options.align_depth</code></td><td>Whether depth is aligned to the color image.</td></tr>
+<tr><td><code>config.camera_server.cameras.{camera}.options.background</code></td><td>Whether camera acquisition runs in a background worker.</td></tr>
+<tr><td><code>config.camera_server.cameras.{camera}.options.enable_depth</code></td><td>Whether the camera depth stream is enabled.</td></tr>
+<tr><td><code>config.camera_server.cameras.{camera}.options.exposure_us</code></td><td>Requested exposure time in microseconds; this is configuration, not a per-frame measured exposure log.</td></tr>
+<tr><td><code>config.camera_server.cameras.{camera}.options.flip</code></td><td>Configured camera-image flip option.</td></tr>
+<tr><td><code>config.camera_server.cameras.{camera}.options.fps</code></td><td>Configured camera rate or video encoding rate depending on parent object; not a measured rate. Video replay timestamps must come from index.json.</td></tr>
+<tr><td><code>config.camera_server.cameras.{camera}.options.height</code></td><td>Requested image height; camera-server client does not necessarily resize to its generic sensor default.</td></tr>
+<tr><td><code>config.camera_server.cameras.{camera}.options.max_frame_age_sec</code></td><td>Maximum accepted cached-camera frame age, seconds.</td></tr>
+<tr><td><code>config.camera_server.cameras.{camera}.options.read_timeout_ms</code></td><td>Camera SDK frame-read timeout, milliseconds.</td></tr>
+<tr><td><code>config.camera_server.cameras.{camera}.options.warmup_frames</code></td><td>Camera frames discarded during camera startup, unrelated to model warmup.</td></tr>
+<tr><td><code>config.camera_server.cameras.{camera}.options.white_balance</code></td><td>Requested color-camera white balance.</td></tr>
+<tr><td><code>config.camera_server.cameras.{camera}.options.width</code></td><td>Requested image width; actual recorded pixels are determined by the served camera frames.</td></tr>
+<tr><td><code>config.camera_server.pub_endpoint</code></td><td>Camera publication endpoint.</td></tr>
+<tr><td><code>config.camera_server.rep_endpoint</code></td><td>Camera request/reply endpoint.</td></tr>
+<tr><td><code>config.camera_server.service</code></td><td>Named service binding, e.g. camera or policy.</td></tr>
+<tr><td><code>config.control_profile</code></td><td>Path selecting shared robot control settings.</td></tr>
+<tr><td><code>config.evaluation.kind</code></td><td>Event type in events.jsonl; in an evaluation rubric, binary / count / stages selects the scoring rule.</td></tr>
+<tr><td><code>config.evaluation.label</code></td><td>Human-readable rubric/score option label.</td></tr>
+<tr><td><code>config.evaluation.options[].id</code></td><td>Device index under parameter_devices; stable scoring-option ID under evaluation.options[].</td></tr>
+<tr><td><code>config.evaluation.options[].label</code></td><td>Human-readable rubric/score option label.</td></tr>
+<tr><td><code>config.evaluation.options[].score</code></td><td>Configured partial score in a rubric; in a saved human label, the score derived from the chosen count/stage.</td></tr>
+<tr><td><code>config.evaluation.options[].success</code></td><td>Whether this rubric option counts as complete task success; true exactly when its score is 1.</td></tr>
+<tr><td><code>config.evaluation.rubric_id</code></td><td>Versioned scoring-rule identity.</td></tr>
+<tr><td><code>config.evaluation.task_id</code></td><td>Canonical evaluation task identifier.</td></tr>
+<tr><td><code>config.executor.command_safety.max_acceleration</code></td><td>Acceleration limit in the relevant coordinate convention; null/empty disables that particular configured limit.</td></tr>
+<tr><td><code>config.executor.command_safety.max_velocity</code></td><td>Velocity limit in the relevant coordinate convention; null/empty disables that particular configured limit.</td></tr>
+<tr><td><code>config.executor.command_safety.position_lower</code></td><td>Lower command position bounds by group.</td></tr>
+<tr><td><code>config.executor.command_safety.position_upper</code></td><td>Upper command position bounds by group.</td></tr>
+<tr><td><code>config.executor.motion_limits.arm.max_acceleration</code></td><td>Acceleration limit in the relevant coordinate convention; null/empty disables that particular configured limit.</td></tr>
+<tr><td><code>config.executor.motion_limits.arm.max_step_dt_s</code></td><td>Cap on integration/update dt used by the selected motion limiter; null means no extra cap.</td></tr>
+<tr><td><code>config.executor.motion_limits.arm.max_velocity</code></td><td>Velocity limit in the relevant coordinate convention; null/empty disables that particular configured limit.</td></tr>
+<tr><td><code>config.executor.motion_limits.arm.mode</code></td><td>Context-dependent mode: manifest run/serve; source-file POSIX permission bits; sensor read mode or executor limit mode in config.</td></tr>
+<tr><td><code>config.executor.motion_limits.gripper.group_indices.{arm}</code></td><td>Zero-based gripper coordinate index for this arm.</td></tr>
+<tr><td><code>config.executor.motion_limits.gripper.max_acceleration</code></td><td>Acceleration limit in the relevant coordinate convention; null/empty disables that particular configured limit.</td></tr>
+<tr><td><code>config.executor.motion_limits.gripper.max_closing_velocity</code></td><td>Separate gripper closing-speed limit when supported/configured.</td></tr>
+<tr><td><code>config.executor.motion_limits.gripper.max_velocity</code></td><td>Velocity limit in the relevant coordinate convention; null/empty disables that particular configured limit.</td></tr>
+<tr><td><code>config.executor.mpc.command_delta_weight</code></td><td>MPC objective weight on successive command changes; inactive when executor is direct.</td></tr>
+<tr><td><code>config.executor.mpc.dynamics_a</code></td><td>MPC first-order dynamics coefficient; inactive when executor is direct.</td></tr>
+<tr><td><code>config.executor.mpc.horizon_control_steps</code></td><td>MPC planning horizon measured in control ticks, not model steps.</td></tr>
+<tr><td><code>config.executor.mpc.max_acceleration</code></td><td>Acceleration limit in the relevant coordinate convention; null/empty disables that particular configured limit.</td></tr>
+<tr><td><code>config.executor.mpc.max_velocity</code></td><td>Velocity limit in the relevant coordinate convention; null/empty disables that particular configured limit.</td></tr>
+<tr><td><code>config.executor.mpc.position_limit_abs</code></td><td>Symmetric absolute position bound of the owning executor.</td></tr>
+<tr><td><code>config.executor.mpc.tracking_weight</code></td><td>MPC reference-tracking objective weight.</td></tr>
+<tr><td><code>config.executor.smooth.cutoff_hz</code></td><td>Smooth-executor low-pass cutoff frequency, Hz.</td></tr>
+<tr><td><code>config.executor.smooth.grasp_guard</code></td><td>Optional Smooth grasp-guard configuration; null disables it.</td></tr>
+<tr><td><code>config.executor.smooth.gripper.close_threshold</code></td><td>Threshold for entering the gripper-closed state in the selected Smooth gripper mode.</td></tr>
+<tr><td><code>config.executor.smooth.gripper.closed_value</code></td><td>Normalized gripper target representing closed.</td></tr>
+<tr><td><code>config.executor.smooth.gripper.group_indices.{arm}</code></td><td>Zero-based gripper coordinate index for this arm.</td></tr>
+<tr><td><code>config.executor.smooth.gripper.max_acceleration</code></td><td>Acceleration limit in the relevant coordinate convention; null/empty disables that particular configured limit.</td></tr>
+<tr><td><code>config.executor.smooth.gripper.max_closing_velocity</code></td><td>Separate gripper closing-speed limit when supported/configured.</td></tr>
+<tr><td><code>config.executor.smooth.gripper.max_velocity</code></td><td>Velocity limit in the relevant coordinate convention; null/empty disables that particular configured limit.</td></tr>
+<tr><td><code>config.executor.smooth.gripper.min_closed_s</code></td><td>Minimum closed dwell time in Smooth gripper logic.</td></tr>
+<tr><td><code>config.executor.smooth.gripper.mode</code></td><td>Context-dependent mode: manifest run/serve; source-file POSIX permission bits; sensor read mode or executor limit mode in config.</td></tr>
+<tr><td><code>config.executor.smooth.gripper.open_confirm_s</code></td><td>Required open-intent confirmation interval in Smooth gripper logic.</td></tr>
+<tr><td><code>config.executor.smooth.gripper.open_threshold</code></td><td>Threshold for entering the gripper-open state.</td></tr>
+<tr><td><code>config.executor.smooth.gripper.open_value</code></td><td>Normalized gripper target representing open.</td></tr>
+<tr><td><code>config.executor.smooth.max_acceleration</code></td><td>Acceleration limit in the relevant coordinate convention; null/empty disables that particular configured limit.</td></tr>
+<tr><td><code>config.executor.smooth.max_step_dt_s</code></td><td>Cap on integration/update dt used by the selected motion limiter; null means no extra cap.</td></tr>
+<tr><td><code>config.executor.smooth.max_velocity</code></td><td>Velocity limit in the relevant coordinate convention; null/empty disables that particular configured limit.</td></tr>
+<tr><td><code>config.executor.smooth.mode</code></td><td>Context-dependent mode: manifest run/serve; source-file POSIX permission bits; sensor read mode or executor limit mode in config.</td></tr>
+<tr><td><code>config.executor.smooth.position_limit_abs</code></td><td>Symmetric absolute position bound of the owning executor.</td></tr>
+<tr><td><code>config.executor.smooth.release_guard</code></td><td>Optional Smooth release-guard configuration; null disables it.</td></tr>
+<tr><td><code>config.executor.smooth.tracking_mode</code></td><td>Smooth executor tracking implementation selector; inactive for direct execution.</td></tr>
+<tr><td><code>config.executor.type</code></td><td>Implementation selector of the owning robot, executor or action adapter.</td></tr>
+<tr><td><code>config.inference.aac.backward_beta</code></td><td>AAC backward-guidance parameter; inactive for RTC.</td></tr>
+<tr><td><code>config.inference.aac.chunk_id_selector</code></td><td>AAC reference chunk selector; inactive for RTC.</td></tr>
+<tr><td><code>config.inference.aac.ee_stats_path</code></td><td>AAC end-effector normalization/statistics file; inactive for RTC.</td></tr>
+<tr><td><code>config.inference.aac.motion_threshold</code></td><td>AAC motion-selection threshold; inactive for RTC.</td></tr>
+<tr><td><code>config.inference.aac.num_samples</code></td><td>AAC candidate sample count; inactive for RTC.</td></tr>
+<tr><td><code>config.inference.action_start_mode</code></td><td>Whether Timeline drops expired prefix rows (drop_infer_latency) or starts from the first available row when ready.</td></tr>
+<tr><td><code>config.inference.algorithm</code></td><td>Selected inference algorithm; other algorithm parameter blocks may still be serialized but inactive.</td></tr>
+<tr><td><code>config.inference.blend_policy_steps</code></td><td>Timeline blending length in model steps.</td></tr>
+<tr><td><code>config.inference.chunk_policy_steps</code></td><td>Explicit chunk execution length in model steps when used by the chosen strategy; null leaves it unspecified.</td></tr>
+<tr><td><code>config.inference.decode_budget_ms</code></td><td>Budget used by independent action decoding, milliseconds; not measured decode time.</td></tr>
+<tr><td><code>config.inference.decode_forecast_mode</code></td><td>Action-decoding latency estimator mode.</td></tr>
+<tr><td><code>config.inference.decode_forecast_size</code></td><td>Action-decoding latency estimator sample-window size.</td></tr>
+<tr><td><code>config.inference.expected_decode_s</code></td><td>Configured initial decode-delay estimate, seconds.</td></tr>
+<tr><td><code>config.inference.independent_group_decoding</code></td><td>Whether action groups use independent asynchronous decoding.</td></tr>
+<tr><td><code>config.inference.inference_schedule</code></td><td>Request scheduling selector (e.g. deadline or serial).</td></tr>
+<tr><td><code>config.inference.max_chunk_policy_steps</code></td><td>Maximum accepted source prefix in model steps; null means no additional cap.</td></tr>
+<tr><td><code>config.inference.max_plan_age_s</code></td><td>Maximum accepted chunk age, seconds, checked against its observation anchor.</td></tr>
+<tr><td><code>config.inference.paint.delay_buffer_size</code></td><td>Length of the owning strategy&#x27;s rolling delay forecast buffer.</td></tr>
+<tr><td><code>config.inference.paint.execution_policy_steps</code></td><td>PAINT execution budget in model steps; inactive for RTC.</td></tr>
+<tr><td><code>config.inference.paint.initial_delay_policy_steps</code></td><td>Initial delay forecast in model steps; RTC null allows warmup-based initialization.</td></tr>
+<tr><td><code>config.inference.refill_threshold_s</code></td><td>Generic scheduling refill threshold, seconds; selected strategies can own their own trigger.</td></tr>
+<tr><td><code>config.inference.rtc.beta</code></td><td>RTC conditioning guidance strength.</td></tr>
+<tr><td><code>config.inference.rtc.delay_buffer_size</code></td><td>Length of the owning strategy&#x27;s rolling delay forecast buffer.</td></tr>
+<tr><td><code>config.inference.rtc.initial_delay_policy_steps</code></td><td>Initial delay forecast in model steps; RTC null allows warmup-based initialization.</td></tr>
+<tr><td><code>config.inference.rtc.min_execute_policy_steps</code></td><td>RTC minimum source-model steps before requesting the next chunk.</td></tr>
+<tr><td><code>config.inference.strategy</code></td><td>Optional custom strategy implementation; null uses algorithm selection.</td></tr>
+<tr><td><code>config.inference.temporal_ensemble.coefficient</code></td><td>ACT temporal ensemble weighting coefficient; also used when temporal_ensemble.enabled is true.</td></tr>
+<tr><td><code>config.inference.temporal_ensemble.query_interval_policy_steps</code></td><td>ACT temporal ensemble query interval in model steps; inactive for RTC.</td></tr>
+<tr><td><code>config.local</code></td><td>Private station YAML path used to resolve device/service bindings.</td></tr>
+<tr><td><code>config.policy.action_decoding</code></td><td>Action decoder execution mode, e.g. inline versus independent decoding.</td></tr>
+<tr><td><code>config.policy.action_dt_s</code></td><td>Spacing of model action points, in seconds; 1/30 here. Independent of 100-Hz command control.</td></tr>
+<tr><td><code>config.policy.adapter.camera_map.{image_key}</code></td><td>Mapping from model image keys to camera-server source names.</td></tr>
+<tr><td><code>config.policy.adapter.group_layouts.{arm}.arm_dofs</code></td><td>Number of arm coordinates in a controlled group.</td></tr>
+<tr><td><code>config.policy.adapter.group_layouts.{arm}.gripper_dofs</code></td><td>Number of gripper coordinates in a controlled group.</td></tr>
+<tr><td><code>config.policy.adapter.group_order</code></td><td>Order of groups when packing model action/state arrays.</td></tr>
+<tr><td><code>config.policy.adapter.group_prefixes.{arm}</code></td><td>Model wire-name prefix for this arm.</td></tr>
+<tr><td><code>config.policy.adapter.type</code></td><td>Implementation selector of the owning robot, executor or action adapter.</td></tr>
+<tr><td><code>config.policy.device</code></td><td>Client/worker device setting; not proof of the remote model server&#x27;s GPU placement.</td></tr>
+<tr><td><code>config.policy.expected_backend.model.action_horizon</code></td><td>Model output action-point count.</td></tr>
+<tr><td><code>config.policy.expected_backend.model.checkpoint_source</code></td><td>Declared checkpoint training/export identity.</td></tr>
+<tr><td><code>config.policy.expected_backend.model.checkpoint_variant</code></td><td>Named deployment/checkpoint variant for matching client and server.</td></tr>
+<tr><td><code>config.policy.expected_backend.model.inference_seed</code></td><td>Configured/reported inference random seed; warmup is fenced by backend reset before formal execution.</td></tr>
+<tr><td><code>config.policy.expected_backend.model.model_root</code></td><td>Server-reported checkpoint/model root directory.</td></tr>
+<tr><td><code>config.policy.expected_backend.model.norm_stats_path</code></td><td>Normalization statistics path selected for this deployment.</td></tr>
+<tr><td><code>config.policy.expected_backend.model.norm_stats_source</code></td><td>Declared normalization-statistics identity/fingerprint.</td></tr>
+<tr><td><code>config.policy.expected_backend.model.num_steps</code></td><td>Model sampler/denoising iteration count; not action horizon or control ticks.</td></tr>
+<tr><td><code>config.policy.expected_backend.model.policy_family</code></td><td>Model family reported by the server.</td></tr>
+<tr><td><code>config.policy.expected_backend.model.task_name</code></td><td>Model-server task/prompt setting.</td></tr>
+<tr><td><code>config.policy.expected_backend.model.train_config_name</code></td><td>Model training configuration name used to reconstruct/load the policy.</td></tr>
+<tr><td><code>config.policy.expected_backend.server</code></td><td>Backend server identity string, or WebSocket URL under policy.options.</td></tr>
+<tr><td><code>config.policy.horizon_policy_steps</code></td><td>Expected model action-point count per chunk.</td></tr>
+<tr><td><code>config.policy.options.action_format</code></td><td>Wire/action conversion format selected by the client.</td></tr>
+<tr><td><code>config.policy.options.request_timeout_s</code></td><td>WebSocket request timeout, seconds.</td></tr>
+<tr><td><code>config.policy.options.server</code></td><td>Backend server identity string, or WebSocket URL under policy.options.</td></tr>
+<tr><td><code>config.policy.service</code></td><td>Named service binding, e.g. camera or policy.</td></tr>
+<tr><td><code>config.policy.startup_timeout_s</code></td><td>Startup/readiness timeout of the owning worker or sensor reader, seconds.</td></tr>
+<tr><td><code>config.policy.timeout_s</code></td><td>Owning component timeout: policy request deadline seconds or GUI control transport timeout seconds.</td></tr>
+<tr><td><code>config.policy.trajectory_duration_s</code></td><td>Optional explicit trajectory duration when determining action spacing.</td></tr>
+<tr><td><code>config.policy.worker</code></td><td>Policy worker plugin/transport selector.</td></tr>
+<tr><td><code>config.policy_server.action_horizon</code></td><td>Model output action-point count.</td></tr>
+<tr><td><code>config.policy_server.action_type</code></td><td>Model-side action representation, e.g. joint.</td></tr>
+<tr><td><code>config.policy_server.checkpoint_source</code></td><td>Declared checkpoint training/export identity.</td></tr>
+<tr><td><code>config.policy_server.checkpoint_variant</code></td><td>Named deployment/checkpoint variant for matching client and server.</td></tr>
+<tr><td><code>config.policy_server.env_cfg_type</code></td><td>Model framework environment contract name.</td></tr>
+<tr><td><code>config.policy_server.eval_batch</code></td><td>Model framework batch-evaluation switch.</td></tr>
+<tr><td><code>config.policy_server.host</code></td><td>Model service bind address.</td></tr>
+<tr><td><code>config.policy_server.inference_seed</code></td><td>Configured/reported inference random seed; warmup is fenced by backend reset before formal execution.</td></tr>
+<tr><td><code>config.policy_server.model_path</code></td><td>Model checkpoint path on the server host.</td></tr>
+<tr><td><code>config.policy_server.norm_stats_path</code></td><td>Normalization statistics path selected for this deployment.</td></tr>
+<tr><td><code>config.policy_server.norm_stats_source</code></td><td>Declared normalization-statistics identity/fingerprint.</td></tr>
+<tr><td><code>config.policy_server.num_envs</code></td><td>Environment batch count expected by the model adapter.</td></tr>
+<tr><td><code>config.policy_server.num_steps</code></td><td>Model sampler/denoising iteration count; not action horizon or control ticks.</td></tr>
+<tr><td><code>config.policy_server.observation_profile</code></td><td>Model adapter observation mapping profile.</td></tr>
+<tr><td><code>config.policy_server.policy_name</code></td><td>Registered model implementation name.</td></tr>
+<tr><td><code>config.policy_server.port</code></td><td>Model service port.</td></tr>
+<tr><td><code>config.policy_server.protocol</code></td><td>Service wire protocol, e.g. ws.</td></tr>
+<tr><td><code>config.policy_server.repo_id</code></td><td>Dataset/asset identifier used by the model deployment.</td></tr>
+<tr><td><code>config.policy_server.robot_action_dim_info.arm_dim</code></td><td>Per-arm model action dimensions, excluding end effectors.</td></tr>
+<tr><td><code>config.policy_server.robot_action_dim_info.ee_dim</code></td><td>Per-arm end-effector action dimensions.</td></tr>
+<tr><td><code>config.policy_server.task_name</code></td><td>Model-server task/prompt setting.</td></tr>
+<tr><td><code>config.policy_server.train_config_name</code></td><td>Model training configuration name used to reconstruct/load the policy.</td></tr>
+<tr><td><code>config.policy_server.use_delta_joint_actions</code></td><td>Model deployment transform setting for joint actions. Runtime canonical chunks remain decoded absolute targets.</td></tr>
+<tr><td><code>config.recording.enabled</code></td><td>Whether this specific component or recording feature is enabled.</td></tr>
+<tr><td><code>config.recording.video_codec</code></td><td>Requested saved-video codec.</td></tr>
+<tr><td><code>config.recording.video_fps</code></td><td>Requested video encoding/sampling rate; not command-loop rate.</td></tr>
+<tr><td><code>config.recording.video_queue_size</code></td><td>Maximum queued multi-camera video bundles before dropping a bundle.</td></tr>
+<tr><td><code>config.robogui.camera_hz</code></td><td>Camera refresh publication rate to RoboGUI, not acquisition or recording FPS.</td></tr>
+<tr><td><code>config.robogui.control.max_age_s</code></td><td>Maximum accepted cached GUI-control snapshot age, seconds; older snapshots force hold.</td></tr>
+<tr><td><code>config.robogui.control.poll_hz</code></td><td>Configured polling frequency of the owning control/sensor reader.</td></tr>
+<tr><td><code>config.robogui.control.timeout_s</code></td><td>Owning component timeout: policy request deadline seconds or GUI control transport timeout seconds.</td></tr>
+<tr><td><code>config.robogui.enabled</code></td><td>Whether this specific component or recording feature is enabled.</td></tr>
+<tr><td><code>config.robogui.policy_label</code></td><td>Human-readable policy label used in RoboGUI.</td></tr>
+<tr><td><code>config.robogui.robot</code></td><td>RoboGUI robot display preset name.</td></tr>
+<tr><td><code>config.robogui.tianji_teleop_root</code></td><td>Optional external Tianji teleoperation path; unused for YAM.</td></tr>
+<tr><td><code>config.robot.config</code></td><td>Path of a referenced YAML/configuration file; config at manifest root is the entire resolved experiment configuration.</td></tr>
+<tr><td><code>config.robot.control_hz</code></td><td>Requested robot control-loop frequency, Hz; actual intervals can overrun.</td></tr>
+<tr><td><code>config.robot.group_dims.{arm}</code></td><td>Controlled vector width for this arm (7 in this YAM run).</td></tr>
+<tr><td><code>config.robot.group_layouts.{arm}.arm_dofs</code></td><td>Number of arm coordinates in a controlled group.</td></tr>
+<tr><td><code>config.robot.group_layouts.{arm}.gripper_dofs</code></td><td>Number of gripper coordinates in a controlled group.</td></tr>
+<tr><td><code>config.robot.options.component_hardware.{component}.camera_serial</code></td><td>Physical camera serial binding. A station may list devices not selected in this experiment.</td></tr>
+<tr><td><code>config.robot.options.component_hardware.{component}.channel</code></td><td>Physical CAN/controller channel binding.</td></tr>
+<tr><td><code>config.robot.options.execute</code></td><td>Whether hardware command execution is enabled.</td></tr>
+<tr><td><code>config.robot.options.home_duration_s</code></td><td>Configured Home interpolation duration, seconds.</td></tr>
+<tr><td><code>config.robot.options.home_on_close</code></td><td>Whether normal cleanup returns the robot Home.</td></tr>
+<tr><td><code>config.robot.options.move_to_start_on_connect</code></td><td>Whether robot connection moves to the configured start pose.</td></tr>
+<tr><td><code>config.robot.options.start_duration_s</code></td><td>Configured start-pose interpolation duration, seconds.</td></tr>
+<tr><td><code>config.robot.options.start_joints.{arm}</code></td><td>Configured arm start target: six joint radians followed by normalized gripper opening.</td></tr>
+<tr><td><code>config.robot.type</code></td><td>Implementation selector of the owning robot, executor or action adapter.</td></tr>
+<tr><td><code>config.run.condition</code></td><td>User-entered experiment condition label.</td></tr>
+<tr><td><code>config.run.control_timing</code></td><td>Whether detailed loop-stage timing is captured; false does not disable events.jsonl.</td></tr>
+<tr><td><code>config.run.experiment_mode</code></td><td>Whether this attempt uses the study workflow and optional human evaluation. Session config is a default; meta.json contains the actual prepared trial selection.</td></tr>
+<tr><td><code>config.run.experiment_name</code></td><td>User-entered study/campaign name.</td></tr>
+<tr><td><code>config.run.experiment_template.layout_ids</code></td><td>Allowed layout IDs in the study template.</td></tr>
+<tr><td><code>config.run.experiment_template.name</code></td><td>Name of the containing template, sensor, SDK or component.</td></tr>
+<tr><td><code>config.run.experiment_template.repeats</code></td><td>Allowed repeat count in the study template.</td></tr>
+<tr><td><code>config.run.experiment_template.require_reference</code></td><td>Whether the study requires an attached saved reference image.</td></tr>
+<tr><td><code>config.run.layout_id</code></td><td>Selected reference/layout identifier for this attempt.</td></tr>
+<tr><td><code>config.run.max_control_steps</code></td><td>Maximum formal recorded control ticks before ending the rollout.</td></tr>
+<tr><td><code>config.run.notes</code></td><td>User-entered trial notes.</td></tr>
+<tr><td><code>config.run.output_dir</code></td><td>Campaign/algorithm parent output directory; sessions and rollouts are created below it.</td></tr>
+<tr><td><code>config.run.reference_layout</code></td><td>Optional reference-image identity; null when none selected in this configuration snapshot.</td></tr>
+<tr><td><code>config.run.repeat_id</code></td><td>Repeat number within the selected layout.</td></tr>
+<tr><td><code>config.run.sensor_reading.max_frame_age_s</code></td><td>Maximum accepted cached sensor frame age, seconds.</td></tr>
+<tr><td><code>config.run.sensor_reading.mode</code></td><td>Context-dependent mode: manifest run/serve; source-file POSIX permission bits; sensor read mode or executor limit mode in config.</td></tr>
+<tr><td><code>config.run.sensor_reading.poll_hz</code></td><td>Configured polling frequency of the owning control/sensor reader.</td></tr>
+<tr><td><code>config.run.sensor_reading.shutdown_timeout_s</code></td><td>Sensor-reader shutdown timeout, seconds.</td></tr>
+<tr><td><code>config.run.sensor_reading.startup_timeout_s</code></td><td>Startup/readiness timeout of the owning worker or sensor reader, seconds.</td></tr>
+<tr><td><code>config.run.task</code></td><td>Policy instruction in top-level meta; reference_layout.task is the reference-image gallery name, not the evaluation task_id.</td></tr>
+<tr><td><code>config.run.timing_max_cycles</code></td><td>Maximum loop cycles retained by detailed timing capture.</td></tr>
+<tr><td><code>config.run.warmup_before_start</code></td><td>Enable model warmup before formal Start; current GUI requires explicit activation.</td></tr>
+<tr><td><code>config.sensors[].driver</code></td><td>Sensor driver plugin name.</td></tr>
+<tr><td><code>config.sensors[].fps</code></td><td>Configured camera rate or video encoding rate depending on parent object; not a measured rate. Video replay timestamps must come from index.json.</td></tr>
+<tr><td><code>config.sensors[].height</code></td><td>Requested image height; camera-server client does not necessarily resize to its generic sensor default.</td></tr>
+<tr><td><code>config.sensors[].name</code></td><td>Name of the containing template, sensor, SDK or component.</td></tr>
+<tr><td><code>config.sensors[].options.camera_names</code></td><td>Camera-server streams requested by this sensor client.</td></tr>
+<tr><td><code>config.sensors[].options.endpoint</code></td><td>Remote sensor request/reply endpoint.</td></tr>
+<tr><td><code>config.sensors[].options.max_frame_age_sec</code></td><td>Maximum accepted cached-camera frame age, seconds.</td></tr>
+<tr><td><code>config.sensors[].options.request_timeout_ms</code></td><td>Sensor request timeout, milliseconds.</td></tr>
+<tr><td><code>config.sensors[].service</code></td><td>Named service binding, e.g. camera or policy.</td></tr>
+<tr><td><code>config.sensors[].width</code></td><td>Requested image width; actual recorded pixels are determined by the served camera frames.</td></tr>
+</tbody></table></details>
+<details><summary>meta.json — rollout and backend snapshots</summary><table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody>
+<tr><td><code>action_dt_s</code></td><td>Spacing of model action points, in seconds; 1/30 here. Independent of 100-Hz command control.</td></tr>
+<tr><td><code>action_start_mode</code></td><td>Whether Timeline drops expired prefix rows (drop_infer_latency) or starts from the first available row when ready.</td></tr>
+<tr><td><code>blend_steps</code></td><td>Number of model steps configured for boundary blending; zero means no such blend.</td></tr>
+<tr><td><code>camera_map.{image_key}</code></td><td>Mapping from model image keys to camera-server source names.</td></tr>
+<tr><td><code>condition</code></td><td>User-entered experiment condition label.</td></tr>
+<tr><td><code>episode_id</code></td><td>Rollout directory identity within its runtime-service session.</td></tr>
+<tr><td><code>evaluation.kind</code></td><td>Event type in events.jsonl; in an evaluation rubric, binary / count / stages selects the scoring rule.</td></tr>
+<tr><td><code>evaluation.label</code></td><td>Human-readable rubric/score option label.</td></tr>
+<tr><td><code>evaluation.options[].id</code></td><td>Device index under parameter_devices; stable scoring-option ID under evaluation.options[].</td></tr>
+<tr><td><code>evaluation.options[].label</code></td><td>Human-readable rubric/score option label.</td></tr>
+<tr><td><code>evaluation.options[].score</code></td><td>Configured partial score in a rubric; in a saved human label, the score derived from the chosen count/stage.</td></tr>
+<tr><td><code>evaluation.options[].success</code></td><td>Whether this rubric option counts as complete task success; true exactly when its score is 1.</td></tr>
+<tr><td><code>evaluation.rubric_id</code></td><td>Versioned scoring-rule identity.</td></tr>
+<tr><td><code>evaluation.task_id</code></td><td>Canonical evaluation task identifier.</td></tr>
+<tr><td><code>executor_kind</code></td><td>Executor selected for this rollout; direct submits the scheduled target without Smooth/MPC processing.</td></tr>
+<tr><td><code>experiment_mode</code></td><td>Whether this attempt uses the study workflow and optional human evaluation.</td></tr>
+<tr><td><code>experiment_name</code></td><td>User-entered study/campaign name.</td></tr>
+<tr><td><code>experiment_template.layout_ids</code></td><td>Allowed layout IDs in the study template.</td></tr>
+<tr><td><code>experiment_template.name</code></td><td>Name of the containing template, sensor, SDK or component.</td></tr>
+<tr><td><code>experiment_template.repeats</code></td><td>Allowed repeat count in the study template.</td></tr>
+<tr><td><code>experiment_template.require_reference</code></td><td>Whether the study requires an attached saved reference image.</td></tr>
+<tr><td><code>formal_start_state.groups.{arm}</code></td><td>Measured position vectors grouped by arm; six joint radians plus normalized gripper for this YAM run.</td></tr>
+<tr><td><code>formal_start_state.monotonic_ns</code></td><td>Host monotonic-clock timestamp in nanoseconds. Meaning is the owning event/state/tick instant; not Unix calendar time.</td></tr>
+<tr><td><code>formal_start_state.sequence</code></td><td>RobotState snapshot counter; under sent_command it is the SDK complete-send-cycle counter. Repeated CAN sequence values mean reused cached send snapshots.</td></tr>
+<tr><td><code>formal_start_state.target_error.{arm}</code></td><td>Measured group positions minus the configured target_groups, coordinate by coordinate.</td></tr>
+<tr><td><code>formal_start_state.target_groups.{arm}</code></td><td>Configured start/Home target positions grouped by arm.</td></tr>
+<tr><td><code>formal_start_state.timestamp_source</code></td><td>Meaning of the state timestamp. robot_state_host_receipt is the host snapshot/receipt boundary, not motor hardware sampling time.</td></tr>
+<tr><td><code>horizon_steps</code></td><td>Number of action points in the model chunk, not control-loop ticks.</td></tr>
+<tr><td><code>inference_seed</code></td><td>Configured/reported inference random seed; warmup is fenced by backend reset before formal execution.</td></tr>
+<tr><td><code>initial_state.groups.{arm}</code></td><td>Measured position vectors grouped by arm; six joint radians plus normalized gripper for this YAM run.</td></tr>
+<tr><td><code>initial_state.monotonic_ns</code></td><td>Host monotonic-clock timestamp in nanoseconds. Meaning is the owning event/state/tick instant; not Unix calendar time.</td></tr>
+<tr><td><code>initial_state.sequence</code></td><td>RobotState snapshot counter; under sent_command it is the SDK complete-send-cycle counter. Repeated CAN sequence values mean reused cached send snapshots.</td></tr>
+<tr><td><code>initial_state.target_error.{arm}</code></td><td>Measured group positions minus the configured target_groups, coordinate by coordinate.</td></tr>
+<tr><td><code>initial_state.target_groups.{arm}</code></td><td>Configured start/Home target positions grouped by arm.</td></tr>
+<tr><td><code>initial_state.timestamp_source</code></td><td>Meaning of the state timestamp. robot_state_host_receipt is the host snapshot/receipt boundary, not motor hardware sampling time.</td></tr>
+<tr><td><code>launch_mode</code></td><td>Runtime entry mode, e.g. serve or one-shot run.</td></tr>
+<tr><td><code>layout_id</code></td><td>Selected reference/layout identifier for this attempt.</td></tr>
+<tr><td><code>max_chunk_steps</code></td><td>Maximum allowed source chunk prefix length; null means no additional cap here.</td></tr>
+<tr><td><code>notes</code></td><td>User-entered trial notes.</td></tr>
+<tr><td><code>policy_adapter</code></td><td>Python class that maps robot observations and policy outputs to the shared representation.</td></tr>
+<tr><td><code>policy_backend.model.action_dim</code></td><td>Model&#x27;s internal padded action width, e.g. 32. Not the robot&#x27;s 14 controlled coordinates.</td></tr>
+<tr><td><code>policy_backend.model.action_horizon</code></td><td>Model output action-point count.</td></tr>
+<tr><td><code>policy_backend.model.action_type</code></td><td>Model-side action representation, e.g. joint.</td></tr>
+<tr><td><code>policy_backend.model.checkpoint_source</code></td><td>Declared checkpoint training/export identity.</td></tr>
+<tr><td><code>policy_backend.model.checkpoint_variant</code></td><td>Named deployment/checkpoint variant for matching client and server.</td></tr>
+<tr><td><code>policy_backend.model.class</code></td><td>Python model adapter class name reported by the server.</td></tr>
+<tr><td><code>policy_backend.model.execution.backend</code></td><td>Model numerical backend, e.g. jax.</td></tr>
+<tr><td><code>policy_backend.model.execution.compute_dtype</code></td><td>Measured/reported computation dtype; null when not captured. Do not infer it from parameter dtype.</td></tr>
+<tr><td><code>policy_backend.model.execution.framework_versions.{package}</code></td><td>Installed version of the named numerical/model framework package.</td></tr>
+<tr><td><code>policy_backend.model.execution.inference_seed</code></td><td>Configured/reported inference random seed; warmup is fenced by backend reset before formal execution.</td></tr>
+<tr><td><code>policy_backend.model.execution.noise_dtype</code></td><td>Reported sampled-noise dtype; null when not captured.</td></tr>
+<tr><td><code>policy_backend.model.execution.parameter_devices[].device_kind</code></td><td>Device model description reported by the numerical framework.</td></tr>
+<tr><td><code>policy_backend.model.execution.parameter_devices[].id</code></td><td>Device index under parameter_devices; stable scoring-option ID under evaluation.options[].</td></tr>
+<tr><td><code>policy_backend.model.execution.parameter_devices[].platform</code></td><td>Numerical backend device platform, e.g. gpu.</td></tr>
+<tr><td><code>policy_backend.model.execution.parameter_devices[].process_index</code></td><td>Distributed framework process index of the device.</td></tr>
+<tr><td><code>policy_backend.model.execution.parameter_dtypes</code></td><td>Dtypes of loaded model parameter arrays; not necessarily end-to-end compute precision.</td></tr>
+<tr><td><code>policy_backend.model.execution.rng</code></td><td>Model RNG ownership/implementation, e.g. policy_owned_jax_key.</td></tr>
+<tr><td><code>policy_backend.model.execution.unavailable.{field}</code></td><td>Reason this named measurement/metadata field is unavailable; do not substitute another field.</td></tr>
+<tr><td><code>policy_backend.model.inference_seed</code></td><td>Configured/reported inference random seed; warmup is fenced by backend reset before formal execution.</td></tr>
+<tr><td><code>policy_backend.model.model_path</code></td><td>Model checkpoint path on the server host.</td></tr>
+<tr><td><code>policy_backend.model.model_root</code></td><td>Server-reported checkpoint/model root directory.</td></tr>
+<tr><td><code>policy_backend.model.module</code></td><td>Python module implementing the loaded model or robot SDK.</td></tr>
+<tr><td><code>policy_backend.model.norm_stats_path</code></td><td>Normalization statistics path selected for this deployment.</td></tr>
+<tr><td><code>policy_backend.model.norm_stats_source</code></td><td>Declared normalization-statistics identity/fingerprint.</td></tr>
+<tr><td><code>policy_backend.model.num_envs</code></td><td>Environment batch count expected by the model adapter.</td></tr>
+<tr><td><code>policy_backend.model.num_steps</code></td><td>Model sampler/denoising iteration count; not action horizon or control ticks.</td></tr>
+<tr><td><code>policy_backend.model.observation_profile</code></td><td>Model adapter observation mapping profile.</td></tr>
+<tr><td><code>policy_backend.model.policy_family</code></td><td>Model family reported by the server.</td></tr>
+<tr><td><code>policy_backend.model.policy_name</code></td><td>Registered model implementation name.</td></tr>
+<tr><td><code>policy_backend.model.repo_id</code></td><td>Dataset/asset identifier used by the model deployment.</td></tr>
+<tr><td><code>policy_backend.model.robot_action_dim_info.arm_dim</code></td><td>Per-arm model action dimensions, excluding end effectors.</td></tr>
+<tr><td><code>policy_backend.model.robot_action_dim_info.ee_dim</code></td><td>Per-arm end-effector action dimensions.</td></tr>
+<tr><td><code>policy_backend.model.task_name</code></td><td>Model-server task/prompt setting.</td></tr>
+<tr><td><code>policy_backend.model.train_config_name</code></td><td>Model training configuration name used to reconstruct/load the policy.</td></tr>
+<tr><td><code>policy_backend.server</code></td><td>Backend server identity string, or WebSocket URL under policy.options.</td></tr>
+<tr><td><code>policy_backend.server_instance_id</code></td><td>Unique running policy-server instance ID.</td></tr>
+<tr><td><code>policy_backend.server_revision</code></td><td>Policy server&#x27;s reported source revision.</td></tr>
+<tr><td><code>policy_label</code></td><td>Human-readable policy label used in RoboGUI.</td></tr>
+<tr><td><code>policy_worker</code></td><td>Policy worker transport/backend implementation, e.g. xpolicylab_ws.</td></tr>
+<tr><td><code>reference_layout.path</code></td><td>Absolute path of the referenced image, file or deployment artifact; identity evidence, not embedded file contents.</td></tr>
+<tr><td><code>reference_layout.sha256</code></td><td>SHA-256 of the identified file&#x27;s bytes. null means that hash was unavailable.</td></tr>
+<tr><td><code>reference_layout.task</code></td><td>Policy instruction in top-level meta; reference_layout.task is the reference-image gallery name, not the evaluation task_id.</td></tr>
+<tr><td><code>repeat_id</code></td><td>Repeat number within the selected layout.</td></tr>
+<tr><td><code>robot_backend.connected</code></td><td>Connection status at metadata capture; not a guarantee of later connectivity.</td></tr>
+<tr><td><code>robot_backend.execute</code></td><td>Whether hardware command execution is enabled.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.arm_type</code></td><td>Arm implementation/type reported by the driver.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.captured_monotonic_ns</code></td><td>Host monotonic time when the hardware metadata snapshot was captured.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.channel</code></td><td>Physical CAN/controller channel binding.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.connected</code></td><td>Connection status at metadata capture; not a guarantee of later connectivity.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.effective.clip_motor_torque_nm</code></td><td>SDK torque-clipping limit in Nm; inf means this particular clamp is unbounded.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.effective.coulomb_friction</code></td><td>Configured per-motor Coulomb-friction compensation magnitude; active only if use_coulomb_friction is true.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.effective.enable_auto_recovery</code></td><td>SDK automatic recovery setting.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.effective.grav_comp_kd</code></td><td>SDK damping gains used in gravity-compensation behavior.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.effective.gravity_comp_factor</code></td><td>Per-motor multipliers on modeled gravity-compensation torque.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.effective.gripper_clog_effort_threshold_nm</code></td><td>Effort threshold used by the SDK gripper obstruction detector, Nm.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.effective.gripper_clog_speed_threshold</code></td><td>SDK gripper obstruction speed threshold; interpret in the SDK&#x27;s gripper-speed convention.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.effective.gripper_effort_average_window_s</code></td><td>Time window for gripper effort averaging, seconds.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.effective.gripper_force_limit_n</code></td><td>Configured gripper force limit, newtons.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.effective.gripper_index</code></td><td>Gripper coordinate index in the arm vector (zero-based).</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.effective.gripper_limits_raw_rad</code></td><td>SDK gripper closed/open motor-position endpoints in raw motor radians.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.effective.joint_limits_rad</code></td><td>SDK joint-position limits, radians.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.effective.kd</code></td><td>Per-motor derivative gains.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.effective.kp</code></td><td>Per-motor proportional gains.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.effective.last_reported_communication_hz</code></td><td>SDK&#x27;s last reported communication-rate statistic at capture; zero can mean not yet populated, not proof of zero traffic.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.effective.motor_direction</code></td><td>Per-motor sign used for joint/motor coordinate conversion.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.effective.motor_offset_rad</code></td><td>Per-motor angular zero offset, radians.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.effective.use_coulomb_friction</code></td><td>Whether Coulomb-friction compensation is enabled.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.effective.use_gravity_comp</code></td><td>Whether gravity compensation is enabled.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.gripper_calibration.effective_closed_open_raw_rad</code></td><td>Effective calibrated closed/open motor endpoints used by the connected SDK.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.gripper_calibration.procedure</code></td><td>Calibration procedure identifier if reported; null means unavailable.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.gripper_calibration.procedure_reason</code></td><td>Why calibration procedure/origin is unavailable.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.gripper_calibration.source</code></td><td>Evidence origin, e.g. connected_sdk_gripper_limits; under completion_time, human_annotation.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.gripper_type</code></td><td>Gripper implementation/model.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.sdk.available</code></td><td>Whether the artifact/source/SDK could be inspected.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.sdk.loaded_robot_module.mode</code></td><td>Context-dependent mode: manifest run/serve; source-file POSIX permission bits; sensor read mode or executor limit mode in config.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.sdk.loaded_robot_module.module</code></td><td>Python module implementing the loaded model or robot SDK.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.sdk.loaded_robot_module.path</code></td><td>Absolute path of the referenced image, file or deployment artifact; identity evidence, not embedded file contents.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.sdk.loaded_robot_module.sha256</code></td><td>SHA-256 of the identified file&#x27;s bytes. null means that hash was unavailable.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.sdk.loaded_robot_module.size_bytes</code></td><td>File size from stat(); for a directory it is the directory entry size, NOT total checkpoint bytes.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.sdk.loaded_robot_module.stable_read</code></td><td>Whether file size and modification time stayed unchanged during fingerprinting.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.sdk.name</code></td><td>Name of the containing template, sensor, SDK or component.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.sdk.source.commit_id</code></td><td>Reported source-control commit of an installed package.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.sdk.source.url</code></td><td>Source repository URL recorded by package installation metadata.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.sdk.source.vcs</code></td><td>Source version-control system, e.g. git.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.sdk.source_complete</code></td><td>Whether all selected SDK source files were fingerprinted successfully; not full experiment reproducibility.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.sdk.source_files.{file}.mode</code></td><td>POSIX permission bits from stat(), stored as an integer; not an inference mode.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.sdk.source_files.{file}.sha256</code></td><td>SHA-256 of the identified file&#x27;s bytes. null means that hash was unavailable.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.sdk.source_files.{file}.size_bytes</code></td><td>File size from stat(); for a directory it is the directory entry size, NOT total checkpoint bytes.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.sdk.source_files.{file}.stable_read</code></td><td>Whether file size and modification time stayed unchanged during fingerprinting.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.sdk.source_sha256</code></td><td>Fingerprint of the selected source manifest, including recorded file evidence; not necessarily a whole-repository archive hash.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.sdk.version</code></td><td>Installed package version.</td></tr>
+<tr><td><code>robot_backend.groups.{arm}.unavailable</code></td><td>Map of metadata fields that could not be captured and the reason for each; an empty map reports none.</td></tr>
+<tr><td><code>runtime</code></td><td>Selected inference strategy name, e.g. rtc.</td></tr>
+<tr><td><code>session_id</code></td><td>Manifest: runtime-service session/directory ID. meta: per-rollout worker/reset session ID; these intentionally differ.</td></tr>
+<tr><td><code>smooth</code></td><td>Smooth-executor settings snapshot; null when Smooth is not the selected executor.</td></tr>
+<tr><td><code>task</code></td><td>Policy instruction in top-level meta; reference_layout.task is the reference-image gallery name, not the evaluation task_id.</td></tr>
+<tr><td><code>view_profile</code></td><td>Optional named adapter camera/view profile; null if no named profile was selected.</td></tr>
+<tr><td><code>warmup.calibration_latency_ns</code></td><td>Rolling warmup end-to-end duration samples in nanoseconds, excluding the first successful call per branch.</td></tr>
+<tr><td><code>warmup.calibration_sample_count</code></td><td>Number of samples currently in the bounded delay-calibration buffer, not total warmup requests.</td></tr>
+<tr><td><code>warmup.completed_requests</code></td><td>Cumulative successfully decoded warmup requests, including first calls.</td></tr>
+<tr><td><code>warmup.error</code></td><td>Error detail if present; empty string or null means no error reported by this component.</td></tr>
+<tr><td><code>warmup.first_inference_ms.conditioned</code></td><td>First successful conditioned-branch warmup end-to-end duration in milliseconds when under first_inference_ms.</td></tr>
+<tr><td><code>warmup.first_inference_ms.ordinary</code></td><td>First successful ordinary-branch warmup end-to-end duration in milliseconds when under first_inference_ms.</td></tr>
+<tr><td><code>warmup.latency_calibrated</code></td><td>Whether at least one eligible warmup delay sample exists; not a statistical quality guarantee.</td></tr>
+<tr><td><code>warmup.latest_branch</code></td><td>Branch of the latest submitted warmup request.</td></tr>
+<tr><td><code>warmup.phase</code></td><td>Warmup lifecycle: idle, warming, draining, resetting, complete or error. Historical runs may start directly in warming.</td></tr>
+<tr><td><code>warmup.recent_inference_ms</code></td><td>Recent successful warmup end-to-end durations in milliseconds, including first calls; not the same as worker-only inference_ms.</td></tr>
+</tbody></table></details>
+<details><summary>result.json — runtime outcome</summary><table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody>
+<tr><td><code>control_timing.status</code></td><td>Component status. control_timing.status=disabled means detailed per-stage loop timing was not saved.</td></tr>
+<tr><td><code>run_completed</code></td><td>Runtime reached normal finalization; not human task success. Replaces the legacy top-level runtime success key.</td></tr>
+<tr><td><code>steps</code></td><td>Number of formally recorded control ticks. Does not count warmup ticks and is not a task-success metric.</td></tr>
+<tr><td><code>success</code></td><td>Legacy runtime result/event key meaning normal runtime finalization. Under evaluation.options[] it instead defines complete TASK success for that score option.</td></tr>
+<tr><td><code>terminal_reason</code></td><td>Why the run ended; robogui_finish_requested means the user requested Finish.</td></tr>
+<tr><td><code>video_recording.dropped_bundles</code></td><td>Video bundles rejected because the encoder queue was full; not all possible camera/frame losses.</td></tr>
+<tr><td><code>video_recording.enabled</code></td><td>Whether this specific component or recording feature is enabled.</td></tr>
+<tr><td><code>video_recording.error</code></td><td>Error detail if present; empty string or null means no error reported by this component.</td></tr>
+<tr><td><code>video_recording.frames_written</code></td><td>Total encoded frames summed over cameras. Three cameras with 1044 frames each give 3132, not 3132 synchronized time points.</td></tr>
+<tr><td><code>wall_time_s</code></td><td>Elapsed run() wall time until finalization is invoked, in seconds; includes startup, warmup and pauses. Not task completion time or video duration.</td></tr>
+</tbody></table></details>
+<details><summary>videos/index.json — encoded camera frames</summary><table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody>
+<tr><td><code>cameras.{camera}.capture_monotonic_ns</code></td><td>One host-monotonic capture timestamp per encoded camera frame, in MP4 frame order. Preserve each camera&#x27;s own timestamp sequence.</td></tr>
+<tr><td><code>cameras.{camera}.file</code></td><td>Camera MP4 filename relative to videos/.</td></tr>
+<tr><td><code>codec</code></td><td>Video codec passed to the encoder, e.g. mp4v.</td></tr>
+<tr><td><code>dropped_bundles</code></td><td>Video bundles rejected because the encoder queue was full; not all possible camera/frame losses.</td></tr>
+<tr><td><code>error</code></td><td>Error detail if present; empty string or null means no error reported by this component.</td></tr>
+<tr><td><code>fps</code></td><td>Configured camera rate or video encoding rate depending on parent object; not a measured rate. Video replay timestamps must come from index.json.</td></tr>
+<tr><td><code>frames_written</code></td><td>Total encoded frames summed over cameras. Three cameras with 1044 frames each give 3132, not 3132 synchronized time points.</td></tr>
+<tr><td><code>schema</code></td><td>Version tag describing the structure of this document.</td></tr>
+</tbody></table></details>
+<details><summary>events.jsonl — episode_started</summary><table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody>
+<tr><td><code>episode_id</code></td><td>Rollout directory identity within its runtime-service session.</td></tr>
+<tr><td><code>kind</code></td><td>Event type in events.jsonl; in an evaluation rubric, binary / count / stages selects the scoring rule.</td></tr>
+</tbody></table></details>
+<details><summary>events.jsonl — robogui_control_state</summary><table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody>
+<tr><td><code>control_age_ms</code></td><td>Milliseconds since the request-start time of the latest successfully received RoboGUI control snapshot. Includes its round trip and subsequent cache residence; not robot-state age or camera age.</td></tr>
+<tr><td><code>error_count</code></td><td>Cumulative non-timeout UI-control transport errors in this client.</td></tr>
+<tr><td><code>kind</code></td><td>Event type in events.jsonl; in an evaluation rubric, binary / count / stages selects the scoring rule.</td></tr>
+<tr><td><code>monotonic_ns</code></td><td>Host monotonic-clock timestamp in nanoseconds. Meaning is the owning event/state/tick instant; not Unix calendar time.</td></tr>
+<tr><td><code>paused</code></td><td>Whether the runtime is required to hold instead of executing policy commands.</td></tr>
+<tr><td><code>reason</code></td><td>Context-specific reason code: for control, running / robogui_pause / stale_control / not_ready / home / finish / control_thread_stopped; for provenance, why evidence is unavailable.</td></tr>
+<tr><td><code>reply_rtt_ms</code></td><td>Latest successful UI-control request/reply round trip in milliseconds. Includes UI processing and scheduling, not just network transport.</td></tr>
+<tr><td><code>server_timing.lock_wait_ms</code></td><td>Time the GUI control handler waited to acquire its shared lock, in milliseconds.</td></tr>
+<tr><td><code>server_timing.state_read_ms</code></td><td>Time spent constructing the control reply while holding the lock, in milliseconds.</td></tr>
+<tr><td><code>step</code></td><td>Formal recorded control-step counter at this event. Warmup remains at step 0; model steps and camera frames use different counters.</td></tr>
+<tr><td><code>timeout_count</code></td><td>Cumulative UI-control request timeouts in this runtime control client; not dropped camera frames or failed policy requests.</td></tr>
+<tr><td><code>transport_status</code></td><td>Latest control transport outcome, such as ok or timeout. An earlier fresh successful snapshot can still be used after a timeout.</td></tr>
+</tbody></table></details>
+<details><summary>events.jsonl — warmup_inference_submitted</summary><table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody>
+<tr><td><code>branch</code></td><td>Warmup request branch: ordinary has no RTC action condition; conditioned exercises RTC conditioning. These are model paths, not robot arms or Git branches.</td></tr>
+<tr><td><code>horizon_steps</code></td><td>Number of action points in the model chunk, not control-loop ticks.</td></tr>
+<tr><td><code>kind</code></td><td>Event type in events.jsonl; in an evaluation rubric, binary / count / stages selects the scoring rule.</td></tr>
+<tr><td><code>request_seq</code></td><td>Inference request sequence: negative during warmup, positive for formal requests. Joins request/acceptance/chunk records.</td></tr>
+</tbody></table></details>
+<details><summary>events.jsonl — warmup_inference_completed</summary><table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody>
+<tr><td><code>branch</code></td><td>Warmup request branch: ordinary has no RTC action condition; conditioned exercises RTC conditioning. These are model paths, not robot arms or Git branches.</td></tr>
+<tr><td><code>e2e_ms</code></td><td>Warmup: elapsed host time from min(request scheduling time, observation anchor) through response polling and action decoding. Includes observation age, preparation, transport, model call and decoding.</td></tr>
+<tr><td><code>first_call</code></td><td>Whether this is the first successful completion for this warmup branch; excluded from the delay-calibration buffer.</td></tr>
+<tr><td><code>inference_ms</code></td><td>Worker duration around model.infer(). For the WebSocket client this includes observation encoding, transport, server inference and reply conversion; not isolated GPU time. Tick values repeat the latest accepted request duration.</td></tr>
+<tr><td><code>kind</code></td><td>Event type in events.jsonl; in an evaluation rubric, binary / count / stages selects the scoring rule.</td></tr>
+<tr><td><code>request_seq</code></td><td>Inference request sequence: negative during warmup, positive for formal requests. Joins request/acceptance/chunk records.</td></tr>
+</tbody></table></details>
+<details><summary>events.jsonl — warmup_start_requested</summary><table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody>
+<tr><td><code>kind</code></td><td>Event type in events.jsonl; in an evaluation rubric, binary / count / stages selects the scoring rule.</td></tr>
+</tbody></table></details>
+<details><summary>events.jsonl — formal_rollout_ready</summary><table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody>
+<tr><td><code>inference_seed</code></td><td>Configured/reported inference random seed; warmup is fenced by backend reset before formal execution.</td></tr>
+<tr><td><code>kind</code></td><td>Event type in events.jsonl; in an evaluation rubric, binary / count / stages selects the scoring rule.</td></tr>
+<tr><td><code>latency_sample_count</code></td><td>Number of warmup delay samples transferred into the formal inference strategy.</td></tr>
+</tbody></table></details>
+<details><summary>events.jsonl — warmup_completed</summary><table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody>
+<tr><td><code>calibration_latency_ns</code></td><td>Rolling warmup end-to-end duration samples in nanoseconds, excluding the first successful call per branch.</td></tr>
+<tr><td><code>calibration_sample_count</code></td><td>Number of samples currently in the bounded delay-calibration buffer, not total warmup requests.</td></tr>
+<tr><td><code>completed_requests</code></td><td>Cumulative successfully decoded warmup requests, including first calls.</td></tr>
+<tr><td><code>error</code></td><td>Error detail if present; empty string or null means no error reported by this component.</td></tr>
+<tr><td><code>first_inference_ms.conditioned</code></td><td>First successful conditioned-branch warmup end-to-end duration in milliseconds when under first_inference_ms.</td></tr>
+<tr><td><code>first_inference_ms.ordinary</code></td><td>First successful ordinary-branch warmup end-to-end duration in milliseconds when under first_inference_ms.</td></tr>
+<tr><td><code>kind</code></td><td>Event type in events.jsonl; in an evaluation rubric, binary / count / stages selects the scoring rule.</td></tr>
+<tr><td><code>latency_calibrated</code></td><td>Whether at least one eligible warmup delay sample exists; not a statistical quality guarantee.</td></tr>
+<tr><td><code>latest_branch</code></td><td>Branch of the latest submitted warmup request.</td></tr>
+<tr><td><code>phase</code></td><td>Warmup lifecycle: idle, warming, draining, resetting, complete or error. Historical runs may start directly in warming.</td></tr>
+<tr><td><code>recent_inference_ms</code></td><td>Recent successful warmup end-to-end durations in milliseconds, including first calls; not the same as worker-only inference_ms.</td></tr>
+</tbody></table></details>
+<details><summary>events.jsonl — inference_submitted</summary><table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody>
+<tr><td><code>conditioned</code></td><td>Whether an inference uses action conditioning; under first_inference_ms, the first successful conditioned-branch warmup end-to-end duration in milliseconds.</td></tr>
+<tr><td><code>executed_steps</code></td><td>Source trajectory cursor used when building the next RTC request, in model steps; includes source offset and elapsed scheduled steps, not measured physical completion.</td></tr>
+<tr><td><code>forecast_delay</code></td><td>Delay forecast used for this request, in model steps. Zero may mean the unconditioned first request did not use a forecast.</td></tr>
+<tr><td><code>kind</code></td><td>Event type in events.jsonl; in an evaluation rubric, binary / count / stages selects the scoring rule.</td></tr>
+<tr><td><code>request_seq</code></td><td>Inference request sequence: negative during warmup, positive for formal requests. Joins request/acceptance/chunk records.</td></tr>
+</tbody></table></details>
+<details><summary>events.jsonl — control_overrun</summary><table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody>
+<tr><td><code>kind</code></td><td>Event type in events.jsonl; in an evaluation rubric, binary / count / stages selects the scoring rule.</td></tr>
+<tr><td><code>lag_ns</code></td><td>How far the control-loop work exceeded the next scheduled tick deadline, in nanoseconds; not the entire loop period.</td></tr>
+<tr><td><code>step</code></td><td>Formal recorded control-step counter at this event. Warmup remains at step 0; model steps and camera frames use different counters.</td></tr>
+</tbody></table></details>
+<details><summary>events.jsonl — plan_accepted</summary><table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody>
+<tr><td><code>decode_ms</code></td><td>Host time converting returned actions into the runtime canonical action chunk, in milliseconds.</td></tr>
+<tr><td><code>forecast_delay</code></td><td>Delay forecast used for this request, in model steps. Zero may mean the unconditioned first request did not use a forecast.</td></tr>
+<tr><td><code>kind</code></td><td>Event type in events.jsonl; in an evaluation rubric, binary / count / stages selects the scoring rule.</td></tr>
+<tr><td><code>measured_delay</code></td><td>ceil(rtc_delay_ms / model step duration), in model steps; measures processing delay, not mechanical tracking lag.</td></tr>
+<tr><td><code>observation_to_commit_ms</code></td><td>Elapsed time from observation anchor to timeline acceptance, in milliseconds. The anchor is not necessarily image exposure time.</td></tr>
+<tr><td><code>plan_id</code></td><td>Unique decoded plan identifier linking accepted plans and recorded ticks.</td></tr>
+<tr><td><code>request_seq</code></td><td>Inference request sequence: negative during warmup, positive for formal requests. Joins request/acceptance/chunk records.</td></tr>
+<tr><td><code>request_to_commit_ms</code></td><td>Elapsed time from request scheduling to timeline acceptance, in milliseconds.</td></tr>
+<tr><td><code>rtc_delay_ms</code></td><td>RTC delay measurement: commit time minus min(request scheduling time, observation anchor), in milliseconds.</td></tr>
+<tr><td><code>rtc_executed_steps_at_commit</code></td><td>Source index where the newly accepted RTC suffix begins (source offset plus trimmed steps); not proof those skipped actions physically executed.</td></tr>
+<tr><td><code>rtc_source_horizon</code></td><td>Full source chunk length before prefix trimming, in model steps.</td></tr>
+<tr><td><code>server_ms</code></td><td>Historical name for rounded worker inference_ms. Includes the WebSocket round trip and client work; not pure server or GPU time.</td></tr>
+<tr><td><code>timeline_latency_ms</code></td><td>Timeline acceptance time minus chunk observation/time anchor, in milliseconds; equal to observation_to_commit_ms for this RTC run.</td></tr>
+<tr><td><code>trimmed_steps</code></td><td>Prefix rows removed by Timeline from the supplied chunk because their trajectory times have passed.</td></tr>
+</tbody></table></details>
+<details><summary>events.jsonl — plan_boundary</summary><table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody>
+<tr><td><code>action_space</code></td><td>Canonical trajectory representation; joint_position is absolute joint targets plus normalized gripper coordinates for this YAM layout.</td></tr>
+<tr><td><code>blend_anchor_source</code></td><td>Which vector was selected as the boundary-blending anchor, e.g. last_command.</td></tr>
+<tr><td><code>blend_steps</code></td><td>Number of model steps configured for boundary blending; zero means no such blend.</td></tr>
+<tr><td><code>committed_first.{arm}</code></td><td>First target in the accepted timeline horizon after trimming/blending, grouped by arm.</td></tr>
+<tr><td><code>kind</code></td><td>Event type in events.jsonl; in an evaluation rubric, binary / count / stages selects the scoring rule.</td></tr>
+<tr><td><code>last_command.{arm}</code></td><td>Most recently submitted executor command at this plan-boundary event.</td></tr>
+<tr><td><code>measured.{arm}</code></td><td>Measured robot state sampled for this boundary event.</td></tr>
+<tr><td><code>monotonic_ns</code></td><td>Host monotonic-clock timestamp in nanoseconds. Meaning is the owning event/state/tick instant; not Unix calendar time.</td></tr>
+<tr><td><code>plan_id</code></td><td>Unique decoded plan identifier linking accepted plans and recorded ticks.</td></tr>
+<tr><td><code>previous_command.{arm}</code></td><td>Command from the preceding tick relative to last_command, used to assess command continuity.</td></tr>
+<tr><td><code>previous_reference</code></td><td>Old timeline reference at the new commit instant; null if no prior reference exists.</td></tr>
+<tr><td><code>previous_reference.{arm}</code></td><td>Old timeline reference at the new commit instant; null if no prior reference exists.</td></tr>
+<tr><td><code>raw_first.{arm}</code></td><td>First surviving source row at index trimmed_steps, before blending. It is NOT necessarily original chunk row 0.</td></tr>
+<tr><td><code>request_seq</code></td><td>Inference request sequence: negative during warmup, positive for formal requests. Joins request/acceptance/chunk records.</td></tr>
+<tr><td><code>step</code></td><td>Formal recorded control-step counter at this event. Warmup remains at step 0; model steps and camera frames use different counters.</td></tr>
+<tr><td><code>trimmed_steps</code></td><td>Prefix rows removed by Timeline from the supplied chunk because their trajectory times have passed.</td></tr>
+</tbody></table></details>
+<details><summary>events.jsonl — robogui_finish_requested</summary><table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody>
+<tr><td><code>home</code></td><td>Whether this Finish request asks the runtime to return Home during cleanup.</td></tr>
+<tr><td><code>kind</code></td><td>Event type in events.jsonl; in an evaluation rubric, binary / count / stages selects the scoring rule.</td></tr>
+<tr><td><code>step</code></td><td>Formal recorded control-step counter at this event. Warmup remains at step 0; model steps and camera frames use different counters.</td></tr>
+</tbody></table></details>
+<details><summary>events.jsonl — episode_finished</summary><table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody>
+<tr><td><code>kind</code></td><td>Event type in events.jsonl; in an evaluation rubric, binary / count / stages selects the scoring rule.</td></tr>
+<tr><td><code>steps</code></td><td>Number of formally recorded control ticks. Does not count warmup ticks and is not a task-success metric.</td></tr>
+<tr><td><code>success</code></td><td>Legacy runtime result/event key meaning normal runtime finalization. Under evaluation.options[] it instead defines complete TASK success for that score option.</td></tr>
+<tr><td><code>terminal_reason</code></td><td>Why the run ended; robogui_finish_requested means the user requested Finish.</td></tr>
+</tbody></table></details>
+
+<details><summary>data.zarr/ticks — arrays</summary><table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody>
+<tr><td><code>monotonic_ns</code></td><td>Per-recorded-tick host monotonic timestamp (ns), using the control loop&#x27;s now_ns anchor. Not an individual motor hardware-sampling timestamp.</td></tr>
+<tr><td><code>state/{arm}</code></td><td>Measured feedback vector, shape [recorded ticks, coordinates]. In this YAM layout: J1–J6 radians, then normalized gripper opening (0 closed, 1 open).</td></tr>
+<tr><td><code>scheduled/{arm}</code></td><td>Timeline reference sampled for this tick, before executor processing.</td></tr>
+<tr><td><code>command/{arm}</code></td><td>Executor target recorded after robot.send_command() returns. It is the target submitted to the robot interface, not a motor-receipt acknowledgment.</td></tr>
+<tr><td><code>plan_id</code></td><td>Plan associated with the command; empty string when no plan is associated.</td></tr>
+<tr><td><code>inference_ms</code></td><td>Latest accepted worker call duration repeated across ticks. Do not average this array to obtain a per-request latency distribution.</td></tr>
+<tr><td><code>camera_time_ns/{camera}</code></td><td>Capture timestamp associated with the image held at this control tick, in host monotonic ns. Repeated values indicate reused frames; -1 means missing.</td></tr>
+<tr><td><code>sent_command/{arm}/valid</code></td><td>Whether a complete SDK CAN-send snapshot was available for this recorded tick.</td></tr>
+<tr><td><code>sent_command/{arm}/sequence</code></td><td>SDK complete-send-cycle counter; repeated values identify reuse of the same cached snapshot.</td></tr>
+<tr><td><code>sent_command/{arm}/position</code></td><td>Decoded wire position targets mapped back to joint radians and normalized gripper opening, after SDK processing.</td></tr>
+<tr><td><code>sent_command/{arm}/motor_position</code></td><td>Decoded MIT wire position target in motor radians, including direction/zero-coordinate conversion.</td></tr>
+<tr><td><code>sent_command/{arm}/send_time_ns</code></td><td>Per-motor Unix timestamp immediately before its last successful host bus.send(). Not the motor receive time.</td></tr>
+<tr><td><code>sent_command/{arm}/send_monotonic_ns</code></td><td>Same send-start boundary on the host monotonic clock, in ns.</td></tr>
+<tr><td><code>sent_command/{arm}/send_end_monotonic_ns</code></td><td>Host monotonic timestamp after that bus.send() returned. End minus start measures the host send call, not physical bus-to-motor completion.</td></tr>
+<tr><td><code>sent_command/{arm}/send_count</code></td><td>Successful host sends, including retries, in that motor transaction.</td></tr>
+<tr><td><code>sent_command attrs: source, position, motor_position, send_time_ns, send_monotonic_ns, send_end_monotonic_ns, send_count, sequence, missing, scope</code></td><td>Embedded schema descriptions for the corresponding arrays. They are descriptive strings, not extra samples. Missing snapshots use valid=false, NaN positions and -1 integer fields. These records sample host send evidence; they are not a full CAN log.</td></tr>
+</tbody></table></details>
+<details><summary>data.zarr/plans/{index} — chunks and attributes</summary><table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody>
+<tr><td><code>{index}</code></td><td>Zero-padded storage ordinal of an accepted plan, e.g. 000000; not necessarily its request sequence.</td></tr>
+<tr><td><code>plan_id</code></td><td>Plan identifier used to join events and ticks.</td></tr>
+<tr><td><code>request_seq</code></td><td>Formal inference request sequence that produced this plan.</td></tr>
+<tr><td><code>canonical_raw/{arm}</code></td><td>Decoded canonical chunk BEFORE strategy processing. It is not the padded/normalized raw neural-network tensor.</td></tr>
+<tr><td><code>infra_output/{arm}</code></td><td>Chunk AFTER strategy processing and before Timeline trimming/blending. RTC may preserve the same numeric rows while adding timing metadata.</td></tr>
+<tr><td><code>committed/{arm}</code></td><td>Final accepted trajectory suffix after Timeline trimming/blending.</td></tr>
+<tr><td><code>canonical_raw / infra_output: observation_time_ns</code></td><td>Monotonic source-trajectory time anchor, usually the request&#x27;s state observation timestamp. It is not a claim that all camera and state samples were simultaneous.</td></tr>
+<tr><td><code>canonical_raw / infra_output: created_time_ns</code></td><td>Chunk creation provenance from the worker&#x27;s response-finished timestamp; adapter work can occur later.</td></tr>
+<tr><td><code>canonical_raw / infra_output: dt_ns</code></td><td>Spacing of consecutive model action points, ns; independent of control-tick spacing.</td></tr>
+<tr><td><code>canonical_raw / infra_output: action_space</code></td><td>Canonical representation, joint_position here.</td></tr>
+<tr><td><code>canonical_raw / infra_output: source_offset_steps</code></td><td>Original source index represented by row 0 of this decoded chunk; nonzero when an upstream decoder already omitted a prefix.</td></tr>
+<tr><td><code>canonical_raw / infra_output: hold_from_step</code></td><td>Per-group suffix-hold boundary in decoded chunk rows when present; empty for complete RTC joint plans.</td></tr>
+<tr><td><code>canonical_raw / infra_output: metadata.decode_ms</code></td><td>Host canonical action-decoding duration, milliseconds.</td></tr>
+<tr><td><code>infra_output: metadata.observation_to_commit_ms</code></td><td>Observation anchor to commit duration, milliseconds.</td></tr>
+<tr><td><code>infra_output: metadata.timeline_latency_ms</code></td><td>Timeline&#x27;s age measurement at commit, milliseconds; this RTC run uses the same observation anchor.</td></tr>
+<tr><td><code>committed: start_time_ns</code></td><td>Host monotonic time from which Timeline schedules the committed trajectory.</td></tr>
+<tr><td><code>committed: observation_time_ns, dt_ns, plan_id, action_space</code></td><td>Inherited observation provenance, action interval, identity and coordinate representation. Array row 0 is the committed suffix start.</td></tr>
+</tbody></table></details>
+<details><summary>Zarr storage files — implementation metadata</summary><table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody>
+<tr><td><code>.zgroup / zarr_format</code></td><td>Zarr format version; 2 in this recording. Group marker, not a robot datum.</td></tr>
+<tr><td><code>.zattrs</code></td><td>JSON group attributes carrying the plan/schema meanings documented above.</td></tr>
+<tr><td><code>.zarray / shape</code></td><td>Full numeric array dimensions.</td></tr>
+<tr><td><code>.zarray / chunks</code></td><td>Storage chunk dimensions. These storage chunks are unrelated to policy action chunks.</td></tr>
+<tr><td><code>.zarray / dtype</code></td><td>Numeric/string dtype including byte order, e.g. &lt;i8 is little-endian signed int64.</td></tr>
+<tr><td><code>.zarray / fill_value</code></td><td>Storage fill value for unwritten cells; not automatically a valid robot measurement.</td></tr>
+<tr><td><code>.zarray / order</code></td><td>Memory element ordering, C or F.</td></tr>
+<tr><td><code>.zarray / filters</code></td><td>Optional preprocessing codecs; null means none.</td></tr>
+<tr><td><code>.zarray / compressor.id</code></td><td>Compression codec family, e.g. blosc.</td></tr>
+<tr><td><code>.zarray / compressor.cname</code></td><td>Compression algorithm, e.g. lz4.</td></tr>
+<tr><td><code>.zarray / compressor.clevel</code></td><td>Compression level.</td></tr>
+<tr><td><code>.zarray / compressor.shuffle</code></td><td>Codec byte/bit shuffle mode.</td></tr>
+<tr><td><code>.zarray / compressor.blocksize</code></td><td>Codec block size; 0 lets the codec choose.</td></tr>
+<tr><td><code>0 / 0.0 / other numbered storage files</code></td><td>Compressed array chunks. Read through Zarr; filenames are storage coordinates, not event sequence IDs.</td></tr>
+</tbody></table></details>
+<details><summary>evaluation/human-label.json — optional human assessment</summary><table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody>
+<tr><td><code>label_schema</code></td><td>Human-label format version, human-label-v2 for new labels.</td></tr>
+<tr><td><code>task_result</code></td><td>Human task outcome: success, failure or invalid. This is distinct from result.json.run_completed.</td></tr>
+<tr><td><code>stage_id</code></td><td>Selected rubric stage for stages scoring.</td></tr>
+<tr><td><code>completed_count</code></td><td>Human-reported count for count-based scoring; absent for stages/binary scoring.</td></tr>
+<tr><td><code>target_count</code></td><td>Target count from the recorded count rubric.</td></tr>
+<tr><td><code>score</code></td><td>Derived stage score or completed_count / target_count. No score is invented when evaluation is skipped.</td></tr>
+<tr><td><code>evaluation</code></td><td>Frozen rule snapshot: kind, task_id, rubric_id, label and options[]. Each option has id, label, score and complete-task-success flag; count rules also include target_count/count_label.</td></tr>
+<tr><td><code>failure_tags</code></td><td>Deduplicated human-selected failure categories.</td></tr>
+<tr><td><code>operator_note</code></td><td>Free-text assessment note.</td></tr>
+<tr><td><code>reviewer_id</code></td><td>Operator/reviewer identity entered in the UI.</td></tr>
+<tr><td><code>review_mode</code></td><td>live or video, identifying how the assessment was made.</td></tr>
+<tr><td><code>created_at</code></td><td>UTC timestamp when the label was written.</td></tr>
+<tr><td><code>completion_time.seconds</code></td><td>Explicit human annotation from first formal Start to meeting the success criterion. Only supported for successful task results.</td></tr>
+<tr><td><code>completion_time.origin</code></td><td>first_formal_start.</td></tr>
+<tr><td><code>completion_time.endpoint</code></td><td>task_success.</td></tr>
+<tr><td><code>completion_time.source</code></td><td>human_annotation; not a runtime-duration measurement.</td></tr>
+</tbody></table></details>
+<details><summary>Later-version / interrupted-run additions</summary><table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody>
+<tr><td><code>meta.json.identity_frozen</code></td><td>Whether first Start froze the final layout/reference. This field is absent in older records.</td></tr>
+<tr><td><code>events: warmup_activated</code></td><td>Explicit Warmup activation was accepted; separate from warmup_start_requested, which means the operator requested formal Start.</td></tr>
+<tr><td><code>events: rollout_identity_frozen</code></td><td>Final Start-time trial identity; same experiment/layout/reference field meanings as meta.json.</td></tr>
+<tr><td><code>result.json.incomplete</code></td><td>true for an interrupted .partial episode; not a completed trial.</td></tr>
+<tr><td><code>result.json.detail</code></td><td>Exception/error detail accompanying the interruption reason.</td></tr>
+<tr><td><code>events: episode_aborted</code></td><td>Interrupted runtime with terminal_reason and detail.</td></tr>
+<tr><td><code>control_timing.status</code></td><td>disabled: no detailed timing files were captured. saved: timing capture was written. error: export failed, with an error message. Ordinary events.jsonl is independent.</td></tr>
+</tbody></table></details><p>The raw recording has no human-label file after Skip. An absent label is unreviewed, not failure and not success. Warmup generates event/latency evidence, but its predicted chunks are display-only and do not populate the formal recorded plan/tick/video streams. Detailed loop-stage timing is absent when control_timing is disabled.</p></div>
+<p>Check the actual episode path in RoboGUI; station configuration can override the output root.
+Open a finalized episode in a separate, read-only replay process:</p>
+<pre><code class="language-bash">cd /home/ubuntu/manimux
+envs/yam/.venv/bin/python -m manimux.robogui.replay \
+  --robot yam --episode /path/to/session-xxx/rollout-001 \
+  --source state --host 127.0.0.1 --port 8087
+</code></pre>
+<p><code>--source state</code> shows measured state; <code>scheduled</code> shows the timeline reference;
+<code>command</code> shows executor output, not a hardware acknowledgment. For a custom display model,
+replace <code>--robot yam</code> with <code>--config /path/to/robogui.yaml</code>.
+The player starts paused and supports seeking and playback speed using recorded tick timestamps.
+It does not replay RGB videos or connect to hardware. No camera, policy or runtime service is needed.
+Partial episodes and records without the selected stream cannot be replayed.
+<a href=".agents/skills/manimux-experiments/references/records.md">Recording contract</a></p>
+</section>
+<section aria-labelledby="reports" class="guide-page" data-page-id="reports" data-title="Evaluation reports" hidden=""><h2 id="reports">Reports</h2>
+<p>The report index is <strong>separate from the scoring template</strong>. Save it under
+<code>data/evaluation_tasks/&lt;task&gt;/task.yaml</code> and select exact episodes/settings.</p>
+<pre><code class="language-yaml">schema: task-report-v1
+task_id: coin
+title: Coin study
+output_root: ../../analysis
+groups:
+  - setting_id: pi05-coin-50k-rtc-v1
+    model: Pi05
+    method: RTC
+    split: test
+    target_attempts: 6
+    expected:
+      meta.task: put_the_coin_into_the_bin
+      manifest.config.inference.algorithm: rtc
+      meta.policy_backend.model.checkpoint_variant: pi05_yam_coin_step50000
+    episodes: []  # Add actual episode_dir entries after collection.
+</code></pre>
+<p>Paths resolve relative to <code>task.yaml</code>. An empty list means pending, not zero success.
+Bind the recorded checkpoint and resolved setting; do not pool trials by folder name alone.</p>
+<pre><code class="language-bash">envs/yam/.venv/bin/python -m manimux.evaluation \
+  --task-dir data/evaluation_tasks/coin
+</code></pre>
+<p>The command prints the HTML path. With the example output root:</p>
+<pre><code class="language-text">data/analysis/coin/
+├── latest.json
+└── reports/&lt;version&gt;/
+    ├── index.html
+    ├── summary.json
+    ├── episode-metrics.json
+    ├── episodes.csv
+    ├── cohort.jsonl
+    ├── provenance.json
+    ├── task.yaml
+    └── figures/
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Input / interpretation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>H-Score</td>
+<td>Mean valid human partial score; displayed as %</td>
+</tr>
+<tr>
+<td>H-SR</td>
+<td>Human complete successes / valid success-or-failure labels</td>
+</tr>
+<tr>
+<td>Completion time</td>
+<td>Explicit Start → success annotation, successful attempts only</td>
+</tr>
+<tr>
+<td>NLDLJ / NSPARC</td>
+<td>Configured offline smoothness of scheduled EE references; not measured tracking</td>
+</tr>
+<tr>
+<td>Handoff / 10, 20, 30-step similarity</td>
+<td>Reviewed trajectory metrics and attached diagnostic plots</td>
+</tr>
+<tr>
+<td>PRM</td>
+<td>Separately generated judge results; never a replacement for a missing human label</td>
+</tr>
+</tbody>
+</table>
+<p>Invalid and unreviewed counts stay visible; missing metrics remain missing. Keep different rubric
+snapshots separate. The report CLI does not run a robot, PRM inference or a complete formal seam
+evaluator. <a href=".agents/skills/manimux-experiments/references/evaluation-reports.md">Report schema and metric options</a>
+· <a href=".agents/skills/manimux-experiments/references/prm.md">PRM workflow</a>
+· <a href=".agents/skills/manimux-experiments/references/chunk-speed.md">Speed diagnostics</a></p>
+</section>
+<section aria-labelledby="agent-references" class="guide-page" data-page-id="agent-references" data-title="Work with your agent" hidden=""><h2 id="agent-references">Agent references</h2>
+<table>
+<thead>
+<tr>
+<th>Work</th>
+<th>Entry point</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Components, models, adapters and runtime integration</td>
+<td><a href=".agents/skills/manimux-development/SKILL.md">Development skill</a></td>
+</tr>
+<tr>
+<td>Station devices, SDKs and endpoints</td>
+<td><a href=".agents/skills/manimux-station-setup/SKILL.md">Station setup skill</a></td>
+</tr>
+<tr>
+<td>Algorithm/model capability and configuration</td>
+<td><a href=".agents/skills/manimux-inference/SKILL.md">Inference skill</a></td>
+</tr>
+<tr>
+<td>Study rules, labels, metrics and results</td>
+<td><a href=".agents/skills/manimux-experiments/SKILL.md">Experiment skill</a></td>
+</tr>
+</tbody>
+</table>
+<p>This HTML is the maintained user guide. Technical contracts live in each skill's <code>references/</code>.
+<code>docs/</code> is an ignored local archive. The team's private <code>experiments.md</code> retains its study
+decisions and result tables; it is not a second public guide.</p>
+</section>
+<section aria-labelledby="troubleshooting" class="guide-page" data-page-id="troubleshooting" data-title="Troubleshooting" hidden=""><h2 id="troubleshooting">Troubleshooting</h2>
+<table>
+<thead>
+<tr>
+<th>Symptom</th>
+<th>Check first</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Backend identity mismatch</td>
+<td>Same task/checkpoint/normalization/horizon/sampler settings in model and runtime; retain identity checks</td>
+</tr>
+<tr>
+<td>Unsupported sampling mode</td>
+<td>Loaded server capabilities and model constraints; a YAML name is not a sampler implementation</td>
+</tr>
+<tr>
+<td>Repeated holds or rejected chunks</td>
+<td>Inference latency, selected K/H, forecast delay and rejection events</td>
+</tr>
+<tr>
+<td>Wrong camera views</td>
+<td>Station serial bindings and <code>policy.adapter.camera_map</code></td>
+</tr>
+<tr>
+<td>Changed template not visible</td>
+<td>Finish the current attempt and restart runtime with the updated YAML</td>
+</tr>
+<tr>
+<td>Missing report score</td>
+<td>Finalized episode, saved human label, matching rubric and task-index membership</td>
+</tr>
+<tr>
+<td>Missing checkpoint / SDK</td>
+<td>Local installation assets are not included by cloning the repository</td>
+</tr>
+</tbody>
+</table>
+</section>
+<section aria-labelledby="start-here" class="guide-page" data-page-id="start-here" data-title="Topic index" hidden=""><h2 id="start-here">Start here</h2>
+<table>
+<thead>
+<tr>
+<th>Goal</th>
+<th>Go to</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Preview RoboGUI without hardware</td>
+<td><a href="#install">Install</a></td>
+</tr>
+<tr>
+<td>Connect a station or change a checkpoint</td>
+<td><a href="#configuration">Configuration</a></td>
+</tr>
+<tr>
+<td>Compare inference algorithms</td>
+<td><a href="#algorithms">Algorithms</a> · <a href="#shared-parameters">Parameters</a></td>
+</tr>
+<tr>
+<td>Start cameras, policy, UI and runtime</td>
+<td><a href="#launch">Launch</a></td>
+</tr>
+<tr>
+<td>Set layouts, success criteria and partial scores</td>
+<td><a href="#experiments">Experiments</a></td>
+</tr>
+<tr>
+<td>Find recordings and generate a report</td>
+<td><a href="#records">Records</a> · <a href="#reports">Reports</a></td>
+</tr>
+</tbody>
+</table>
+<p>The runtime path is <strong>observation → policy → action adapter → inference strategy / Timeline → executor → robot</strong>.
+Model inference and hardware control run in separate processes. Model output, scheduled reference,
+executor command and measured state are distinct recorded stages.</p>
+</section>
+<nav class="page-footer" aria-label="Page navigation"><a id="prev-page" hidden><small>← Previous</small><span></span></a><a id="next-page" href="#install"><small>Next →</small><span>Install &amp; preview</span></a></nav><footer class="copyright">Copyright © 2026 ManiMux contributors · Maintained source: guideline.html</footer></main><aside id="page-toc" class="toc" aria-label="On this page"></aside></div>
+<noscript><style>.guide-page[hidden]{display:block!important;margin-top:50px}.search-box,.page-footer,.menu-button{display:none}</style></noscript><script>
+const pages=[...document.querySelectorAll('[data-page-id]')];
+const navLinks=[...document.querySelectorAll('[data-page]')];
+const pageMap=new Map(pages.map(p=>[p.dataset.pageId,p]));
+const pageOrder=navLinks.map(a=>a.dataset.page);
+const title=document.querySelector('#current-title');
+const crumb=document.querySelector('#breadcrumb');
+const toc=document.querySelector('#page-toc');
+const search=document.querySelector('#guide-search');
+const results=document.querySelector('#search-results');
+const menu=document.querySelector('#menu');
+function closeMenu(){document.body.classList.remove('nav-open');menu.setAttribute('aria-expanded','false');}
+function route(){
+ let id;try{id=decodeURIComponent(location.hash.slice(1));}catch{id='overview';}
+ if(!id||id==='manimux-guide'||id==='manimux')id='overview';
+ const target=document.getElementById(id);
+ const page=target?.closest('[data-page-id]')||pageMap.get(id)||pageMap.get('overview');
+ pages.forEach(p=>p.hidden=p!==page);
+ navLinks.forEach(a=>{if(a.dataset.page===page.dataset.pageId){a.setAttribute('aria-current','page');const group=a.closest('details');if(group)group.open=true;}else a.removeAttribute('aria-current');});
+ title.textContent=page.dataset.title;crumb.textContent='ManiMux Guide / '+page.dataset.title;
+ document.title=page.dataset.title+' · ManiMux Guide';
+ toc.replaceChildren();
+ const headings=[...page.querySelectorAll('h3[id]')];
+ if(headings.length){const label=document.createElement('div');label.className='toc-title';label.textContent='On this page';toc.append(label);headings.forEach(h=>{const a=document.createElement('a');a.href='#'+h.id;a.textContent=h.textContent;toc.append(a);});}
+ const index=pageOrder.indexOf(page.dataset.pageId);
+ const prev=document.querySelector('#prev-page'),next=document.querySelector('#next-page');
+ for(const [a,n] of [[prev,index-1],[next,index+1]]){const dest=index<0?null:pageMap.get(pageOrder[n]);a.hidden=!dest;if(dest){a.href='#'+dest.dataset.pageId;a.querySelector('span').textContent=dest.dataset.title;}}
+ closeMenu();results.hidden=true;
+ if(target&&target.closest('[data-page-id]')===page&&target.tagName==='H3')target.scrollIntoView();else window.scrollTo(0,0);
+ const mainHeading=page.querySelector('h1,h2');mainHeading.setAttribute('tabindex','-1');mainHeading.focus({preventScroll:true});
+}
+window.addEventListener('hashchange',route);
+document.addEventListener('click',e=>{const a=e.target.closest('a[href^="#"]');if(a&&a.hash===location.hash){e.preventDefault();route();}});
+menu.onclick=()=>{const opened=document.body.classList.toggle('nav-open');menu.setAttribute('aria-expanded',String(opened));};
+document.querySelector('#backdrop').onclick=closeMenu;
+document.querySelectorAll('table').forEach(t=>{const w=document.createElement('div');w.className='table-wrap';t.before(w);w.append(t);});
+document.querySelectorAll('pre').forEach(p=>{const b=document.createElement('button');b.className='copy';b.textContent='Copy';b.setAttribute('aria-label','Copy code');p.append(b);b.onclick=async()=>{try{await navigator.clipboard.writeText(p.querySelector('code').textContent);b.textContent='Copied';}catch{const r=document.createRange();r.selectNodeContents(p.querySelector('code'));getSelection().removeAllRanges();getSelection().addRange(r);b.textContent='Select + copy';}setTimeout(()=>b.textContent='Copy',1800);};});
+const searchIndex=pages.map(p=>({id:p.dataset.pageId,title:p.dataset.title,text:p.textContent.replace(/\s+/g,' ').trim()}));
+search.oninput=()=>{const q=search.value.trim().toLowerCase();results.replaceChildren();results.hidden=!q;if(!q)return;const matches=searchIndex.filter(p=>p.text.toLowerCase().includes(q)||p.title.toLowerCase().includes(q)).slice(0,9);for(const p of matches){const a=document.createElement('a');a.href='#'+p.id;const strong=document.createElement('strong');strong.textContent=p.title;const small=document.createElement('small');const at=Math.max(0,p.text.toLowerCase().indexOf(q)-35);small.textContent=(at?'…':'')+p.text.slice(at,at+145)+'…';a.append(strong,small);results.append(a);}if(!matches.length){const p=document.createElement('p');p.textContent='No matching section';results.append(p);}};
+search.addEventListener('keydown',e=>{if(e.key==='Enter'){const a=results.querySelector('a');if(a)a.click();}if(e.key==='Escape'){results.hidden=true;search.blur();}});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeMenu();results.hidden=true;}});
+document.addEventListener('click',e=>{if(!e.target.closest('.search-box'))results.hidden=true;});
+document.querySelector('#print').onclick=()=>window.print();
+window.addEventListener('beforeprint',()=>{document.querySelectorAll('.guide-page details').forEach(d=>{d.dataset.wasOpen=String(d.open);d.open=true;});});
+window.addEventListener('afterprint',()=>{document.querySelectorAll('.guide-page details').forEach(d=>d.open=d.dataset.wasOpen==='true');});
+if(location.hostname.endsWith('github.io'))document.querySelectorAll('a[href]').forEach(a=>{const h=a.getAttribute('href');if(!/^(#|https?:|mailto:)/.test(h))a.href='https://github.com/SII-LiuLab/manimux/blob/main/'+h;});
+route();
+</script></body></html>

@@ -328,7 +328,7 @@ class TacCapGripper(GripperBase):
             raise RuntimeError("TacCap gripper is not connected")
 
     def send_command(self, command: GripperCommand) -> None:
-        # 先读取指令字段，再进入硬件操作；开度范围由 GripperCommand 定义。
+        # Read command fields before accessing hardware; GripperCommand defines the opening range.
         opening = command.opening
         with self._lock:
             self._require_ready()

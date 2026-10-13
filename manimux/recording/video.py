@@ -156,7 +156,7 @@ class AsyncVideoRecorder:
             },
         }
         with (self._video_dir / "index.json").open("w", encoding="utf-8") as handle:
-            json.dump(index, handle, indent=2, sort_keys=True)
+            json.dump(index, handle, ensure_ascii=False, indent=2, sort_keys=True)
             handle.write("\n")
         return VideoRecordingSummary(
             True,

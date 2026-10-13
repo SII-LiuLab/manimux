@@ -1,4 +1,4 @@
-# Standard single-inflight ManiMux schedule with a 12-policy-step execution prefix.
+# Standard single-inflight Async schedule with a 12-policy-step execution prefix.
 inference_schedule: single_inflight
 refill_threshold_s: 0.4
 max_plan_age_s: 2.0

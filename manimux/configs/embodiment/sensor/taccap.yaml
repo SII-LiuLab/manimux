@@ -1,4 +1,4 @@
-# 相机采集参数；camera_serial 由 local.robot.components 提供。
+# Camera capture parameters; local.robot.components provides camera_serial.
 type: sensor
 implementation: manimux.embodiments.sensor.taccap:TacCapSensor
 options: {}

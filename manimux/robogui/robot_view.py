@@ -119,7 +119,7 @@ def gripper_closed_steps_by_group_at(
 
 
 def _display_frame(frame):
-    """RoboGUI 独有的显示位置（米）和朝向（xyz 欧拉角，弧度），省略时为原点。"""
+    """RoboGUI-only display position in meters and xyz Euler orientation in radians; defaults to the origin."""
     position = tuple(frame.get("xyz", [0.0, 0.0, 0.0]))
     orientation = Rotation.from_euler("xyz", frame.get("rpy", [0.0, 0.0, 0.0]))
     return position, tuple(orientation.as_quat()[[3, 0, 1, 2]])
@@ -141,7 +141,7 @@ class RobotView:
         groups = []
         for name, group in model.groups.items():
             style = styles.get(name, {})
-            # 场景原点由 RoboGUI 隐式提供；这里只摆放模型，绝不修改单臂 FK/IK。
+            # RoboGUI provides the scene origin; place models here without changing arm FK/IK.
             position, orientation = _display_frame(style.get("robogui_display_frame", {}))
             groups.append(
                 RobotGroup(
@@ -203,7 +203,7 @@ class RobotView:
         return result
 
     def pose(self, group, configuration):
-        # 控制 FK 始终在单臂基座中；RoboGUI 节点单独应用显示变换一次。
+        # Control FK stays in the arm base frame; RoboGUI nodes apply the display transform once.
         return self.model.groups[group].kinematics.fk(configuration)
 
     def positions(self, group, configurations):
@@ -251,3 +251,62 @@ class RobotView:
 
     def group(self, name):
         return next(group for group in self.groups if group.name == name)
+
+
+def load_robogui_config(path: Path | None = None, *, robot="tianji") -> dict:
+    from importlib.resources import files
+
+    from manimux.cli import read_yaml
+
+    source = (
+        path if path is not None else Path(__file__).parent / "robots" / robot / "robogui.yaml"
+    ).resolve()
+    config = read_yaml(source)
+    styles = [*config.get("groups", {}).values(), *config.get("scene", {}).get("meshes", {}).values()]
+    if any("viewer_display_frame" in style for style in styles):
+        raise ValueError("Rename preset 'viewer_display_frame' to 'robogui_display_frame'.")
+    if "model" not in config:
+        raise ValueError("RoboGUI YAML must reference a RobotModel using model")
+    model_path = (source.parent / config["model"]).resolve()
+    # RoboGUI and assembly YAML ship with manimux; source and wheel installations share relative paths.
+    if not model_path.is_file():
+        raise FileNotFoundError(model_path)
+    config["model"] = model_path
+    # RoboGUI resolves scene assets such as mounts; embodiment and control processes do not load visual assets.
+    for mesh in config.get("scene", {}).get("meshes", {}).values():
+        resource = mesh["urdf"]
+        if resource.startswith("package://"):
+            package, relative = resource.removeprefix("package://").split("/", 1)
+            mesh["urdf"] = Path(str(files(package).joinpath(relative)))
+        else:
+            mesh["urdf"] = (source.parent / resource).resolve()
+    if config.get("camera_mode", "policy") not in {"policy", "manual"}:
+        raise ValueError("camera_mode must be policy or manual")
+    config.setdefault("camera_mode", "policy")
+    cameras = config.setdefault("cameras", [])
+    if not isinstance(cameras, list):
+        raise ValueError("cameras must be an ordered list")
+    slots = set()
+    for camera in cameras:
+        if (
+            not isinstance(camera, dict)
+            or not isinstance(camera.get("source"), str)
+            or not camera["source"].strip()
+        ):
+            raise ValueError("each camera needs a source")
+        camera.setdefault("label", camera["source"])
+        camera.setdefault("slot", camera["source"])
+        if any(
+            not isinstance(camera[key], str) or not camera[key].strip() for key in ("label", "slot")
+        ):
+            raise ValueError("camera label and slot must be non-empty strings")
+        if camera["slot"] in slots:
+            raise ValueError("camera slots must be unique")
+        slots.add(camera["slot"])
+    return config
+
+
+def load_robot_view(config: dict) -> RobotView:
+    from manimux.embodiments.robot.base import RobotModel
+
+    return RobotView(RobotModel.from_config(config["model"]), config)

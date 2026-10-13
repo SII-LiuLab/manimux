@@ -44,9 +44,9 @@ def main() -> int:
         return 0 if report["status"] == "ready" else 2
     if report["status"] != "ready":
         raise RuntimeError("Isaac 0.5 deployment is not ready: " + "; ".join(report["errors"]))
-    import setup_policy_server
+    from manimux.policies.xpolicylab.server import serve
 
-    setup_policy_server.main(config)
+    serve(config)
     return 0
 
 

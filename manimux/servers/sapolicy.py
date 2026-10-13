@@ -108,9 +108,9 @@ def main() -> int:
     if args.check:
         return 0
 
-    import setup_policy_server
+    from manimux.policies.xpolicylab.server import serve
 
-    setup_policy_server.main(config)
+    serve(config)
     return 0
 
 

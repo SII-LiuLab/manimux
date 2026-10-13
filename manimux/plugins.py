@@ -35,7 +35,7 @@ def load_plugin(
 
     if ":" in name:
         module_name, attribute = name.split(":", 1)
-        # 保留 Python 的导入异常和原始 traceback，直接定位插件中的错误。
+        # Preserve Python import exceptions and original tracebacks to locate plugin errors directly.
         module = importlib.import_module(module_name)
         return cast(PluginT, getattr(module, attribute))
 

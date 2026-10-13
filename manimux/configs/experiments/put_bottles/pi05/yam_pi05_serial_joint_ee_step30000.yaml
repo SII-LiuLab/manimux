@@ -71,12 +71,11 @@ recording:
 
 # Inference controls requests and chunk handoff; the executor controls smoothing and limits.
 inference:
-  algorithm: manimux
+  algorithm: serial
   config: ../../../inference/yam_serial_chunk12.yaml
 
 executor:
-  type: smooth
-  config: ../../../executor/yam_smooth_standard.yaml
+  type: direct
 
 policy_server:
   config: ../../../policy/pi05/yam/put-bottles/joint-ee-step30000.yaml

@@ -1,0 +1,12 @@
+# Backward-only BID: score future overlap on the execution clock.
+algorithm: bid_backward
+inference_schedule: multi_inflight
+request_trigger: continuous
+observation_hz: 30.0
+chunk_policy_steps: 5
+max_plan_age_s: 5.0
+blend_policy_steps: 0
+action_start_mode: drop_infer_latency
+bid:
+  num_samples: 16
+  rho: 0.9

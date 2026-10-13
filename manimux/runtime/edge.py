@@ -16,7 +16,7 @@ from manimux.clock import Clock, SystemClock
 from manimux.embodiments.robot import RobotBase, build_robot
 from manimux.embodiments.sensor import build_sensor
 from manimux.embodiments.sensor.reader import SensorReader
-from manimux.evaluation.identity import rollout_identity
+from manimux.evaluation.identity import rollout_identity, start_identity
 from manimux.evaluation.rubric import evaluation_parameters
 from manimux.policies import ActionDecoderClient, PolicyCapabilities, metadata_mismatches
 from manimux.policies.base import action_interval
@@ -32,11 +32,14 @@ from manimux.runtime.inference import (
     DefaultChunkStrategy,
     InferenceStrategy,
     RequestState,
+    StrategyChunkSelector,
     build_inference_strategy,
+    decode_strategy_action,
     prepare_strategy_chunk,
     seed_strategy_warmup,
 )
 from manimux.runtime.safety import RuntimeState, SafetyGuard
+from manimux.runtime.scheduling import RequestScheduler
 from manimux.runtime.timeline import ActionTimeline, CommitResult
 from manimux.runtime.warmup import PolicyWarmup
 from manimux.timing import LoopTiming, stage
@@ -121,11 +124,13 @@ def _exception_detail(exc: BaseException, *, depth: int = 3) -> str:
 
 @dataclass(frozen=True, slots=True)
 class RunResult:
+    """Runtime completion only; human task outcomes are stored separately."""
+
     episode_dir: Path
     steps: int
     accepted_plans: int
     rejected_plans: int
-    success: bool
+    run_completed: bool
     terminal_reason: str
 
 
@@ -161,11 +166,30 @@ class EdgeRuntime:
         self._control_dt_ns = int(1_000_000_000 / config["robot"]["control_hz"])
         self._robot = self._build_robot()
         self._sensors = [build_sensor(sensor, self._clock) for sensor in config["sensors"]]
-        # 运行时直接复用整机的运动学；解码子进程从同一配置加载离线模型。
+        # Runtime reuses robot kinematics; decoding subprocesses load the offline
+        # model from the same configuration.
         self._adapter = self._build_adapter()
+        if (
+            (config["inference"].get("temporal_ensemble") or {}).get("enabled", False)
+            or (
+                config["inference"]["algorithm"] == "act_temporal_ensemble"
+                and config["inference"]["inference_schedule"] == "serial"
+            )
+            or (
+                config["inference"]["algorithm"] in {"aac", "autohorizon"}
+                and config["inference"]["inference_schedule"] != "serial"
+            )
+        ) and not getattr(self._adapter, "supports_candidate_decoding", False):
+            raise ValueError("inference composition requires complete absolute-joint decoding")
+        self._scheduler = RequestScheduler(config["inference"])
+        self._multi_inflight = self._scheduler.multi_inflight
+        if self._multi_inflight and not getattr(self._adapter, "supports_multi_inflight", False):
+            raise ValueError("multi_inflight requires an adapter with streaming-safe decoding")
         self._decode_seed_source = getattr(
             self._adapter, "decode_seed_source", "execution_reference"
         )
+        if self._multi_inflight and self._decode_seed_source != "execution_reference":
+            raise ValueError("multi_inflight does not retain request-observation decode seeds")
         if self._decode_seed_source not in {"execution_reference", "observation_state"}:
             raise ValueError(
                 "adapter decode_seed_source must be 'execution_reference' or "
@@ -185,12 +209,16 @@ class EdgeRuntime:
         ):
             raise ValueError("waypoint handoff requires an execution_reference IK seed")
         self._strategy = strategy or DefaultChunkStrategy(config)
+        if self._strategy.name == "bid_backward" and not getattr(
+            self._adapter, "supports_candidate_decoding", False,
+        ):
+            raise ValueError("BID requires an adapter with candidate decoding support")
         self._decoder = None
         if config["policy"]["action_decoding"] == "process":
             # A plugin may wrap the default strategy (the UMI history plugin
             # does); the constructed strategy decides, not the plugin path.
-            if self._strategy.name not in {"manimux", "rtc", "train_time_rtc"}:
-                raise ValueError("process decoding requires manimux, rtc or train_time_rtc")
+            if self._strategy.name not in {"async", "serial", "rtc", "train_time_rtc"}:
+                raise ValueError("process decoding requires async, serial, rtc or train_time_rtc")
             self._decoder = ActionDecoderClient(
                 config["robot"],
                 config["policy"],
@@ -203,7 +231,9 @@ class EdgeRuntime:
             mode=config["inference"]["decode_forecast_mode"],
         )
         self._session_id = f"session-{uuid.uuid4().hex}"
-        self._worker = PolicyWorkerClient(config["policy"], self._session_id)
+        self._worker = PolicyWorkerClient(
+            config["policy"], self._session_id, multi_inflight=self._multi_inflight,
+        )
         self._timeline = self._build_timeline()
         self._executor = self._build_executor()
         self._launch_mode = launch_mode
@@ -275,7 +305,13 @@ class EdgeRuntime:
             self._config["robot"]["group_dims"],
             max_source_steps=self._config["inference"]["max_chunk_policy_steps"],
             action_start_mode=self._config["inference"]["action_start_mode"],
-            hold_last_step=self._config["inference"]["inference_schedule"] == "serial",
+            hold_last_step=(
+                (
+                    self._config["inference"]["inference_schedule"] == "serial"
+                    and self._config["inference"]["algorithm"] in {"async", "serial"}
+                )
+                or getattr(self._strategy, "hold_last_step", False)
+            ),
         )
 
     def _hold_command(self, now_ns: int, groups: GroupVector) -> RobotCommand:
@@ -340,8 +376,9 @@ class EdgeRuntime:
             created_time_ns=response.finished_time_ns,
             execution_time_ns=(
                 start_ns
-                if self._decoder is not None
-                or self._strategy.name in {"manimux", "rtc", "train_time_rtc"}
+                if self._config["inference"]["action_start_mode"] == "drop_infer_latency"
+                and (self._decoder is not None
+                     or self._strategy.name in {"async", "serial", "rtc", "train_time_rtc"})
                 else None
             ),
             observation_state=observation_state,
@@ -406,6 +443,9 @@ class EdgeRuntime:
                     else None
                 ),
                 "runtime": self._strategy.name,
+                "inference_schedule": self._scheduler.mode,
+                "request_trigger": self._scheduler.trigger,
+                "observation_hz": self._config["inference"]["observation_hz"],
                 "policy_label": self._config["robogui"]["policy_label"],
                 "policy_worker": self._config["policy"]["worker"],
                 "policy_adapter": self._config["policy"]["adapter"]["type"],
@@ -417,6 +457,7 @@ class EdgeRuntime:
                 "blend_steps": self._config["inference"]["blend_policy_steps"],
                 "action_start_mode": self._config["inference"]["action_start_mode"],
                 **self._rollout_identity,
+                "identity_frozen": False,
                 "launch_mode": self._launch_mode,
                 "policy_backend": {},
             },
@@ -441,6 +482,7 @@ class EdgeRuntime:
         robot_connected = False
         steps = 0
         formal_start_recorded = False
+        identity_frozen = False
         last_control_status = None
         completed = False
         terminal_reason = "completed"
@@ -479,6 +521,7 @@ class EdgeRuntime:
             self._safety.reset(initial_state)
             self._executor.reset(initial_state)
             self._strategy.reset()
+            self._scheduler.reset()
             recorder.update_metadata(
                 robot_backend=self._robot.runtime_metadata(),
                 initial_state=state_evidence(
@@ -492,6 +535,7 @@ class EdgeRuntime:
             self._state = RuntimeState.RUNNING
             robogui_episode_metadata = {
                 "episode_active": True,
+                "identity_frozen": False,
                 "episode_id": episode_id,
                 "episode_dir": str(recorder.final_dir.resolve()),
                 "run_dir": str(self._run_dir.resolve()),
@@ -507,7 +551,8 @@ class EdgeRuntime:
                 "launch_mode": self._launch_mode,
                 **({"warmup": warmup.metadata()} if warmup is not None else {}),
             }
-            # 当前整机未提供手动拖动恢复；RoboGUI 不展示已退役的驱动能力。
+            # The current robot does not offer manual-drag recovery; RoboGUI does
+            # not expose retired driver capabilities.
             robogui_episode_metadata["recovery_available"] = False
             # The active runtime owns Home; idle recovery remains service-owned.
             robogui_episode_metadata["home_available"] = (
@@ -572,6 +617,7 @@ class EdgeRuntime:
                     self._timeline = self._build_timeline()
                     self._executor.reset(state)
                     self._strategy.reset()
+                    self._scheduler.reset()
                     previous_command = copy_group_vector(state.groups)
                     last_command = copy_group_vector(state.groups)
                     discard_responses_through = max(discard_responses_through, request_seq)
@@ -586,9 +632,31 @@ class EdgeRuntime:
                     next_tick_ns = self._clock.now_ns()
                     timing.end()
                     continue
+                if not identity_frozen and not robogui_control.paused:
+                    if self._config["robogui"].get("enabled", False):
+                        if (robogui_control.episode_id != episode_id
+                                or robogui_control.control_run_dir
+                                != robogui_episode_metadata["run_dir"]
+                                or robogui_control.start_identity is None):
+                            raise ValueError("Start requires a selection for the active episode")
+                        self._rollout_identity = start_identity(
+                            self._rollout_identity, robogui_control.start_identity,
+                        )
+                    identity_frozen = True
+                    self._config["run"].update(self._rollout_identity)
+                    recorder.update_metadata(**self._rollout_identity, identity_frozen=True)
+                    recorder.event("rollout_identity_frozen", **self._rollout_identity)
+                    robogui_episode_metadata.update(self._rollout_identity, identity_frozen=True)
+                    self._robogui.set_state_metadata(robogui_episode_metadata)
                 if warmup is not None and not warmup.complete:
                     self._state = RuntimeState.PAUSED
                     before = warmup.metadata()
+                    if (not self._config["robogui"].get("enabled", False)
+                            or (robogui_control.episode_id == episode_id
+                                and robogui_control.control_run_dir
+                                == robogui_episode_metadata["run_dir"]
+                                and robogui_control.warmup_requested)):
+                        warmup.activate()
                     with stage("warmup_advance"):
                         warmup.advance(
                             paused=robogui_control.paused,
@@ -612,6 +680,7 @@ class EdgeRuntime:
                     if warmup.complete:
                         self._validate_policy_capabilities()
                         self._strategy.reset()
+                        self._scheduler.reset()
                         seed_strategy_warmup(self._strategy, latency_ns=list(warmup.latency_ns))
                         self._timeline = self._build_timeline()
                         recorder.event(
@@ -660,13 +729,18 @@ class EdgeRuntime:
                     continue
                 if robogui_control.paused and (
                     self._decoder is not None
-                    or self._config["inference"]["inference_schedule"] == "serial"
+                    or self._multi_inflight
+                    or (
+                        self._config["inference"]["inference_schedule"] == "serial"
+                        and self._config["inference"]["algorithm"] in {"async", "serial"}
+                    )
                     or getattr(self._strategy, "discard_plans_while_paused", False)
                 ):
                     # RTC conditions must not refer to the timeline discarded
                     # by Pause/Hold while a decoder response is still pending.
                     if self._state != RuntimeState.PAUSED:
                         self._strategy.reset()
+                        self._scheduler.reset()
                     self._timeline = self._build_timeline()
                     discard_responses_through = max(discard_responses_through, request_seq)
                     pending_observation_states.clear()
@@ -772,10 +846,20 @@ class EdgeRuntime:
                         rejection_reason = "session_mismatch"
                     elif response.request_seq <= discard_responses_through:
                         rejection_reason = "invalidated_by_pause_or_home"
-                    elif response.request_seq < last_submitted_seq:
+                    elif not self._multi_inflight and response.request_seq < last_submitted_seq:
                         rejection_reason = "superseded_response"
-                    elif response.finished_time_ns > last_request_deadline_ns:
+                    elif (
+                        self._multi_inflight
+                        and response.request_seq <= self._timeline.accepted_request_seq
+                    ):
+                        # Reject before ACT can add an out-of-order chunk to its history.
+                        rejection_reason = "stale_request_seq"
+                    elif response.finished_time_ns > (
+                        response.deadline_ns if self._multi_inflight else last_request_deadline_ns
+                    ):
                         rejection_reason = "inference_deadline_exceeded"
+                    elif self._multi_inflight and self._clock.now_ns() > response.deadline_ns:
+                        rejection_reason = "deadline_exceeded_before_decode"
                     elif response.raw_action is None:
                         rejection_reason = "missing_action"
                     if rejection_reason is not None:
@@ -806,7 +890,8 @@ class EdgeRuntime:
                                 chunk = (
                                     decoded_chunk
                                     if decoded_chunk is not None
-                                    else self._adapter.decode_action(
+                                    else decode_strategy_action(
+                                        self._strategy, self._adapter,
                                         response.raw_action,
                                         self._decode_context(
                                             response, state, now_ns, observation_state
@@ -862,7 +947,11 @@ class EdgeRuntime:
                             pending_visuals.pop(response.request_seq, None)
                             chunk = None
                         canonical_raw = None if chunk is None else copy_action_chunk(chunk)
-                        if chunk is not None:
+                        selector = (
+                            self._strategy
+                            if isinstance(self._strategy, StrategyChunkSelector) else None
+                        )
+                        if chunk is not None and selector is None:
                             try:
                                 with stage("strategy_prepare_chunk"):
                                     chunk = prepare_strategy_chunk(
@@ -931,19 +1020,36 @@ class EdgeRuntime:
                                 result = CommitResult(False, "no_future_horizon")
                             else:
                                 with stage("timeline_commit"):
-                                    result = self._timeline.commit(
-                                        chunk,
-                                        now_ns=now_ns,
-                                        max_plan_age_ns=int(
-                                            self._config["inference"]["max_plan_age_s"]
-                                            * 1_000_000_000
-                                        ),
-                                        current_command=commit.current_command,
-                                        blend_steps=commit.blend_steps,
-                                        handoff_skip_steps=self._config["inference"][
-                                            "handoff_skip_steps"
-                                        ],
-                                    )
+                                    try:
+                                        if selector is not None:
+                                            # Selection and trimming share one handoff clock.
+                                            chunk = selector.select_chunk(
+                                                chunk=chunk, now_ns=now_ns,
+                                            )
+                                            canonical_raw = copy_action_chunk(chunk)
+                                            chunk = prepare_strategy_chunk(
+                                                self._strategy, chunk=chunk,
+                                                response=response, now_ns=now_ns,
+                                            )
+                                    except (TypeError, ValueError) as exc:
+                                        result = CommitResult(
+                                            False,
+                                            f"invalid_strategy_chunk:{type(exc).__name__}:{exc}",
+                                        )
+                                    else:
+                                        result = self._timeline.commit(
+                                            chunk,
+                                            now_ns=now_ns,
+                                            max_plan_age_ns=int(
+                                                self._config["inference"]["max_plan_age_s"]
+                                                * 1_000_000_000
+                                            ),
+                                            current_command=commit.current_command,
+                                            blend_steps=commit.blend_steps,
+                                            handoff_skip_steps=self._config["inference"][
+                                                "handoff_skip_steps"
+                                            ],
+                                        )
                             if result.accepted:
                                 accepted_plans += 1
                                 last_inference_ms = response.inference_ms
@@ -1071,25 +1177,29 @@ class EdgeRuntime:
                 if self._worker.is_alive and not (
                     (
                         self._decoder is not None
+                        or self._multi_inflight
                         or getattr(self._strategy, "discard_plans_while_paused", False)
                     )
                     and self._state != RuntimeState.RUNNING
                 ):
                     snapshot = ObservationSnapshot(state=state, frames=frames)
+                    request_state = RequestState(
+                        in_flight=request_in_flight,
+                        last_submitted_seq=last_submitted_seq,
+                        last_deadline_ns=last_request_deadline_ns,
+                        multi_flight=self._multi_inflight,
+                        expected_decode_ns=round(self._decode_forecast.seconds * 1e9),
+                    )
                     with stage("policy_schedule"):
-                        submission = self._strategy.build_submission(
+                        submission = self._scheduler.build_submission(
+                            self._strategy,
                             session_id=self._session_id,
                             request_seq=request_seq + 1,
                             now_ns=now_ns,
                             snapshot=snapshot,
                             adapter=self._adapter,
                             timeline=self._timeline,
-                            request_state=RequestState(
-                                in_flight=request_in_flight,
-                                last_submitted_seq=last_submitted_seq,
-                                last_deadline_ns=last_request_deadline_ns,
-                                expected_decode_ns=round(self._decode_forecast.seconds * 1e9),
-                            ),
+                            request_state=request_state,
                             runtime_state=self._state,
                         )
                     if submission is not None:
@@ -1124,6 +1234,7 @@ class EdgeRuntime:
                         request_in_flight = True
                         last_submitted_seq = request_seq
                         last_request_deadline_ns = prepared_request.deadline_ns
+                        self._scheduler.on_submitted(now_ns)
                         recorder.event(
                             "inference_submitted",
                             request_seq=request_seq,
@@ -1155,6 +1266,11 @@ class EdgeRuntime:
                                 submission.event_fields.get("forecast_delay", 0)
                             )
                         pending_visuals[request_seq] = visual_fields
+                        if self._multi_inflight:
+                            # Coalesced uploads never produce a plan. Keep diagnostic
+                            # history bounded independently of model/network latency.
+                            while len(pending_visuals) > 128:
+                                pending_visuals.pop(next(iter(pending_visuals)))
                         with stage("robogui_publish_event"):
                             self._robogui.publish_event(
                                 "inference_submitted",
@@ -1312,7 +1428,7 @@ class EdgeRuntime:
 
             timing.end(completed=False)
             episode_dir = recorder.finish(
-                success=True,
+                run_completed=True,
                 terminal_reason=terminal_reason,
                 steps=steps,
                 wall_time_s=time.perf_counter() - started_wall,
@@ -1336,7 +1452,7 @@ class EdgeRuntime:
                 steps=steps,
                 accepted_plans=accepted_plans,
                 rejected_plans=rejected_plans,
-                success=True,
+                run_completed=True,
                 terminal_reason=terminal_reason,
             )
         except KeyboardInterrupt:

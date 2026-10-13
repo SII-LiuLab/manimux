@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="zh-CN" data-theme="light">
+<html lang="en" data-theme="light">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Chunk 速度 · 在线与离线对照</title>
+    <title>Chunk speed · Online and offline comparison</title>
     <style>
       __STYLE__
     </style>
@@ -12,72 +12,72 @@
     <main class="wrap">
       <header>
         <div class="eyebrow" id="identity-label"></div>
-        <h1>Chunk 速度</h1>
+        <h1>Chunk speed</h1>
         <p class="lede">
-          用速度曲线、逐 chunk 热图和时间线检查前快后慢。载入 offline
-          结果后，可对照同一 checkpoint 的原生预测与示教
-          GT，并逐帧查看两腕输入图片。
+          Inspect early-to-late slowdown with speed curves, per-chunk heatmaps and timelines.
+          Load offline results to compare native predictions from the same checkpoint with demonstration
+          GT and inspect both wrist input images frame by frame.
         </p>
         <div class="verdict" id="verdict"></div>
         <p class="caption" id="snapshot"></p>
       </header>
       <div class="controls">
         <label class="ctl"
-          >手臂
+          >Arm
           <select id="arm">
-            <option value="left_arm">左臂</option>
-            <option value="right_arm">右臂</option>
+            <option value="left_arm">Left arm</option>
+            <option value="right_arm">Right arm</option>
           </select></label
         >
         <label class="ctl"
-          >统计范围
+          >Statistical scope
           <select id="scope">
-            <option value="all">全部 rollout 合并</option>
+            <option value="all">All rollouts combined</option>
           </select></label
         >
         <label class="ctl"
-          >运动门槛
+          >Motion threshold
           <select id="threshold">
             <option value="1">1 mm/s</option>
             <option value="5" selected>5 mm/s</option>
             <option value="10">10 mm/s</option>
-            <option value="30">30 mm/s（参考页）</option>
+            <option value="30">30 mm/s (reference page)</option>
           </select></label
         >
         <label class="ctl"
-          >曲线单位
+          >Curve units
           <select id="units">
-            <option value="relative">相对本 chunk 均速</option>
-            <option value="absolute">TCP 速度 mm/s</option>
+            <option value="relative">Relative to this chunk's mean speed</option>
+            <option value="absolute">TCP speed mm/s</option>
           </select></label
         >
-        <button class="export" id="download">下载统计 JSON</button>
+        <button class="export" id="download">Download statistics JSON</button>
       </div>
       <div class="facts" id="facts"></div>
       <p class="scope-note" id="scope-note"></p>
       <section class="card" id="offline-panel" hidden>
-        <h2>离线图片与模型推理：和真机速度对照</h2>
+        <h2>Offline images and model inference: comparison with robot speed</h2>
         <p class="desc">
-          在示教图片上使用同一 checkpoint
-          重新预测完整动作窗口。绿色为模型原生末端预测，灰色为对应示教
-          GT，紫色为上方所选真机实测。离线结果未经 IK、waypoint
-          或执行器处理，也没有 RTC 条件。
+          Use the same checkpoint on demonstration images to
+          predict complete action windows. Green shows native model TCP predictions, gray shows demonstration
+          GT, and purple shows the robot measurements selected above. Offline results have no IK, waypoint
+          or executor processing, and no RTC conditions.
         </p>
         <div class="rowbar offline-controls">
           <label class="ctl"
-            >数据集 episode
+            >Dataset episode
             <select id="offline-episode"></select></label
           ><label class="ctl"
-            >离线统计范围
+            >Offline statistical scope
             <select id="offline-scope">
-              <option value="all">全部 episode 合并</option>
-              <option value="selected">当前 episode</option>
+              <option value="all">All episodes combined</option>
+              <option value="selected">Current episode</option>
             </select></label
           ><label class="ctl"
-            >离线比较区间
+            >Offline comparison window
             <select id="offline-domain">
-              <option value="full">完整 32 步 · 31 个速度间隔</option>
-              <option value="prefix">前 12 个速度间隔</option>
+              <option value="full">Full 32 steps · 31 speed intervals</option>
+              <option value="prefix">First 12 speed intervals</option>
             </select></label
           >
         </div>
@@ -86,20 +86,20 @@
         <div class="legend" id="offline-legend"></div>
         <div class="chart" id="offline-compare"></div>
         <p class="caption">
-          三条曲线按各自所选区间归一化到 0–100%
-          进度。前缀窗口用于比较相近时长，不匹配真机的裁剪位置、RTC
-          条件或环境。门槛与单位跟随页面顶部控件。
+          Each curve is normalized to 0–100% progress over its own selected window.
+          Prefix windows compare similar durations without matching the robot's crop position, RTC
+          conditions or environment. Threshold and units follow the controls at the top.
         </p>
         <div class="cols" id="offline-heatmaps"></div>
         <p class="caption">
-          离线热图每行对应一对真实腕部输入图片，按时间排列；每格是速度 / 本
-          chunk
-          均速。点击任意行，查看该次输入图片与完整速度预测。灰色行未达到运动门槛。
+          Each offline heatmap row represents a pair of actual wrist input images, ordered by time; each cell is speed divided by that
+          chunk's
+          mean speed. Click a row to inspect its input images and full prediction. Gray rows fall below the motion threshold.
         </p>
-        <h3>选择输入图片，查看这一次模型预测</h3>
+        <h3>Select input images to inspect that model prediction</h3>
         <div class="rowbar">
           <label class="ctl"
-            >输入帧
+            >Input frame
             <select id="offline-chunk"></select></label
           ><input
             type="range"
@@ -108,35 +108,35 @@
             max="1"
             value="0"
             step="1"
-            aria-label="选择离线预测输入帧"
+            aria-label="Select offline prediction input frame"
           /><span class="mono mini" id="offline-frame-label"></span>
         </div>
         <div class="offline-images">
           <figure>
-            <img id="offline-left-image" alt="离线推理的左腕输入图片" />
-            <figcaption>左腕输入 · left_wrist</figcaption>
+            <img id="offline-left-image" alt="Left wrist input image for offline inference" />
+            <figcaption>Left wrist input · left_wrist</figcaption>
           </figure>
           <figure>
-            <img id="offline-right-image" alt="离线推理的右腕输入图片" />
-            <figcaption>右腕输入 · right_wrist</figcaption>
+            <img id="offline-right-image" alt="Right wrist input image for offline inference" />
+            <figcaption>Right wrist input · right_wrist</figcaption>
           </figure>
         </div>
         <p class="offline-latency" id="offline-image-caption"></p>
         <div class="legend" id="offline-detail-legend"></div>
         <div class="chart" id="offline-detail"></div>
         <p class="mini" id="offline-detail-note"></p>
-        <h3>离线 episode 时间线</h3>
+        <h3>Offline episode timeline</h3>
         <p class="mini">
-          细淡线是每次完整预测，粗绿色段显示下一次取样前的预测，<b>不代表离线真的执行过</b>。点击时间线可选择附近的输入图片。
+          Thin pale lines show complete predictions; thick green segments show predictions before the next sample, <b>not actual offline execution</b>. Click the timeline to select nearby input images.
         </p>
         <div class="rowbar">
           <label class="ctl"
-            >窗口
+            >Window
             <select id="offline-window">
               <option value="5">5 s</option>
               <option value="10" selected>10 s</option>
               <option value="20">20 s</option>
-              <option value="all">全程</option>
+              <option value="all">Full duration</option>
             </select></label
           ><input
             type="range"
@@ -145,73 +145,73 @@
             max="50"
             step="0.1"
             value="0"
-            aria-label="离线时间线起点"
+            aria-label="Offline timeline start"
           /><span class="mono mini" id="offline-window-label"></span>
         </div>
         <div class="chart" id="offline-timeline"></div>
         <details>
-          <summary>离线数据与推理耗时</summary>
+          <summary>Offline data and inference timing</summary>
           <div class="table-scroll" id="offline-episode-table"></div>
           <p class="mini" id="offline-method"></p>
         </details>
       </section>
       <section class="card">
-        <h2>每个 chunk 内的速度怎么变化</h2>
+        <h2>How speed changes within each chunk</h2>
         <p class="desc">
-          将每次实际执行区间按时间对齐到 0–100%，分成 12 个等时长格。线是 chunk
-          间中位数，色带为 25–75% 分位。比值 R = 后 ⅓ 时间的平均速度 ÷ 前 ⅓；R ≤
-          0.8 记为减速至少 20%。
+          Normalize each actual execution window to 0–100% time and divide it into 12 equal-duration bins. Lines show per-bin
+          medians across chunks; bands show the 25th–75th percentiles. R = mean speed in the last ⅓ ÷ first ⅓; R ≤
+          0.8 means a slowdown of at least 20%.
         </p>
         <div class="legend" id="profile-legend"></div>
         <div class="chart" id="profile"></div>
         <p class="caption">
-          位置由该机器人 TCP 的离线 FK 得到。每个相邻反馈样本用真实 tick
-          时间求速度，再按时间权重汇总；不跨 chunk
-          差分，不额外平滑。色带是分位范围，不是置信区间。
+          Positions come from offline robot TCP FK. Adjacent feedback samples use actual tick
+          times to compute speed, aggregated with time weights. No differentiation across chunk boundaries
+          or extra smoothing is applied. Bands show percentile ranges, not confidence intervals.
         </p>
         <details>
-          <summary>查看曲线数据</summary>
+          <summary>View curve data</summary>
           <div class="table-scroll" id="profile-table"></div>
         </details>
       </section>
       <section class="card">
-        <h2>每个 chunk 一行：同一执行窗口的三层速度</h2>
+        <h2>One row per chunk: three speed layers over the same execution window</h2>
         <p class="desc">
-          三列对应完全相同的 chunk 时间段。每格速度除以该层在本 chunk
-          内的平均速度：红色更快，蓝色更慢。左红右蓝表示前快后慢。点击任一行可跳转到下方时间线和单
-          chunk 细节。
+          All three columns use identical chunk time windows. Each cell divides speed by that layer's
+          mean speed within the chunk: red is faster, blue is slower. Red on the left and blue on the right indicates slowdown. Click a row to jump to its timeline and
+          chunk details below.
         </p>
         <div class="heat-key" id="heat-key"></div>
         <div class="heat-grid" id="heatmaps"></div>
         <p class="caption">
-          只展示有完整交接证据的中间 chunk；每段 rollout 的首个启动 chunk
-          和末个被 Finish 截断的 chunk
-          不参与统计。低于所选运动门槛的行显示灰色。
+          Only intermediate chunks with complete handoff evidence are shown; the first startup chunk
+          and the final chunk truncated by Finish in each rollout
+          are excluded from statistics. Rows below the selected motion threshold are gray.
         </p>
       </section>
       <section class="card" id="timeline-section">
-        <h2>时间线：执行段与未执行预测</h2>
+        <h2>Timeline: executed segments and unexecuted predictions</h2>
         <p class="desc">
-          灰线为实测 TCP 速度，紫色为逐 tick
-          的计划参考，绿色为执行器命令。淡虚线是保存的稀疏 committed
-          轨迹的后续速度，仅作预测上下文。竖线按 tick 的 plan_id
-          变化标记实际计划归属切换。
+          Gray shows measured TCP speed, purple shows the per-tick
+          scheduled reference, and green shows executor commands. Pale dashed lines show future speed from saved sparse committed
+          trajectories as prediction context only. Vertical lines mark actual plan assignment switches
+          from changes in tick plan_id.
         </p>
         <div class="rowbar">
           <label class="ctl"
             >rollout
             <select id="timeline-ep"></select></label
           ><label class="ctl"
-            >窗口
+            >Window
             <select id="window">
               <option value="5">5 s</option>
               <option value="10" selected>10 s</option>
               <option value="20">20 s</option>
-              <option value="all">全程</option>
+              <option value="all">Full duration</option>
             </select></label
           ><input
             id="pan"
-            aria-label="时间窗口起点"
+            aria-label="Time window start"
             type="range"
             min="0"
             max="20"
@@ -222,12 +222,12 @@
         <div class="legend" id="timeline-legend"></div>
         <div class="chart" id="timeline"></div>
         <p class="caption">
-          淡虚线来自保存的稀疏点；runtime 还可能使用 IK
-          子步和交接引入段，因此它与逐 tick 的计划参考不能视为同一条曲线。
+          Pale dashed lines use saved sparse points; runtime may also use IK
+          substeps and handoff lead-ins, so these are not the same curve as the per-tick scheduled reference.
         </p>
         <div class="rowbar">
           <label class="ctl"
-            >选中 chunk
+            >Selected chunk
             <select id="chunk-select"></select></label
           ><span class="focus-label" id="chunk-label"></span>
         </div>
@@ -235,38 +235,38 @@
         <p class="mini" id="detail-note"></p>
       </section>
       <section class="card">
-        <h2>保存轨迹的后段，不等于机器人已执行的后段</h2>
+        <h2>The end of a saved trajectory is not necessarily executed</h2>
         <p class="desc">
-          下面将保存下来的整段 canonical_raw 也按 0–100%
-          对齐。它已经经过动作适配器解码，可能包含裁剪与交接处理，不是原始模型张量。这里的“后段”通常已经在下一次重规划时被替换。
+          The entire saved canonical_raw trajectory is also normalized to 0–100%
+          below. It has already been decoded by the action adapter and may include cropping and handoff processing; it is not the raw model tensor. Its late segment is usually replaced by the next replan.
         </p>
         <div class="chart" id="saved-profile"></div>
         <p class="stat-note" id="saved-note"></p>
       </section>
       <section class="card">
-        <h2>复核：是否只由交接开头造成</h2>
+        <h2>Sensitivity check: is the change limited to the start of handoff?</h2>
         <p class="desc">
-          去掉每个执行 chunk 的前 50 / 100 ms 后，在剩余窗口重新比较前后
-          ⅓；另将位置重采样成 12 个等时长速度段，对速度做 3
-          点均值平滑，检查反馈量化的影响。各次 rollout 单独显示。
+          Exclude the first 50 / 100 ms of each executed chunk, then compare the first and last
+          ⅓ of the remaining window. Also resample positions into 12 equal-duration speed segments and apply a 3-point
+          moving average to inspect feedback quantization effects. Each rollout is shown separately.
         </p>
         <div class="table-scroll" id="sensitivity"></div>
         <p class="mini">
-          chunk
-          之间相关，下面是这批记录内的描述性统计。去掉开头后的变化只提供线索，不能单凭它判定
-          waypoint、RTC 或模型是哪一个原因。
+          Chunks
+          are correlated; these are descriptive statistics for this recording batch. Changes after excluding the start provide clues but cannot alone identify
+          waypoint processing, RTC or the model as the cause.
         </p>
       </section>
       <section class="method">
-        <h2>数据来源与口径</h2>
+        <h2>Data sources and measurement definitions</h2>
         <div id="methods"></div>
         <details>
-          <summary>记录身份、排除项与复现命令</summary>
+          <summary>Recording identity, exclusions and reproduction command</summary>
           <div id="evidence" class="evidence"></div>
         </details>
         <p class="caption">
-          本文件包含所有图表数据，无外部脚本、字体或网络请求，可以直接在 Firefox
-          离线打开。
+          This file embeds all chart data without external scripts, fonts or network requests and can be opened in Firefox
+          offline.
         </p>
       </section>
     </main>

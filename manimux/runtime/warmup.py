@@ -9,7 +9,9 @@ from manimux.policies.worker import PolicyWorkerClient
 from manimux.policy_adapter.base import PolicyAdapter
 from manimux.runtime.inference import (
     InferenceStrategy,
+    StrategyChunkSelector,
     build_warmup_submission,
+    decode_strategy_action,
     seed_strategy_warmup,
 )
 from manimux.timing import stage
@@ -33,7 +35,7 @@ class PolicyWarmup:
         self.adapter = adapter
         self.session_id = session_id
         self.clock = clock
-        self.phase = "warming"
+        self.phase = "idle"
         self.completed_requests = 0
         self.latest_branch: str | None = None
         self.error = ""
@@ -48,6 +50,13 @@ class PolicyWarmup:
         self._was_paused = True
         self._events: list[tuple[str, dict]] = []
         self._preview: tuple[ActionChunk, float, dict] | None = None
+
+    def activate(self) -> None:
+        """Explicitly enable display-only warmup; repeated activation is harmless."""
+        if self.phase == "idle":
+            self.phase = "warming"
+            self._was_paused = True
+            self._event("warmup_activated")
 
     @property
     def complete(self) -> bool:
@@ -90,7 +99,7 @@ class PolicyWarmup:
     def _advance(self, *, paused: bool, snapshot: ObservationSnapshot) -> None:
         start_requested = self._was_paused and not paused
         self._was_paused = paused
-        if self.complete:
+        if self.complete or self.phase == "idle":
             return
         if not self.worker.is_alive:
             self.phase = "error"
@@ -117,7 +126,8 @@ class PolicyWarmup:
                 if error is None:
                     try:
                         with stage("policy_decode"):
-                            chunk = self.adapter.decode_action(
+                            chunk = decode_strategy_action(
+                                self.strategy, self.adapter,
                                 response.raw_action,
                                 ActionContext(
                                     request_seq=response.request_seq,
@@ -128,6 +138,10 @@ class PolicyWarmup:
                                     ik_seed_source="observation_state",
                                     max_source_steps=self.config["policy"]["horizon_policy_steps"],
                                 ),
+                            )
+                        if isinstance(self.strategy, StrategyChunkSelector):
+                            chunk = self.strategy.select_chunk(
+                                chunk=chunk, now_ns=self.clock.now_ns(),
                             )
                         if chunk.action_space != "joint_position":
                             raise ValueError("Warmup requires canonical joint-position output")

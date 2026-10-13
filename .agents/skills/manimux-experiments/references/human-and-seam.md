@@ -1,7 +1,7 @@
 # Human scores and chunk seam metrics
 
 Read the current metric definitions in the user's selected study register first.
-This checkout maintains its register in `docs/experiments.md`. For another study
+This checkout maintains its register in `experiments.md`. For another study
 without a register, use the user's agreed definitions and identify missing choices.
 Do not turn the examples below into frozen numeric settings.
 
@@ -18,7 +18,7 @@ results remain usable; ignore their old `smoothness_score` and do not rewrite
 raw labels.
 
 Missing means unreviewed. Do not generate or overwrite a human assessment.
-`result.json.success` describes runtime finalization; a normally ended rollout
+`result.json.run_completed` describes runtime finalization; a normally ended rollout
 can have a human task failure. Conversely, a runtime interruption does not
 silently supply an absent human label.
 
@@ -27,6 +27,17 @@ For a rubric-compatible cohort, count `S` successes and `F` failures and report
 and report them separately. If `N=0`, SR is missing, not zero. Keep live and
 blinded video reviews separate unless the protocol explicitly combines them.
 Malformed labels are data-quality failures, not task failures.
+
+For configured partial credit, validate the saved `evaluation` against the
+episode's `meta.json.evaluation`. Count rubrics derive `score` from
+`completed_count / target_count`; stage rubrics derive it from the selected
+`stage_id` option. A stage score is a total, never a sum of reached milestones.
+Use the recorded rubric, not today's YAML, and reject inconsistent labels.
+Report H-Score as the mean valid score alongside SR; invalid/unreviewed labels
+have no score, and binary-only labels do not supply a missing partial score.
+Keep differing rubric snapshots separate. The task report exposes both count
+and stage summaries in `scores_by_rubric`. Rule setup and examples are in
+[the study guide](../../../../guideline.html#experiments).
 
 ## Seam calculation
 

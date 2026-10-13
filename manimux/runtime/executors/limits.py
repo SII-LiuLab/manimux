@@ -206,7 +206,7 @@ def limit_step(
 
 
 def arm_motion_parameters(**options) -> dict:
-    """补齐本模块的默认参数；返回独立字典，不创建配置对象。"""
+    """Fill in module defaults and return an independent dictionary without creating a configuration object."""
 
     values = {
         "max_velocity": None,
@@ -215,7 +215,7 @@ def arm_motion_parameters(**options) -> dict:
         "max_step_dt_s": None,
         **options,
     }
-    # 非有限或非正的速率会破坏执行限幅，不能交给控制循环处理。
+    # Nonfinite or nonpositive rates invalidate execution limits and must not reach the control loop.
     if any(
         values[key] is not None and (not math.isfinite(values[key]) or values[key] <= 0)
         for key in ["max_velocity", "max_acceleration", "max_step_dt_s"]
@@ -227,7 +227,7 @@ def arm_motion_parameters(**options) -> dict:
 
 
 def gripper_motion_parameters(**options) -> dict:
-    """补齐本模块的默认参数；返回独立字典，不创建配置对象。"""
+    """Fill in module defaults and return an independent dictionary without creating a configuration object."""
 
     values = {
         "max_velocity": None,
@@ -235,7 +235,7 @@ def gripper_motion_parameters(**options) -> dict:
         "max_closing_velocity": None,
         **options,
     }
-    # 非有限或非正的速率会破坏执行限幅，不能交给控制循环处理。
+    # Nonfinite or nonpositive rates invalidate execution limits and must not reach the control loop.
     if any(
         values[key] is not None and (not math.isfinite(values[key]) or values[key] <= 0)
         for key in ["max_velocity", "max_acceleration", "max_closing_velocity"]
@@ -245,7 +245,7 @@ def gripper_motion_parameters(**options) -> dict:
 
 
 def motion_limits_parameters(**options) -> dict:
-    """补齐本模块的默认参数；返回独立字典，不创建配置对象。"""
+    """Fill in module defaults and return an independent dictionary without creating a configuration object."""
 
     values = {
         **options,

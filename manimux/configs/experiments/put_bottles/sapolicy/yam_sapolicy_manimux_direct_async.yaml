@@ -150,7 +150,7 @@ recording:
 
 # Inference controls requests and chunk handoff; the executor controls smoothing and limits.
 inference:
-  algorithm: manimux
+  algorithm: async
   config: ../../../inference/yam_manimux_single.yaml
   refill_threshold_s: 0.2
   max_plan_age_s: 2.0

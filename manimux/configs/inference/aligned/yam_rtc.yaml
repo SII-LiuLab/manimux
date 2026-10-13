@@ -1,9 +1,22 @@
 # Aligned RTC settings; select the algorithm and action interval in the experiment.
+# policy_steps count model action points, not control ticks or denoising steps.
+# At 30 Hz, one policy step is 33.3 ms. H = chunk length; d = forecast latency steps.
 rtc:
+  # Replan at source-chunk progress min(max(16, d), H-d), including trimmed steps.
+  # The old chunk keeps executing while inference runs; 16 is not a fixed cutoff.
   min_execute_policy_steps: 16
-  initial_delay_policy_steps: null  # Seed from successful warmup; use zero before any sample.
+  # Initial inference-latency forecast, not an intentional wait. null uses warmup
+  # E2E samples (excluding each branch's first call); zero until samples exist.
+  initial_delay_policy_steps: null
+  # Keep 10 latency samples in policy steps; forecast their MAX, not their mean.
+  # RTC E2E latency includes observation age, request preparation, transport and decoding.
   delay_buffer_size: 10
+  # RTC guidance-strength cap in the sampler; not a timing or motor-control gain.
   beta: 5.0
+# Reject a returned plan older than 2 s from its observation timestamp at commit.
 max_plan_age_s: 2.0
+# Extra linear blending of the new chunk's first N points; 0 disables this layer.
 blend_policy_steps: 0
+# Drop ceil(observation-to-commit latency / action interval) source-prefix steps.
+# Continue at the current trajectory time instead of replaying the old prefix.
 action_start_mode: drop_infer_latency

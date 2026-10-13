@@ -90,8 +90,7 @@ inference:
   chunk_policy_steps: 12
 
 executor:
-  type: smooth
-  config: ../../../executor/yam_smooth_standard.yaml
+  type: direct
 
 # Device serials and service addresses come from the shared station file.
 camera_server:

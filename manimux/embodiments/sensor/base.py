@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 
 from manimux.types import SensorFrame
 
-# 单设备返回一帧；网络订阅可返回同批多路帧，保留各自的时间戳和序号。
+# A device returns one frame; a network subscription may return multiple frames with their own timestamps and sequence numbers.
 SensorRead = SensorFrame | dict[str, SensorFrame]
 
 

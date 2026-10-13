@@ -20,11 +20,11 @@ from manimux.kinematics.base import (
 
 @dataclass(frozen=True, slots=True)
 class ArmModel:
-    """组件自己的运动学和显示资源，可为裸臂，也可包含内置夹爪。
+    """Component kinematics and visual assets, for a bare arm or an arm with a built-in gripper.
 
-    完整 TCP 模型直接实现 ManipulatorKinematicsBase；可挂独立工具的裸臂
-    使用 FlangeKinematicsBase。visual_mapping 将控制坐标转换为 URDF 坐标，
-    例如将一个归一化夹爪值展开成两个指尖关节；它不改变控制命令。
+    Complete TCP models implement ManipulatorKinematicsBase; bare arms with separate tools
+    use FlangeKinematicsBase. visual_mapping converts control coordinates to URDF coordinates,
+    for example expanding one normalized gripper value into two finger joints; it does not change control commands.
     """
 
     kinematics: FlangeKinematicsBase | ManipulatorKinematicsBase
@@ -75,10 +75,10 @@ class ArmController(ABC):
         raise NotImplementedError
 
     def validate_commands(self, targets: Mapping[str, FloatArray]) -> None:
-        """可选的设备约束钩子；默认直接使用整机已解析的坐标向量。
+        """Optional device constraint hook; defaults to the coordinate vector resolved by the assembled robot.
 
-        有设备专用约束的 controller 可覆盖此方法。基础接口不再重复校验
-        配置、类型和维度，也不接触硬件。
+        Controllers with device-specific constraints may override this method. The base interface does not revalidate
+        configuration, types or dimensions, and does not access hardware.
         """
         return None
 
@@ -99,10 +99,10 @@ class ArmController(ABC):
 
 
 class ArmBase(ABC):
-    """一个可独立接入的臂组件，允许包含设备自带的夹爪。
+    """An independently connectable arm component that may include a built-in gripper.
 
-    num_joints 表示该组件一次读取/提交的完整坐标数：YAM 为 7，包含夹爪。
-    独立挂载的末端由整机额外装配；end_effector: null 保留组件自身的全部能力。
+    num_joints is the complete coordinate count read/submitted together: seven for YAM, including the gripper.
+    The robot assembles separately mounted tools; end_effector: null preserves all built-in component capabilities.
 
     The controller owns connection lifecycle. Calling connect/stop/close on a
     component affects that shared session, so an assembled robot owns these
@@ -132,7 +132,7 @@ class ArmBase(ABC):
     @property
     @abstractmethod
     def kinematics(self) -> FlangeKinematicsBase | ManipulatorKinematicsBase:
-        """组件的法兰求解器或完整 TCP 求解器；场景安装位置由整机管理。"""
+        """The component flange or complete TCP solver; the robot manages scene placement."""
         raise NotImplementedError
 
     def connect(self) -> None:

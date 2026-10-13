@@ -6,8 +6,8 @@ description: Connect a ManiMux installation to a developer's local YAM, Tianji o
 # ManiMux Station Setup
 
 Paths are relative to the repository root. Read the
-[repository guide](../../../docs/development/agent-guide.md) before editing. Start with
-[`docs/usage/station.md`](../../../docs/usage/station.md).
+[repository guide](../manimux-development/references/agent-guide.md) before editing. Start with
+[`.agents/skills/manimux-station-setup/references/station.md`](references/station.md).
 Installing ManiMux does not discover, name or connect a robot automatically. Bind existing
 components to the actual devices; do not copy a developer's addresses, serials or paths as
 universal defaults.
@@ -57,7 +57,7 @@ use `robogui.robot: tianji-taccap` so RoboGUI message filtering and runtime owne
 
 ## Environments and model paths
 
-Read `docs/usage/environments.md` and the component/model runbook. Existing `envs/*/.venv` paths are
+Read `.agents/skills/manimux-station-setup/references/environments.md` and the component/model runbook. Existing `envs/*/.venv` paths are
 local assets, not installed by cloning. Target hardware/model interpreters explicitly with
 `uv pip install --python`; do not point root `uv sync` or `uv run` at those environments.
 Do not invent a single all-hardware dependency extra.

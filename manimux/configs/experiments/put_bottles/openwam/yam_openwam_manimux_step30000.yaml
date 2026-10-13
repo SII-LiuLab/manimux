@@ -87,7 +87,7 @@ recording:
 
 # Inference controls requests and chunk handoff; the executor controls smoothing and limits.
 inference:
-  algorithm: manimux
+  algorithm: serial
   config: ../../../inference/yam_manimux_single.yaml
   chunk_policy_steps: 12
   inference_schedule: serial
@@ -96,8 +96,7 @@ inference:
   action_start_mode: first_step_when_ready
 
 executor:
-  type: smooth
-  config: ../../../executor/yam_smooth_standard.yaml
+  type: direct
 
 # Device serials and service addresses come from the shared station file.
 camera_server:

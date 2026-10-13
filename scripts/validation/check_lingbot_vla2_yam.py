@@ -17,10 +17,6 @@ sys.dont_write_bytecode = True
 REPO_ROOT = Path(__file__).resolve().parents[2]
 XPOLICY_ROOT = REPO_ROOT / "XPolicyLab"
 DEFAULT_CONFIG = REPO_ROOT / "manimux/configs/policy/lingbot-vla2/yam/base.yaml"
-DEFAULT_INFRA_CONFIG = (
-    REPO_ROOT
-    / "manimux/configs/experiments/pick_red_object/lingbot-vla2/yam_lingbot_vla2_manimux.yaml"
-)
 
 
 def _load_config(path: Path) -> dict[str, Any]:
@@ -124,7 +120,7 @@ def _validate(
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
-    parser.add_argument("--infra-config", type=Path, default=DEFAULT_INFRA_CONFIG)
+    parser.add_argument("--infra-config", type=Path, required=True)
     args = parser.parse_args()
 
     config = _load_config(args.config.resolve())

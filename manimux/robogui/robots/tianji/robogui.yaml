@@ -17,7 +17,7 @@ camera_aliases:
 groups:
   left_arm:
     label: Left arm (A)
-    # 原显示安装位置直接迁入；此变换不进入本体 FK/IK。
+    # Preserve the original display mount; this transform does not enter embodiment FK/IK.
     robogui_display_frame: {xyz: [0.0, 0.037, 1.121], rpy: [-1.5707963267948966, 0.0, 0.0]}
     prediction_color: [52, 111, 255]
     trail_color: [33, 180, 106]

@@ -175,5 +175,4 @@ inference:
     beta: 5.0
 
 executor:
-  type: smooth
-  config: ../../../executor/yam_smooth_unbounded.yaml
+  type: direct

@@ -1,4 +1,4 @@
-"""YAM 整机装配；每个分组保留臂爪一体组件。"""
+"""YAM robot assembly; each group retains an integrated arm and gripper component."""
 
 from .robot import YamRobot
 

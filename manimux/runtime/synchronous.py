@@ -1,14 +1,14 @@
-"""Shared cadence for policies that finish one selected chunk before requesting another."""
+"""Selected-prefix execution with serial defaults and optional async scheduling."""
 
 from collections.abc import Mapping
 
-from manimux.runtime.inference import CommitSettings, InferenceSubmission
+from manimux.runtime.inference import CommitSettings, EnsembleScope, InferenceSubmission
 from manimux.runtime.safety import RuntimeState
 from manimux.types import ActionChunk, InferenceRequest, copy_group_vector
 
 
 class SynchronousChunkStrategy:
-    """One in-flight request; each returned chunk starts at the measured state.
+    """Shared request construction and metadata-selected execution prefixes.
 
     Subclasses declare their request type and sampling options. A strategy with
     horizon_metadata also uses the server's execution_steps to select a prefix.
@@ -19,6 +19,10 @@ class SynchronousChunkStrategy:
     request_type: type[InferenceRequest]
     horizon_metadata: str | None = None
     label: str
+
+    @property
+    def ensemble_scope(self) -> EnsembleScope:
+        return "execution_prefix"
 
     def __init__(self, config: dict) -> None:
         self._config = config
@@ -31,6 +35,10 @@ class SynchronousChunkStrategy:
     def required_sampling_modes(self) -> frozenset[str]:
         return frozenset({self.name})
 
+    @property
+    def discard_plans_while_paused(self) -> bool:
+        return self._config["inference"]["inference_schedule"] != "serial"
+
     def reset(self) -> None:
         pass
 
@@ -39,6 +47,35 @@ class SynchronousChunkStrategy:
 
     def submission_fields(self) -> dict:
         return {}
+
+    def build_warmup_submission(
+        self, *, session_id, request_seq, now_ns, snapshot, adapter, conditioned=False,
+    ):
+        settings = self._config["inference"]
+        legacy = settings["inference_schedule"] == "serial" and not (
+            settings.get("temporal_ensemble") or {}
+        ).get("enabled", False)
+        return self._make_submission(
+            session_id=session_id, request_seq=request_seq, now_ns=now_ns,
+            snapshot=snapshot, adapter=adapter, default_sampling=legacy,
+        )
+
+    def _make_submission(
+        self, *, session_id, request_seq, now_ns, snapshot, adapter, default_sampling=False,
+    ):
+        # Preserve legacy serial warmup; new combinations exercise their own sampler.
+        request_type = InferenceRequest if default_sampling else self.request_type
+        return InferenceSubmission(
+            request=request_type(
+                session_id=session_id, request_seq=request_seq,
+                observation_time_ns=snapshot.state.monotonic_ns,
+                deadline_ns=now_ns + int(self._config["policy"]["timeout_s"] * 1e9),
+                observation=adapter.build_observation(snapshot),
+                instruction=self._config["run"]["task"],
+                **({} if default_sampling else self.request_options()),
+            ),
+            event_fields={"conditioned": False} if default_sampling else self.submission_fields(),
+        )
 
     def build_submission(
         self,
@@ -52,24 +89,18 @@ class SynchronousChunkStrategy:
         request_state,
         runtime_state,
     ) -> InferenceSubmission | None:
-        # 当前动作执行完且无在途请求时，才采集下一次推理的观测。
+        # Serial keeps its original cadence; asynchronous admission is scheduler-owned.
         if (
-            request_state.in_flight
-            or runtime_state != RuntimeState.RUNNING
-            or timeline.remaining_ns(now_ns) > 0
+            runtime_state != RuntimeState.RUNNING
+            or (
+                self._config["inference"]["inference_schedule"] == "serial"
+                and timeline.remaining_ns(now_ns) > 0
+            )
         ):
             return None
-        return InferenceSubmission(
-            request=self.request_type(
-                session_id=session_id,
-                request_seq=request_seq,
-                observation_time_ns=snapshot.state.monotonic_ns,
-                deadline_ns=now_ns + int(self._config["policy"]["timeout_s"] * 1_000_000_000),
-                observation=adapter.build_observation(snapshot),
-                instruction=self._config["run"]["task"],
-                **self.request_options(),
-            ),
-            event_fields=self.submission_fields(),
+        return self._make_submission(
+            session_id=session_id, request_seq=request_seq, now_ns=now_ns,
+            snapshot=snapshot, adapter=adapter,
         )
 
     def commit_settings(self, *, response, measured, last_command) -> CommitSettings:

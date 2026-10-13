@@ -285,7 +285,8 @@ def _load_config(
     return config
 
 
-def _create_run_dir(config: dict, config_path: Path, *, mode: str) -> Path:
+def _create_run_dir(config: dict, config_path: Path, *, mode: str,
+                    experiment_selection: dict | None = None) -> Path:
     from manimux.recording.provenance import (
         capture_source_provenance,
         deployment_artifact_provenance,
@@ -296,7 +297,8 @@ def _create_run_dir(config: dict, config_path: Path, *, mode: str) -> Path:
     run_dir = config["run"]["output_dir"] / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
     resolved_config = config_path.expanduser().resolve()
-    config_sha256 = hashlib.sha256(resolved_config.read_bytes()).hexdigest()
+    config_sha256 = (experiment_selection["config_sha256"] if experiment_selection else
+                     hashlib.sha256(resolved_config.read_bytes()).hexdigest())
     repository_root = Path(__file__).resolve().parents[1]
     recipe = config.get("policy_server", {})
     sources = capture_source_provenance(repository_root, policy_name=recipe.get("policy_name"))
@@ -317,8 +319,10 @@ def _create_run_dir(config: dict, config_path: Path, *, mode: str) -> Path:
                 "config_path": str(resolved_config),
                 "config_sha256": config_sha256,
                 "config": loads(dumps(deepcopy(config), default=str)),
+                **({"experiment_selection": experiment_selection} if experiment_selection else {}),
             },
             handle,
+            ensure_ascii=False,
             indent=2,
             sort_keys=True,
         )
@@ -344,28 +348,48 @@ def _run(
     except RuntimeLockError as exc:
         print(f"runtime not started: {exc}")
         return 2
-    status = "completed" if result.success else "FAULT"
+    status = "completed" if result.run_completed else "FAULT"
     print(
         f"{status} {result.steps} steps; reason={result.terminal_reason}; "
         f"accepted={result.accepted_plans} rejected={result.rejected_plans}; "
         f"episode={result.episode_dir}"
     )
-    return 0 if result.success else 2
+    return 0 if result.run_completed else 2
 
 
 def _serve(
-    config_path: Path, executor: str | None = None, *, local: Path | None = None,
-    control_timing: bool = False,
+    config_path: Path | None, executor: str | None = None, *, local: Path | None = None,
+    control_timing: bool = False, config_list: Path | None = None,
 ) -> int:
     # Session/recovery dependencies are only needed for the interactive service.
     from manimux.runtime.lock import RuntimeLockError
     from manimux.session import RuntimeSessionService
 
-    config = _load_config(config_path, executor, local=local, control_timing=control_timing)
+    catalog = None
+    if config_list is not None:
+        from manimux.experiment_list import load_experiment_list
+
+        catalog = load_experiment_list(
+            config_list, local=local, executor=executor, control_timing=control_timing,
+        )
+        first = catalog.choices[catalog.default_id]
+        config_path, config = first.path, deepcopy(first.config)
+    else:
+        config = _load_config(config_path, executor, local=local, control_timing=control_timing)
+
+    def create_selection_dir(choice_id: str) -> Path:
+        choice = catalog.choices[choice_id]
+        return _create_run_dir(choice.config, choice.path, mode="serve",
+                               experiment_selection=catalog.selection(choice_id))
+
     try:
         with _runtime_lock(config, config_path, mode="serve"):
-            run_dir = _create_run_dir(config, config_path, mode="serve")
-            RuntimeSessionService(config, run_dir).serve()
+            run_dir = (create_selection_dir(catalog.default_id) if catalog else
+                       _create_run_dir(config, config_path, mode="serve"))
+            RuntimeSessionService(
+                config, run_dir, experiment_list=catalog,
+                selection_dir_factory=create_selection_dir if catalog else None,
+            ).serve()
     except KeyboardInterrupt:
         print("runtime service stopped by operator")
         return 130
@@ -387,8 +411,12 @@ def _runtime_lock(
     return RuntimeInstanceLock(identity, mode=mode, config_path=config_path)
 
 
-def _add_runtime_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--config", type=Path, required=True)
+def _add_runtime_arguments(parser: argparse.ArgumentParser, *, allow_list: bool = False) -> None:
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--config", type=Path)
+    if allow_list:
+        source.add_argument("--config-list", type=Path,
+                            help="Select compatible experiments in RoboGUI without restarting services")
     parser.add_argument(
         "--local", type=Path,
         help="Station bindings (default: manimux/configs/local/station.yaml)",
@@ -414,7 +442,7 @@ def build_parser() -> argparse.ArgumentParser:
     serve_parser = subparsers.add_parser(
         "serve", help="keep one runtime service available for RoboGUI-controlled rollouts"
     )
-    _add_runtime_arguments(serve_parser)
+    _add_runtime_arguments(serve_parser, allow_list=True)
     return parser
 
 
@@ -433,12 +461,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "serve":
         return _serve(
             args.config, args.executor, local=args.local, control_timing=args.control_timing,
+            config_list=args.config_list,
         )
     raise AssertionError(f"unhandled command {args.command}")
 
 
 def run_parameters(**options) -> dict:
-    """补齐实验记录目录和控制步数。"""
+    """Fill in the experiment recording directory and control step count."""
 
     from manimux.embodiments.sensor.reader import sensor_reading_parameters
     from manimux.evaluation.identity import research_template
@@ -476,7 +505,7 @@ def run_parameters(**options) -> dict:
 
 
 def control_profile_parameters(**options) -> dict:
-    """展开采集与部署共用的本体布局和运动限制；动作时间由 policy 声明。"""
+    """Resolve the embodiment layout and motion limits shared by collection and deployment; policy declares action timing."""
     from manimux.embodiments.robot import shared_robot_parameters
     from manimux.runtime.executors.limits import motion_limits_parameters
     from manimux.runtime.safety import command_safety_parameters
@@ -497,7 +526,7 @@ def control_profile_parameters(**options) -> dict:
 
 
 def prepare_experiment(**options) -> dict:
-    """把各模块处理过的参数组合成实验字典；不创建机器人或连接硬件。"""
+    """Combine resolved component parameters into an experiment dictionary without creating robots or connecting hardware."""
     from manimux.embodiments.robot import robot_parameters
     from manimux.embodiments.sensor import sensor_parameters
     from manimux.evaluation.rubric import evaluation_parameters
@@ -546,7 +575,7 @@ def prepare_experiment(**options) -> dict:
 
 
 def load_config(path: str | Path, *, local: str | Path | None = None) -> dict:
-    """主入口使用的完整加载流程；保留共享控制参数原有的合并规则。"""
+    """Run the complete entry-point loading flow, preserving the shared control parameter merge rules."""
     from manimux.embodiments.robot import (
         action_contract_group_indices,
         shared_robot_parameters,
@@ -557,7 +586,7 @@ def load_config(path: str | Path, *, local: str | Path | None = None) -> dict:
     config_path = Path(path)
     raw = read_experiment(config_path, local=local)
     gripper_indices = action_contract_group_indices(raw)
-    # read_experiment 已解析文件引用；这里只组合共享控制参数和实验参数。
+    # read_experiment has resolved file references; combine shared control and experiment parameters here.
     robot = raw["robot"] = shared_robot_parameters(**raw.get("robot", {}))
     profile = None
     if raw.get("control_profile") is not None:
@@ -588,8 +617,8 @@ def load_config(path: str | Path, *, local: str | Path | None = None) -> dict:
         options = robot.setdefault("options", {})
         for name, value in profile["robot"]["options"].items():
             _set_shared_value(options, name, value, f"robot.options.{name}")
-        # 模型动作间隔属于 checkpoint 的动作约定，实验显式填写 policy.action_dt_s。
-        # 共享本体 profile 只提供布局和限制，不再隐式决定轨迹的时间轴。
+        # The model action interval belongs to the checkpoint contract; experiments specify policy.action_dt_s explicitly.
+        # Shared embodiment profiles provide layout and limits without implicitly setting the trajectory timeline.
         execution = raw.setdefault("executor", {})
         envelope = profile["command_safety"] or command_safety_parameters()
         if "command_safety" in execution:

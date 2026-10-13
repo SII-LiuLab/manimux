@@ -48,23 +48,23 @@ def load_feedback_rate_replay(
         raw, target_hz=target_hz, low_rates_hz=low_rates_hz, max_gap_s=max_gap_s,
     )
     actual = " / ".join(f"{arm} {rate:.2f}" for arm, rate in rates.items())
-    low_label = "、".join(f"{r:g}" for r in low_rates_hz)
+    low_label = ", ".join(f"{r:g}" for r in low_rates_hz)
     return JointReplay(
         episode=episode, source="feedback", origin_ns=origin, time_s=time_s,
         held={}, linear={}, native=reference, resampled=variants,
         target_hz=target_hz, low_hz=min(low_rates_hz),
         cameras=load_replay_cameras(episode, meta), source_rates_hz=rates,
-        reference_label="原始 achieved", source_samples=original,
+        reference_label="Original achieved", source_samples=original,
         resample_rates_hz=dict(zip(variants, low_rates_hz, strict=True)),
         source_note=(
-            f"采集设置 {meta['control_hz']:g} Hz；从臂 achieved 实际保存平均 {actual} Hz。\n\n"
-            f"蓝色：各臂按自己的反馈时间戳，取此前最近实测值到 {target_hz:g} Hz 比较网格；"
-            f"橙／绿色：同一份 achieved 按时间取 {low_label} Hz 采样点，"
-            f"再对六个关节线性插值到 {target_hz:g} Hz。不是每隔几个原始行抽一个点。"
-            "原始采样点另保留在关节报告中；比较网格重复取值不算新测量。\n\n"
-            "夹爪三组共用已记录的实测开合值，不降采样、不插值、不改写旧记录。"
-            f"首尾裁到共有采样点；超过 {max_gap_s * 1000:g} ms 的源时间缺口不补造。"
-            "使用离线未来点，没有额外低通或抗混叠滤波；误差衡量低频保存的重建损失。"
-            "这些是实测轨迹及其重建，不是三次真机下发实验，也不是 MIT 控制精度。"
+            f"Capture setting {meta['control_hz']:g} Hz; recorded follower achieved states actually average {actual} Hz.\n\n"
+            f"Blue: use each arm's feedback timestamps to select the most recent measurement on the {target_hz:g} Hz comparison grid; "
+            f"Orange/green: sample the same achieved data by time at {low_label} Hz, "
+            f"then linearly interpolate the six joints to {target_hz:g} Hz. This is time sampling, not selecting every nth source row. "
+            "The joint report also retains original sample points; repeated grid values are not new measurements.\n\n"
+            "All three gripper series share recorded measured openings without downsampling, interpolation or rewriting records. "
+            f"Crop endpoints to shared sample points; source-time gaps longer than {max_gap_s * 1000:g} ms are not filled. "
+            "Use offline future points without additional low-pass or antialias filtering; error measures reconstruction loss from low-rate recording. "
+            "These are measured trajectories and reconstructions, not three hardware command experiments or MIT control accuracy."
         ),
     )

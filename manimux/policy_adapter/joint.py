@@ -1,6 +1,6 @@
-"""标准绝对关节动作适配；臂爪分组和时间信息来自实验配置。
+"""Standard absolute joint-action adaptation; experiment configuration supplies groups and timing.
 
-这里只组织服务端已经解码的关节目标，不做归一化恢复、增量恢复或 IK。
+Organize server-decoded joint targets without denormalization, delta reconstruction or IK.
 """
 
 from __future__ import annotations
@@ -22,6 +22,8 @@ class JointAdapter(PolicyAdapter):
     """Translate canonical grouped joint targets into timed robot chunks."""
 
     supports_gripper_mapping = True
+    supports_multi_inflight = True
+    supports_candidate_decoding = True
 
     def __init__(self, robot: dict, policy: dict, *, kinematics=None) -> None:
         self._dimensions = dict(robot["group_dims"])

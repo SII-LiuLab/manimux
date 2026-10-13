@@ -1,4 +1,4 @@
-"""Read-only collection replay using the existing Viser robot adapters."""
+"""Offline replay; the module CLI opens finalized experiment trajectories."""
 
 from __future__ import annotations
 
@@ -15,6 +15,52 @@ from viser.extras import ViserUrdf
 from manimux.robogui.replay_data.replay import JointReplay, load_joint_replay
 
 from .robots.base import RobotAdapter
+
+
+def create_recorded_replay(episode, robot, *, source="state", host="127.0.0.1", port=8087):
+    """Reuse recorded timestamps and the shared, hardware-free trajectory player."""
+    from .action_replay import ActionReplayRoboGUI
+    from .records import SOURCES, load_episode_trajectory
+
+    actions, stamps = load_episode_trajectory(episode, source, robot)
+    return ActionReplayRoboGUI(
+        actions, robot, action_dt_s=1.0, timestamps_ns=stamps,
+        source_label=SOURCES[source], host=host, port=port,
+    )
+
+
+def main() -> None:
+    import argparse
+
+    from .action_replay import run_replay
+    from .records import SOURCES
+    from .robot_view import load_robogui_config, load_robot_view
+
+    parser = argparse.ArgumentParser(
+        description="Replay a finalized experiment trajectory; no robot connection or RGB video playback."
+    )
+    parser.add_argument("--episode", type=Path, required=True, help="Finalized rollout directory")
+    model = parser.add_mutually_exclusive_group(required=True)
+    model.add_argument("--robot", help="RoboGUI robot preset, e.g. yam")
+    model.add_argument("--config", type=Path, help="Custom RoboGUI YAML with offline RobotModel")
+    parser.add_argument("--source", choices=tuple(SOURCES), default="state",
+                        help="state: measured; scheduled: timeline reference; command: executor output")
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8087)
+    args = parser.parse_args()
+    if not 0 <= args.port <= 65535:
+        parser.error("--port must be between 0 and 65535")
+    episode = args.episode.expanduser().resolve()
+    try:
+        config = load_robogui_config(args.config, robot=args.robot)
+        robot = load_robot_view(config)
+        robogui = create_recorded_replay(
+            episode, robot, source=args.source, host=args.host, port=args.port,
+        )
+    except (OSError, ValueError, KeyError) as exc:
+        parser.error(str(exc))
+    print(f"Recorded trajectory: {episode} · ticks/{args.source}")
+    run_replay(robogui, host=args.host)
 
 
 class ReplayVideo:
@@ -189,83 +235,83 @@ class CollectionReplayRoboGUI:
 
     def _build_gui(self, camera):
         gui = self.server.gui
-        gui.add_markdown("## 轨迹叠加对比\n实体为基准，半透明线框虚影为对照；原始视频共用时间轴。")
+        gui.add_markdown("## Trajectory overlay comparison\nSolid geometry is the reference; translucent wireframes show comparisons. Original videos share the timeline.")
         source_note = (
-            "从臂实测 joint：基准每 10 ms 取此前最近的原始反馈；"
-            "另两组先取同一份 30 Hz 数据，再分别线性插值到 100 Hz 或直接保持。"
+            "Measured follower joints: the reference uses the most recent feedback at each 10 ms tick; "
+            "the other two series use the same 30 Hz samples, then interpolate to 100 Hz or hold the values."
             if self.data.source == "feedback" else
-            "Command：沿用已保存的实际发送时间（标称 30 Hz），分别保持或线性插值。"
-            "这份数据没有原生 100 Hz command。"
+            "Command: use recorded send times (nominally 30 Hz), with either hold or linear interpolation. "
+            "This recording contains no native 100 Hz commands."
         )
         self.source_note = gui.add_markdown(self.data.source_note or source_note)
         achieved_comparison = self.data.source == "feedback" and bool(self.data.resampled)
         self.layout = gui.add_dropdown(
-            "对比布局", options=("叠加", "三组叠加", "并排"),
-            initial_value="三组叠加" if achieved_comparison else "叠加",
+            "Comparison layout", options=("Overlay", "Three-series overlay", "Side by side"),
+            initial_value="Three-series overlay" if achieved_comparison else "Overlay",
         )
         if self.data.resampled:
             candidates = {
-                f"{rate:g} → {self.data.target_hz:g} Hz 插值": name
+                f"{rate:g} → {self.data.target_hz:g} Hz Interpolation": name
                 for name, rate in self.data.resample_rates_hz.items()
             }
         else:
-            candidates = {f"{self.data.low_hz:g} → {self.data.target_hz:g} Hz 插值": "linear"}
+            candidates = {f"{self.data.low_hz:g} → {self.data.target_hz:g} Hz Interpolation": "linear"}
             if self.data.native:
-                candidates[f"{self.data.low_hz:g} Hz 保持"] = "held"
+                candidates[f"{self.data.low_hz:g} Hz Hold"] = "held"
         self.candidates = candidates
         self.ghost = gui.add_dropdown(
-            "对照虚影", options=tuple(candidates), initial_value=next(iter(candidates)),
+            "Comparison ghost", options=tuple(candidates), initial_value=next(iter(candidates)),
         )
         self.opacity = gui.add_slider(
-            "虚影不透明度", min=0.05, max=0.8, step=0.05, initial_value=0.55,
+            "Ghost opacity", min=0.05, max=0.8, step=0.05, initial_value=0.55,
         )
-        self.show_reference = gui.add_checkbox("显示原始实体", initial_value=True)
-        self.show_candidate = gui.add_checkbox("显示对照虚影", initial_value=True)
+        self.show_reference = gui.add_checkbox("Show reference geometry", initial_value=True)
+        self.show_candidate = gui.add_checkbox("Show comparison ghost", initial_value=True)
         self.comparison = gui.add_markdown("")
-        self.play = gui.add_button("播放")
+        self.play = gui.add_button("Play")
         self.frame_slider = gui.add_slider(
-            f"{self.data.target_hz:g} Hz 帧索引", min=0, max=len(self.data.time_s) - 1,
+            f"{self.data.target_hz:g} Hz Frame index", min=0, max=len(self.data.time_s) - 1,
             step=1, initial_value=0,
         )
         period_ms = f"{1000 / self.data.target_hz:.4g}"
-        self.previous = gui.add_button(f"上一帧 · −{period_ms} ms")
-        self.next = gui.add_button(f"下一帧 · +{period_ms} ms")
-        self.first = gui.add_button("回到起点")
-        self.last = gui.add_button("跳到终点")
+        self.previous = gui.add_button(f"Previous frame · −{period_ms} ms")
+        self.next = gui.add_button(f"Next frame · +{period_ms} ms")
+        self.first = gui.add_button("Go to start")
+        self.last = gui.add_button("Go to end")
         self.speed = gui.add_dropdown(
-            "播放速度", options=("0.1×", "0.25×", "0.5×", "1×", "2×"), initial_value="1×",
+            "Playback speed", options=("0.1×", "0.25×", "0.5×", "1×", "2×"), initial_value="1×",
         )
-        self.loop = gui.add_checkbox("循环", initial_value=False)
+        self.loop = gui.add_checkbox("Loop", initial_value=False)
         self.status = gui.add_markdown("")
         self.joint_values = None
         if achieved_comparison:
-            with gui.add_folder("逐关节对比 · 当前帧（度）", expand_by_default=False):
+            with gui.add_folder("Joint comparison: current frame (degrees)", expand_by_default=False):
                 self.joint_values = gui.add_markdown("")
-        with gui.add_folder("原始相机视频"):
+        with gui.add_folder("Original camera videos"):
             self.camera = gui.add_dropdown(
-                "已录制视角", options=tuple(self.data.cameras), initial_value=camera,
+                "Recorded view", options=tuple(self.data.cameras), initial_value=camera,
             )
             self.image = gui.add_image(
-                np.zeros((1, 1, 3), dtype=np.uint8), label="原始视频", visible=False,
+                np.zeros((1, 1, 3), dtype=np.uint8), label="Original video", visible=False,
                 format="jpeg", jpeg_quality=90,
             )
             self.image_status = gui.add_markdown("")
-        with gui.add_folder("数据说明", expand_by_default=False):
+        with gui.add_folder("Data notes", expand_by_default=False):
             rates = tuple(self.data.source_rates_hz.values())
             gui.add_markdown(
-                f"Episode：`{self.data.episode.name}`\n\n"
-                f"有效区间：{self.data.time_s[0]:.3f}–{self.data.time_s[-1]:.3f} s；"
-                f"源数据平均频率：{min(rates):.2f}–{max(rates):.2f} Hz。\n\n"
-                "各组夹爪均保持相同的已保存值，不对夹爪插值，只比较六个 arm joint。"
-                "图像按主机采集时间戳匹配，非曝光硬同步；视频显示原帧索引和帧龄。"
-                "场景底座为 RoboGUI 展示布局。\n\n"
-                f"{self.data.target_hz:g} Hz 是轨迹采样网格，浏览器显示帧率取决于设备；"
-                "用慢放或逐帧检查细节。"
-                "这是轨迹回放，不模拟控制器或物体动力学。"
+                f"Episode: `{self.data.episode.name}`\n\n"
+                f"Valid interval: {self.data.time_s[0]:.3f}–{self.data.time_s[-1]:.3f} s; "
+                f"Mean source frequency: {min(rates):.2f}–{max(rates):.2f} Hz.\n\n"
+                "All series retain identical recorded gripper values without interpolation; only six arm joints are compared. "
+                "Images are matched by host capture timestamps, not hardware exposure synchronization; video shows source frame indices and ages. "
+                "Scene bases use the RoboGUI display layout.\n\n"
+                f"{self.data.target_hz:g} Hz is the trajectory sampling grid; browser frame rate depends on the device. "
+                "Use slow playback or frame stepping to inspect details. "
+                "This is trajectory replay, without controller or object dynamics simulation."
                 + (
-                    "\n\n首尾取所有比较频率共有的采样点，"
-                    "因此实体和虚影的端点使用同一源数据值。只裁剪回放区间，"
-                    "不添加端点约束，不修改角度或空间变换。"
+                    "\n\nUse shared sample points across all compared frequencies at both endpoints, "
+                    "so reference and ghost endpoints use the same source values. Only crop the replay interval; "
+                    "do not add endpoint constraints or change angles or spatial transforms."
                     if self.data.native else ""
                 )
             )
@@ -308,7 +354,7 @@ class CollectionReplayRoboGUI:
     def _anchor(self):
         self._anchor_frame = self._frame
         self._anchor_time = time.monotonic()
-        self.play.label = "暂停" if self._playing else "播放"
+        self.play.label = "Pause" if self._playing else "Play"
 
     def seek(self, frame: int):
         with self._lock:
@@ -328,7 +374,7 @@ class CollectionReplayRoboGUI:
                     self._frame = min(frame, len(self.data.time_s) - 1)
                     if frame >= len(self.data.time_s) - 1:
                         self._playing = False
-                        self.play.label = "播放"
+                        self.play.label = "Play"
             selection = (
                 self._frame, self.camera.value, self.layout.value,
                 self.candidates[self.ghost.value], self.opacity.value,
@@ -343,7 +389,7 @@ class CollectionReplayRoboGUI:
         selection = (layout, ghost, opacity)
         if selection == self._style_selection:
             return
-        overlay = layout != "并排"
+        overlay = layout != "Side by side"
         previous_layout = self._style_selection[0] if self._style_selection else None
         if layout != previous_layout:
             position = (1.8, -2.0, 1.45) if overlay else (3.9, -4.6, 2.9)
@@ -358,7 +404,7 @@ class CollectionReplayRoboGUI:
             offset = 0.0 if overlay else ((len(self.methods) - 1) / 2 - index) * 1.4
             self.method_roots[method].position = (0.0, offset, 0.0)
             self.method_roots[method].visible = (
-                not overlay or layout == "三组叠加" or method in {self.reference_method, ghost}
+                not overlay or layout == "Three-series overlay" or method in {self.reference_method, ghost}
             )
             self.labels[method].visible = not overlay
             # Only one table in overlay mode; coincident copies cause flicker.
@@ -368,7 +414,7 @@ class CollectionReplayRoboGUI:
             # RGBA override above ensures these expose a mutable opacity.
             for mesh in handle._meshes:
                 is_ghost = overlay and method != self.reference_method and (
-                    method == ghost or layout == "三组叠加"
+                    method == ghost or layout == "Three-series overlay"
                 )
                 # In Viser, None selects the opaque render pass; 1.0 still
                 # enables transparent rendering and its depth-sorting rules.
@@ -413,45 +459,45 @@ class CollectionReplayRoboGUI:
                     gaps.append(f"{method}/{group}")
             self.frame_slider.value = index
             self.status.content = (
-                f"**帧 {index} / {len(self.data.time_s) - 1}** · "
+                f"**Frame {index} / {len(self.data.time_s) - 1}** · "
                 f"episode **{self.data.time_s[index]:.3f} s**"
-                + (f"\n\n缺失反馈，暂时隐藏：{', '.join(gaps)}" if gaps else "")
+                + (f"\n\nMissing feedback; temporarily hidden: {', '.join(gaps)}" if gaps else "")
             )
             reference_name = (
-                f"蓝色实体：{self.data.reference_label}→{self.data.target_hz:g} Hz"
-                if self.data.native else "绿色实体：command 保持"
+                f"Blue reference: {self.data.reference_label}→{self.data.target_hz:g} Hz"
+                if self.data.native else "Green reference: command hold"
             )
             ghost_label = next(
                 label for label, method in self.candidates.items() if method == ghost
             )
-            ghost_name = f"对照线框虚影：{ghost_label}"
+            ghost_name = f"Comparison wireframe: {ghost_label}"
             differences = []
             for group in self.trajectories[self.reference_method]:
                 reference = self.trajectories[self.reference_method][group][index, :6]
                 candidate = self.trajectories[ghost][group][index, :6]
                 error = np.rad2deg(candidate - reference)
-                value = f"{np.max(np.abs(error)):.4f}°" if np.all(np.isfinite(error)) else "缺失"
-                differences.append(f"{group} 最大关节差：{value}")
+                value = f"{np.max(np.abs(error)):.4f}°" if np.all(np.isfinite(error)) else "Missing"
+                differences.append(f"{group} Maximum joint difference: {value}")
             self.comparison.content = (
                 f"{reference_name} · {ghost_name}\n\n" + " · ".join(differences)
             )
-            if layout == "三组叠加" and self.data.resampled:
+            if layout == "Three-series overlay" and self.data.resampled:
                 labels = list(self.candidates)
                 self.comparison.content = (
-                    f"{reference_name}；橙色：{labels[0]}；绿色：{labels[1]}"
-                    if len(labels) == 2 else f"{reference_name}；所有重建同时显示"
+                    f"{reference_name}; Orange: {labels[0]}; Green: {labels[1]}"
+                    if len(labels) == 2 else f"{reference_name}; All reconstructions shown"
                 )
             if self.joint_values is not None:
                 header = " | ".join(f"{r:g}→{self.data.target_hz:g}" for r in
                                     self.data.resample_rates_hz.values())
                 columns = 2 + len(self.data.resampled)
-                rows = [f"| 关节 | 原始 | {header} |", "|" + "---|" * columns]
+                rows = [f"| Joint | Original | {header} |", "|" + "---|" * columns]
                 for arm, reference in self.data.native.items():
                     for joint in range(6):
                         values = [reference[index, joint], *(
                             group[arm][index, joint] for group in self.data.resampled.values()
                         )]
-                        cells = [f"{np.rad2deg(v):.3f}" if np.isfinite(v) else "缺失"
+                        cells = [f"{np.rad2deg(v):.3f}" if np.isfinite(v) else "Missing"
                                  for v in values]
                         rows.append(f"| {arm} J{joint + 1} | " + " | ".join(cells) + " |")
                 self.joint_values.content = "\n".join(rows)
@@ -462,12 +508,12 @@ class CollectionReplayRoboGUI:
                     self._last_image = (camera, image_index)
                 age_ms = (timestamp - int(recorded.timestamps_ns[image_index])) / 1e6
                 self.image_status.content = (
-                    f"{camera} · 原视频帧 **{image_index} / {len(recorded.timestamps_ns) - 1}**"
-                    f" · 帧龄 {age_ms:.1f} ms"
-                    + (" · **图像已过期，仍显示最后一帧**" if age_ms > 100 else "")
+                    f"{camera} · Source video frame **{image_index} / {len(recorded.timestamps_ns) - 1}**"
+                    f" · Frame age {age_ms:.1f} ms"
+                    + (" · **Image is stale; showing the last frame**" if age_ms > 100 else "")
                 )
             else:
-                self.image_status.content = f"{camera} · 此时尚无已录制图像"
+                self.image_status.content = f"{camera} · No recorded image available at this time"
 
     def close(self):
         with self._lock:
@@ -507,3 +553,7 @@ def serve_collection_replay(
         robogui.close()
         for sig, handler in previous_handlers.items():
             signal.signal(sig, handler)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,4 +1,4 @@
-# 推理调度参数；algorithm 在实验入口显式选择。动作间隔由 policy.action_dt_s 指定。
+# Inference scheduling parameters; experiments explicitly select algorithm. policy.action_dt_s defines the action interval.
 chunk_policy_steps: 12
 rtc:
   initial_delay_policy_steps: 4

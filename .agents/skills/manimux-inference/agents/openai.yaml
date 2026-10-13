@@ -1,0 +1,4 @@
+interface:
+  display_name: "ManiMux Inference"
+  short_description: "Integrate and validate model sampling algorithms in ManiMux"
+  default_prompt: "Use $manimux-inference to prepare and verify the requested model and inference algorithm combinations."

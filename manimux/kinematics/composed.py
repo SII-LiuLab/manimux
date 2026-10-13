@@ -90,15 +90,15 @@ class ComposedManipulatorKinematics(ManipulatorKinematicsBase):
         return state
 
     def _offset(self, tool_state: FloatArray) -> FloatArray:
-        # 法兰 -> 末端安装基座 -> TCP。安装变换和末端自身几何各应用一次。
+        # Flange -> tool mounting base -> TCP. Apply the mounting transform and tool geometry once each.
         return self._mount @ self._tool.tcp_transform(tool_state.copy())
 
     def fk(self, configuration: FloatArray) -> FloatArray:
         state = self._configuration(configuration)
         offset = self._offset(state[self._arm_size :])
         flange = self._arm.fk_flange(state[: self._arm_size].copy())
-        # T_arm_base_tcp = T_arm_base_flange @ T_flange_tcp。
-        # 各臂在 RoboGUI 中的场景位置不参与控制 FK。
+        # T_arm_base_tcp = T_arm_base_flange @ T_flange_tcp.
+        # RoboGUI scene placement does not affect control FK.
         return flange @ offset
 
     @property
@@ -117,8 +117,8 @@ class ComposedManipulatorKinematics(ManipulatorKinematicsBase):
 
     def flange_target(self, target_tcp: FloatArray, tool_state: FloatArray) -> FloatArray:
         """Remove only the mounted tool offset, staying in the same arm base."""
-        # T_arm_base_flange = T_arm_base_tcp @ inv(T_flange_tcp)。
-        # 转换后的目标交给 arm 官方 IK，避免 SDK 与组合层重复补偿工具偏移。
+        # T_arm_base_flange = T_arm_base_tcp @ inv(T_flange_tcp).
+        # Pass the converted target to official arm IK to avoid applying tool offsets twice.
         return rigid_transform(target_tcp, "target_tcp") @ self._offset_inverse(tool_state)
 
     def ik(

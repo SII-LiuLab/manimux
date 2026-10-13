@@ -1,9 +1,9 @@
-"""Tianji 手臂运动学：仅处理各臂基座到法兰的变换。
+"""Tianji arm kinematics: transforms from each arm base to its flange only.
 
-TianjiSDKKinematics 提供官方 FK/IK 接口。TianjiArmKinematics 保存旧版
-ik + ik_nsp 求解流程、关节限位和分支选择；DH 法兰雅可比供可选微分 IK 使用。
-末端装配与 TCP 偏移由公共 ComposedManipulatorKinematics 处理。
-输入关节为弧度、位姿为米，SDK 内部的度/毫米换算在本文件完成。
+TianjiSDKKinematics provides the official FK/IK interface. TianjiArmKinematics preserves the existing
+ik + ik_nsp solving flow, joint limits and branch selection; optional differential IK uses the DH flange Jacobian.
+Shared ComposedManipulatorKinematics handles end-effector assembly and TCP offsets.
+Input joints use radians and poses use meters; this file converts to SDK degrees/millimeters.
 """
 
 from __future__ import annotations
@@ -102,7 +102,7 @@ def j67_ok(joints_deg: Sequence[float] | FloatArray) -> bool:
 
 
 class TianjiArmKinematics:
-    """单臂法兰求解及关节约束；不读取末端配置，不保存 TCP 偏移。"""
+    """Single-arm flange solving and joint constraints; does not read tool configuration or store TCP offsets."""
 
     def __init__(
         self,
@@ -227,8 +227,8 @@ class TianjiArmKinematics:
     def _validate(
         self, kine: Any, q: list[float], target_xyzabc: list[float], reference: list[float]
     ) -> tuple[str, float]:
-        # 保留旧版验解次序和度量：FK 回代、限位余量、J6/J7 干涉、种子跳变。
-        # 旋转误差仍取环绕后的 XYZ 欧拉角最大差，不改成旋转向量误差。
+        # Preserve the validation order and metrics: FK substitution, limit margins, J6/J7 interference, and seed jumps.
+        # Rotation error remains the maximum wrapped XYZ Euler difference, not rotation-vector error.
         back = kine.mat4x4_to_xyzabc(pose_mat=kine.fk(joints=q))
         position_error = math.dist(back[:3], target_xyzabc[:3])
         rotation_error = max(abs((back[i] - target_xyzabc[i] + 180) % 360 - 180) for i in (3, 4, 5))
@@ -253,8 +253,8 @@ class TianjiArmKinematics:
         seed = np.asarray(init_joints, dtype=np.float64).reshape(-1)[:NUM_ARM_JOINTS]
         if seed.size != NUM_ARM_JOINTS or not np.isfinite(seed).all():
             raise ValueError("init_joints must contain 7 finite joint angles")
-        # 输入已经是该臂基座下的法兰目标，组合层已去除末端偏移。
-        # 此处只做 SDK 单位换算：米 -> 毫米、弧度 -> 度。
+        # The input is already a flange target in the arm base frame; the composition layer removed the tool offset.
+        # Only convert SDK units here: meters to millimeters and radians to degrees.
         flange_mm = target.copy()
         flange_mm[:3, 3] *= 1e3
         reference = np.degrees(seed).tolist()
@@ -278,7 +278,7 @@ class TianjiArmKinematics:
             solution = list(params.m_Output_RetJoint.to_list())
             reason, step = self._validate(kine, solution, target_xyzabc, reference)
             switched = False
-            # 最近解跳变时，按旧逻辑从 SDK 其它分支中选满足约束且步长最小的解。
+            # If the nearest solution jumps, retain the original rule: choose the valid SDK branch with the smallest step.
             if reason == "branch_jump":
                 rows = fx_kine.convert_to_8x8_matrix(params.m_OutPut_AllJoint.to_list())
                 count = int(params.m_OutPut_Result_Num)
@@ -322,8 +322,8 @@ class TianjiArmKinematics:
         return np.minimum(q - self._lower, self._upper - q)
 
 
-# 整机通过下方统一的 fk_flange / ik_flange 接口调用官方 SDK。
-# 上方保留旧版 IK 数值算法及微分 IK 所需的 DH 雅可比，不负责末端装配。
+# The robot accesses the official SDK through the shared fk_flange / ik_flange interface below.
+# The code above retains the existing IK numerics and DH Jacobian for differential IK; it does not assemble tools.
 DEFAULT_CONFIG = Path(__file__).parent / "sdk" / "marvin" / "ccs_m6_40.MvKDCfg"
 _SDK_LOCK = threading.Lock()
 

@@ -13,6 +13,44 @@ from PIL import Image
 
 PANEL_SLOTS = ("top", "left", "right")
 
+CAMERA_STATUS_STYLE = """
+<style>
+.mm-camera-status { font: 12px/1.45 system-ui, sans-serif; color: var(--mantine-color-text, #263445); }
+.mm-camera-status .mm-camera-caption { margin: 0 0 8px; font-size: 11px;
+  color: var(--mantine-color-dimmed, #758195); overflow-wrap: anywhere; }
+.mm-camera-status .mm-camera-row { display: flex; align-items: center; gap: 10px;
+  padding: 9px 0; border-top: 1px solid var(--mantine-color-default-border, #e8edf2); }
+.mm-camera-status .mm-camera-route { flex: 1; min-width: 0; }
+.mm-camera-status .mm-camera-name { display: block; font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mm-camera-status .mm-camera-source { display: block; margin-top: 2px;
+  font: 11px/1.45 ui-monospace, monospace; color: var(--mantine-color-dimmed, #758195);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mm-camera-status .mm-camera-badge { display: inline-flex; align-items: center;
+  gap: 5px; flex-shrink: 0; padding: 3px 7px; border-radius: 6px;
+  font-size: 10px; font-weight: 500; white-space: nowrap; }
+.mm-camera-status .mm-camera-badge::before { content: ''; width: 5px; height: 5px;
+  border-radius: 50%; background: currentColor; }
+.mm-camera-status .mm-camera-live { color: #168057; background: rgba(30,160,105,.10); }
+.mm-camera-status .mm-camera-waiting { color: #a36a13; background: rgba(208,146,36,.10); }
+.mm-camera-status .mm-camera-muted { color: #7a8493; background: rgba(128,140,157,.10); }
+.mm-camera-status .mm-camera-temporal { color: #4978b8; background: rgba(75,128,204,.10); }
+.mm-camera-status .mm-camera-note { margin: 8px 0 0; font-size: 11px;
+  color: var(--mantine-color-dimmed, #758195); overflow-wrap: anywhere; }
+</style>
+"""
+
+
+def _camera_status_row(name: str, source: str, status: str, kind: str, detail: str) -> str:
+    return (
+        '<div class="mm-camera-row"><div class="mm-camera-route">'
+        f'<span class="mm-camera-name" title="{html.escape(name)}">{html.escape(name)}</span>'
+        f'<span class="mm-camera-source" title="{html.escape(source)}">'
+        f'{html.escape(source)}</span></div>'
+        f'<span class="mm-camera-badge mm-camera-{kind}" title="{html.escape(detail)}">'
+        f'{html.escape(status)}</span></div>'
+    )
+
 
 def _camera_panel_html(
     labels: Mapping[str, tuple[str, str]] | None = None, slots: tuple[str, ...] = PANEL_SLOTS
@@ -416,33 +454,34 @@ class CameraPanel:
         for index, view in enumerate(self._views):
             if view is None:
                 rows.append(
-                    f"<tr><td>{self._slots[index]}</td><td>—</td><td>Not configured</td></tr>"
+                    _camera_status_row(self._slots[index], "—", "Unassigned", "muted", "Not configured")
                 )
                 continue
             name, source = view
             source = self._sources.get(index, source)
             status = "Live" if index in self._received else "Waiting for image"
             rows.append(
-                f"<tr><td>{html.escape(name)}</td><td>{html.escape(source)}</td>"
-                f"<td>{status}</td></tr>"
+                _camera_status_row(
+                    name, source, "Live" if index in self._received else "Waiting",
+                    "live" if index in self._received else "waiting", status,
+                )
             )
             if len(self._slots) <= index < len(self.images):
                 self.images[index].label = f"{name} ← {source} · {status}"
         rows.extend(
-            f"<tr><td>{html.escape(name)}</td><td>{html.escape(source)}</td>"
-            "<td>Temporal input · Shared physical camera</td></tr>"
+            _camera_status_row(name, source, "Temporal", "temporal", "Temporal input · Shared physical camera")
             for name, source in self._temporal_views
         )
         details = (
-            f"<strong>{title}</strong><table><thead><tr>"
-            "<th>Input / Preview</th><th>Camera source</th><th>Status</th>"
-            f"</tr></thead><tbody>{''.join(rows)}</tbody></table>"
+            CAMERA_STATUS_STYLE + '<section class="mm-camera-status" aria-label="Camera status">'
+            f'<div class="mm-camera-caption">{html.escape(title)}</div>{"".join(rows)}'
         )
         if self._config.get("camera_mode", "policy") == "manual":
             inputs = "; ".join(
                 f"{html.escape(name)} ← {html.escape(source)}"
                 for name, source in self._policy_map.items()
             )
-            details += f"<p>Model inputs: {inputs or 'Waiting for configuration'}</p>"
+            details += f'<p class="mm-camera-note">Model inputs: {inputs or "Waiting for configuration"}</p>'
+        details += "</section>"
         if self.details is not None and self.details.content != details:
             self.details.content = details

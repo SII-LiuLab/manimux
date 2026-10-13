@@ -19,7 +19,7 @@
 .pytest_cache/
 .ruff_cache/
 .venv/
-# Local Python environments; setup instructions live in docs/usage/environments.md.
+# Local Python environments; setup instructions live in the station skill references.
 /envs/
 *.egg-info/
 data/
@@ -48,7 +48,7 @@ logs/
 /manimux/assets/tianji/
 /manimux/assets/end_effectors/umi_follower/
 
-# YAM 的公开 MIT 模型随组件发布，保留重构前已跟踪的资源。
+# Ship public MIT-licensed YAM models with the component; retain assets tracked before refactoring.
 !/manimux/embodiments/arm/yam/assets/
 !/manimux/embodiments/arm/yam/assets/**
 
@@ -66,6 +66,9 @@ logs/
 # Generated documentation website.
 /site/
 /.venv-docs/
+
+# Local historical documentation. Maintain guideline.html and skill references instead.
+/docs/
 
 # Private study decisions and results; preserve the local file.
 /experiments.md

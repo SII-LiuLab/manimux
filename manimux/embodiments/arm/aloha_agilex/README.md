@@ -21,9 +21,9 @@ not real-device motion limits or evidence of a collision-free path.
 
 The included assembly has no hardware factory or SDK controller. Its geometry
 must not be substituted for a calibrated ARX X5 or PiPER model. See the
-[ALOHA asset guide](../../../../docs/usage/aloha.md) for preview and replay.
+[ALOHA asset guide](../../../../.agents/skills/manimux-station-setup/references/aloha.md) for preview and replay.
 Physical arm setup is covered separately by the
-[SDK adapter guide](../../../../docs/usage/can-arms.md).
+[SDK adapter guide](../../../../.agents/skills/manimux-station-setup/references/can-arms.md).
 
 ## Asset source and modifications
 

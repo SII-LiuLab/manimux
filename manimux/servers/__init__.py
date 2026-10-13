@@ -1,1 +1,1 @@
-"""服务启动入口；模型权重、网络和采样实现仍由独立的 XPolicyLab 提供。"""
+"""Service launch entry points; the separate XPolicyLab provides model weights, networks and sampling."""

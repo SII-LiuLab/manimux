@@ -1,0 +1,36 @@
+# SAPolicy tcp_rot20 (RAW weights, step 50k), dual-arm 3cam TCP put-bottles checkpoint.
+# Bundle under checkpoints/finetuned/sapolicy/tcp_rot20/ (not in git; copy with rsync -aL):
+#   model.ckpt, backbone.pth, action_normalizer.pt, resolved_config.yaml (training config as resolved),
+#   resolved_config.compiled.yaml (same + compile_backbone/compile_action_head true),
+#   source/ (SpatialAlignVLA rollsweep0917 snapshot + inference-time RTC patch; default sampling path bitwise unchanged).
+# Faster variant: cfg_file -> resolved_config.compiled.yaml and TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=1 (68 -> 36 ms on a 4090);
+#   the first requests then compile for minutes, so warm the server up before starting a rollout.
+policy_name: SAPolicy
+protocol: ws
+host: 127.0.0.1
+port: 8510
+task_name: put_the_plastic_bottles_in_the_bin
+env_cfg_type: yam_dual
+robot_action_dim_info: {arm_dim: [6, 6], ee_dim: [1, 1]}
+num_envs: 1
+action_type: ee
+eval_batch: false
+sapolicy_root: checkpoints/finetuned/sapolicy/tcp_rot20/source
+cfg_file: checkpoints/finetuned/sapolicy/tcp_rot20/resolved_config.yaml
+model_path: checkpoints/finetuned/sapolicy/tcp_rot20/model.ckpt
+workspace: data/sapolicy/tcp_rot20/inference
+backbone_path: checkpoints/finetuned/sapolicy/tcp_rot20/backbone.pth
+normalizer_path: checkpoints/finetuned/sapolicy/tcp_rot20/action_normalizer.pt
+output_format: action_dict
+action_horizon: 50
+body_frame_actions: true
+tcp_forward_offset_m: 0.0
+use_ema: false
+ckpt_type: raw
+camera_names:
+- top
+- left
+- right
+device: cuda:0
+dry_run: false
+checkpoint_source: sha256:d84e94f23eadb56d28d4d1e73f5e98ae6b0e15bb404799b86ccaa2b032825a3f

@@ -17,10 +17,6 @@ import numpy as np
 REPO_ROOT = Path(__file__).resolve().parents[2]
 XPOLICY_ROOT = REPO_ROOT / "XPolicyLab"
 XR1_ROOT = XPOLICY_ROOT / "policy/Xiaomi_Robotics_1/xiaomi_robotics_1/xr1"
-DEFAULT_EXPERIMENT = (
-    REPO_ROOT
-    / "manimux/configs/experiments/pass_ball/xiaomi-xr1/tianji_taccap_xiaomi_xr1_step50000.yaml"
-)
 
 
 def _shape(value: object) -> tuple[int, ...]:
@@ -166,7 +162,7 @@ def _prepare_imports() -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--experiment", type=Path, default=DEFAULT_EXPERIMENT)
+    parser.add_argument("--experiment", type=Path, required=True)
     parser.add_argument("--local", type=Path)
     parser.add_argument(
         "--checkpoint",
@@ -206,7 +202,7 @@ def main() -> int:
         raise RuntimeError(
             "policy environment is missing dependencies: " + ", ".join(missing)
         )
-    from XPolicyLab.setup_policy_server import main as serve
+    from manimux.policies.xpolicylab.server import serve
 
     serve(config)
     return 0

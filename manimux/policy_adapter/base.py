@@ -1,4 +1,4 @@
-"""策略与整机之间的唯一适配接口；实现不拥有硬件连接。"""
+"""The shared policy-to-robot adapter interface; implementations do not own hardware connections."""
 
 from __future__ import annotations
 
@@ -8,10 +8,10 @@ from manimux.types import ActionChunk, ActionContext, InferenceRequest, Observat
 
 
 class PolicyAdapter(ABC):
-    """同一转换流程可被多个模型复用，具体实现由 policy.adapter.type 指定。
+    """Models may share a conversion flow; policy.adapter.type selects the implementation.
 
-    policy.adapter 保存映射参数；policy 其余字段保存动作时间和客户端配置。
-    kinematics 是已经装配的离线模型，传入它不会建立相机或机器人连接。
+    policy.adapter holds mapping parameters; other policy fields hold action timing and client configuration.
+    kinematics is an assembled offline model; passing it does not connect cameras or robots.
     """
 
     # True when decode_action honors ActionContext.handoff_reference.
@@ -19,6 +19,11 @@ class PolicyAdapter(ABC):
 
     # Decode model apertures and invert the mapping for RTC conditioning.
     supports_gripper_mapping = False
+
+    # Each candidate decodes independently into complete, untrimmed absolute-joint
+    # rows on the policy time grid, with no runtime trajectory or handoff attached.
+    # Used by BID and deferred AAC selection; this does not declare model sampling.
+    supports_candidate_decoding = False
 
     # Select the IK starting state, independently of the measured observation.
     decode_seed_source = "execution_reference"
@@ -33,17 +38,17 @@ class PolicyAdapter(ABC):
         self.kinematics = kinematics
 
     def build_observation(self, snapshot: ObservationSnapshot) -> ObservationSnapshot:
-        """无需改写观测的适配器直接保留原快照及时间戳。"""
+        """Adapters that do not rewrite observations preserve the original snapshot and timestamps."""
         return snapshot
 
     def prepare_request(self, request: InferenceRequest) -> InferenceRequest:
-        """专用适配器可添加位姿或历史信息，默认保持请求不变。"""
+        """Specialized adapters may add poses or history; the default preserves the request."""
         return request
 
     @abstractmethod
     def decode_action(self, raw: object, context: ActionContext) -> ActionChunk:
-        """将明确约定的服务端输出变成动作序列；基类不猜测动作格式。"""
+        """Convert explicitly contracted server outputs to action sequences; the base class does not infer formats."""
 
     def validate(self, robot: dict, policy: dict) -> None:
-        """保留专用适配器已有的契约检查入口；基类不添加检查。"""
+        """Preserve specialized adapters' contract-check entry points; the base class adds no checks."""
         return None

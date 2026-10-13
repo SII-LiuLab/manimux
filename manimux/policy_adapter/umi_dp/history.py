@@ -1,7 +1,7 @@
 """Measured observation history decorating existing inference strategies.
 
-build_submission already runs once per control tick. This plugin only gates
-history readiness and supplies observations; scheduling stays in the delegate.
+observe_snapshot runs once per control tick, independently of request admission.
+This plugin gates history readiness and supplies observations to its delegate.
 """
 
 from __future__ import annotations
@@ -168,11 +168,11 @@ class HistoryStrategy:
                 raise ValueError(f"Bind UMI checkpoint {key} before constructing history")
         history = config["inference"]["history"]
         delegate_name = config["inference"]["algorithm"]
-        if delegate_name not in {"manimux", "rtc", "train_time_rtc"}:
-            raise ValueError("UMI history supports manimux, rtc and train_time_rtc")
+        if delegate_name not in {"async", "serial", "rtc", "train_time_rtc"}:
+            raise ValueError("UMI history supports async, serial, rtc and train_time_rtc")
         delegate_config = deepcopy(config)
         delegate_config["inference"]["strategy"] = None
-        # 配置已补齐默认值；只复查切换 delegate 后的时间与动作约束。
+        # Configuration defaults are resolved; recheck only timing and action constraints after switching delegates.
         validate_inference_parameters(delegate_config["inference"], delegate_config["executor"])
         validate_runtime_parameters(delegate_config)
         self.delegate = build_inference_strategy(delegate_config)
@@ -197,8 +197,10 @@ class HistoryStrategy:
         self.history.reset()
         self.delegate.reset()
 
+    def observe_snapshot(self, snapshot):
+        self.history.observe(snapshot)
+
     def build_submission(self, **kwargs):
-        self.history.observe(kwargs["snapshot"])
         window = self.history.window(kwargs["now_ns"])
         if window is None:
             return None

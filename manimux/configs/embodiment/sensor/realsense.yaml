@@ -1,4 +1,4 @@
-# 设备序列号由 local.robot.components 绑定；构造和模型加载不打开 USB。
+# local.robot.components binds device serials; construction and model loading do not open USB.
 type: sensor
 implementation: manimux.embodiments.sensor.realsense:RealSenseSensor
 options: {}

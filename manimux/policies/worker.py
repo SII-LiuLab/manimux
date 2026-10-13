@@ -30,7 +30,7 @@ class PolicyResetResult:
     error: str | None = None
 
 
-def _put_latest(target: Queue[Any], item: object) -> None:
+def _put_latest(target: Queue[Any], item: object, *, multi_inflight: bool = False) -> None:
     try:
         target.put_nowait(item)
         return
@@ -38,7 +38,12 @@ def _put_latest(target: Queue[Any], item: object) -> None:
         pass
     with suppress(queue.Empty):
         target.get_nowait()
-    target.put_nowait(item)
+    try:
+        target.put_nowait(item)
+    except queue.Full:
+        # Only streaming tolerates a feeder still publishing the previous item.
+        if not multi_inflight:
+            raise
 
 
 def _worker_main(
@@ -48,6 +53,7 @@ def _worker_main(
     reset_queue: Queue[Any],
     session_id: str,
     config_data: dict[str, object],
+    multi_inflight: bool = False,
 ) -> None:
     model = None
     try:
@@ -62,13 +68,32 @@ def _worker_main(
         capabilities = capability_method() if callable(capability_method) else PolicyCapabilities()
         if not isinstance(capabilities, PolicyCapabilities):
             raise TypeError("model capabilities have an invalid type")
+        if multi_inflight and (
+            not capabilities.multi_inflight
+            or not callable(getattr(model, "submit", None))
+            or not callable(getattr(model, "poll", None))
+        ):
+            raise ValueError("policy backend does not support multi_inflight")
     except Exception as exc:
         _put_latest(startup_queue, ("error", f"capability_error:{type(exc).__name__}:{exc}"))
         return
     _put_latest(startup_queue, ("ready", capabilities))
     try:
+        pending_request = None
         while True:
-            request = request_queue.get()
+            if multi_inflight:
+                response = model.poll()
+                if response is not None:
+                    _put_latest(response_queue, response, multi_inflight=multi_inflight)
+                try:
+                    request = request_queue.get(timeout=0.005)
+                except queue.Empty:
+                    if pending_request is None:
+                        continue
+                    request = pending_request
+                pending_request = None
+            else:
+                request = request_queue.get()
             if request is None:
                 break
             if isinstance(request, _PolicyResetRequest):
@@ -99,11 +124,16 @@ def _worker_main(
                     inference_ms=0.0,
                     raw_action=None,
                     observation_time_ns=request.observation_time_ns,
+                    deadline_ns=request.deadline_ns,
                     error="deadline_exceeded_before_start",
                 )
-                _put_latest(response_queue, response)
+                _put_latest(response_queue, response, multi_inflight=multi_inflight)
                 continue
             try:
+                if multi_inflight:
+                    if not model.submit(request):
+                        pending_request = request
+                    continue
                 action = model.infer(request)
                 finished_ns = time.monotonic_ns()
                 response = InferenceResponse(
@@ -123,9 +153,10 @@ def _worker_main(
                     inference_ms=(finished_ns - started_ns) / 1_000_000,
                     raw_action=None,
                     observation_time_ns=request.observation_time_ns,
+                    deadline_ns=request.deadline_ns,
                     error=f"model_error:{type(exc).__name__}:{exc}",
                 )
-            _put_latest(response_queue, response)
+            _put_latest(response_queue, response, multi_inflight=multi_inflight)
     finally:
         if model is not None:
             model.close()
@@ -134,12 +165,13 @@ def _worker_main(
 class PolicyWorkerClient:
     """One local model process with latest-wins bounded request/response queues."""
 
-    def __init__(self, config: dict, session_id: str) -> None:
+    def __init__(self, config: dict, session_id: str, *, multi_inflight: bool = False) -> None:
         context = mp.get_context("spawn")
         self._request_queue: Queue[Any] = context.Queue(maxsize=1)
         self._response_queue: Queue[Any] = context.Queue(maxsize=1)
         self._startup_queue: Queue[Any] = context.Queue(maxsize=1)
         self._reset_queue: Queue[Any] = context.Queue(maxsize=1)
+        self._multi_inflight = multi_inflight
         self._startup_timeout_s = config["startup_timeout_s"]
         self._process = context.Process(
             target=_worker_main,
@@ -150,6 +182,7 @@ class PolicyWorkerClient:
                 self._reset_queue,
                 session_id,
                 deepcopy(config),
+                multi_inflight,
             ),
             name="manimux-policy-worker",
             daemon=True,
@@ -190,7 +223,7 @@ class PolicyWorkerClient:
             raise RuntimeError("policy worker reset is pending")
         if self._reset_error is not None:
             raise RuntimeError(f"policy worker reset failed: {self._reset_error}")
-        _put_latest(self._request_queue, request)
+        _put_latest(self._request_queue, request, multi_inflight=self._multi_inflight)
 
     def submit_reset(self, session_id: str) -> int:
         """Queue a reset without waiting for inference or backend communication.
@@ -268,7 +301,7 @@ class PolicyWorkerClient:
             return
         if not self._stopping:
             with suppress(OSError, ValueError):
-                _put_latest(self._request_queue, None)
+                _put_latest(self._request_queue, None, multi_inflight=self._multi_inflight)
         self._process.join(timeout=2.0)
         if self._process.is_alive():
             if self._stopping:

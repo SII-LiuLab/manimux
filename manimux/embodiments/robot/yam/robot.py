@@ -1,4 +1,4 @@
-"""用装配 YAML 创建 YAM 组件；构造、FK 和 RoboGUI 都不打开 CAN。"""
+"""Create YAM components from assembly YAML; construction, FK and RoboGUI do not open CAN."""
 
 import logging
 from collections.abc import Mapping
@@ -15,12 +15,12 @@ log = logging.getLogger(__name__)
 
 
 class YamRobot(RobotBase):
-    """各组独立拥有一个臂爪一体 i2rt 会话，组名和安装关系来自配置。
+    """Each group owns an integrated arm/gripper i2rt session; configuration supplies group names and mounts.
 
-    execute 控制完整 7 维目标，内置夹爪不受独立末端开关控制。
-    connect 默认保持原位置；只有显式 move_to_start_on_connect 才移动。
-    home 先保持夹爪开度归零双臂，再打开夹爪，沿用旧 YAM 的两阶段行为。
-    close 负责释放连接；是否退出前 Home 仍由 runtime 决定。
+    execute controls all seven coordinates; the separate-tool switch does not control the built-in gripper.
+    connect holds the current pose unless move_to_start_on_connect explicitly requests motion.
+    home retains the original two phases: home both arms while holding gripper openings, then open the grippers.
+    close releases connections; runtime still decides whether to Home before exit.
     """
 
     def __init__(
@@ -97,8 +97,8 @@ class YamRobot(RobotBase):
         for name, arm in self.arm_components.items():
             if targets[name].shape != (arm.num_joints,) or not np.isfinite(targets[name]).all():
                 raise ValueError(f"{label}: invalid target for {name}")
-        # 继续使用 SDK 的 move_joints，不在迁移中替换轨迹算法或运动参数。
-        # 等待全部手臂返回后才进入下一阶段；反馈刷新同步旧包装的状态缓存。
+        # Keep SDK move_joints and preserve the trajectory algorithm and motion parameters during migration.
+        # Wait for all arms before the next phase; refresh feedback to synchronize the existing wrapper's state cache.
         with finish_move_before_interrupt(label, log) as interrupted:
             if parallel:
                 with ThreadPoolExecutor(max_workers=len(self.arm_components)) as pool:

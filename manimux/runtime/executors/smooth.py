@@ -670,7 +670,7 @@ def gripper_hysteresis_parameters(**options) -> dict:
 
 
 def gripper_release_guard_parameters(**options) -> dict:
-    """保留释放前的位姿容差与超时；只供启用该保护的执行器使用。"""
+    """Preserve pose tolerances and timeout before release; only executors enabling this guard use them."""
 
     values = {
         "mode": "latched_release",
@@ -684,7 +684,7 @@ def gripper_release_guard_parameters(**options) -> dict:
 
 
 def gripper_grasp_guard_parameters(**options) -> dict:
-    """保留抓取稳定条件，避免夹爪尚未闭合时提前移动。"""
+    """Preserve grasp stability conditions to avoid motion before the gripper closes."""
 
     values = {
         "position_tolerance_m": 0.02,
@@ -699,7 +699,7 @@ def gripper_grasp_guard_parameters(**options) -> dict:
 
 
 def smooth_parameters(**options) -> dict:
-    """保留原平滑参数；显式共享限位由实验入口合并。"""
+    """Preserve smoothing parameters; the experiment entry point merges explicit shared limits."""
 
     values = {
         "max_velocity": 2.0,

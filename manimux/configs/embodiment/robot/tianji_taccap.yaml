@@ -1,4 +1,4 @@
-# 组件组合与控制参数；设备 IP/序列号由 local 绑定，离线装配不需要填写。
+# Component assembly and control parameters; local bindings supply device IPs/serials, which offline assembly does not require.
 # Geometry comes from the existing CAD installation, not a fresh calibration.
 name: tianji-taccap
 # Shared Home / initial arm target; no motion is triggered by loading this config.
@@ -32,7 +32,7 @@ hardware:
   velocity_ratio: 32
   acceleration_ratio: 100
 components:
-  # FK/IK 在各臂自身基座中计算；这里仅保留参与 TCP 的末端安装关系。
+  # FK/IK uses each arm's base frame; retain only the end-effector mounting transform used by the TCP.
   # drag_tool: measured per-arm UMI tool load from teleop/configs/tool/umi.yaml
   # (2026-08-23); kine is XYZABC in mm/deg, dynamic is mass, centre of mass, inertia.
   left_arm:

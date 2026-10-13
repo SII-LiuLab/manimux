@@ -150,7 +150,7 @@ class SafetyGuard:
 
 
 def command_safety_parameters(**options) -> dict:
-    """补齐本模块的默认参数；返回独立字典，不创建配置对象。"""
+    """Fill in module defaults and return an independent dictionary without creating a configuration object."""
 
     values = {
         "position_lower": {},

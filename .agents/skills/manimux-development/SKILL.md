@@ -7,7 +7,7 @@ description: Integrate or review ManiMux robot components, policy frameworks, ac
 
 ManiMux provides shared real-robot inference, execution and experiment operation.
 Users choose their research and optional evaluation; integrations reuse the common
-runtime and RoboGUI. Read the [repository guide](../../../docs/development/agent-guide.md)
+runtime and RoboGUI. Read the [repository guide](references/agent-guide.md)
 before editing, plus relevant nested or framework `AGENTS.md` instructions.
 
 ## Choose the extension point
@@ -16,15 +16,17 @@ Trace the selected YAML through its loader, interface, one working implementatio
 and caller. Inspect upstream code before classifying a model versus a reusable
 framework. A new checkpoint usually needs configuration, not a new backend.
 
-Read only the matching public protocol guide (paths are relative to repository root):
+Read only the matching technical reference (paths are relative to repository root):
 
-- [Hardware components](../../../docs/development/components.md): arms/controllers,
+- [Hardware components](references/components.md): arms/controllers,
   tools, assembled robots, offline FK/IK, cameras and sensors.
-- [Policies](../../../docs/development/policies.md): models, peer frameworks,
+- [Policies](references/policies.md): models, peer frameworks,
   clients, wire codecs and observation/action adapters.
-- [Runtime and configuration](../../../docs/development/runtime-config.md):
+- [Runtime and configuration](references/runtime-config.md):
   scheduling, timelines, executors, display, records/replay and YAML ownership.
-- [Integration map](../../../docs/development/README.md): entry points and concrete recipes.
+- [Model sampling matrix](../manimux-inference/references/inference-matrix.md): supported
+  YAM model/algorithm combinations, configuration generation and validation limits.
+- [Integration map](references/README.md): entry points and concrete recipes.
 
 Binding an existing supported robot to another workstation uses
 `manimux-station-setup`. Studying saved rollouts uses `manimux-experiments`.
@@ -46,7 +48,7 @@ retain their own interfaces; an arm and a camera need not share one base class.
 Vendor SDK/RDK calls, wire formats and device mode transitions may differ inside
 each implementation. Callers must not need vendor-name branches to compensate for
 those differences. For embodiment work, read the operation table and review steps
-in [the component contract](../../../docs/development/components.md#shared-behavior-across-embodiments).
+in [the component contract](references/components.md#shared-behavior-across-embodiments).
 
 Review existing drivers, including YAM and Tianji, against that contract; their
 presence in the repository is not proof of compliance. Report mismatches as
@@ -83,8 +85,8 @@ lifecycle/dispatch tests and synthetic chunks for scheduling tests. Separate off
 checks, actual model inference and physical task success. Tests remain local under
 this repository's ignore policy; do not force-add them.
 
-Update the matching public protocol guide when the interface changes. Keep one
-maintained explanation, referenced by skills and user docs. Write new comments and
-general documentation in English; update the Chinese homepage alongside English.
+Update the owning skill reference when the interface changes, and update
+`guideline.html` when user operations or configurable parameters change. Do not
+maintain another guide under the ignored `docs/` archive. Maintain comments, user-facing text and documentation in English.
 Development authorization does not authorize robot motion or stopping live services.
 Commit/push only when requested.

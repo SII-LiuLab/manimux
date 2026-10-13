@@ -113,7 +113,7 @@ def encode_observation(
         "instruction": instruction,
         "state": state,
         # The environment owns the control rate; the policy is told what it is
-        # rather than deciding it. See docs/deployment/xpolicylab.md.
+        # rather than deciding it. See .agents/skills/manimux-inference/references/deployment/xpolicylab.md.
         "additional_info": {"frequency": float(frequency)},
         "data_format_version": DATA_FORMAT_VERSION,
         "env_idx": 0,
@@ -193,7 +193,7 @@ def build_layouts(
     return tuple(layouts)
 
 
-# 标准位姿字典使用 xyz + wxyz；只转换表示，不变换参考坐标系。
+# Standard pose dictionaries use xyz + wxyz; convert representation without changing reference frames.
 # Wire names and the existing numeric options are shared by transport and adapters.
 DEFAULT_SERVER = "ws://127.0.0.1:8500"
 DEFAULT_GROUP_ORDER = ("left_arm", "right_arm")

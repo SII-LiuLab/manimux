@@ -119,7 +119,7 @@ __all__ = [
 
 
 def robot_parameters(**options) -> dict:
-    """整机选择和控制频率的默认值；实现由 robot.type 指定。"""
+    """Default robot selection and control frequency; robot.type selects the implementation."""
 
     values = {
         "config": None,
@@ -134,7 +134,7 @@ def robot_parameters(**options) -> dict:
 
 
 def shared_robot_parameters(**options) -> dict:
-    """读取采集与推理共用的机器人参数；不添加实验级频率。"""
+    """Read robot parameters shared by collection and inference without adding experiment-level frequencies."""
 
     values = {
         "options": {},

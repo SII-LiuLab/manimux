@@ -37,7 +37,7 @@ def research_template(value: Mapping[str, Any] | None) -> dict[str, Any] | None:
 
 
 def rollout_identity(run: Mapping[str, Any]) -> dict[str, Any]:
-    """Snapshot this Prepare's metadata; read no files and construct no devices."""
+    """Validate a rollout identity snapshot; read no files and construct no devices."""
     mode = run.get("experiment_mode", False)
     if not isinstance(mode, bool):
         raise ValueError("run.experiment_mode must be a boolean")
@@ -80,3 +80,10 @@ def rollout_identity(run: Mapping[str, Any]) -> dict[str, Any]:
     if template is not None:
         identity["experiment_template"] = deepcopy(template)
     return identity
+
+
+def start_identity(prepared: Mapping[str, Any], selection: Mapping[str, Any]) -> dict[str, Any]:
+    """Update layout/reference and its suggested repeat before first Start."""
+    if not isinstance(selection, Mapping) or selection.keys() - {"layout_id", "reference_layout", "repeat_id"}:
+        raise ValueError("Start selection only accepts layout_id, reference_layout and repeat_id")
+    return rollout_identity({**prepared, **selection})

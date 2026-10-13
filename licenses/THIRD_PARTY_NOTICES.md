@@ -67,7 +67,7 @@ Meshes are copied unchanged. The URDF uses relative mesh paths and omits
 collision elements; upstream joint geometry, inertia, visual origins and
 materials remain unchanged. These resources support offline rendering and
 FK/IK, not physical calibration or collision-free motion. Preparation and
-model scope are documented in `docs/usage/piper.md`.
+model scope are documented in `.agents/skills/manimux-station-setup/references/piper.md`.
 
 ## Tianji Marvin model assets
 
@@ -88,7 +88,7 @@ flange Jacobian in `tianji.py` are adapted from `SII-LiuLab/tianji-control`
 revision `1e7dfdbc94c62f87501d6485b8c0e43ce6dbf513` (`algos/diff_ik.py`,
 `algos/kinematics.py`, and the joint-limit objective in `algos/nullspace.py`).
 Tracking-lag guard semantics follow CalibWrist revision
-`f17a62a2ab77207de54fdca73dc8ff4d76f87cdb`. See `docs/advanced/tianji-diff-ik.md` for the
+`f17a62a2ab77207de54fdca73dc8ff4d76f87cdb`. See `.agents/skills/manimux-development/references/tianji-diff-ik.md` for the
 port boundaries and numerical validation. The source tianji-control checkout
 does not include a project-level license file; no different license is asserted
 for this derived code here.
@@ -104,6 +104,6 @@ under the Apache License 2.0; see the `LICENSE` file in that directory.
 ## UMI follower gripper assets
 
 `manimux/embodiments/end_effector/taccap/assets/umi_follower/` contains the XenseRobotics
-UMI follower gripper CAD (从夹爪组件0720, URDF and STL) with colors replaced by
+UMI follower gripper CAD (follower gripper assembly 0720, URDF and STL) with colors replaced by
 the bundled YAM gripper palette. Its flange mount and TCP follow the
 derivation in `SII-LiuLab/tianji-control` commit `d1def56`.

@@ -2,7 +2,7 @@
 +++ b/cpp/src/force_position_controller.cpp
 @@ -1446,8 +1446,10 @@
  }
- 
+
  ForcePositionSnapshot ForcePositionController::snapshot() const {
 +    std::lock_guard<std::mutex> lk(mu_);
 +    // Read the clock after locking: a status callback can publish a newer
@@ -16,7 +16,7 @@
 +++ b/cpp/src/impedance_controller.cpp
 @@ -652,8 +652,10 @@
  }
- 
+
  ImpedanceSnapshot ImpedanceController::snapshot() const {
 +    std::lock_guard<std::mutex> lk(mu_);
 +    // Read the clock after locking: a status callback can publish a newer

@@ -4,7 +4,7 @@
 binding behind an owned process. The common arm assembly uses it through
 `ArmController`; vendor operations never enter the runtime or RoboGUI.
 
-See the [SDK adapter guide](../../../../docs/usage/can-arms.md) for configuration,
+See the [SDK adapter guide](../../../../.agents/skills/manimux-station-setup/references/can-arms.md) for configuration,
 calibration, lifecycle and the explicit device-freshness limitation.
 
 The kinematic `model.urdf` is derived from
@@ -21,4 +21,4 @@ from the pinned sources. SDK source and compiled libraries remain external.
 `arm.py` owns offline model loading. `controller.py` owns parent-side calibration
 and RPC lifecycle; `session.py` owns the native binding in the child process.
 Installation and the pure-FK probe are documented in the
-[SDK installation guide](../../../../docs/usage/robot-sdks.md).
+[SDK installation guide](../../../../.agents/skills/manimux-station-setup/references/robot-sdks.md).

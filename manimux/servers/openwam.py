@@ -79,7 +79,7 @@ def main():
             yaml.safe_dump(config, stream, sort_keys=False)
         print(f"Runtime config: {output}\nServer config: {server_output}")
     elif not args.check:
-        from XPolicyLab.setup_policy_server import main as serve
+        from manimux.policies.xpolicylab.server import serve
 
         serve(config)
 

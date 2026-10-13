@@ -3,7 +3,7 @@
 Public poses/joints use metres/radians. Internally mm/degrees preserve the
 reference QP weights, regularization and nullspace objective. This is a rate
 controller with tracking lag, not an analytic inverse with convergence bounds.
-See docs/advanced/tianji-diff-ik.md for source revision, guard semantics and validation.
+See .agents/skills/manimux-development/references/tianji-diff-ik.md for source revision, guard semantics and validation.
 No model, robot connection or closed-source kinematics library is loaded.
 """
 
@@ -197,8 +197,8 @@ class TianjiDifferentialIK:
         self._a_data = marker.data.copy()
         self._a_c6 = int(np.flatnonzero(marker.data == -2.0)[0])
         self._a_c7 = int(np.flatnonzero(marker.data == -3.0)[0])
-        # 旧 TCP 接口在此去除工具偏移；新整机由公共组合层先转换为法兰目标，
-        # 传来的 arm 求解器不再持有末端信息，因此不能再次转换。
+        # The legacy TCP interface removes tool offsets here; new robots first convert to flange targets in the composition layer.
+        # The arm solver no longer holds tool information and must not convert again.
         tool = kinematics.tool_transform if isinstance(kinematics, TianjiKinematics) else None
         self._tool_inverse = None if tool is None else np.linalg.inv(tool)
         self.reset()

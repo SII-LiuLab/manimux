@@ -3,10 +3,10 @@ const DATA = JSON.parse(document.getElementById("report-data").textContent);
 const $ = (id) => document.getElementById(id),
   NS = "http://www.w3.org/2000/svg";
 const NAMES = {
-  scheduled: "计划参考 · scheduled",
-  command: "执行器命令 · command",
-  state: "实测反馈 FK · state",
-  saved: "保存的解码轨迹",
+  scheduled: "Scheduled reference",
+  command: "Executor command",
+  state: "Measured feedback FK",
+  saved: "Saved decoded trajectory",
 };
 const COLORS = {
   scheduled: "--roll",
@@ -14,7 +14,7 @@ const COLORS = {
   state: "--ref",
   saved: "--roll",
 };
-const ARM = { left_arm: "左臂", right_arm: "右臂" },
+const ARM = { left_arm: "Left arm", right_arm: "Right arm" },
   SOURCES = ["scheduled", "command", "state"];
 const state = {
   arm: "left_arm",
@@ -126,8 +126,8 @@ function axes(
     xmax = 100,
     ymin = 0,
     ymax = 2,
-    xlabel = "执行 chunk 内进度 (%)",
-    ylabel = "相对本 chunk 平均速度 (×)",
+    xlabel = "Progress within executed chunk (%)",
+    ylabel = "Relative to this chunk's mean speed (×)",
     xticks = 5,
   },
 ) {
@@ -237,12 +237,12 @@ function drawProfiles(id, sets) {
     ymax,
     ylabel:
       state.units === "relative"
-        ? "速度 / 本 chunk 平均速度 (×)"
-        : "TCP 速度 (mm/s)",
+        ? "Speed / this chunk's mean speed (×)"
+        : "TCP speed (mm/s)",
     xlabel:
       id === "saved-profile"
-        ? "已保存解码轨迹内进度 (%)"
-        : "实际执行 chunk 内进度 (%)",
+        ? "Progress within saved decoded trajectory (%)"
+        : "Progress within actual executed chunk (%)",
   });
   if (state.units === "relative")
     line(
@@ -275,11 +275,11 @@ function drawProfiles(id, sets) {
     const i = clamp(Math.floor(((x - ch.L) / ch.w) * 12), 0, 11);
     showTip(
       e,
-      `<b>进度 ${num((i / 12) * 100, 0)}–${num(((i + 1) / 12) * 100, 0)}%</b><br>` +
+      `<b>Progress ${num((i / 12) * 100, 0)}–${num(((i + 1) / 12) * 100, 0)}%</b><br>` +
         sets
           .map(
             (s) =>
-              `${esc(s.label)}：${num(s.data[i]?.y)}${state.units === "relative" ? "×" : " mm/s"}<br>25–75%：${num(s.data[i]?.lo)}–${num(s.data[i]?.hi)}`,
+              `${esc(s.label)}: ${num(s.data[i]?.y)}${state.units === "relative" ? "×" : " mm/s"}<br>25–75%: ${num(s.data[i]?.lo)}–${num(s.data[i]?.hi)}`,
           )
           .join("<br>"),
     );
@@ -291,20 +291,20 @@ function renderHeader() {
   const c = DATA.recorded_config;
   const verdict = Object.entries(ARM).map(([arm, label]) => {
     const a = DATA.summary.arms[arm].state;
-    if (!a.n) return `${label}：没有满足默认门槛的完整执行窗口。`;
+    if (!a.n) return `${label}: no complete execution windows meet the default threshold.`;
     const trend =
       a.median_ratio <= 0.8
-        ? "后段减速至少 20%"
+        ? "late segment slows by at least 20%"
         : a.median_ratio >= 1.2
-          ? "后段加速至少 20%"
-          : "前后差异未达 20%";
-    return `${label}：实测后段 / 前段中位数 ${num(a.median_ratio)}×（${trend}），${a.slow20_count}/${a.n} 个 chunk 减速至少 20%。`;
+          ? "late segment speeds up by at least 20%"
+          : "early/late difference is below 20%";
+    return `${label}: median measured late/early ratio ${num(a.median_ratio)}× (${trend}); ${a.slow20_count}/${a.n} chunks slow by at least 20%.`;
   });
   $("identity-label").textContent =
     DATA.identity.model?.checkpoint_source || DATA.session_id;
   $("verdict").textContent = verdict.join(" ");
   $("snapshot").textContent =
-    `固定快照 · ${DATA.session_id} · ${DATA.episodes.length} 次已完成 rollout · ${DATA.summary.all_plans} 个接受计划 / ${DATA.summary.eligible_execution} 个完整执行窗口 · 算法 ${c.algorithm} · 动作 ${num(1 / c.action_dt_s, 1)} Hz / 控制 ${num(c.control_hz, 1)} Hz。结论只覆盖这些记录，不自动跟随之后的运行配置。`;
+    `Fixed snapshot · ${DATA.session_id} · ${DATA.episodes.length} finalized rollouts · ${DATA.summary.all_plans} accepted plans / ${DATA.summary.eligible_execution} complete execution windows · Algorithm ${c.algorithm} · Actions ${num(1 / c.action_dt_s, 1)} Hz / control ${num(c.control_hz, 1)} Hz. Conclusions cover these records only and do not track later configuration changes.`;
   for (const [i, e] of DATA.episodes.entries()) {
     $("scope").insertAdjacentHTML(
       "beforeend",
@@ -317,17 +317,17 @@ function renderHeader() {
   }
   const lag = DATA.summary.ik_lag;
   $("methods").innerHTML =
-    `<p><b>记录配置。</b> ${c.horizon} 步模型 horizon，${num(c.action_dt_s * 1000, 2)} ms/步；算法 ${esc(c.algorithm)}、skip=${c.skip}。交接、动作解码和执行器设置见下方记录配置。</p>
- <p><b>前后速度。</b> v = ‖FK(qᵢ₊₁).xyz − FK(qᵢ).xyz‖ / Δt。按每个 chunk 自身执行时间的前后 ⅓ 作时间加权均值。默认平均速度 ≥5 mm/s 且前段速度 >1 mm/s；比值取每个 chunk 的 R 再取中位数，不是两个全局中位数相除。旋转、夹爪动作不混入 TCP 平移速度。</p>
- <p><b>执行证据。</b> 同一 plan_id 的连续 tick 为一个执行窗口；两端各遗漏至多一个采样间隔，不跨切换点差分。剔除每次 rollout 的首个启动计划、末个截断计划、缺少前后计划归属、样本不足和大于 50 ms 的时间缺口。正常完成记录不等于任务成功。</p>
- <p><b>预测范围。</b> canonical_raw 是已解码关节轨迹：保存行数 ${esc(JSON.stringify(DATA.summary.saved_rows_counts))}。它不能还原现场观测未经裁剪、交接和 IK 的原始模型输出。可选 offline 部分使用数据集图片且没有 RTC 条件。预测曲线与执行窗口采用不同时间域，不能直接互换。</p>
- <p><b>IK 记录。</b> 左臂 ${lag.left_arm.plans_over_5mm}/${DATA.summary.all_plans}、右臂 ${lag.right_arm.plans_over_5mm}/${DATA.summary.all_plans} 个计划记录了超过 5 mm 的最大位置滞后（已记录最大值 ${num(lag.left_arm.max_mm, 1)} / ${num(lag.right_arm.max_mm, 1)} mm）。缺少 IK 元数据的计划不提供此项证据。</p>
- <p><b>判断范围。</b> 对比 scheduled、command 与 state 可定位减速出现在哪一层。本分析没有做因果对照，不能单凭相关曲线判定模型、RTC、交接或 IK 是原因。</p>`;
+    `<p><b>Recorded configuration.</b> Model horizon ${c.horizon} steps, ${num(c.action_dt_s * 1000, 2)} ms/step; algorithm ${esc(c.algorithm)}, skip=${c.skip}. See the recorded configuration below for handoff, action decoding and executor settings.</p>
+  <p><b>Early/late speed.</b> v = ‖FK(qᵢ₊₁).xyz − FK(qᵢ).xyz‖ / Δt. Use time-weighted means over the first and last ⅓ of each chunk's execution time. Defaults require mean speed ≥5 mm/s and early speed >1 mm/s. Report the median of per-chunk ratios R, not a ratio of two global medians. Rotation and gripper motion are excluded from TCP translation speed.</p>
+  <p><b>Execution evidence.</b> Consecutive ticks with one plan_id define an execution window; at most one sample interval may be missing at each end. Do not differentiate across plan switches. Exclude the initial startup plan, final truncated plan, missing neighboring plan assignments, insufficient samples and gaps longer than 50 ms. A finalized recording does not imply task success.</p>
+  <p><b>Prediction scope.</b> canonical_raw contains decoded joint trajectories with saved row counts ${esc(JSON.stringify(DATA.summary.saved_rows_counts))}. It cannot reconstruct raw model outputs before cropping, handoff and IK at the live observation. Optional offline analysis uses dataset images without RTC conditions. Prediction curves and execution windows use different time domains and are not interchangeable.</p>
+  <p><b>IK records.</b> ${lag.left_arm.plans_over_5mm}/${DATA.summary.all_plans} left-arm and ${lag.right_arm.plans_over_5mm}/${DATA.summary.all_plans} right-arm plans recorded maximum position lag above 5 mm (recorded maxima ${num(lag.left_arm.max_mm, 1)} / ${num(lag.right_arm.max_mm, 1)} mm). Plans without IK metadata provide no evidence for this metric.</p>
+  <p><b>Interpretation.</b> Comparing scheduled, command and state helps locate the layer where slowdown appears. This analysis has no causal control; correlated curves alone cannot identify the model, RTC, handoff or IK as the cause.</p>`;
   $("evidence").innerHTML =
-    `<p>session：<code>${esc(DATA.session)}</code></p><p>checkpoint：<code>${esc(DATA.identity.model?.checkpoint_source || "unknown")}</code><br>backend revision：<code>${esc(DATA.identity.server_revision || "unknown")}</code></p>
- <p>FK 源码 / 配置与记录时指纹核对：${DATA.fk_source_check.checked_files} 个文件，${DATA.fk_source_check.mismatches.length} 个差异。外部 SDK 和模型资产未包含在此检查中。原始证据摘要、逐 chunk 数据与 SHA-256 在同目录 analysis.json。</p>
- <p>复现入口：<code>scripts/validation/plot_chunk_speed.py --session SESSION --out OUTPUT [--offline OFFLINE]</code>，用法见 <code>docs/usage/chunk-speed.md</code>。</p>
- <pre>${esc(JSON.stringify(c, null, 2))}</pre><p>排除 ${DATA.exclusions.length} 项：${esc(DATA.exclusions.map((x) => (x.plan || x.episode) + " → " + x.reason).join("；"))}</p>`;
+    `<p>session: <code>${esc(DATA.session)}</code></p><p>checkpoint: <code>${esc(DATA.identity.model?.checkpoint_source || "unknown")}</code><br>backend revision: <code>${esc(DATA.identity.server_revision || "unknown")}</code></p>
+  <p>FK source/configuration fingerprints compared with recording time: ${DATA.fk_source_check.checked_files} files, ${DATA.fk_source_check.mismatches.length} mismatches. External SDKs and model assets are outside this check. Evidence summaries, per-chunk data and SHA-256 hashes are in analysis.json in the same directory.</p>
+  <p>Reproduce with <code>scripts/validation/plot_chunk_speed.py --session SESSION --out OUTPUT [--offline OFFLINE]</code>; see <code>.agents/skills/manimux-experiments/references/chunk-speed.md</code>.</p>
+  <pre>${esc(JSON.stringify(c, null, 2))}</pre><p>${DATA.exclusions.length} exclusions: ${esc(DATA.exclusions.map((x) => (x.plan || x.episode) + " → " + x.reason).join("; "))}</p>`;
 }
 function renderStats() {
   const sets = SOURCES.map((source) => {
@@ -337,11 +337,11 @@ function renderStats() {
   $("facts").innerHTML = sets
     .map(
       (s) =>
-        `<div class="fact" style="--k:var(${COLORS[s.source]})"><span class="lab">${ARM[state.arm]} · ${NAMES[s.source]}</span><span class="val">${num(s.ratio)}×</span><span class="lab">后 ⅓ ÷ 前 ⅓ · n=${s.n} · 减速 ≥20%：${s.slow || 0}/${s.n}</span></div>`,
+        `<div class="fact" style="--k:var(${COLORS[s.source]})"><span class="lab">${ARM[state.arm]} · ${NAMES[s.source]}</span><span class="val">${num(s.ratio)}×</span><span class="lab">Last ⅓ ÷ first ⅓ · n=${s.n} · slowdown ≥20%: ${s.slow || 0}/${s.n}</span></div>`,
     )
     .join("");
   $("scope-note").innerHTML =
-    `当前图表：<b>${ARM[state.arm]} · ${state.scope === "all" ? "全部 rollout 合并" : esc(state.scope)}</b>；各层按自身平均速度 ≥${state.threshold} mm/s 筛选，故分母可能不同。顶部结论固定为全部 rollout、5 mm/s 门槛。`;
+    `Current chart: <b>${ARM[state.arm]} · ${state.scope === "all" ? "All rollouts combined" : esc(state.scope)}</b>; each layer is filtered by its own mean speed ≥${state.threshold} mm/s, so denominators may differ. Top-level conclusions always use all rollouts and a 5 mm/s threshold.`;
   legend(
     "profile-legend",
     sets.map((s) => [`${NAMES[s.source]} (n=${s.n})`, css(COLORS[s.source])]),
@@ -355,8 +355,8 @@ function renderStats() {
     }));
   drawProfiles("profile", ps);
   $("profile-table").innerHTML =
-    "<table><tr><th>进度</th>" +
-    ps.map((s) => `<th>${s.label} 中位数</th>`).join("") +
+    "<table><tr><th>Progress</th>" +
+    ps.map((s) => `<th>${s.label} median</th>`).join("") +
     "</tr>" +
     Array.from(
       { length: 12 },
@@ -374,15 +374,15 @@ function renderStats() {
     { label: NAMES.saved, color: css("--roll"), data: profile(sr) },
   ]);
   $("saved-note").textContent =
-    `${ARM[state.arm]} · 保存整段轨迹后 / 前中位数 ${num(sa.ratio)}×（n=${sa.n}），减速至少 20% ${sa.slow || 0}/${sa.n}；实际执行窗口中位时长 ${num(DATA.summary.duration_median, 3)} s。保存整段的形状不能用来替代实际执行段的形状。`;
+    `${ARM[state.arm]} · Median saved full-trajectory late/early ratio ${num(sa.ratio)}× (n=${sa.n}), slowdown ≥20% in ${sa.slow || 0}/${sa.n}; median actual execution-window duration ${num(DATA.summary.duration_median, 3)} s. Full saved trajectory shape cannot substitute for executed segment shape.`;
   const groups = [
-    ["合并", eligiblePlans()],
+    ["Combined", eligiblePlans()],
     ...DATA.episodes
       .filter((e) => state.scope === "all" || state.scope === e.id)
       .map((e) => [e.id, eligiblePlans(e.id)]),
   ];
   $("sensitivity").innerHTML =
-    "<table><tr><th>范围 · 实测 FK</th><th>原窗口</th><th>去掉前 50 ms</th><th>去掉前 100 ms</th><th>重采样 + 平滑</th></tr>" +
+    "<table><tr><th>Scope · measured FK</th><th>Original window</th><th>Exclude first 50 ms</th><th>Exclude first 100 ms</th><th>Resampled + smoothed</th></tr>" +
     groups
       .map(
         ([label, plans]) =>
@@ -415,16 +415,16 @@ function renderHeatmaps() {
   const plans = eligiblePlans();
   $("heatmaps").replaceChildren();
   $("heat-key").innerHTML =
-    "相对本 chunk 均速： " +
+    "Relative to this chunk's mean speed: " +
     [1 / 3, 0.5, 1, 2, 3]
       .map(
         (r) => `<span style="background:${heatColor(r)}"></span>${num(r, 1)}×`,
       )
       .join(" ") +
-    " · 灰色：低于门槛";
+    " · Gray: below threshold";
   for (const src of SOURCES) {
     const col = document.createElement("div");
-    col.innerHTML = `<div class="heat-head"><b>${NAMES[src]}</b><span>${plans.length} 行</span></div><div class="heat-scroll"></div>`;
+    col.innerHTML = `<div class="heat-head"><b>${NAMES[src]}</b><span>${plans.length} rows</span></div><div class="heat-scroll"></div>`;
     $("heatmaps").appendChild(col);
     const W = 350,
       L = 54,
@@ -437,7 +437,7 @@ function renderHeatmaps() {
         viewBox: `0 0 ${W} ${T + plans.length * rowH + 20}`,
         class: "heat-chart",
         role: "img",
-        "aria-label": NAMES[src] + "速度热图",
+        "aria-label": NAMES[src] + " speed heatmap",
       },
       col.lastChild,
     );
@@ -501,7 +501,7 @@ function renderHeatmaps() {
       g.addEventListener("mousemove", (e) =>
         showTip(
           e,
-          `${esc(p.key)}<br>${NAMES[src]}<br>前 ${num(s?.early, 1)} / 后 ${num(s?.late, 1)} mm/s<br>R = ${num(s?.ratio)}×`,
+          `${esc(p.key)}<br>${NAMES[src]}<br>Early ${num(s?.early, 1)} / late ${num(s?.late, 1)} mm/s<br>R = ${num(s?.ratio)}×`,
         ),
       );
       g.addEventListener("mouseleave", hideTip);
@@ -561,8 +561,8 @@ function renderTimeline() {
     xmin: start,
     xmax: end,
     ymax: max * 1.07,
-    xlabel: "rollout 时间 (s)",
-    ylabel: `${ARM[state.arm]} TCP 速度 (mm/s)`,
+    xlabel: "Rollout time (s)",
+    ylabel: `${ARM[state.arm]} TCP speed (mm/s)`,
   });
   for (const p of ep.plans) {
     const ex = p.execution;
@@ -600,7 +600,7 @@ function renderTimeline() {
     plotTickSegments(ch, ep, src, start, end, css(COLORS[src]));
   legend("timeline-legend", [
     ...SOURCES.map((s) => [NAMES[s], css(COLORS[s])]),
-    ["保存点的后续预测", css("--roll"), true],
+    ["Future prediction from saved points", css("--roll"), true],
   ]);
   const overlay = S(
     "rect",
@@ -617,7 +617,7 @@ function renderTimeline() {
     if (p)
       showTip(
         e,
-        `${esc(ep.id)} · chunk ${p.seq}<br>t=${num(tt, 3)} s<br>实测前 / 后：${num(p.arms[state.arm].state.stats.tcp?.early, 1)} / ${num(p.arms[state.arm].state.stats.tcp?.late, 1)} mm/s<br>点击查看该 chunk`,
+        `${esc(ep.id)} · chunk ${p.seq}<br>t=${num(tt, 3)} s<br>Measured early / late: ${num(p.arms[state.arm].state.stats.tcp?.early, 1)} / ${num(p.arms[state.arm].state.stats.tcp?.late, 1)} mm/s<br>Click to inspect this chunk`,
       );
   });
   overlay.addEventListener("mouseleave", hideTip);
@@ -636,7 +636,7 @@ function renderTimeline() {
   $("chunk-select").innerHTML = ep.plans
     .map(
       (p) =>
-        `<option value="${esc(p.key)}">#${p.seq} · ${num(p.execution?.start, 2)} s${p.execution?.eligible ? "" : " · 排除统计"}</option>`,
+        `<option value="${esc(p.key)}">#${p.seq} · ${num(p.execution?.start, 2)} s${p.execution?.eligible ? "" : " · Excluded from statistics"}</option>`,
     )
     .join("");
   if (!ep.plans.some((p) => p.key === state.focus))
@@ -655,7 +655,7 @@ function renderDetail() {
     $("detail").replaceChildren();
     $("chunk-label").textContent = p.key;
     $("detail-note").textContent =
-      "该保存计划没有 tick 执行证据，不纳入执行窗口统计。";
+      "This saved plan has no tick-level execution evidence and is excluded from execution-window statistics.";
     return;
   }
   const shift = p.start - ex.start,
@@ -674,8 +674,8 @@ function renderDetail() {
     xmin: 0,
     xmax,
     ymax: ymax * 1.1,
-    xlabel: "从 tick 计划切换起的时间 (s)",
-    ylabel: `chunk ${p.seq} · ${ARM[state.arm]} TCP 速度 (mm/s)`,
+    xlabel: "Time since tick-level plan switch (s)",
+    ylabel: `chunk ${p.seq} · ${ARM[state.arm]} TCP speed (mm/s)`,
   });
   S(
     "rect",
@@ -721,12 +721,12 @@ function renderDetail() {
     },
     ch.layer,
   );
-  text(ch.svg, ch.X(ex.duration) + 7, ch.T + 15, "此后未执行 / 已换 chunk");
+  text(ch.svg, ch.X(ex.duration) + 7, ch.T + 15, "Not executed / chunk replaced after this point");
   $("chunk-label").textContent =
-    `${ep.id} · request ${p.seq} · 保存 ${p.saved_rows} 行 · source_offset=${p.source_offset} · lead-in=${p.lead_in_steps} 子步`;
+    `${ep.id} · request ${p.seq} · ${p.saved_rows} saved rows · source_offset=${p.source_offset} · lead-in=${p.lead_in_steps} substeps`;
   const a = p.arms[state.arm].state.stats.tcp;
   $("detail-note").textContent =
-    `执行区间 ${num(ex.start, 3)}–${num(ex.end, 3)} s（${num(ex.duration, 3)} s）；实测前段 ${num(a?.early, 1)}、后段 ${num(a?.late, 1)} mm/s，R=${num(a?.ratio)}×。${ex.eligible ? "纳入执行窗口统计。" : "不纳入统计：" + ex.reasons.join("；")} 阴影只表示预测上下文，不能当作实测运动。`;
+    `Execution interval ${num(ex.start, 3)}–${num(ex.end, 3)} s (${num(ex.duration, 3)} s); measured early ${num(a?.early, 1)}, late ${num(a?.late, 1)} mm/s, R=${num(a?.ratio)}×. ${ex.eligible ? "Included in execution-window statistics." : "Excluded: " + ex.reasons.join("; ")} Shading shows prediction context only, not measured motion.`;
 }
 function render() {
   renderStats();

@@ -14,7 +14,7 @@
   const ep = () => D.episodes[OS.ep];
   const chunks = () =>
     OS.scope === "all" ? D.episodes.flatMap((e) => e.chunks) : ep().chunks;
-  const named = { pred: "离线模型预测", gt: "人类示教 GT" };
+  const named = { pred: "Offline model prediction", gt: "Human demonstration GT" };
   function offlineRows(source, selected = chunks()) {
     return selected
       .map((c) => ({ p: c, s: c.arms[state.arm].stats[source][OS.domain] }))
@@ -35,7 +35,7 @@
       gt = curveSet("gt"),
       sets = [
         {
-          label: "真机实测 FK (n=" + real.length + ")",
+          label: "Measured robot FK (n=" + real.length + ")",
           color: css("--roll"),
           data: profile(real),
           r: real,
@@ -46,7 +46,7 @@
     $("offline-facts").innerHTML = sets
       .map((s) => {
         const a = agg(s.r);
-        return `<div class="fact" style="--k:${s.color}"><span class="lab">${ARM[state.arm]} · ${esc(s.label)}</span><span class="val">${num(a.ratio)}×</span><span class="lab">后 ⅓ / 前 ⅓ · 减速 ≥20%：${a.slow || 0}/${a.n}</span></div>`;
+        return `<div class="fact" style="--k:${s.color}"><span class="lab">${ARM[state.arm]} · ${esc(s.label)}</span><span class="val">${num(a.ratio)}×</span><span class="lab">Last ⅓ / first ⅓ · slowdown ≥20%: ${a.slow || 0}/${a.n}</span></div>`;
       })
       .join("");
     legend(
@@ -58,9 +58,9 @@
       sets.filter((s) => s.r.length),
     );
     const texts = ch.svg.querySelectorAll("text");
-    texts[texts.length - 1].textContent = "各自比较窗口内进度 (%)";
+    texts[texts.length - 1].textContent = "Progress within each comparison window (%)";
     $("offline-domain-note").textContent =
-      `${ARM[state.arm]} · 离线 ${OS.scope === "all" ? D.episodes.length + " 个 episode 合并" : "episode " + ep().id} · ${OS.domain === "full" ? `原生 ${P.horizon} 步动作中的 ${P.horizon - 1} 个相邻速度间隔（${num((P.horizon - 1) / P.fps, 3)} s）` : `原生预测的前 12 个速度间隔（${num(12 / P.fps, 3)} s）`}。真机范围：${state.scope === "all" ? DATA.episodes.length + " 次 rollout" : state.scope}。相同 checkpoint 与归一化文件已核对；输入分布与推理条件不同，这是形状对照。`;
+      `${ARM[state.arm]} · Offline ${OS.scope === "all" ? D.episodes.length + " episodes combined" : "episode " + ep().id} · ${OS.domain === "full" ? `${P.horizon - 1} adjacent speed intervals in the native ${P.horizon}-step action (${num((P.horizon - 1) / P.fps, 3)} s)` : `First 12 speed intervals of the native prediction (${num(12 / P.fps, 3)} s)`}. Robot scope: ${state.scope === "all" ? DATA.episodes.length + " rollouts" : state.scope}. Checkpoint and normalization files match; input distributions and inference conditions differ. This is a shape comparison.`;
   }
   function choose(index, scroll = false) {
     OS.chunk = clamp(index, 0, ep().chunks.length - 1);
@@ -92,12 +92,12 @@
           viewBox: `0 0 ${W} ${T + E.chunks.length * h + 20}`,
           class: "heat-chart",
           role: "img",
-          "aria-label": named[source] + "逐chunk速度",
+          "aria-label": named[source] + " per-chunk speed",
         },
         box.lastChild,
       );
       for (let k = 0; k <= 4; k++)
-        text(svg, L + (w * k) / 4, 15, num((k * (N - 1)) / 4 + 1, 0) + "步", {
+        text(svg, L + (w * k) / 4, 15, num((k * (N - 1)) / 4 + 1, 0) + " steps", {
           "font-size": 10,
           "text-anchor": "middle",
         });
@@ -139,7 +139,7 @@
         g.addEventListener("mousemove", (e) =>
           showTip(
             e,
-            `episode ${E.id} · frame ${c.frame} · ${num(c.t, 2)} s<br>${named[source]}<br>前 ${num(s.early, 1)} / 后 ${num(s.late, 1)} mm/s<br>R=${num(s.ratio)}× · 点击查看输入图片`,
+            `episode ${E.id} · frame ${c.frame} · ${num(c.t, 2)} s<br>${named[source]}<br>Early ${num(s.early, 1)} / late ${num(s.late, 1)} mm/s<br>R=${num(s.ratio)}× · Click to inspect input images`,
           ),
         );
         g.addEventListener("mouseleave", hideTip);
@@ -157,15 +157,15 @@
     $("offline-frame-label").textContent =
       `episode ${E.id} · frame ${c.frame} · t=${num(c.t, 3)} s`;
     $("offline-image-caption").textContent =
-      `输入：原始 RGB（左：${c.image_source.left.rgb_shape.join("×")}；右：${c.image_source.right.rgb_shape.join("×")}，此处为 JPEG 预览） · 提示词：${P.prompt} · ${P.num_steps} 步采样 · 本次 ${num(c.latency_ms, 1)} ms${c.warmup ? "（含首次 JIT 编译，不计常态耗时）" : ""} · seed ${c.seed}`;
+      `Input: original RGB (left: ${c.image_source.left.rgb_shape.join("×")}; right: ${c.image_source.right.rgb_shape.join("×")}; JPEG previews shown here) · Prompt: ${P.prompt} · ${P.num_steps} sampling steps · ${num(c.latency_ms, 1)} ms for this prediction${c.warmup ? " (includes initial JIT compilation; excluded from steady-state timing)" : ""} · seed ${c.seed}`;
     const max = Math.max(10, ...arm.pred, ...arm.gt),
       ch = axes("offline-detail", {
         height: 310,
         xmin: 1,
         xmax: 31,
         ymax: max * 1.08,
-        xlabel: `chunk 内速度间隔 k（action[k] → action[k+1]，每步 ${num(1000 / P.fps, 1)} ms）`,
-        ylabel: `${ARM[state.arm]} 原生末端速度 (mm/s)`,
+        xlabel: `Speed interval k within chunk (action[k] → action[k+1], ${num(1000 / P.fps, 1)} ms per step)`,
+        ylabel: `${ARM[state.arm]} native TCP speed (mm/s)`,
         xticks: 6,
       });
     if (OS.domain === "prefix") {
@@ -180,7 +180,7 @@
         },
         ch.layer,
       );
-      text(ch.svg, ch.X(13), ch.T + 14, "灰色段不参与当前前缀统计");
+      text(ch.svg, ch.X(13), ch.T + 14, "Gray segment excluded from current prefix statistics");
     }
     line(
       ch,
@@ -201,7 +201,7 @@
     const a = arm.stats.pred[OS.domain],
       b = arm.stats.gt[OS.domain];
     $("offline-detail-note").textContent =
-      `当前窗口：预测 R=${num(a.ratio)}×，GT R=${num(b.ratio)}×。参考页的完整 chunk「后 8 间隔 / 前 8 间隔」口径：预测 ${num(arm.stats.pred.ratio8)}×，GT ${num(arm.stats.gt.ratio8)}×。轨迹速度来自相邻预测点，不包含观测锚点到第一预测点的位移。`;
+      `Current window: prediction R=${num(a.ratio)}×, GT R=${num(b.ratio)}×. Reference-page full-chunk metric (last 8 intervals / first 8 intervals): prediction ${num(arm.stats.pred.ratio8)}×, GT ${num(arm.stats.gt.ratio8)}×. Trajectory speed uses adjacent predicted points; it excludes displacement from the observation anchor to the first predicted point.`;
   }
   function renderOfflineTimeline() {
     const E = ep(),
@@ -231,8 +231,8 @@
       xmin: start,
       xmax: end,
       ymax: max * 1.07,
-      xlabel: "数据集 episode 时间 (s)",
-      ylabel: `episode ${E.id} · ${ARM[state.arm]} TCP 速度 (mm/s)`,
+      xlabel: "Dataset episode time (s)",
+      ylabel: `episode ${E.id} · ${ARM[state.arm]} TCP speed (mm/s)`,
     });
     line(ch, gpts, css("--ref"), 1.8);
     for (const c of visible) {
@@ -261,7 +261,7 @@
         },
         ch.layer,
       );
-      text(ch.svg, ch.X(selected.t) + 5, ch.T + 13, "所选图片");
+      text(ch.svg, ch.X(selected.t) + 5, ch.T + 13, "Selected image");
     }
     const overlay = S(
       "rect",
@@ -283,7 +283,7 @@
       const c = E.chunks[nearest(e)];
       showTip(
         e,
-        `episode ${E.id} · frame ${c.frame}<br>t=${num(c.t, 3)} s<br>点击切换到此输入图片`,
+        `episode ${E.id} · frame ${c.frame}<br>t=${num(c.t, 3)} s<br>Click to select these input images`,
       );
     });
     overlay.addEventListener("mouseleave", hideTip);
@@ -295,7 +295,7 @@
   }
   function renderTable() {
     $("offline-episode-table").innerHTML =
-      "<table><tr><th>episode</th><th>预测数</th><th>预测 R</th><th>GT R</th><th>推理 p50 / p95 (ms)</th></tr>" +
+      "<table><tr><th>episode</th><th>Predictions</th><th>Prediction R</th><th>GT R</th><th>Inference p50 / p95 (ms)</th></tr>" +
       D.episodes
         .map((e) => {
           const pred = agg(offlineRows("pred", e.chunks)),
@@ -306,7 +306,7 @@
         .join("") +
       "</table>";
     $("offline-method").textContent =
-      `数据源 ${P.dataset}，metadata 分区 ${JSON.stringify(P.dataset_split)}；是否独立测试需根据训练数据另行核对。checkpoint ${P.checkpoint_source}，归一化 SHA-256 ${P.norm_stats_sha256}。${P.chunks} 个独立预测，每 ${P.stride_frames} 帧取一次，两腕图片均来自该 frame 的视频 PTS；GT 取 state[t+1:t+33]，已验证 action[t]=state[t+1]。无 RTC 前缀、无 IK。常态推理 p50=${num(P.latency_ms.median, 1)} ms，p95=${num(P.latency_ms.p95, 1)} ms（排除第一次 JIT 编译，包含模型预处理/采样/输出同步，不含视频解码与图片预览编码）。`;
+      `Dataset ${P.dataset}, metadata split ${JSON.stringify(P.dataset_split)}; independence from training data requires a separate check. Checkpoint ${P.checkpoint_source}, normalization SHA-256 ${P.norm_stats_sha256}. ${P.chunks} independent predictions, sampled every ${P.stride_frames} frames; both wrist images use that frame's video PTS. GT is state[t+1:t+33]; action[t]=state[t+1] has been verified. No RTC prefix or IK. Steady-state inference p50=${num(P.latency_ms.median, 1)} ms, p95=${num(P.latency_ms.p95, 1)} ms (excluding initial JIT compilation; including model preprocessing, sampling and output synchronization; excluding video decoding and preview encoding).`;
   }
   function renderOffline() {
     renderComparison();

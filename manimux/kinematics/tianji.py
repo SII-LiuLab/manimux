@@ -1,7 +1,7 @@
-"""旧版 Tianji 调用入口；新整机使用 arm 求解器和公共组合运动学。
+"""Legacy Tianji entry point; new robots use arm solvers and shared composed kinematics.
 
-这里保留旧配置的 end_effector/tool_xyzabc 参数及 TCP 接口，供尚未迁移的
-调用方使用。官方 IK 算法与关节约束由 arm 中的 TianjiArmKinematics 继承。
+Keep legacy end_effector/tool_xyzabc parameters and the TCP interface for callers
+that have not migrated. TianjiArmKinematics supplies the official IK algorithm and joint constraints.
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ from manimux.kinematics.end_effector import EndEffector, load_end_effector
 
 
 class TianjiKinematics(TianjiArmKinematics):
-    """兼容旧版 TCP API；新整机不使用这个类装配末端。"""
+    """Legacy TCP API compatibility; new robots do not use this class to assemble tools."""
 
     def __init__(
         self,
@@ -63,11 +63,11 @@ class TianjiKinematics(TianjiArmKinematics):
             max_step_deg=max_step_deg,
             limit_margin_deg=limit_margin_deg,
         )
-        # 仅兼容旧配置的名称/对象两种写法；新配置由 RobotModel 装配组件。
+        # Support legacy names and objects only; RobotModel assembles components in new configurations.
         if isinstance(end_effector, str):
             end_effector = None if end_effector == "none" else load_end_effector(end_effector)
         self.end_effector = end_effector
-        # _tool 为 T_flange_tcp（米）；夹爪开合不改变旧版固定 TCP。
+        # _tool is T_flange_tcp in meters; gripper opening does not change the legacy fixed TCP.
         self._tool: FloatArray | None = None
         if end_effector is not None:
             self._tool = end_effector.tool_transform()
@@ -89,7 +89,7 @@ class TianjiKinematics(TianjiArmKinematics):
 
         del gripper
         flange = self.flange(joints)
-        # T_base_tcp = T_base_flange @ T_flange_tcp，末端偏移只乘一次。
+        # T_base_tcp = T_base_flange @ T_flange_tcp; apply the tool offset once.
         return flange if self._tool is None else flange @ self._tool
 
     def pose(self, configuration: FloatArray) -> FloatArray:
@@ -158,8 +158,8 @@ class TianjiKinematics(TianjiArmKinematics):
     def _solve(
         self, target_pose: FloatArray, init_joints: FloatArray
     ) -> tuple[bool, FloatArray, dict[str, object]]:
-        # 旧接口输入 TCP 目标：T_base_flange = T_base_tcp @ inv(T_flange_tcp)。
-        # 只去除末端偏移；坐标系仍是该臂基座，不加入 RoboGUI 的场景安装变换。
+        # Legacy input is a TCP target: T_base_flange = T_base_tcp @ inv(T_flange_tcp).
+        # Remove only the tool offset; keep the arm base frame without RoboGUI scene transforms.
         target = np.asarray(target_pose, dtype=np.float64)
         flange = target if self._tool_inverse is None else target @ self._tool_inverse
         return super()._solve(flange, init_joints)

@@ -1,4 +1,4 @@
-# 模型服务基础参数；任务由实验选择，地址和 checkpoint 路径由 local 绑定。
+# Base model service parameters; experiments select the task, and local bindings supply addresses and checkpoint paths.
 policy_name: UMI_DP
 protocol: ws
 bench_name: ManiMux

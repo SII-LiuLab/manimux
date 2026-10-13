@@ -22,6 +22,7 @@ HARDWARE_VERIFIED_VARIANTS = {
     "pi05_yam_pick_red_ball_box_step_1000",
 }
 YAM_FINETUNED_VARIANTS = HARDWARE_VERIFIED_VARIANTS | {
+    "pi05_yam_mixed300ep_step30000",
     "pi05_yam_put_bottles_joint_ee_step_30000_eef",
     "pi05_yam_assemble_screwdriver_step_15000",
     "pi05_yam_put_bottles_joint_step_30000",
@@ -196,9 +197,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.check:
         return 0
 
-    import setup_policy_server
+    from manimux.policies.xpolicylab.server import serve
 
-    setup_policy_server.main(config)
+    serve(config)
     return 0
 
 

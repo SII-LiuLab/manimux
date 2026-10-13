@@ -94,6 +94,91 @@ def _parse_model_frame_transforms(
     return {group: np.asarray(raw[group], dtype=np.float64) for group in group_order}
 
 
+class TargetZBias:
+    """Height-graded offset added to model-frame target z before IK.
+
+    SAPolicy actions are deltas from the pose measured at chunk start, so a frame
+    translation (``model_from_kinematics``) cancels between state and target. An
+    offset on the target itself does not: each chunk re-anchors at the measured pose
+    and adds it once, so a closed loop settles ``offset_m`` away without drifting.
+    The full offset applies at target heights up to ``full_below_m`` above
+    ``table_z_m`` and fades linearly to zero at ``zero_above_m``; a lowered target
+    stops at ``min_height_m`` above the table. ``xy_offset_m`` optionally adds a
+    per-group horizontal model-frame offset with the same height weighting.
+    """
+
+    def __init__(self, options: Mapping[str, object]) -> None:
+        self.offset_m = float(options["offset_m"])
+        self.xy_offset_m = {
+            str(group): np.asarray(value, dtype=np.float64)
+            for group, value in dict(options.get("xy_offset_m") or {}).items()
+        }
+        if any(v.shape != (2,) or not np.isfinite(v).all() for v in self.xy_offset_m.values()):
+            raise ValueError("target_z_bias.xy_offset_m values must be finite [dx, dy] metres")
+        self.table_z_m = float(options.get("table_z_m", 0.75))
+        self.full_below_m = float(options.get("full_below_m", 0.08))
+        self.zero_above_m = float(options.get("zero_above_m", 0.15))
+        self.min_height_m = float(options.get("min_height_m", 0.015))
+        values = (self.offset_m, self.table_z_m, self.full_below_m, self.zero_above_m, self.min_height_m)
+        if not np.isfinite(values).all() or not 0 <= self.full_below_m < self.zero_above_m:
+            raise ValueError("target_z_bias needs finite values and 0 <= full_below_m < zero_above_m")
+        # Keep the map strictly increasing so the RTC condition can be inverted.
+        if abs(self.offset_m) >= self.zero_above_m - self.full_below_m:
+            raise ValueError("|target_z_bias.offset_m| must be below zero_above_m - full_below_m")
+
+    def weight(self, z: np.ndarray) -> np.ndarray:
+        height = np.asarray(z, dtype=np.float64) - self.table_z_m
+        return np.clip(
+            (self.zero_above_m - height) / (self.zero_above_m - self.full_below_m), 0.0, 1.0
+        )
+
+    def apply_xyz(self, group: str, xyz: np.ndarray) -> np.ndarray:
+        """Bias model-frame positions ``[..., 3]`` of ``group``."""
+        xyz = np.array(xyz, dtype=np.float64)
+        weight = self.weight(xyz[..., 2])
+        offset = self.xy_offset_m.get(group)
+        if offset is not None:
+            xyz[..., :2] += weight[..., None] * offset
+        xyz[..., 2] = self.apply(xyz[..., 2])
+        return xyz
+
+    def invert_xyz(self, group: str, xyz: np.ndarray) -> np.ndarray:
+        xyz = np.array(xyz, dtype=np.float64)
+        xyz[..., 2] = self.invert(xyz[..., 2])
+        offset = self.xy_offset_m.get(group)
+        if offset is not None:
+            xyz[..., :2] -= self.weight(xyz[..., 2])[..., None] * offset
+        return xyz
+
+    def apply(self, z: np.ndarray) -> np.ndarray:
+        z = np.asarray(z, dtype=np.float64)
+        weight = self.weight(z)
+        biased = z + self.offset_m * weight
+        floor = self.table_z_m + self.min_height_m
+        return np.where(biased < floor, np.minimum(z, floor), biased)
+
+    def invert(self, z: np.ndarray) -> np.ndarray:
+        """Recover model targets from executed (biased) ones by bisection."""
+        z = np.asarray(z, dtype=np.float64)
+        span = abs(self.offset_m) + 1e-6
+        lo, hi = z - span, z + span
+        for _ in range(40):
+            mid = 0.5 * (lo + hi)
+            low = self.apply(mid) < z
+            lo, hi = np.where(low, mid, lo), np.where(low, hi, mid)
+        return 0.5 * (lo + hi)
+
+    def metadata(self) -> dict[str, float]:
+        return {
+            "offset_m": self.offset_m,
+            "table_z_m": self.table_z_m,
+            "full_below_m": self.full_below_m,
+            "zero_above_m": self.zero_above_m,
+            "min_height_m": self.min_height_m,
+            "xy_offset_m": {group: value.tolist() for group, value in self.xy_offset_m.items()},
+        }
+
+
 def _parse_wire_image_hw(options: Mapping[str, object]) -> tuple[int, int]:
     raw = options.get("wire_image_hw", list(DEFAULT_WIRE_IMAGE_HW))
     height, width = map(int, raw)
@@ -152,6 +237,8 @@ class SAPolicyYamAdapter(PolicyAdapter):
             group: np.linalg.inv(transform)
             for group, transform in self._model_from_kinematics.items()
         }
+        z_bias = policy["adapter"].get("target_z_bias")
+        self._target_z_bias = None if z_bias is None else TargetZBias(z_bias)
 
         kinematics_name = policy["adapter"].get("kinematics", "yam")
         kinematics_options = policy["adapter"].get("kinematics_options", {})
@@ -257,6 +344,9 @@ class SAPolicyYamAdapter(PolicyAdapter):
                 pose = self._model_from_kinematics[group] @ self._kinematics.fk(
                     state[:ARM_JOINTS], float(state[-1])
                 )
+                if self._target_z_bias is not None:
+                    # The timeline holds biased targets; condition on the model's own plan.
+                    pose[:3, 3] = self._target_z_bias.invert_xyz(group, pose[:3, 3])
                 xyz_xyzw = _pose_to_wire_endpose(pose)
                 result[i, arm * 8 : arm * 8 + 8] = np.concatenate(
                     [
@@ -333,6 +423,13 @@ class SAPolicyYamAdapter(PolicyAdapter):
             for start in (3, 11)
         ):
             raise ValueError("SAPolicy actions contain zero quaternions")
+        raw_model_actions = actions
+        if self._target_z_bias is not None:
+            actions = actions.copy()
+            for start, group in zip((0, 8), self._group_order, strict=True):
+                actions[:, start : start + 3] = self._target_z_bias.apply_xyz(
+                    group, actions[:, start : start + 3]
+                )
         anchor = self._anchors.pop(context.request_seq, None)
         if anchor is None and context.ik_seed is None:
             raise ValueError(
@@ -355,7 +452,7 @@ class SAPolicyYamAdapter(PolicyAdapter):
         for arm_index, group in enumerate(self._group_order):
             if partition is not None and group != partition:
                 continue
-            raw_eef[group] = actions[:, arm_index * 8 : arm_index * 8 + 8].tolist()
+            raw_eef[group] = raw_model_actions[:, arm_index * 8 : arm_index * 8 + 8].tolist()
             state_start = arm_index * GROUP_DIM
             seed_state = None if anchor is None else anchor[state_start : state_start + GROUP_DIM]
             if context.ik_seed is not None:
@@ -398,6 +495,11 @@ class SAPolicyYamAdapter(PolicyAdapter):
             metadata={
                 "raw_model_eef": raw_eef,
                 "ik": ik_diagnostics,
+                **(
+                    {"target_z_bias": self._target_z_bias.metadata()}
+                    if self._target_z_bias is not None
+                    else {}
+                ),
             },
         )
 

@@ -146,6 +146,9 @@ class ChunkTimelineView:
         if not self._warmup_matches_episode(metadata):
             return
         warmup = metadata.get("warmup") or {}
+        if warmup.get("phase") == "idle":
+            # Waiting for activation is not the end of the preview lifecycle.
+            return
         if warmup.get("phase") != "warming":
             self.clear_warmup_preview()
             return

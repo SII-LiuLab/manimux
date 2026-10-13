@@ -186,6 +186,11 @@ def serve_action_replay(path: Path, robot: RobotView, *, action_dt_s: float, hos
         host=host,
         port=port,
     )
+    run_replay(robogui, host=host)
+
+
+def run_replay(robogui: ActionReplayRoboGUI, *, host: str) -> None:
+    """Serve an already loaded trajectory, starting paused and closing on exit."""
     stop = threading.Event()
     handlers = {}
     try:

@@ -34,6 +34,7 @@ import numpy as np
 
 from manimux.policies.base import action_interval
 from manimux.policy_adapter.kinematics import KinematicAdapter
+from manimux.runtime.paint import PaintInferenceRequest
 from manimux.runtime.rtc.request import RtcInferenceRequest
 from manimux.types import (
     ActionChunk,
@@ -92,9 +93,7 @@ def joint_condition_to_xr1_actions(
         offset += GROUP_DIM
 
         anchor_pose = kinematics.models[group].fk(anchor)
-        target_poses = np.stack(
-            [kinematics.models[group].fk(row) for row in targets]
-        )
+        target_poses = np.stack([kinematics.models[group].fk(row) for row in targets])
         anchor_rotation = anchor_pose[:3, :3]
         columns = ARM_SLICES[group]
         actions[:, columns["pos"]] = (
@@ -153,6 +152,16 @@ class XR1YamAdapter(KinematicAdapter):
         self._anchors[request.request_seq] = np.ascontiguousarray(anchor)
         while len(self._anchors) > 8:
             self._anchors.popitem(last=False)
+        if isinstance(request, PaintInferenceRequest):
+            return replace(
+                request,
+                paint_action_prefix=joint_condition_to_xr1_actions(
+                    request.paint_action_prefix,
+                    request.observation.state.groups,
+                    group_order=self._group_order,
+                    kinematics=self.kinematics,
+                ),
+            )
         if not isinstance(request, RtcInferenceRequest) or request.action_condition is None:
             return request
         native_condition = joint_condition_to_xr1_actions(
@@ -170,7 +179,9 @@ class XR1YamAdapter(KinematicAdapter):
             actions = np.asarray(raw["actions"], dtype=np.float64)
             anchor = np.asarray(raw["state"], dtype=np.float64).reshape(-1)
         else:
-            actions = np.asarray(raw, dtype=np.float64)
+            actions = np.asarray(
+                raw["actions"] if isinstance(raw, Mapping) else raw, dtype=np.float64
+            )
             stored = self._anchors.pop(context.request_seq, None)
             if stored is None:
                 raise ValueError(

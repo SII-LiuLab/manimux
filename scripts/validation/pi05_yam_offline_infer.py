@@ -17,7 +17,6 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 XPOLICY_ROOT = REPO_ROOT / "XPolicyLab"
 OPENPI_SRC = XPOLICY_ROOT / "policy/Pi_05/openpi/src"
 DEFAULT_CONFIG = REPO_ROOT / "manimux/configs/policy/pi05/yam/finetune.yaml"
-DEFAULT_INFRA_CONFIG = REPO_ROOT / "manimux/configs/experiments/pick_red_object/pi05/yam_pi05_manimux.yaml"
 
 
 def _prepare_imports() -> None:
@@ -96,7 +95,7 @@ def _pack_action_chunk(action_steps: Any) -> np.ndarray:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
-    parser.add_argument("--infra-config", type=Path, default=DEFAULT_INFRA_CONFIG)
+    parser.add_argument("--infra-config", type=Path, required=True)
     parser.add_argument("--image-height", type=int, default=360)
     parser.add_argument("--image-width", type=int, default=640)
     args = parser.parse_args()

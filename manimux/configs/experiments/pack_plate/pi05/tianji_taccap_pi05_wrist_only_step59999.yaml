@@ -73,7 +73,7 @@ recording:
   enabled: true
 
 inference:
-  algorithm: manimux
+  algorithm: async
   config: ../../../inference/tianji_taccap_manimux.yaml
   # Initial process-decode forecast; tune from recorded decode_stage_ms.
   expected_decode_s: 0.08

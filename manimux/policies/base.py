@@ -18,7 +18,7 @@ class PolicyModel(Protocol):
 
 
 def expected_backend_parameters(**options) -> dict:
-    """保留模型服务与 checkpoint 身份约定，防止连接错误模型。"""
+    """Preserve model service and checkpoint identity contracts to prevent connecting to the wrong model."""
 
     values = {
         "server": None,
@@ -71,7 +71,7 @@ def policy_parameters(*, action_dt_s: float, horizon_policy_steps: int, **option
 
 
 def action_interval(policy: dict) -> float:
-    """保留原动作间隔：指定总时长时，用总时长除以相邻点的间隔数。"""
+    """Preserve action timing: when total duration is specified, divide it by the number of intervals between points."""
     duration = policy.get("trajectory_duration_s")
     return (
         policy["action_dt_s"]

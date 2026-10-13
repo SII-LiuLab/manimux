@@ -119,11 +119,13 @@ class StarVlaPolicyModel:
         expected = (count, self.contract["action_horizon"], self.contract["action_dim"])
         if actions.shape != expected or not np.isfinite(actions).all():
             raise ValueError(f"StarVLA returned invalid actions; expected {expected}")
+        if getattr(request, "bid_num_samples", None) is not None:
+            return {"bid_candidates": [self.codec.decode(rows) for rows in actions]}
         if sampling["mode"] == "aac":
             return self._select_aac(request, actions)
         decoded = self.codec.decode(actions[0])
         mode = sampling["mode"]
-        if mode in {"paint", "autohorizon", "dvac"}:
+        if mode in {"paint", "autohorizon"}:
             if mode not in result:
                 raise ValueError(f"StarVLA omitted {mode} sampler metadata")
             decoded[mode] = result[mode]
@@ -139,6 +141,11 @@ class StarVlaPolicyModel:
         if (prefix is None) != (delay is None):
             raise ValueError("PAINT prefix and delay must be supplied together")
         count = getattr(request, "aac_num_samples", None)
+        bid_count = getattr(request, "bid_num_samples", None)
+        if bid_count is not None:
+            if count is not None:
+                raise ValueError("BID and AAC selection cannot be combined")
+            count = bid_count
         modes = [
             m
             for m, used in [
@@ -146,7 +153,6 @@ class StarVlaPolicyModel:
                 ("paint", prefix is not None),
                 ("aac", count is not None),
                 ("autohorizon", getattr(request, "autohorizon", False)),
-                ("dvac", getattr(request, "dvac", False)),
             ]
             if used
         ]
@@ -168,15 +174,6 @@ class StarVlaPolicyModel:
             )
         if mode == "aac":
             return dict(mode=mode, num_samples=count)
-        if mode == "dvac":
-            return dict(
-                mode=mode,
-                tail_steps=request.dvac_tail_steps,
-                alpha=request.dvac_alpha,
-                rolling_window_size=request.dvac_rolling_window_size,
-                min_execution_steps=request.dvac_min_execution_steps,
-                max_execution_steps=request.dvac_max_execution_steps,
-            )
         return {"mode": mode}
 
     def _select_aac(self, request, actions):
@@ -205,7 +202,7 @@ class StarVlaPolicyModel:
         return {
             "format": "joint",
             "actions": groups,
-            "aac": selection.metadata(),
+            "aac": {**selection.metadata(), "execution_steps": selection.chunk_size},
             "action_semantics": self.contract["action_semantics"],
         }
 

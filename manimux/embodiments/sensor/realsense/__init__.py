@@ -1,4 +1,4 @@
-"""RealSense RGB/depth 组件；安装的 pyrealsense2 提供设备 SDK。"""
+"""RealSense RGB/depth component; the installed pyrealsense2 provides the device SDK."""
 
 from .sensor import RealSenseSensor, get_device_ids
 

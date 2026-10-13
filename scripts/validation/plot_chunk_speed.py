@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Build a self-contained speed report from finalized dual 7-DoF arm rollouts.
+"""Build a self-contained speed report from finalized dual-arm rollouts.
 
 The only robot interface used is offline RobotModel FK. See
-docs/usage/chunk-speed.md for the evidence contract and optional Pi05 probe.
+.agents/skills/manimux-experiments/references/chunk-speed.md for the evidence contract and optional Pi05 probe.
 """
 
 from __future__ import annotations
@@ -45,8 +45,8 @@ def plain(value):
 
 
 def geometry(model, joints):
-    if joints.ndim != 2 or joints.shape[1] != 8 or not len(joints):
-        raise ValueError("Expected nonempty [samples, 7 arm joints + 1 gripper] data")
+    if joints.ndim != 2 or joints.shape[1] != model.num_coordinates or not len(joints):
+        raise ValueError("Expected nonempty joint data matching the recorded FK assembly")
     if not np.isfinite(joints).all():
         raise ValueError("Non-finite joint samples")
     transforms = np.array([model.fk(row) for row in joints])
@@ -55,14 +55,16 @@ def geometry(model, joints):
     return transforms[:, :3, 3] * 1000, transforms[:, :3, :3]
 
 
-def speeds(joints, xyz, rotations, times):
+def speeds(joints, xyz, rotations, times, arm_dofs):
+    if not 0 < arm_dofs <= joints.shape[1]:
+        raise ValueError("Invalid arm coordinate count")
     dt = np.diff(times)
     if not np.isfinite(times).all() or np.any(dt <= 0):
         raise ValueError("Non-increasing sample times")
     relative_trace = np.einsum("nij,nij->n", rotations[:-1], rotations[1:])
     return {
         "tcp": np.linalg.norm(np.diff(xyz, axis=0), axis=1) / dt,
-        "joint": np.linalg.norm(np.diff(joints[:, :7], axis=0), axis=1) / dt * 180 / np.pi,
+        "joint": np.linalg.norm(np.diff(joints[:, :arm_dofs], axis=0), axis=1) / dt * 180 / np.pi,
         "rotation": np.arccos(np.clip((relative_trace - 1) / 2, -1, 1)) / dt * 180 / np.pi,
     }
 
@@ -167,6 +169,14 @@ def analyze_session(session):
     models = robot.kinematics.models
     if not set(ARMS).issubset(models):
         raise ValueError("Report requires left_arm and right_arm FK models")
+    arm_dofs = {}
+    for arm in ARMS:
+        coordinates = robot.groups[arm].arm.coordinates
+        layout = robot.action_layouts.get(arm)
+        count = layout["arm_dofs"] if layout is not None else len(coordinates)
+        if any(c.unit != "rad" for c in coordinates[:count]):
+            raise ValueError("Joint speed requires revolute arm coordinates in radians")
+        arm_dofs[arm] = count
     report = {
         "created_utc": datetime.now(UTC).isoformat(),
         "session": str(session),
@@ -174,8 +184,9 @@ def analyze_session(session):
         "recorded_config": {
             "algorithm": config["inference"]["algorithm"],
             "rtc": config["inference"]["rtc"],
-            "skip": config["inference"]["handoff_skip_steps"],
-            "handoff": config["inference"]["handoff"],
+            "skip": config["inference"].get("handoff_skip_steps"),
+            "handoff": config["inference"].get("handoff"),
+            "arm_dofs": arm_dofs,
             "action_dt_s": config["policy"]["action_dt_s"],
             "horizon": config["policy"]["horizon_policy_steps"],
             "control_hz": config["robot"]["control_hz"],
@@ -187,7 +198,7 @@ def analyze_session(session):
         "fingerprints": {},
         "fk_source_check": fk_source_check,
         "method": {
-            "version": "chunk-speed-v2",
+            "version": "chunk-speed-v3-assembly-layout",
             "early_late": "time-weighted first and last thirds",
             "min_mean_tcp_speed_mm_s": 5,
             "min_early_speed": 1,
@@ -256,7 +267,7 @@ def analyze_session(session):
                 xyz, rot = geometry(models[arm], joints)
                 episode["ticks"]["arms"][arm][source] = {
                     "xyz": xyz,
-                    "speed": speeds(joints, xyz, rot, times),
+                    "speed": speeds(joints, xyz, rot, times, arm_dofs[arm]),
                 }
         plan_map = {}
         for name in sorted(z["plans"].group_keys(), key=int):
@@ -287,7 +298,7 @@ def analyze_session(session):
                     dt = int(stage.attrs["dt_ns"]) / 1e9
                     local_t = np.arange(len(joints)) * dt
                     xyz, rot = geometry(models[arm], joints)
-                    velocity = speeds(joints, xyz, rot, local_t)
+                    velocity = speeds(joints, xyz, rot, local_t, arm_dofs[arm])
                     plan["arms"][arm][label] = {
                         "t": local_t,
                         "xyz": xyz,

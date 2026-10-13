@@ -44,8 +44,8 @@ sensors:
   service: camera
 
 policy:
-# 匹配原 put-bottles joint step-30000 服务；更换 checkpoint 时成对调整身份。
-# 模型输入保持 30 Hz、50 步、左右各六关节加一个归一化夹爪。
+# Match the original put-bottles joint step-30000 service; update both identities when changing checkpoints.
+# Keep model inputs at 30 Hz and 50 steps, with six joints and one normalized gripper per arm.
   worker: xpolicylab_ws
   service: policy
   adapter:
@@ -78,8 +78,7 @@ inference:
   config: ../../../inference/yam_rtc.yaml
 
 executor:
-  type: smooth
-  config: ../../../executor/yam_smooth.yaml
+  type: direct
 
 policy_server:
   config: ../../../policy/pi05/yam/put-bottles/joint-step30000.yaml

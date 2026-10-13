@@ -1,4 +1,4 @@
-"""YAM 臂爪一体组件；模型加载不连接 CAN。"""
+"""Integrated YAM arm and gripper component; loading the model does not connect CAN."""
 
 from .arm import YamArm, YamController
 from .kinematics import YamManipulatorKinematics

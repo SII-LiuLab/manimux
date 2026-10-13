@@ -64,7 +64,7 @@ def load_command_rate_replay(
         raw, target_hz=target_hz, low_rates_hz=low_rates_hz, max_gap_s=max_gap_s,
     )
     camera_data = load_replay_cameras(episode, meta)
-    low_label = "、".join(f"{r:g}" for r in low_rates_hz)
+    low_label = ", ".join(f"{r:g}" for r in low_rates_hz)
     actual_label = " / ".join(f"{arm} {hz:.2f}" for arm, hz in source_rates.items())
     return JointReplay(
         episode=episode, source="command", origin_ns=origin, time_s=time_s,
@@ -72,17 +72,17 @@ def load_command_rate_replay(
         target_hz=target_hz, low_hz=min(low_rates_hz),
         native=reference,
         source_samples=raw,
-        reference_label="已录 command",
+        reference_label="Recorded command",
         resampled=variants,
         resample_rates_hz=dict(zip(variants, low_rates_hz, strict=True)),
         source_note=(
-            f"采集设置 {meta['control_hz']:g} Hz；已保存 command 实际平均 {actual_label} Hz。\n\n"
-            f"基准按真实提交时间取最近已下发 command 到 {target_hz:g} Hz 网格；"
-            f"两类数据的频率不能混为一谈。虚影取同一基准的 {low_label} Hz 子集，"
-            f"再线性插值到 {target_hz:g} Hz。夹爪共用原 command 开合时刻，不降采样、不插值。\n\n"
-            "首尾裁到所有网格的共有采样点，保证端点相同；"
-            f"超过 {max_gap_s * 1000:g} ms 的缺口不补造。"
-            "插值使用已录未来点，没有另加低通。这里只显示目标姿态，不预测从臂反馈或接触效果；"
-            "在线执行还需要定义未来目标的可用时间及延迟。"
+            f"Capture setting {meta['control_hz']:g} Hz; recorded commands actually average {actual_label} Hz.\n\n"
+            f"The reference uses the most recent submitted command on the {target_hz:g} Hz grid; "
+            f"These frequencies describe different sampling stages. The ghost uses a subset of the same reference at {low_label} Hz, "
+            f"then linearly interpolates to {target_hz:g} Hz. Grippers share original command transition times without downsampling or interpolation.\n\n"
+            "Crop endpoints to sample points shared by all grids so endpoint values match; "
+            f"Gaps longer than {max_gap_s * 1000:g} ms are not filled. "
+            "Interpolation uses recorded future points without extra low-pass filtering. Only target poses are shown, without predicting follower feedback or contact; "
+            "online execution additionally needs future-target availability times and latency definitions."
         ),
     )

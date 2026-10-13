@@ -39,6 +39,7 @@ def main():
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--reference", type=Path, required=True)
+    parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--steps", type=int, default=120)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
@@ -67,7 +68,7 @@ def main():
     from manimux.embodiments.arm.tianji.sdk.marvin import fx_kine
 
     converter = fx_kine.Marvin_Kine()
-    profile = load_config(REPO / "manimux/configs/experiments/pass_ball/umi_dp/tianji_umi_dp_default.yaml")
+    profile = load_config(args.config)
     motion = profile["executor"]["motion_limits"]["arm"]
     tuning = DifferentialIKConfig(max_velocity_rad_s=motion["max_velocity"])
     starts = [

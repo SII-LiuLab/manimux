@@ -424,10 +424,10 @@ class YamKinematics:
 
 
 def visual_configuration(configuration):
-    """控制夹爪为 0=闭合、1=张开；URDF 的两个指尖关节使用米。
+    """Gripper control uses 0=closed and 1=open; the two URDF finger joints use meters.
 
-    这里沿用旧 YAM RoboGUI 的 -0.04695 m 行程映射，展开仅用于显示。
-    发送给 i2rt 的目标始终保留一个归一化夹爪值。
+    Retain the original YAM RoboGUI travel mapping of -0.04695 m, for display only.
+    i2rt targets always retain a single normalized gripper value.
     """
     q = np.asarray(configuration, dtype=np.float64)
     finger = np.clip(q[6], 0.0, 1.0) * -0.04695
@@ -435,11 +435,11 @@ def visual_configuration(configuration):
 
 
 class YamManipulatorKinematics(ManipulatorKinematicsBase):
-    """六个弧度关节 + 一个归一化夹爪，TCP 已包含在一体模型内。
+    """Six joints in radians plus one normalized gripper; the integrated model includes the TCP.
 
-    运动学完全复用已有 MuJoCo/i2rt 求解器。当前 IK 的约定是固定 gripper，
-    求解六个机械臂关节；fixed_coordinates 使用 {"gripper": opening}。
-    参数按这个约定直接传递，未知/缺少参数保留 Python 自身的调用错误。
+    Kinematics reuses the existing MuJoCo/i2rt solver. IK holds gripper fixed while
+    solving the six arm joints; fixed_coordinates uses {"gripper": opening}.
+    Pass parameters directly under this contract; Python reports unknown or missing arguments.
     """
 
     coordinates = tuple(KinematicCoordinate(f"joint{i}", "rad") for i in range(1, 7)) + (
@@ -458,7 +458,7 @@ class YamManipulatorKinematics(ManipulatorKinematicsBase):
         return self._ik(target_tcp, seed_configuration, **fixed_coordinates)
 
     def _ik(self, target, seed, *, gripper):
-        # 在求解前传入目标夹爪值，让 FK/IK 都使用同一个完整配置。
+        # Pass the target gripper value before solving so FK and IK use the same complete configuration.
         ok, joints = self.solver.ik(target, np.asarray(seed)[:6], gripper)
         if ok:
             return IKResult(True, joints=np.r_[joints, gripper])

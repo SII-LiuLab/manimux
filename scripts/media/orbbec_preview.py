@@ -21,11 +21,11 @@ LOG = logging.getLogger("orbbec-preview")
 
 
 PAGE = """<!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Orbbec 双摄 · 实时预览</title>
+  <title>Orbbec dual cameras · Live preview</title>
   <style>
     :root { color-scheme: dark; --bg:#090d12; --panel:#111821; --muted:#8c9aaa;
       --line:#26313d; --ok:#45d483; --bad:#ff6473; --accent:#59a8ff; }
@@ -65,36 +65,36 @@ PAGE = """<!doctype html>
 </head>
 <body><main>
   <header>
-    <div><h1>Orbbec 双摄实时预览</h1><div class="sub">Gemini 305 + Gemini 335 · RGB 1280 × 720</div></div>
-    <div class="badge"><span id="dot-all" class="dot"></span><span id="state-all">正在连接</span></div>
+    <div><h1>Orbbec dual-camera live preview</h1><div class="sub">Gemini 305 + Gemini 335 · RGB 1280 × 720</div></div>
+    <div class="badge"><span id="dot-all" class="dot"></span><span id="state-all">Connecting</span></div>
   </header>
   <div class="grid">
     <article class="card">
       <div class="card-head">
         <div><div class="card-title">Gemini 305</div><div class="card-serial">CV278640000Z</div></div>
-        <div class="badge"><span id="dot-0" class="dot"></span><span id="state-0">正在连接</span></div>
+        <div class="badge"><span id="dot-0" class="dot"></span><span id="state-0">Connecting</span></div>
       </div>
       <section id="robogui-0" class="robogui">
         <img id="feed-0" src="/stream/0.mjpg" alt="Gemini 305 live stream">
-        <div class="overlay"><div id="message-0" class="message">正在等待第一帧…</div></div>
+        <div class="overlay"><div id="message-0" class="message">Waiting for the first frame…</div></div>
       </section>
       <div class="toolbar">
-        <div class="stats"><span>分辨率 <b id="resolution-0">—</b></span><span>帧率 <b id="fps-0">—</b></span><span>设备 <b id="device-0">—</b></span></div>
-        <div class="actions"><a class="button" href="/snapshot/0.jpg" target="_blank">打开单帧</a><button data-fullscreen="robogui-0" type="button">全屏</button></div>
+        <div class="stats"><span>Resolution <b id="resolution-0">—</b></span><span>Frame rate <b id="fps-0">—</b></span><span>Device <b id="device-0">—</b></span></div>
+        <div class="actions"><a class="button" href="/snapshot/0.jpg" target="_blank">Open snapshot</a><button data-fullscreen="robogui-0" type="button">Fullscreen</button></div>
       </div>
     </article>
     <article class="card">
       <div class="card-head">
         <div><div class="card-title">Gemini 335</div><div class="card-serial">CP0N763000LK</div></div>
-        <div class="badge"><span id="dot-1" class="dot"></span><span id="state-1">正在连接</span></div>
+        <div class="badge"><span id="dot-1" class="dot"></span><span id="state-1">Connecting</span></div>
       </div>
       <section id="robogui-1" class="robogui">
         <img id="feed-1" src="/stream/1.mjpg" alt="Gemini 335 live stream">
-        <div class="overlay"><div id="message-1" class="message">正在等待第一帧…</div></div>
+        <div class="overlay"><div id="message-1" class="message">Waiting for the first frame…</div></div>
       </section>
       <div class="toolbar">
-        <div class="stats"><span>分辨率 <b id="resolution-1">—</b></span><span>帧率 <b id="fps-1">—</b></span><span>设备 <b id="device-1">—</b></span></div>
-        <div class="actions"><a class="button" href="/snapshot/1.jpg" target="_blank">打开单帧</a><button data-fullscreen="robogui-1" type="button">全屏</button></div>
+        <div class="stats"><span>Resolution <b id="resolution-1">—</b></span><span>Frame rate <b id="fps-1">—</b></span><span>Device <b id="device-1">—</b></span></div>
+        <div class="actions"><a class="button" href="/snapshot/1.jpg" target="_blank">Open snapshot</a><button data-fullscreen="robogui-1" type="button">Fullscreen</button></div>
       </div>
     </article>
   </div>
@@ -104,24 +104,24 @@ PAGE = """<!doctype html>
   document.querySelectorAll('[data-fullscreen]').forEach(button => button.addEventListener('click', () => $(button.dataset.fullscreen).requestFullscreen?.()));
   [0, 1].forEach(i => {
     $(`feed-${i}`).addEventListener('load', () => $(`message-${i}`).hidden = true);
-    $(`feed-${i}`).addEventListener('error', () => { $(`message-${i}`).hidden = false; $(`message-${i}`).textContent = '视频流中断，正在等待恢复…'; });
+    $(`feed-${i}`).addEventListener('error', () => { $(`message-${i}`).hidden = false; $(`message-${i}`).textContent = 'Video stream interrupted; waiting to reconnect…'; });
   });
   async function update() {
     try {
       const s = await fetch('/api/status', {cache:'no-store'}).then(r => r.json());
       $('dot-all').classList.toggle('ok', s.all_online);
-      $('state-all').textContent = s.all_online ? '两路实时在线' : `${s.online_count} / ${s.cameras.length} 在线`;
+      $('state-all').textContent = s.all_online ? 'Both streams live' : `${s.online_count} / ${s.cameras.length} online`;
       s.cameras.forEach((camera, i) => {
         $(`dot-${i}`).classList.toggle('ok', camera.online);
-        $(`state-${i}`).textContent = camera.online ? '实时在线' : '等待摄像头';
+        $(`state-${i}`).textContent = camera.online ? 'Live' : 'Waiting for camera';
         $(`resolution-${i}`).textContent = camera.width && camera.height ? `${camera.width} × ${camera.height}` : '—';
         $(`fps-${i}`).textContent = camera.measured_fps ? `${camera.measured_fps.toFixed(1)} FPS` : '—';
         $(`device-${i}`).textContent = camera.device;
-        if (!camera.online) { $(`message-${i}`).hidden = false; $(`message-${i}`).textContent = camera.error || '正在等待第一帧…'; }
+        if (!camera.online) { $(`message-${i}`).hidden = false; $(`message-${i}`).textContent = camera.error || 'Waiting for the first frame…'; }
         else { $(`message-${i}`).hidden = true; }
       });
     } catch (_) {
-      $('dot-all').classList.remove('ok'); $('state-all').textContent = '服务不可达';
+      $('dot-all').classList.remove('ok'); $('state-all').textContent = 'Service unreachable';
     }
   }
   update(); setInterval(update, 1000);
@@ -188,14 +188,14 @@ class CameraStream:
                     capture.release()
                 capture = self._open()
                 if not capture.isOpened():
-                    self.error = f"无法打开 {self.device}"
+                    self.error = f"Cannot open {self.device}"
                     self.stop_event.wait(1.0)
                     continue
                 self.error = None
 
             ok, frame = capture.read()
             if not ok or frame is None:
-                self.error = "摄像头暂时没有返回画面，正在重连"
+                self.error = "Camera returned no frame; reconnecting"
                 capture.release()
                 capture = None
                 self.stop_event.wait(0.5)
@@ -205,7 +205,7 @@ class CameraStream:
                 ".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), self.quality]
             )
             if not encoded:
-                self.error = "JPEG 编码失败"
+                self.error = "JPEG encoding failed"
                 continue
 
             now = time.monotonic()

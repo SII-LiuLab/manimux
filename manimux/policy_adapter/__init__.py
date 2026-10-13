@@ -1,4 +1,4 @@
-"""从实验配置加载实际适配器实现，不维护旧名称或模型专属注册表。"""
+"""Load adapters from experiment configuration without legacy aliases or model-specific registries."""
 
 from manimux.plugins import load_plugin
 from manimux.policy_adapter.base import PolicyAdapter

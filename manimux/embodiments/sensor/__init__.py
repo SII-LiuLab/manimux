@@ -1,4 +1,4 @@
-"""传感器组件与运行时数据源入口；构造工厂不启动设备。"""
+"""Sensor components and runtime data-source entry points; factories do not start devices."""
 
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ def build_camera(name: str, spec: dict, clock: Clock | None = None) -> SensorBas
 
 
 def build_sensor(config: dict, clock: Clock) -> SensorBase:
-    """按配置构造数据源；网络客户端与设备组件共用 start/read/close。"""
+    """Construct data sources from configuration; network clients and devices share start/read/close."""
     factory = load_plugin(
         config["driver"], group="manimux.embodiments.sensor", builtins=_BUILTINS
     )
@@ -49,7 +49,7 @@ def build_sensor(config: dict, clock: Clock) -> SensorBase:
 
 
 def sensor_parameters(**options) -> dict:
-    """补齐数据源默认参数；不打开相机或连接网络服务。"""
+    """Fill in data-source defaults without opening cameras or connecting network services."""
     return {
         "service": None,
         "width": 64,

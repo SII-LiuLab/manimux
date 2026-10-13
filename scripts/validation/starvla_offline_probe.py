@@ -29,7 +29,6 @@ def probe_sampling(client, config, snapshot, condition, report):
     """Exercise the actual worker request classes, including client AAC selection."""
     from manimux.runtime.aac import AacInferenceRequest
     from manimux.runtime.autohorizon import AutoHorizonInferenceRequest
-    from manimux.runtime.dvac import DvacInferenceRequest
     from manimux.runtime.paint import PaintInferenceRequest
     from manimux.runtime.rtc.request import RtcInferenceRequest
 
@@ -63,7 +62,6 @@ def probe_sampling(client, config, snapshot, condition, report):
             ),
         ),
         ("autohorizon", AutoHorizonInferenceRequest, {}),
-        ("dvac", DvacInferenceRequest, dict(dvac_tail_steps=4, dvac_max_execution_steps=horizon)),
     ]
     report["sampler_calls"] = []
     for index, (mode, request_type, options) in enumerate(cases):
@@ -245,7 +243,7 @@ def main():
             result = build_runtime(config, run_dir).run()
             report["runtime"] = asdict(result)
             report["rollout_directory"] = str(run_dir)
-            if not result.success or result.rejected_plans or result.accepted_plans < 1:
+            if not result.run_completed or result.rejected_plans or result.accepted_plans < 1:
                 raise RuntimeError(f"Offline runtime did not accept a clean plan: {result}")
         report["status"] = "passed"
     except Exception as exc:

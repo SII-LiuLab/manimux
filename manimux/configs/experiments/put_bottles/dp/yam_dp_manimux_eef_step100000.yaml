@@ -79,7 +79,7 @@ recording:
   video_fps: 30.0
 
 inference:
-  algorithm: manimux
+  algorithm: async
   strategy: manimux.policy_adapter.dp.yam:HistoryStrategy
   history:
     period_s: 0.03333333333333333
@@ -89,8 +89,7 @@ inference:
     max_age_s: 0.2
 
 executor:
-  type: smooth
-  config: ../../../executor/yam_smooth_standard.yaml
+  type: direct
 
 policy_server:
   config: ../../../policy/dp/yam/put-bottles/eef-step100000.yaml

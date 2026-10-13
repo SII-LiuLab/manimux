@@ -10,6 +10,7 @@ from typing import Any, Protocol
 
 from manimux.clock import SystemClock
 from manimux.embodiments.robot import build_robot
+from manimux.experiment_list import ExperimentList
 from manimux.robogui.communication import ControlClient, RoboGUIPublisher, RuntimeEvent
 from manimux.runtime import RunResult, build_runtime
 
@@ -219,10 +220,18 @@ class RuntimeSessionService:
         publisher_factory: PublisherFactory = RoboGUIPublisher,
         poll_interval_s: float = 0.1,
         announcement_interval_s: float = 1.0,
+        experiment_list: ExperimentList | None = None,
+        selection_dir_factory: Callable[[str], Path] | None = None,
     ) -> None:
         if not config["robogui"]["enabled"]:
             raise ValueError("manimux serve requires robogui.enabled=true")
         self._config = config
+        self._experiment_list = experiment_list
+        self._selection_dir_factory = selection_dir_factory
+        if experiment_list is not None and selection_dir_factory is None:
+            raise ValueError("Experiment switching requires a recording directory factory")
+        self._selection_id = experiment_list.default_id if experiment_list else ""
+        self._selection_error = ""
         self._run_dir = run_dir
         self._runtime_factory = runtime_factory or _build_served_runtime
         self._control_factory = control_factory
@@ -240,6 +249,9 @@ class RuntimeSessionService:
     def _ready_metadata(self) -> dict[str, object]:
         return {
             "run_dir": str(self._run_dir.resolve()),
+            "experiment_choices": self._experiment_list.metadata() if self._experiment_list else [],
+            "experiment_id": self._selection_id,
+            "selection_error": self._selection_error,
             "task": self._config["run"]["task"],
             "evaluation": deepcopy(self._config.get("evaluation", {"kind": "binary"})),
             "runtime": self._config["inference"]["algorithm"],
@@ -290,6 +302,8 @@ class RuntimeSessionService:
                 )
                 if self._recovery is not None:
                     self._recovery.update(recovery_control)
+                if self._try_select_experiment(state):
+                    last_announcement = float("-inf")
                 now = time.monotonic()
                 if now - last_announcement >= self._announcement_interval_s:
                     publisher.publish(
@@ -306,6 +320,11 @@ class RuntimeSessionService:
                     and (self._recovery is None or not self._recovery.busy)
                     and not state.get("recovery_lease", False)
                     and not state.get("recovery_request", "")
+                    and not state.get("select_experiment_id")
+                    and (self._experiment_list is None or (
+                        state.get("experiment_id") == self._selection_id
+                        and state.get("control_run_dir") == str(self._run_dir.resolve())
+                    ))
                 ):
                     return state
                 time.sleep(self._poll_interval_s)
@@ -317,17 +336,48 @@ class RuntimeSessionService:
                 control.close()
                 publisher.close()
 
+    def _try_select_experiment(self, state: dict[str, Any]) -> bool:
+        """Called only by the idle loop; never mutate an active runtime."""
+        requested = state.get("select_experiment_id")
+        if not requested or self._experiment_list is None:
+            return False
+        if state.get("control_run_dir") != str(self._run_dir.resolve()):
+            return False  # A delayed request from the preceding session.
+        if (state.get("evaluation_complete") is not True
+                or state.get("new_rollout_requested")
+                or state.get("recovery_lease") or state.get("recovery_request")
+                or (self._recovery is not None and self._recovery.busy)):
+            self._selection_error = "Finish evaluation and recovery before changing experiments."
+            return True
+        if requested == self._selection_id:
+            self._selection_error = ""
+            return False
+        try:
+            choice = self._experiment_list.choices[requested]
+            run_dir = self._selection_dir_factory(requested)
+        except (KeyError, TypeError, OSError, ValueError) as exc:
+            self._selection_error = f"Cannot select experiment: {exc}"
+            return True
+        self._config = deepcopy(choice.config)
+        self._run_dir = run_dir
+        self._selection_id = requested
+        self._selection_error = self._last_error = self._last_failure_id = ""
+        self._last_episode_dir = None
+        # Hardware/recovery contract is identical across the validated catalog.
+        # Next Prepare builds a fresh worker, strategy, timeline and warmup state.
+        return True
+
     def serve(self, *, max_rollout_attempts: int | None = None) -> None:
         attempts = 0
         print(f"runtime service ready; run_dir={self._run_dir.resolve()}")
-        print("RoboGUI flow: Prepare free/study rollout -> Start rollout -> Finish")
+        print("RoboGUI flow: Prepare -> Activate Warmup (when enabled) -> Start rollout -> Finish")
         if self._recovery is not None and self._recovery.available:
             print(
                 "Manual recovery follows the assembly declaration: "
                 + ", ".join(self._recovery.actions)
             )
         print(
-            "Free rollouts need no scoring; study rollouts offer evaluation "
+            "Use Prepare Run or Prepare Experiment in RoboGUI; experiments offer evaluation "
             "that can be saved or skipped"
         )
         while max_rollout_attempts is None or attempts < max_rollout_attempts:
@@ -338,6 +388,9 @@ class RuntimeSessionService:
             try:
                 rollout_config = deepcopy(self._config)
                 task_command = str(request.get("task_command", "")).strip()
+                if (self._experiment_list is not None and task_command
+                        and task_command != rollout_config["run"]["task"]):
+                    raise ValueError("Task instruction does not match the selected experiment")
                 if task_command:
                     rollout_config["run"]["task"] = task_command
                 # Identity comes only from this Prepare, never the preceding attempt.

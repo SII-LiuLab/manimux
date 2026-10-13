@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from manimux.runtime.decode_forecast import FORECAST_MODES
-from manimux.runtime.inference import build_inference_strategy
+from manimux.runtime.inference import INFERENCE_ALGORITHMS, build_inference_strategy
 from manimux.types import ACTION_START_MODES
 
 if TYPE_CHECKING:
@@ -43,7 +43,7 @@ __all__ = ["EdgeRuntime", "RunResult", "build_runtime"]
 
 
 def executor_parameters(**options) -> dict:
-    """补齐命令平滑和限幅参数；保留各执行器原有数值与物理含义。"""
+    """Fill in smoothing and limits, preserving each executor's values and meaning."""
     from manimux.runtime.executors.limits import motion_limits_parameters
     from manimux.runtime.executors.mpc import mpc_parameters
     from manimux.runtime.executors.smooth import smooth_parameters
@@ -71,31 +71,47 @@ def executor_parameters(**options) -> dict:
 
 
 def inference_parameters(*, executor: dict, **options) -> dict:
-    """补齐推理调度参数；算法与执行器在实验中分别选择。"""
+    """Fill in scheduling parameters; algorithms and executors are selected independently."""
     from manimux.runtime.aac import aac_parameters
-    from manimux.runtime.dvac import dvac_parameters
+    from manimux.runtime.bid import bid_parameters
     from manimux.runtime.paint import paint_parameters
     from manimux.runtime.rtc.strategy import rtc_parameters
+    from manimux.runtime.scheduling import resolve_request_schedule
     from manimux.runtime.temporal_ensemble import temporal_ensemble_parameters
     from manimux.runtime.train_time_rtc import train_time_rtc_parameters
 
-    unsupported = {"chunk_steps", "blend_steps", "max_chunk_steps", "commit_lead_s"}.intersection(
-        options
-    )
+    unsupported = {
+        "chunk_steps", "blend_steps", "max_chunk_steps", "commit_lead_s", "dvac",
+    }.intersection(options)
     if unsupported:
         raise ValueError(f"unsupported inference fields: {sorted(unsupported)}")
-    # chunk_policy_steps 只是各调度方式已有步数参数的统一入口。
+    if options.get("algorithm") == "dvac":
+        raise ValueError("inference.algorithm=dvac is no longer supported")
+    # chunk_policy_steps is the shared entry point for existing scheduling step counts.
     options = dict(options)
-    if options.get("chunk_policy_steps") is not None:
+    options.setdefault(
+        "algorithm", "serial" if options.get("inference_schedule") == "serial" else "async"
+    )
+    if options["algorithm"] not in INFERENCE_ALGORITHMS:
+        raise ValueError(f"inference.algorithm must be one of {sorted(INFERENCE_ALGORITHMS)}")
+    if options.get("algorithm") in {"serial", "bid_backward"}:
+        options.setdefault("inference_schedule", "serial")
+    serial_act = (
+        options.get("algorithm") == "act_temporal_ensemble"
+        and options.get("inference_schedule") == "serial"
+    )
+    # Serial ACT consumes this field directly as its execution prefix, not a query interval.
+    if options.get("chunk_policy_steps") is not None and not serial_act:
         paths = {
-            "manimux": (None, "max_chunk_policy_steps"),
+            "async": (None, "max_chunk_policy_steps"),
+            "serial": (None, "max_chunk_policy_steps"),
             "rtc": ("rtc", "min_execute_policy_steps"),
             "train_time_rtc": ("train_time_rtc", "min_execute_policy_steps"),
             "paint": ("paint", "execution_policy_steps"),
+            "bid_backward": ("bid", "replan_policy_steps"),
             "act_temporal_ensemble": ("temporal_ensemble", "query_interval_policy_steps"),
-            "dvac": ("dvac", "max_execution_policy_steps"),
         }
-        section, field = paths[options.get("algorithm", "manimux")]
+        section, field = paths[options.get("algorithm", "async")]
         destination = options if section is None else dict(options.get(section, {}))
         if (
             destination.get(field) is not None
@@ -110,11 +126,13 @@ def inference_parameters(*, executor: dict, **options) -> dict:
             options[section] = destination
 
     values = {
-        "algorithm": "manimux",
+        "algorithm": "async",
         "strategy": None,
         "chunk_policy_steps": None,
         "inference_schedule": "deadline",
         "refill_threshold_s": 0.4,
+        "observation_hz": None,
+        "request_trigger": None,
         "handoff_skip_steps": 0,
         "max_plan_age_s": 1.0,
         "blend_policy_steps": 2,
@@ -132,8 +150,8 @@ def inference_parameters(*, executor: dict, **options) -> dict:
         "train_time_rtc": {},
         "temporal_ensemble": {},
         "aac": {},
+        "bid": {},
         "paint": {},
-        "dvac": {},
         **options,
     }
     if values.get("rtc") is not None:
@@ -143,23 +161,55 @@ def inference_parameters(*, executor: dict, **options) -> dict:
         values["temporal_ensemble"] = temporal_ensemble_parameters(**values["temporal_ensemble"])
     if values.get("aac") is not None:
         values["aac"] = aac_parameters(**values["aac"])
+    if values.get("bid") is not None:
+        values["bid"] = bid_parameters(**values["bid"])
     if values.get("paint") is not None:
         values["paint"] = paint_parameters(**values["paint"])
-    if values.get("dvac") is not None:
-        values["dvac"] = dvac_parameters(**values["dvac"])
-    # 字典可能已补齐默认值；默认调度字段不应被误认成用户为其他模式新增的参数。
-    inactive_defaults = {"inference_schedule": "deadline", "refill_threshold_s": 0.4}
+    # The dictionary may already contain defaults. Do not treat scheduling defaults
+    # as user-supplied options for other modes.
+    inactive_defaults = {
+        "inference_schedule": "deadline", "refill_threshold_s": 0.4,
+        "observation_hz": None, "request_trigger": None,
+    }
     provided = {
         key
         for key in options
         if key not in inactive_defaults or options[key] != inactive_defaults[key]
     }
+    resolve_request_schedule(values)
     validate_inference_parameters(values, executor, provided=provided)
     return values
 
 
 def validate_runtime_parameters(config: dict) -> None:
-    """保留调度、动作解码和执行限位之间的必要约束。"""
+    """Preserve constraints between scheduling, action decoding and execution limits."""
+    settings = config["inference"]
+    ensemble = (settings.get("temporal_ensemble") or {}).get("enabled", False)
+    candidate_aac = settings["algorithm"] == "aac" and (
+        settings["inference_schedule"] != "serial" or ensemble
+    )
+    bid_aac = (
+        settings["algorithm"] == "bid_backward" and settings["bid"]["execution_horizon"] == "aac"
+    )
+    adaptive_async = settings["algorithm"] in {"aac", "autohorizon"} and (
+        settings["inference_schedule"] != "serial"
+    )
+    if (ensemble or adaptive_async) and config["policy"]["action_decoding"] != "inline":
+        raise ValueError("ACT composition and async adaptive horizons require inline decoding")
+    if (candidate_aac or bid_aac) and config["policy"]["worker"] != "xpolicylab_ws":
+        raise ValueError("AAC composition currently requires the xpolicylab_ws client")
+    if config["inference"]["algorithm"] == "bid_backward":
+        if config["policy"]["action_decoding"] != "inline":
+            raise ValueError("BID backward-only currently requires inline action decoding")
+        if not bid_aac and config["inference"]["bid"]["replan_policy_steps"] >= config["policy"][
+            "horizon_policy_steps"
+        ]:
+            raise ValueError("BID replan_policy_steps must be smaller than the model horizon")
+    if (
+        config["inference"]["inference_schedule"] == "multi_inflight"
+        and config["policy"]["action_decoding"] != "inline"
+    ):
+        raise ValueError("multi_inflight currently requires inline action decoding")
     if config["run"].get("warmup_before_start", False):
         if not config["robogui"]["enabled"]:
             raise ValueError("run.warmup_before_start requires RoboGUI Start control")
@@ -248,7 +298,10 @@ def validate_runtime_parameters(config: dict) -> None:
                 f"RTC requires 2 * {delay_field} "
                 "<= policy.horizon_policy_steps"
             )
-    if config["inference"]["algorithm"] == "act_temporal_ensemble":
+    if (
+        config["inference"]["algorithm"] == "act_temporal_ensemble"
+        and config["inference"]["inference_schedule"] != "serial"
+    ):
         query_interval = config["inference"]["temporal_ensemble"]["query_interval_policy_steps"]
         if query_interval >= config["policy"]["horizon_policy_steps"]:
             raise ValueError(
@@ -264,22 +317,65 @@ def validate_runtime_parameters(config: dict) -> None:
                 "PAINT requires initial_delay_policy_steps <= execution_policy_steps <= "
                 "horizon_policy_steps - initial_delay_policy_steps"
             )
-    if config["inference"]["algorithm"] == "dvac":
-        dvac = config["inference"]["dvac"]
-        maximum = dvac["max_execution_policy_steps"] or config["policy"]["horizon_policy_steps"]
-        if not (
-            dvac["min_execution_policy_steps"]
-            <= maximum
-            <= config["policy"]["horizon_policy_steps"]
-        ):
-            raise ValueError(
-                "DVAC requires min_execution_policy_steps <= "
-                "max_execution_policy_steps <= policy.horizon_policy_steps"
-            )
 
 
 def validate_inference_parameters(values: dict, executor: dict, *, provided=frozenset()) -> None:
-    """检查调度和执行方式的组合；provided 仅用于识别 YAML 中明确给出的字段。"""
+    """Check scheduling/execution combinations; provided identifies explicit YAML fields."""
+    from manimux.runtime.scheduling import validate_request_schedule
+
+    validate_request_schedule(values, provided=provided)
+    ensemble = (values.get("temporal_ensemble") or {}).get("enabled", False)
+    if type(ensemble) is not bool:
+        raise ValueError("temporal_ensemble.enabled must be boolean")
+    serial_act = (
+        values["algorithm"] == "act_temporal_ensemble" and values["inference_schedule"] == "serial"
+    )
+    if serial_act:
+        steps = values["chunk_policy_steps"]
+        if steps is not None and (type(steps) is not int or steps < 1):
+            raise ValueError("serial ACT chunk_policy_steps must be a positive integer or null")
+        if values["action_start_mode"] != "first_step_when_ready":
+            raise ValueError("serial ACT requires first_step_when_ready")
+    if ensemble or serial_act:
+        if values["strategy"] is not None or values["algorithm"] not in {
+            "act_temporal_ensemble", "rtc", "paint", "bid_backward", "aac", "autohorizon",
+        }:
+            raise ValueError("ACT composition requires a supported built-in algorithm")
+        if (
+            values["handoff_skip_steps"] or values["blend_policy_steps"]
+            or values["handoff"] != "blend"
+        ):
+            raise ValueError("ACT composition requires zero blending and no waypoint/skip handoff")
+        if values["algorithm"] in {"rtc", "paint"} and (
+            values["action_start_mode"] != "drop_infer_latency"
+        ):
+            raise ValueError("ACT with conditioned sampling requires drop_infer_latency")
+    if values["algorithm"] == "paint" and values["inference_schedule"] == "multi_inflight" and (
+        values["action_start_mode"] != "drop_infer_latency"
+        or values["blend_policy_steps"] or values["handoff_skip_steps"]
+    ):
+        raise ValueError("streaming PAINT requires drop_infer_latency, zero blending and skip")
+    bid_aac = values["algorithm"] == "bid_backward" and values["bid"]["execution_horizon"] == "aac"
+    adaptive_async = values["inference_schedule"] != "serial" and (
+        values["algorithm"] in {"aac", "autohorizon"} or bid_aac
+    )
+    if adaptive_async and (
+        values["action_start_mode"] != "drop_infer_latency"
+        or values["handoff_skip_steps"] or values["blend_policy_steps"]
+    ):
+        raise ValueError(
+            "asynchronous adaptive horizons require drop_infer_latency, zero blend and skip"
+        )
+    if bid_aac and values["chunk_policy_steps"] is not None:
+        raise ValueError("BID with AAC chooses its execution horizon; omit chunk_policy_steps")
+    if values["algorithm"] == "bid_backward":
+        if values["handoff_skip_steps"]:
+            raise ValueError("BID requires handoff_skip_steps=0")
+        if (
+            values["inference_schedule"] == "serial"
+            and values["action_start_mode"] != "first_step_when_ready"
+        ):
+            raise ValueError("serial BID requires first_step_when_ready")
     skip_steps = values["handoff_skip_steps"]
     if type(skip_steps) is not int or skip_steps < 0:
         raise ValueError("inference.handoff_skip_steps must be a non-negative integer")
@@ -295,23 +391,18 @@ def validate_inference_parameters(values: dict, executor: dict, *, provided=froz
     if not values["handoff_margin_s"] >= 0:
         raise ValueError("inference.handoff_margin_s must be non-negative")
     if values["handoff"] == "waypoint" and (
-        values["algorithm"] not in {"manimux", "rtc", "train_time_rtc"}
+        values["algorithm"] not in {"async", "rtc", "train_time_rtc"}
         or values["blend_policy_steps"] != 0
     ):
         raise ValueError(
-            "inference.handoff=waypoint requires manimux, rtc or train_time_rtc and "
+            "inference.handoff=waypoint requires async, rtc or train_time_rtc and "
             "blend_policy_steps=0"
         )
     # The handoff time lies on the source row grid, which first_step_when_ready discards.
     if values["handoff"] == "waypoint" and values["action_start_mode"] != "drop_infer_latency":
         raise ValueError("inference.handoff=waypoint requires action_start_mode=drop_infer_latency")
-    if values["inference_schedule"] == "serial":
-        if values["algorithm"] != "manimux":
-            raise ValueError("serial scheduling requires inference.algorithm=manimux")
-        if "refill_threshold_s" in provided:
-            raise ValueError("serial scheduling does not use refill_threshold_s")
     if values["independent_group_decoding"] and (
-        values["algorithm"] != "manimux"
+        values["algorithm"] != "async"
         or executor["type"] != "smooth"
         or executor["smooth"]["tracking_mode"] != "braking"
         or (executor["smooth"]["gripper"] is None)
@@ -321,9 +412,10 @@ def validate_inference_parameters(values: dict, executor: dict, *, provided=froz
             "independent group decoding requires braking smooth with continuous grippers"
         )
     if values["max_chunk_policy_steps"] is not None and (
-        values["algorithm"] != "manimux" or executor["type"] not in {"smooth", "direct", "mpc"}
+        values["algorithm"] not in {"async", "serial"}
+        or executor["type"] not in {"smooth", "direct", "mpc"}
     ):
-        raise ValueError("max_chunk_policy_steps requires the ordinary ManiMux joint timeline")
+        raise ValueError("max_chunk_policy_steps requires the Serial/Async joint timeline")
     if values["algorithm"] == "train_time_rtc" and (
         values["blend_policy_steps"] != 0 or values["handoff_skip_steps"] != 0
         or values["action_start_mode"] != "drop_infer_latency"
@@ -332,21 +424,10 @@ def validate_inference_parameters(values: dict, executor: dict, *, provided=froz
             "train_time_rtc requires drop_infer_latency, blend_policy_steps=0 "
             "and handoff_skip_steps=0 to preserve the fixed prefix clock"
         )
-    # 这些策略自行决定请求时机，不使用普通 timeline 的补充调度参数。
-    names = {
-        "rtc": "RTC",
-        "train_time_rtc": "train-time RTC",
-        "act_temporal_ensemble": "ACT temporal ensembling",
-        "aac": "AAC",
-        "paint": "PAINT",
-        "autohorizon": "AutoHorizon",
-        "dvac": "DVAC",
-    }
-    runtime = values["algorithm"]
-    if runtime == "aac" and not values["aac"]["ee_stats_path"]:
+    if (values["algorithm"] == "aac" or bid_aac) and not values["aac"]["ee_stats_path"]:
         raise ValueError("inference.aac.ee_stats_path is required by AAC")
-    if runtime in names:
-        ignored = {"inference_schedule", "refill_threshold_s"}.intersection(provided)
-        if ignored:
-            fields = ", ".join(sorted(ignored))
-            raise ValueError(f"inference fields are not used by {names[runtime]}: {fields}")
+    if values["algorithm"] == "aac":
+        if values["aac"]["chunk_id_selector"] not in {"0", "mean", "backward"}:
+            raise ValueError("AAC chunk_id_selector must be 0, mean or backward")
+        if not 0 < values["aac"]["backward_beta"] <= 1:
+            raise ValueError("AAC backward_beta must be in (0, 1]")

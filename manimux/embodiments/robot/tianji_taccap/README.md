@@ -1,88 +1,88 @@
-# Tianji–TacCap 整机
+# Tianji–TacCap robot
 
-整机名称 `tianji-taccap`，Python 类 `TianjiTaccapRobot`，实验配置类型
-`robot.type: tianji_taccap`。机械臂组件仍叫 `TianjiArm`。
+The robot name is `tianji-taccap`, its Python class is `TianjiTaccapRobot`, and experiments select
+`robot.type: tianji_taccap`. The arm component is still `TianjiArm`.
 
-## 调用链
+## Call chain
 
 ```text
-实验 YAML → config.load_config()
+Experiment YAML → config.load_config()
           → EdgeRuntime
           → embodiments.robot.build_robot()
           → TianjiTaccapRobot.from_config()
-          → RobotBase 管理 arm、end effector 和 sensor
+                → RobotBase manages arms, end effectors and sensors
 ```
 
-注册入口按 `robot.type` 选择整机类，`robot.config` 相对实验 YAML 解析。
-`RobotBase` 持有 `RobotModel` 并直接复用其 `kinematics`；子类不再覆盖一份独立运动学。
-`RobotModel` 同文件保存组件模型和安装数据，支持不构造控制连接的离线 action decode。
-旧 `robots/` 导入目录已删除；工厂位于 `embodiments.robot`，Tianji 和 YAM 均使用组件装配。
+The registry selects the robot class using `robot.type`; `robot.config` resolves relative to the experiment YAML.
+`RobotBase` owns `RobotModel` and reuses its `kinematics`; subclasses do not provide independent duplicate kinematics.
+`RobotModel` stores component models and mounting data together, enabling offline action decoding without control connections.
+The old `robots/` import directory was removed. Factories live in `embodiments.robot`; Tianji and YAM use component assembly.
 
-## 文件职责
+## File responsibilities
 
-| 文件 | 职责 |
+| File | Responsibility |
 | --- | --- |
-| `manimux/configs/embodiment/robot/tianji_taccap.yaml` | 组件、安装关系、控制组和显示资产 |
-| `manimux/configs/embodiment/robot/tianji_control.yaml + manimux/configs/executor/tianji_smooth_control_profile.yaml` | 共享运动限制、发送保护与执行平滑 |
-| `.local/tianji_taccap.yaml` | 私有设备、服务和路径绑定 |
-| `manimux/configs/embodiment/arm/tianji_left.yaml`、`tianji_right.yaml` | 左右机械臂模型和控制参数 |
-| `manimux/configs/embodiment/end_effector/taccap.yaml` | 末端执行器参数 |
-| `manimux/configs/embodiment/sensor/taccap.yaml` | 相机采集参数 |
-| `embodiments/robot/base.py` | 通用生命周期、组件协调、离线装配数据 |
-| `embodiments/robot/tianji_taccap/robot.py` | 建立共享 Tianji 控制器及组件 |
-| `embodiments/arm/tianji/arm.py` | 官方控制 SDK 连接、反馈、批量命令 |
-| `embodiments/arm/tianji/kinematics.py` | 原有 Tianji 数值算法及官方法兰接口 |
-| `kinematics/composed.py` | 通用 arm + end effector 的 TCP 变换组合 |
-| `policy_adapter/umi_dp/tianji.py`、`policy_adapter/umi_dp/history.py` | UMI 观测与动作格式、历史窗口、时间语义及 FK/IK 调用 |
+| `manimux/configs/embodiment/robot/tianji_taccap.yaml` | Components, mounts, control groups and visual assets |
+| `manimux/configs/embodiment/robot/tianji_control.yaml + manimux/configs/executor/tianji_smooth_control_profile.yaml` | Shared motion limits, command guards and execution smoothing |
+| `.local/tianji_taccap.yaml` | Private device, service and path bindings |
+| `manimux/configs/embodiment/arm/tianji_left.yaml`, `tianji_right.yaml` | Left/right arm models and control parameters |
+| `manimux/configs/embodiment/end_effector/taccap.yaml` | End-effector parameters |
+| `manimux/configs/embodiment/sensor/taccap.yaml` | Camera capture parameters |
+| `embodiments/robot/base.py` | Shared lifecycle, component coordination and offline assembly data |
+| `embodiments/robot/tianji_taccap/robot.py` | Shared Tianji controller and component construction |
+| `embodiments/arm/tianji/arm.py` | Official control SDK connections, feedback and batched commands |
+| `embodiments/arm/tianji/kinematics.py` | Existing Tianji numerics and official flange interface |
+| `kinematics/composed.py` | Shared arm + end-effector TCP transform composition |
+| `policy_adapter/umi_dp/tianji.py`, `policy_adapter/umi_dp/history.py` | UMI observations/actions, history windows, timing semantics and FK/IK calls |
 
-SDK 和 assets 随所属组件存放。旧 `kinematics/tianji.py` 保留旧参数和 TCP 接口的兼容封装，
-数值求解算法只有 arm 目录中的一份。`TianjiSDKKinematics` 和旧入口共同继承
-`TianjiArmKinematics` 的原版求解规则。arm 不加载末端配置或保存 TCP 偏移；
-新整机的末端装配由公共 `ComposedManipulatorKinematics` 负责。
+SDKs and assets live with their owning components. Legacy `kinematics/tianji.py` wraps the old parameters and TCP API;
+the arm directory contains the single numerical solver implementation. `TianjiSDKKinematics` and the legacy entry point share
+the original `TianjiArmKinematics` solving rules. Arms do not load tool configuration or store TCP offsets;
+shared `ComposedManipulatorKinematics` assembles tools for the new robot.
 
-## 坐标系与求解行为
+## Frames and solver behavior
 
-每组 `[joint_1, ..., joint_7, gripper]`：关节 rad，夹爪 0 闭合、1 张开。
-**FK 和 IK 的 TCP 位姿始终在对应机械臂基座系下，平移单位 m。**
+Each group is `[joint_1, ..., joint_7, gripper]`: joints in rad, gripper 0 closed and 1 open.
+**FK/IK TCP poses always use the corresponding arm base frame, with translation in meters.**
 
 ```text
 T_arm_tcp = FK_official(q_arm) × T_flange_tool × T_tool_tcp
 T_arm_flange_target = T_arm_tcp_target × inverse(T_flange_tool × T_tool_tcp)
 ```
 
-本体配置不再声明 `root_frame` 或机械臂底座的显示变换，也不增加 body 坐标系。
-显示位置与朝向放在 `robogui/robots/tianji/robogui.yaml` 的
-`groups.<name>.robogui_display_frame`，静态支架放在该文件的 `scene.meshes`。
-这些参数只由 RoboGUI 读取，改变它们不会改变 FK/IK 结果。
-末端执行器的 `mount` 和自身 TCP 偏移参与控制计算，且只应用一次。
+Embodiment configuration no longer declares `root_frame`, arm-base display transforms or an additional body frame.
+Display positions and orientations live in `robogui/robots/tianji/robogui.yaml` under
+`groups.<name>.robogui_display_frame`; static mounts live in `scene.meshes` in the same file.
+Only RoboGUI reads these settings; changing them does not affect FK/IK.
+The end-effector `mount` and its own TCP offset participate in control calculations exactly once.
 
-IK 保留原版官方 `ik + ik_nsp`、回代检查、关节限位和余量、实测 J6/J7 干涉约束及
-相对 seed 的分支跳变处理。右臂 J6 的原有覆盖值位于 arm 配置。
-装配层不再叠加另一套更严格的 TCP 接受阈值。失败不返回可执行的替代关节目标。
+IK retains official `ik + ik_nsp`, FK substitution checks, joint limits and margins, measured J6/J7 interference constraints and
+seed-relative branch-jump handling. The original right-arm J6 override lives in the arm configuration.
+Assembly adds no second, stricter TCP acceptance threshold. Failure does not return executable substitute joint targets.
 
-UMI 服务已把模型相对观测 TCP 的预测还原成各臂基座下的绝对目标。
-ManiMux adapter 保持该约定，不添加公共坐标系转换。同进程使用整机的模型对象；
-独立 action decode 子进程从相同配置加载离线模型，不获取硬件连接。
-可选差分 IK 继续使用原 QP；装配层去掉末端偏移后把法兰目标交给原求解器。
+The UMI service already restores predictions relative to observed TCP poses to absolute targets in each arm base frame.
+The ManiMux adapter preserves this convention without adding a common-frame conversion. In-process decoding reuses the robot model;
+an independent action-decoding subprocess loads the offline model from the same configuration without hardware connections.
+Optional differential IK retains the original QP; assembly removes tool offsets before sending flange targets to that solver.
 
-## 离线构造和硬件生命周期
+## Offline construction and hardware lifecycle
 
 ```python
 from manimux.embodiments.robot.tianji_taccap import TianjiTaccapRobot
 
 robot = TianjiTaccapRobot.from_config("manimux/configs/embodiment/robot/tianji_taccap.yaml")
 # robot.fk(configuration) / robot.ik(targets, seed, fixed_coordinates=...)
-# 此时未连接机械臂、夹爪或相机；无需填写全部硬件绑定。
+# Arms, grippers and cameras are not connected; complete hardware bindings are not required yet.
 ```
 
-`from_config()` 默认 `execute=False`、`end_effector_control=False`，与原实验的只读默认一致。
-直接 Python `ip/arms` 构造保留此前 API 默认值。IP、串口和增益等设备参数在对应
-`connect()` / `start()` 阶段使用，不再遍历整份配置汇总空字段报错。
+`from_config()` defaults to `execute=False` and `end_effector_control=False`, preserving the original read-only defaults.
+Direct Python `ip/arms` construction retains its prior API defaults. Device parameters such as IPs, serial ports and gains are used in
+`connect()` / `start()` rather than scanning the full configuration for all missing fields beforehand.
 
-`connect()` 读取机械臂和夹爪反馈；当前组件接口要求机械臂已禁用，首次执行命令时
-才在实测关节处使能。左右臂共享一次目标批次，夹爪随后独立下发，跨设备不具有原子性。
-配置中的关节限位、跟踪误差、反馈过期和控制器故障检查保留。
-`stop()` 请求停止已拥有的组件，`close()` 失败后可重试。
+`connect()` reads arm and gripper feedback; the component interface requires arms to be disabled and enables them at measured positions
+on the first execution command. Both arms share one target batch; grippers are commanded separately afterward. Cross-device execution is not atomic.
+Configured joint limits, tracking-error, stale-feedback and controller-fault checks remain in place.
+`stop()` requests owned components to stop; failed `close()` calls can be retried.
 
 Marvin submits command batches asynchronously. Its `clear_set()` can return false
 while the previous batch is queued or being sent; this is a busy send buffer, not
@@ -125,20 +125,20 @@ cleanup failures are reported in RoboGUI. Mode selection, duration and cleanup l
 the Tianji assembly/controller; the session only dispatches cancellable handlers. During
 a rollout, **Stop rollout & release** finishes it without homing before starting recovery.
 
-相机启动独立于 `connect()`。新 UMI 实验仍订阅现有 camera server，未自动调用
-`robot.start_sensors()`。订阅层把 `left_wrist/right_wrist` 映射为
-`left_wrist_camera/right_wrist_camera`，保留 RGB、时间戳和帧序号。
-光学外参为 null 表示未知；TacCap TCP 仍是原 CAD 固定近似，未新增标定或开合补偿。
+Camera startup is independent of `connect()`. New UMI experiments still subscribe to the existing camera server without automatically calling
+`robot.start_sensors()`. Subscription maps `left_wrist/right_wrist` to
+`left_wrist_camera/right_wrist_camera`, preserving RGB, timestamps and frame sequences.
+Null optical extrinsics mean unknown. TacCap TCP remains the fixed CAD approximation, without new calibration or opening compensation.
 
-## 实验入口与验证
+## Experiment entry point and validation
 
-实验入口位于 `manimux/configs/experiments/pass_ball/umi_dp/tianji_taccap_umi_dp.yaml`。
-通过 `--local` 选择工位；policy 配置位于 `manimux/configs/policy/umi_dp/`。
-仍使用既有 XPolicyLab UMI_DP 模型和 `xpolicylab_ws`，需用原启动脚本绑定 checkpoint
-身份后才可运行。细节见 `docs/deployment/umi-dp-tianji-taccap.md`。
+The experiment entry point is `manimux/configs/experiments/pass_ball/umi_dp/tianji_taccap_umi_dp.yaml`.
+Select the station with `--local`; policy configuration lives in `manimux/configs/policy/umi_dp/`.
+The existing XPolicyLab UMI_DP model and `xpolicylab_ws` remain in use. Bind checkpoint identity with the original launcher
+before running. See `.agents/skills/manimux-inference/references/deployment/umi-dp-tianji-taccap.md`.
 
-测试覆盖注册到 adapter、原算法数值回归、场景变换不影响控制、子进程解码一致性、
-原时间/运动约束保持，以及 fake SDK 下的只读和执行分发。未启动真实硬件或模型服务。
-RoboGUI 从同一 `RobotModel` 加载显示模型与独立的显示变换。
-Clear error, Return Home, drag and release are implemented by `TianjiTaccapRobot`; the
+Tests cover registry-to-adapter wiring, numerical regression, display/control frame separation, subprocess decoding parity,
+existing timing/motion constraints and read-only/execution dispatch with fake SDKs. No real hardware or model service was started.
+RoboGUI loads visuals and independent display transforms from the same `RobotModel`.
+Clear error, Return Home drag and release recovery are implemented by `TianjiTaccapRobot`; the
 idle RoboGUI session only schedules them.

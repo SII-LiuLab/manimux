@@ -1,4 +1,4 @@
-# 末端模型和控制参数；serial 由 local.robot.components 提供。
+# End-effector model and control parameters; local.robot.components provides serial.
 type: end_effector
 implementation: manimux.embodiments.end_effector.taccap:TacCapGripper
 options: {}

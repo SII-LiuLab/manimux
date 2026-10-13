@@ -1,4 +1,4 @@
-"""YAM 组件直接使用安装的 i2rt；一次命令包含六个关节和内置夹爪。"""
+"""YAM uses the installed i2rt directly; each command contains six joints and the built-in gripper."""
 
 import threading
 from enum import Enum
@@ -13,10 +13,10 @@ from .kinematics import YamManipulatorKinematics, visual_configuration
 
 
 class YamController(ArmController):
-    """每个 CAN 通道拥有一个 SDK 实例；构造只保存参数，connect 才打开设备。
+    """Each CAN channel owns an SDK instance; construction stores parameters and connect opens the device.
 
-    SDK 管理电机循环和夹爪归一化。这里仅适配 ManiMux 生命周期和状态接口。
-    状态时间是 SDK 读取完成的主机时间，不能当作电机的采样时间。
+    The SDK manages motor loops and gripper normalization; this layer adapts the ManiMux lifecycle and state interface.
+    State timestamps are host times after SDK reads complete, not motor sampling times.
     """
 
     def __init__(
@@ -43,7 +43,7 @@ class YamController(ArmController):
             )
 
     def get_states(self):
-        # 复制 SDK 当前反馈，不用最后一次发送的目标代替实测位置。
+        # Copy current SDK feedback; never substitute the last command for measured positions.
         with stage(f"yam.{self.channel}.sdk_get_joint_pos"):
             sdk_joints = self.robot.get_joint_pos()
         joints = sdk_joints.copy()
@@ -51,13 +51,13 @@ class YamController(ArmController):
         return {self.channel: ArmState(joints, self.clock.now_ns(), self.sequence)}
 
     def send_commands(self, targets):
-        # SDK 可能就地裁剪传入数组；命令本身仍由上层拥有。
+        # The SDK may clip the input array in place; the caller retains ownership of the command.
         target = targets[self.channel].copy()
         with stage(f"yam.{self.channel}.sdk_command_joint_pos"):
             self.robot.command_joint_pos(target)
 
     def move_joints(self, target, *, time_interval_s):
-        """起始姿态和 Home 沿用 SDK 插值；整机层负责协调各臂的阶段。"""
+        """Start poses and Home retain SDK interpolation; the robot layer coordinates phases across arms."""
         self.robot.move_joints(target.copy(), time_interval_s=time_interval_s)
 
     def sent_command_snapshots(self):
@@ -148,8 +148,8 @@ class YamController(ArmController):
         if self.robot is None:
             return
         native = self.robot
-        # 已安装的 i2rt.close 只 join 服务线程。保持原退出顺序：两个循环
-        # 都结束后才释放 CAN，避免电机循环在关闭的 socket 上继续读写。
+        # The installed i2rt.close only joins service threads. Preserve the shutdown order: both loops
+        # must end before releasing CAN so the motor loop cannot access a closed socket.
         native._stop_event.set()
         native._server_thread.join(timeout=2.0)
         if native._server_thread.is_alive():
@@ -187,7 +187,7 @@ def _metadata_value(value):
 
 
 class YamArm(ArmBase):
-    """完整控制坐标为 7 维；end_effector: null 保留这个组件的内置夹爪。"""
+    """All seven coordinates are controlled; end_effector: null retains the component's built-in gripper."""
 
     num_joints = 7
 
@@ -202,7 +202,7 @@ class YamArm(ArmBase):
             model,
             model.coordinates,
             model.solver._assets_root / "i2rt/robot_models/arm/yam/yam.urdf",
-            None,  # 一体组件提供完整 TCP，不声明额外挂接工具的法兰。
+            None,  # The integrated component provides a complete TCP, without a flange for a separate tool.
             base_frame=model.base_frame,
             visual_mapping=visual_configuration,
         )

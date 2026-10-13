@@ -1,11 +1,12 @@
-name: Documentation
+name: Guide
 
 on:
   push:
     branches: [main]
     paths:
-      - 'docs/**'
-      - 'assets/**'
+      - 'guideline.html'
+      - 'assets/manimux-robogui-demo.webp'
+      - 'assets/manimux_2026-09-05_23-17-35-00.00.03.144-00.00.34.914-seg1-00.00.02.596-00.00.34.966.mp4'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
 
@@ -21,13 +22,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: pip
-          cache-dependency-path: docs/requirements.txt
-      - run: python -m pip install -r docs/requirements.txt
-      - run: mkdocs build --strict -f docs/mkdocs.yml
+      - name: Package the single-file guide
+        run: |
+          mkdir -p site/assets
+          cp guideline.html site/index.html
+          cp assets/manimux-robogui-demo.webp site/assets/
+          cp assets/manimux_2026-09-05_23-17-35-00.00.03.144-00.00.34.914-seg1-00.00.02.596-00.00.34.966.mp4 site/assets/
+          touch site/.nojekyll
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site

@@ -85,13 +85,13 @@ class EpisodeRecorder:
     @staticmethod
     def _write_json(path: Path, payload: dict[str, object]) -> None:
         with path.open("w", encoding="utf-8") as handle:
-            json.dump(payload, handle, indent=2, sort_keys=True)
+            json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
             handle.write("\n")
 
     @timed("recording.event")
     def event(self, kind: str, **fields: object) -> None:
         payload = {"kind": kind, **fields}
-        self._events.write(json.dumps(payload, sort_keys=True) + "\n")
+        self._events.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
         self._events.flush()
 
     @timed("recording.metadata")
@@ -292,7 +292,7 @@ class EpisodeRecorder:
     def finish(
         self,
         *,
-        success: bool,
+        run_completed: bool,
         terminal_reason: str,
         steps: int,
         wall_time_s: float,
@@ -300,7 +300,7 @@ class EpisodeRecorder:
         timing_status = self._save_control_timing()
         self.event(
             "episode_finished",
-            success=success,
+            run_completed=run_completed,
             terminal_reason=terminal_reason,
             steps=steps,
         )
@@ -310,7 +310,7 @@ class EpisodeRecorder:
         self._write_json(
             self._partial_dir / "result.json",
             {
-                "success": success,
+                "run_completed": run_completed,
                 "terminal_reason": terminal_reason,
                 "steps": steps,
                 "wall_time_s": wall_time_s,
@@ -337,7 +337,7 @@ class EpisodeRecorder:
         self._write_json(
             self._partial_dir / "result.json",
             {
-                "success": False,
+                "run_completed": False,
                 "terminal_reason": reason,
                 "detail": detail,
                 "steps": len(self._ticks),

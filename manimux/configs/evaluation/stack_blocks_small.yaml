@@ -1,0 +1,6 @@
+kind: count
+task_id: stack_blocks_small
+rubric_id: stack_blocks_small_count2_v1
+label: Small block stacking
+count_label: Blocks stacked
+target_count: 2

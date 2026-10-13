@@ -94,7 +94,7 @@ class MPCExecutor:
 
 
 def mpc_parameters(**options) -> dict:
-    """保留 MPC 时域、动力学与代价权重的默认值。"""
+    """Preserve default MPC horizons, dynamics and cost weights."""
 
     if "horizon_steps" in options:
         raise ValueError("unsupported MPC field: horizon_steps")
