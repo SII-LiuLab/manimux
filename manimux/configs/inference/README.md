@@ -49,7 +49,9 @@ Aligned experiment presets live in `aligned/`; experiments select them through
 The paired Pi05 Joint 30k bottle experiments enable `run.warmup_before_start`.
 After Prepare, choose Activate Warmup to run inference while holding the measured robot state. Start
 drains warmup requests and waits for a backend RESET acknowledgement before fresh
-formal inference. There is no minimum count, countdown, or automatic stability gate.
+formal inference. PAINT additionally requires two successful calls of both the ordinary
+and conditioned branches before reset, including when Start is pressed early. Other
+strategies retain their existing behavior without a minimum count or countdown.
 The RoboGUI displays warmup chunks, predicted end-effector paths and an E2E latency
 curve as display-only previews. Start and Finish clear them. Finish stops new model
 requests and invalidates queued WS work; an already-running model call may finish,
@@ -62,6 +64,11 @@ are rounded up to policy steps; the predictor uses the maximum of the latest ten
 Starting without calibration samples is explicitly reported and uses zero until
 formal accepted plans update the estimate. Numeric initial values keep their legacy
 behavior. Other model experiments have not been migrated to these aligned presets.
+
+PAINT's integer initial delay remains a floor during warmup calibration. Its first
+ordinary and first conditioned calls are excluded; later samples can raise the forecast
+and persist across reset. This exercises the conditioned sampler before formal motion
+instead of charging its first compilation to the second executable chunk.
 
 ## Optional combinations
 

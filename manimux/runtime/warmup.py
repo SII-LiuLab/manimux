@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections import deque
+from collections import Counter, deque
 
 from manimux.clock import Clock
 from manimux.policies.worker import PolicyWorkerClient
@@ -39,9 +39,13 @@ class PolicyWarmup:
         self.completed_requests = 0
         self.latest_branch: str | None = None
         self.error = ""
+        inference = config["inference"]
+        delay_config = inference.get(inference.get("algorithm", "rtc"), inference["rtc"])
         self.latency_ns: deque[int] = deque(
-            maxlen=config["inference"]["rtc"]["delay_buffer_size"]
+            maxlen=delay_config.get("delay_buffer_size", inference["rtc"]["delay_buffer_size"])
         )
+        self._required_calls = dict(getattr(strategy, "warmup_required_calls", {}))
+        self._branch_calls: Counter[str] = Counter()
         self._recent_ns: deque[int] = deque(maxlen=10)
         self.first_inference_ms: dict[str, float] = {}
         self._request_seq = 0
@@ -62,11 +66,21 @@ class PolicyWarmup:
     def complete(self) -> bool:
         return self.phase == "complete"
 
+    @property
+    def ready(self) -> bool:
+        return all(
+            self._branch_calls[branch] >= count
+            for branch, count in self._required_calls.items()
+        )
+
     def metadata(self) -> dict:
         return {
             "phase": self.phase,
             "completed_requests": self.completed_requests,
             "latest_branch": self.latest_branch,
+            "required_branch_calls": dict(self._required_calls),
+            "completed_branch_calls": dict(self._branch_calls),
+            "branches_ready": self.ready,
             "recent_inference_ms": [round(value / 1e6, 3) for value in self._recent_ns],
             "first_inference_ms": dict(self.first_inference_ms),
             "calibration_sample_count": len(self.latency_ns),
@@ -157,6 +171,7 @@ class PolicyWarmup:
                         self.latency_ns.append(elapsed_ns)
                         seed_strategy_warmup(self.strategy, latency_ns=list(self.latency_ns))
                     self.completed_requests += 1
+                    self._branch_calls[branch] += 1
                     self.first_inference_ms.setdefault(branch, elapsed_ns / 1e6)
                     if self.phase == "warming":
                         self._preview = (
@@ -179,8 +194,10 @@ class PolicyWarmup:
                         "warmup_inference_failed", branch=branch,
                         request_seq=request.request_seq, error=error,
                     )
+                    if self.phase == "draining" and not self.ready:
+                        self.phase = "error"
 
-        if self.phase == "draining" and self._pending is None:
+        if self.phase == "draining" and self._pending is None and self.ready:
             try:
                 with stage("worker_submit_reset"):
                     self._reset_seq = self.worker.submit_reset(self.session_id)
@@ -203,7 +220,9 @@ class PolicyWarmup:
                     "warmup_reset_failed" if error else "warmup_completed", **self.metadata()
                 )
 
-        if self.phase == "warming" and self._pending is None:
+        if (
+            self.phase == "warming" or (self.phase == "draining" and not self.ready)
+        ) and self._pending is None:
             started_ns = self.clock.now_ns()
             try:
                 # Negative IDs cannot be mistaken for a formal rollout request.

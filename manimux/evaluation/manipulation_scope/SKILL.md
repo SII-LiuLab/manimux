@@ -1,6 +1,6 @@
 ---
 name: manimux-manipulation-scope
-description: Draw where demonstrations grasped and released objects (teleop recordings or ABC training data) onto a camera frame, to check a layout or a rollout against the training distribution. Use when asked to visualize teleop/training data on the image, to check whether a table layout is in distribution, to calibrate a camera to the arms, or to add the scope figure to a task report.
+description: Draw recorded gripper close/open locations from demonstrations or finalized inference rollouts onto a calibrated camera frame. Use for training-layout checks, inference coverage, camera calibration, or scope figures in a task report. Always distinguish the data source.
 ---
 
 # ManiMux Manipulation Scope
@@ -13,7 +13,9 @@ Label every path as local or remote when reporting.
 
 ## What the figure is
 
-Each dot is a demonstration event, not a policy trajectory:
+Each dot is a recorded gripper event. Demonstrations describe demonstration coverage;
+inference rollouts describe the policy's observed coverage. A threshold crossing does
+not establish that an object was successfully grasped or released.
 
 1. **Events**: per arm, the gripper (1 = open) crossing 0.6 closing is a grasp,
    opening is a release. Teleop keeps all events; ABC keeps grasps below 12 cm and
@@ -35,6 +37,14 @@ Each dot is a demonstration event, not a policy trajectory:
   `manimux/configs/embodiment/robot/yam_dual.yaml`.
 - **Image to draw on**: an image, an `.mp4` (first frame) or a ManiMux episode dir
   (`videos/<camera_name>.mp4`). It must come from the calibrated camera pose.
+- **Inference session**: `rollout-*/result.json` plus `data.zarr/ticks/state/<arm>`
+  and `ticks/monotonic_ns`. Only finalized attempts are loaded, including failures.
+  Command and scheduled targets are not substituted for measured state. The points
+  artifact records `source_kind`, threshold, and every event's episode/tick/time/XYZ.
+  For `silhouette`, pass `--video d405_front.mp4`; frame timestamps in
+  `videos/index.json` are matched to the nearest measured tick (at most 50 ms).
+  Frames outside the recorded state interval are excluded. Never pair frame number
+  with control tick number. Use one explicit session per calibration/source cohort.
 
 ## Procedure
 
@@ -64,6 +74,9 @@ Each dot is a demonstration event, not a policy trajectory:
    or `left_release` + `right_release`; `{n}` is replaced by the event count.
    Write all figure text (labels, region labels, `--title`) in English and keep each
    legend line within the image width.
+   For inference, label legends `Left close`, `Right close`, `Left open`, `Right open`;
+   set `title` and `caption` to identify the inference cohort and state that events
+   are not verified grasps. Do not describe inference coverage as training support.
    `align_mask_rows`: `[]` for frames from the calibration session; otherwise
    static rows only (robot bases, base plate) such as `[[300, 480]]`. A bucket in
    the band drags the ECC fit; real camera moves are refused, not drawn.

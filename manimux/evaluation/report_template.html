@@ -16,16 +16,18 @@
 <p class="caption">Time: manually labeled seconds from Start to task completion for successful attempts. Smoothness: TCP translation/rotation from FK of the scheduled reference, not measured state; average equally across valid active channels, then rollouts. Do not combine different active-channel sets.</p></section>
 <nav aria-label="Report contents"><a href="#seam">Seam plots</a><a href="#trajectory">Trajectory similarity</a><a href="#definitions">Metric definitions</a><a href="#appendix">Sources and downloads</a></nav>
 <section id="seam"><h2>Seam plots</h2>
+<div class="figure-grid">@@SEAM_SUMMARY_PLOTS@@</div>
 <div class="seam-gallery">@@SEAM_FIGURES@@</div></section>
+@@SCOPE_GALLERY@@
 <section id="trajectory"><h2>Similarity over 10 / 20 / 30 steps after handoff</h2>
 <div class="figure-grid">@@FIGURES@@</div>
-<p class="caption">Candidate-plan diagnostics; windows use shared valid handoffs with equal rollout weighting. N denotes model action steps; the table retains valid sample counts.</p>
+<p class="caption">Execution-qualified windows use their own valid handoffs at each N, with equal rollout weighting. Counts can differ across windows. Without execution evidence, attached candidate diagnostics remain labeled as such.</p>
 <div class="table-scroll"><table><thead><tr><th>Model / method</th><th>Arm</th><th>N steps</th><th>Position RMSE↓ mm</th><th>Shape RMSE↓ mm</th><th>Endpoint error↓ mm</th><th>Velocity cosine↑</th><th>N rollout<br>Position / cosine</th><th>Handoffs</th></tr></thead><tbody>@@METRIC_ROWS@@</tbody></table></div>
 </section>
 <details id="definitions" class="appendix"><summary>Metric definitions</summary>
 <p><b>H-SR</b> Success rate; <b>H-Score</b> Mean completion score (bottles: mean(k/6)).</p>
-<p><b>NLDLJ ↓</b> ln(T³ ∫‖jerk‖²dt / peak_speed²), excluding differentiation stencils across plans; <b>NSPARC ↓</b> Positive spectral arc length of speed magnitude. Both are dimensionless and use standard speed normalization T³, unlike the T⁵ printed in the Legato appendix; do not directly compare paper values. Windows include all RUNNING ticks and normal pauses, without interpolating long gaps. Details retain sample rates, spectral cutoffs and missing-channel reasons.</p>
-<p><b>L / R Mean, P95, Max</b> TCP position differences between old and new plans at the same time. Mean/P95 use equal rollout weighting; Max is the global maximum.</p>
+<p><b>NLDLJ ↓</b> ln(T³ ∫‖jerk‖²dt / peak_speed²), excluding differentiation stencils across plans; <b>NSPARC ↓</b> Positive spectral arc length of speed magnitude. Both are dimensionless and use standard speed normalization T³, unlike the T⁵ printed in the Legato appendix; do not directly compare paper values. Pause, reset, missing identity and long gaps split segments. Verified expired-plan holds use the recorded constant command because scheduled can contain measured-state placeholders. Segment metrics are duration-weighted within each channel; episodes remain equally weighted. All exclusions are exported.</p>
+<p><b>L / R Mean, P95, Max</b> Continuous: old committed reference versus incoming first point at the incoming start time. End hold: verified held command versus incoming first point, reported separately. Mean/P95 use equal rollout weighting; Max is the global maximum. n is rollout count; b is boundary count.</p>
 <p><b>Trajectory similarity</b> Position RMSE, origin-aligned shape RMSE, endpoint error and velocity-direction cosine over the same future window.</p>
 <div class="table-scroll"><table><thead><tr><th>Metric</th><th>Definition</th></tr></thead><tbody>
 <tr><td>M25 / M50 / M75 ↑</td><td>Fraction of episodes with maximum predicted progress reaching 25% / 50% / 75%.</td></tr>
@@ -38,7 +40,7 @@
 <tr><td>FNS ↑</td><td>Proximity to success for failed episodes.</td></tr>
 <tr><td>SQS ↑</td><td>Overall quality of successful episodes, combining efficiency, regression and stagnation.</td></tr>
 </tbody></table></div>
-<p class="caption">Formal seam filtering and PRM result import are not yet integrated.</p></details>
+<p class="caption">Seams are qualified from executed tick ownership and lifecycle events. PRM result import remains pending.</p></details>
 <details id="appendix" class="appendix"><summary>Sources, sample details and downloads</summary>
 <p class="path"><b>Output directory</b><br><code>@@OUTPUT@@</code></p>
 <div class="download-grid"><a href="summary.json" download>Summary JSON</a><a href="episode-metrics.json" download>Per-episode JSON</a><a href="episodes.csv" download>CSV</a><a href="cohort.jsonl" download>Cohort</a><a href="provenance.json" download>Provenance / SHA-256</a><a href="task.yaml" download>Task configuration</a></div>

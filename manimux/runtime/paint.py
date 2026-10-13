@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -41,6 +41,8 @@ class PaintInferenceStrategy:
     """Algorithm 1 scheduling around an XPolicy flow-sampler hook."""
 
     ensemble_scope: EnsembleScope = "execution_prefix"
+    # Compile both sampler branches, then measure each without its first call.
+    warmup_required_calls = {"ordinary": 2, "conditioned": 2}
 
     def __init__(self, config: dict) -> None:
         self._config = config
@@ -49,6 +51,7 @@ class PaintInferenceStrategy:
         self._execution_steps = int(paint["execution_policy_steps"])
         self._initial_delay_steps = int(paint["initial_delay_policy_steps"])
         self._delay_buffer_size = int(paint["delay_buffer_size"])
+        self._warmup_delay_steps: tuple[int, ...] = ()
         self._time_aligned = (
             config["inference"]["inference_schedule"] == "multi_inflight"
             or (config["inference"].get("temporal_ensemble") or {}).get("enabled", False)
@@ -84,7 +87,7 @@ class PaintInferenceStrategy:
         self._active_rows = None
         self._active_offset = 0
         self._delay_forecast = deque(
-            [self._initial_delay_steps],
+            self._warmup_delay_steps or (self._initial_delay_steps,),
             maxlen=self._delay_buffer_size,
         )
         self._request_started_ns = {}
@@ -95,6 +98,54 @@ class PaintInferenceStrategy:
         self._latency = []
         self._loop_ms = []
         self._last_report_step = 0
+
+    def seed_warmup(self, *, latency_ns: Sequence[int]) -> None:
+        """Retain steady E2E samples across reset, with the configured initial floor."""
+        dt_ns = int(action_interval(self._config["policy"]) * 1_000_000_000)
+        recent = [int(value) for value in latency_ns][-self._delay_buffer_size :]
+        if any(value < 0 for value in recent):
+            raise ValueError("warmup latency_ns must be nonnegative")
+        self._warmup_delay_steps = tuple(
+            max(self._initial_delay_steps, (value + dt_ns - 1) // dt_ns)
+            for value in recent
+        )
+        self._delay_forecast = deque(
+            self._warmup_delay_steps or (self._initial_delay_steps,),
+            maxlen=self._delay_buffer_size,
+        )
+
+    def build_warmup_submission(
+        self,
+        *,
+        session_id: str,
+        request_seq: int,
+        now_ns: int,
+        snapshot: ObservationSnapshot,
+        adapter: PolicyAdapter,
+        conditioned: bool = False,
+    ) -> InferenceSubmission:
+        """Warm the actual PAINT wire path without consuming a formal trajectory."""
+        fields = dict(
+            session_id=session_id,
+            request_seq=request_seq,
+            observation_time_ns=snapshot.state.monotonic_ns,
+            deadline_ns=now_ns + int(self._config["policy"]["timeout_s"] * 1_000_000_000),
+            observation=adapter.build_observation(snapshot),
+            instruction=self._config["run"]["task"],
+        )
+        if not conditioned:
+            return InferenceSubmission(
+                request=InferenceRequest(**fields), event_fields={"conditioned": False},
+            )
+        measured = np.concatenate([snapshot.state.groups[name] for name in self._group_order])
+        delay = self._initial_delay_steps
+        request = PaintInferenceRequest(
+            **fields,
+            paint_action_prefix=np.repeat(measured[None, :], delay, axis=0),
+            paint_delay_steps=delay,
+            paint_execution_steps=self._execution_steps,
+        )
+        return InferenceSubmission(request=request, event_fields={"conditioned": True})
 
     def build_submission(
         self,

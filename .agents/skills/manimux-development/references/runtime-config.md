@@ -364,6 +364,16 @@ waits for the in-flight request, then acknowledged backend reset; only a fresh s
 observation enters formal execution. Warmup timings remain separate from formal metrics.
 The control mailbox suppresses activation/selection on stale transport snapshots.
 
+PAINT implements `build_warmup_submission()` for ordinary and anchored-prefix requests.
+Its `warmup_required_calls` requests two successful calls per branch: the first compiles
+that branch, the second supplies a steady end-to-end sample. An early Start remains in
+the draining phase while these calls finish, then waits for reset acknowledgement.
+Failed required calls cannot release formal execution. Metadata reports required and
+completed branch counts and `branches_ready`; warmup plans never enter the Timeline.
+The delay buffer uses the selected algorithm's window. PAINT's `seed_warmup()` preserves
+ceil-rounded steady samples across reset, with its explicit initial delay as a floor;
+first calls of both branches remain visible but are excluded from calibration.
+
 ## Opt-in inference composition
 
 The factory retains one base strategy and optionally wraps it with `EnsembleStrategy`
@@ -388,3 +398,33 @@ retains the accepted-plan identity with each condition and rejects replaced refe
 The streaming wrapper accepts existing PAINT/AutoHorizon sampler modes without changing
 XPolicyLab. See [the composition timing contract](../../manimux-inference/references/inference.md#optional-algorithm-composition)
 for reference history, horizon validity and unsupported combinations.
+
+
+## Command-continuous handoff and RTC command prediction
+
+`inference.blend_mode: command_cubic` explicitly selects a Hermite bridge from the
+last issued joint command and nominal-control-tick velocity at commit to source row
+`trim + blend_policy_steps - 1` and its outgoing tangent. The source row grid and
+RTC execution cursor are unchanged. The plan activates at commit, before its first
+retained source row if necessary. Sampling and recorded committed rows include the
+bridge; canonical raw rows remain untouched. Gripper indices use a monotone smoothstep.
+`linear` remains the default. Cubic requires standalone Async/RTC with Smooth, complete-group decoding and at least
+two blend rows; it rejects adapter runtime trajectories, waypoint handoffs and serial holds.
+
+RTC `condition_source` selects `canonical` (default), `timeline`, or `executor`.
+The optional strategy `set_condition_predictor(callable)` hook receives the executor's
+`predict_commands(timeline, origin_ns, dt_ns, steps, group_order, now_ns)` callable.
+It returns a valid-row mask and packed absolute joint rows without mutating live state.
+Smooth predicts by copying its filter state and stepping the accepted timeline at
+nominal control cadence. Its recent command history covers observation timestamps
+before the latest command. Reset/hold clear this history. Missing delay-prefix history
+falls back to unconditioned inference; missing future rows get zero weight. Feedback
+pose guards and latched/discrete grippers are unsupported. This predicts commands,
+not measured motion, and does not anticipate a replacement plan or control jitter.
+
+`ActionContext.decode_reference` carries a separately timestamped accepted joint
+horizon to inline and process adapters. SAPolicy's opt-in
+`policy.adapter.ik_seed_source: previous_plan` interpolates the first decoded row's
+seed from that horizon, falling back to the existing runtime seed outside coverage.
+Later IK rows retain sequential seeding. Measured observations are not modified.
+This reduces seed-time mismatch; it does not enforce branch continuity or cap steps.

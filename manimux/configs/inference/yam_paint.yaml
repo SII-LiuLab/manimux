@@ -9,10 +9,10 @@ blend_policy_steps: 0
 action_start_mode: drop_infer_latency
 paint:
   # Initial inference-latency forecast: 10 steps ~= 333 ms at 30 Hz, not a wait.
-  # PAINT currently requires an integer; RTC's null/warmup auto-seeding is unsupported.
+  # PAINT requires an integer floor; steady warmup samples can raise the forecast.
   initial_delay_policy_steps: 10
   # Keep 10 latency-estimator samples in policy steps; forecast their MAX.
   delay_buffer_size: 10
-  # Request the next chunk once source progress s reaches 12 (including trimmed steps).
+  # Request the next chunk once source progress s reaches 16 (including trimmed steps).
   # Also requires d <= s and s+d <= H; old actions [s:s+d] condition the new request.
-  execution_policy_steps: 12
+  execution_policy_steps: 16

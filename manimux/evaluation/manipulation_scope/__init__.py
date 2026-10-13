@@ -1,16 +1,17 @@
-"""Training-data manipulation scope on the front camera (agent workflow: SKILL.md).
+"""Recorded manipulation scope on the front camera (agent workflow: SKILL.md).
 
-Draws where the training demonstrations grasped (per arm) and released objects,
-projected into a calibrated front camera, over a rollout's first frame or any
-layout photo. A layout whose objects fall outside these zones is out of the
-training distribution. Points are FK of recorded joint states in each arm's base
+Draws recorded gripper close/open events, projected into a calibrated front camera,
+over a rollout's first frame or a layout photo. Use demonstrations for training
+coverage or finalized rollouts for inference coverage; neither event detection nor
+the hull establishes grasp success. Points are FK of measured joints in each arm's base
 frame; the camera is a pinhole fitted either to FK<->pixel gripper correspondences
 (calibrate) or, for teleop recordings, to the arms' silhouettes (silhouette: FK mesh
 points vs. motion foreground, no clicking). Other frames are ECC-aligned to the
 calibration image to absorb small camera shifts.
 
-Datasets: ABC episodes (<split>/<episode>/states_actions.bin) or teleop episodes
-(<episode>/<side>-joint_pos.npy, <side>-gripper_pos.npy, top-images-rgb.mp4).
+Datasets: ABC episodes (<split>/<episode>/states_actions.bin), teleop episodes
+(<episode>/<side>-joint_pos.npy, <side>-gripper_pos.npy, top-images-rgb.mp4), or
+finalized ManiMux sessions (rollout-*/data.zarr plus videos/index.json).
 
   python -m manimux.evaluation.manipulation_scope points \
       --dataset DIR --robot-config YAML --out points.json
@@ -51,6 +52,10 @@ def _episodes(dataset: Path):
     throws, so grasps are closings below table_z and releases openings above it.
     Teleop: every closing is a grasp and every opening a release.
     """
+    for result in sorted(dataset.glob("rollout-*/result.json")):
+        episode = result.parent
+        _, arms = _rollout_states(episode)
+        yield episode.name, arms, None
     for meta in sorted(dataset.glob("*/*/episode_metadata.json")):
         if json.loads(meta.read_text())["task_name"].startswith("sim"):
             continue
@@ -70,14 +75,55 @@ def _episodes(dataset: Path):
         )
 
 
+def _rollout_states(episode: Path):
+    """Read measured states only; recorded control ticks are not video frame indices."""
+    import zarr
+
+    root = zarr.open_group(str(episode / "data.zarr"), mode="r")
+    times = np.asarray(root["ticks/monotonic_ns"][:], dtype=np.int64)
+    arms = {arm: np.asarray(root[f"ticks/state/{arm}"][:]) for arm in ARMS}
+    if not len(times) or np.any(np.diff(times) <= 0):
+        raise ValueError(f"{episode}: empty or non-increasing control timestamps")
+    for arm, q in arms.items():
+        if q.shape != (len(times), 7) or not np.isfinite(q).all():
+            raise ValueError(f"{episode}: invalid measured {arm} states {q.shape}")
+    return times, arms
+
+
+def _nearest_indices(times, query):
+    right = np.clip(np.searchsorted(times, query), 0, len(times) - 1)
+    left = np.maximum(right - 1, 0)
+    return np.where(np.abs(times[left] - query) <= np.abs(times[right] - query), left, right)
+
+
+def _video_states(episode: Path, arms: dict, video: str):
+    """Return video path and states aligned by monotonic capture time for rollouts."""
+    if not (episode / "data.zarr").exists():
+        return episode / video, arms, None
+    times, _ = _rollout_states(episode)
+    index = json.loads((episode / "videos/index.json").read_text())
+    spec = index["cameras"][Path(video).stem]
+    capture = np.asarray(spec["capture_monotonic_ns"], dtype=np.int64)
+    nearest = _nearest_indices(times, capture)
+    valid = (
+        (capture >= times[0])
+        & (capture <= times[-1])
+        & (np.abs(times[nearest] - capture) <= 50_000_000)
+    )
+    return episode / "videos" / spec["file"], {a: q[nearest] for a, q in arms.items()}, valid
+
+
 def extract_points(dataset: Path, robot_config: Path, *, gripper_open=0.6):
     """Grasp, release and start grasp-site points per arm, plus teleop paths."""
     from manimux.embodiments.robot.base import RobotModel
 
+    dataset = dataset.resolve()
     models = RobotModel.from_config(str(robot_config)).kinematics.models
     out = {arm: {"grasp": [], "release": [], "start": [], "paths": []} for arm in ARMS}
-    episodes = 0
-    for _, arms, table_z in _episodes(dataset):
+    episodes, events = 0, []
+    inference = any(dataset.glob("rollout-*/result.json"))
+    for name, arms, table_z in _episodes(dataset):
+        times = _rollout_states(dataset / name)[0] if inference else None
         episodes += 1
         for arm, q in arms.items():
             p = np.array([models[arm].fk(row)[:3, 3] for row in q])
@@ -86,12 +132,42 @@ def extract_points(dataset: Path, robot_config: Path, *, gripper_open=0.6):
             for i in np.flatnonzero((g[:-1] > gripper_open) & (g[1:] <= gripper_open)) + 1:
                 if table_z is None or p[i, 2] < table_z:
                     out[arm]["grasp"].append(p[i].tolist())
+                    if times is not None:
+                        events.append(
+                            dict(
+                                episode=name,
+                                arm=arm,
+                                event="close",
+                                tick=int(i),
+                                monotonic_ns=int(times[i]),
+                                xyz=p[i].tolist(),
+                            )
+                        )
             for i in np.flatnonzero((g[:-1] < gripper_open) & (g[1:] >= gripper_open)) + 1:
                 if table_z is None or p[i, 2] >= table_z:
                     out[arm]["release"].append(p[i].tolist())
+                    if times is not None:
+                        events.append(
+                            dict(
+                                episode=name,
+                                arm=arm,
+                                event="open",
+                                tick=int(i),
+                                monotonic_ns=int(times[i]),
+                                xyz=p[i].tolist(),
+                            )
+                        )
             if table_z is None:
                 out[arm]["paths"].append(p[::3].round(4).tolist())
-    return {"source": str(dataset), "episodes": episodes, "frame": "arm base", **out}
+    return {
+        "source": str(dataset),
+        "source_kind": "inference_measured_state" if inference else "demonstrations",
+        "episodes": episodes,
+        "frame": "arm base",
+        "gripper_threshold": gripper_open,
+        "events": events,
+        **out,
+    }
 
 
 def _project(params, points, arm):
@@ -202,18 +278,33 @@ def calibrate_silhouette(
     episodes = list(_episodes(dataset))  # one camera pose per dataset; 9 episodes suffice
     pick = np.linspace(0, len(episodes) - 1, min(max_episodes, len(episodes))).round().astype(int)
     for name, arms, _ in (episodes[i] for i in pick):
-        capture = cv2.VideoCapture(str(dataset / name / video))
-        images = []
-        while (frame := capture.read())[0]:
-            images.append(frame[1])
-        images = np.array(images)
+        path, arms, valid = _video_states(dataset / name, arms, video)
+        capture = cv2.VideoCapture(str(path))
+        count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+        if count < 16 or any(len(q) != count for q in arms.values()):
+            raise ValueError(f"{path}: video and aligned state lengths differ")
+        samples = list(range(10, count - 5, max(1, count // 6)))
+        background_ids = set(np.linspace(0, count - 1, min(count, 120)).round().astype(int))
+        wanted = background_ids | set(samples) | {0}
+        images = {}
+        for i in range(count):
+            ok, image = capture.read()
+            if not ok:
+                raise ValueError(f"{path}: decode failed at frame {i}")
+            if i in wanted:
+                images[i] = image
+        capture.release()
         reference = reference if reference is not None else images[0]
-        background = np.median(images[::3], 0).astype(np.int16)
-        for i in range(10, len(images) - 5, max(1, len(images) // 6)):
+        background = np.median([images[i] for i in sorted(background_ids)], 0).astype(np.int16)
+        for i in samples:
+            if valid is not None and not valid[i]:
+                continue
             fg = (np.abs(images[i].astype(np.int16) - background).max(2) > 35).astype(np.uint8)
             fg = cv2.morphologyEx(fg, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
             fg = cv2.morphologyEx(fg, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))
             ys, xs = np.nonzero(fg)
+            if not len(xs):
+                continue
             pick = rng.choice(len(xs), min(len(xs), 1500), replace=False)
             frames.append(
                 {
@@ -222,6 +313,8 @@ def calibrate_silhouette(
                     "points": {a: mesh_points(a, arms[a][i]) for a in ARMS},
                 }
             )
+    if not frames:
+        raise ValueError("No timestamp-aligned moving frames for camera calibration")
     h, w = reference.shape[:2]
 
     def unpack(th):
@@ -295,9 +388,11 @@ def calibrate_silhouette(
 
 def _core(points, frac=0.8):
     """Points inside the central `frac` by Mahalanobis distance in table XY."""
-    p = np.asarray(points, float)
+    p = np.asarray(points, float).reshape(-1, 3)
+    if len(p) < 4:
+        return p
     xy = p[:, :2] - np.median(p[:, :2], 0)
-    d = np.einsum("ij,jk,ik->i", xy, np.linalg.inv(np.cov(xy.T)), xy)
+    d = np.einsum("ij,jk,ik->i", xy, np.linalg.pinv(np.cov(xy.T)), xy)
     return p[d <= np.quantile(d, frac)]
 
 
@@ -336,6 +431,11 @@ def load_profile(path: Path) -> dict:
     camera = json.loads((base / profile["camera"]).read_text())
     return {
         **profile,
+        "source_files": {
+            "camera": str((base / profile["camera"]).resolve()),
+            "points": str((base / profile["points"]).resolve()),
+            "reference": str((base / camera["reference_image"]).resolve()),
+        },
         "camera": camera,
         "points": json.loads((base / profile["points"]).read_text()),
         "reference": np.asarray(Image.open(base / camera["reference_image"]).convert("RGB")),
@@ -363,42 +463,47 @@ def render(profile: dict, image: np.ndarray, title: str = "") -> Image.Image:
     def hull(q):
         return [tuple(p) for p in cv2.convexHull(q.astype(np.float32))[:, 0]]
 
+    def draw_hull(q, color, alpha):
+        if len(q) >= 3:
+            draw.polygon(hull(q), fill=color + (alpha,), outline=color + (255,), width=3)
+
     im = Image.fromarray(image).convert("RGBA")
     overlay = Image.new("RGBA", im.size)
     draw = ImageDraw.Draw(overlay)
     for arm in ARMS:  # demonstration paths of the grasp site (teleop datasets)
         for path in points[arm].get("paths", []):
-            draw.line([tuple(q) for q in to_px(path, arm)], fill=COLORS[arm] + (70,), width=1)
+            if len(path) >= 2:
+                draw.line([tuple(q) for q in to_px(path, arm)], fill=COLORS[arm] + (70,), width=1)
     legend = []
     if "release" in labels:
         # ABC throws ~45 cm up; drop releases onto the table plane to show where the bin goes.
         release = []
         for arm in ARMS:
             r = _core(points[arm]["release"])
+            if not len(r):
+                continue
             r[:, 2] = 0.0
             release.append(to_px(r, arm))
         color = COLORS["release"]
-        draw.polygon(hull(np.vstack(release)), fill=color + (45,), outline=color + (255,), width=3)
+        if release:
+            draw_hull(np.vstack(release), color, 45)
     else:  # placements: per arm, at the recorded height
         for arm in ARMS:
             release, color = (
                 np.asarray(points[arm]["release"]),
                 COLORS[f"{arm.split('_')[0]}_release"],
             )
+            if not len(release):
+                continue
             q = to_px(release, arm)
-            draw.polygon(
-                hull(to_px(_core(release), arm)),
-                fill=color + (45,),
-                outline=color + (255,),
-                width=3,
-            )
+            draw_hull(to_px(_core(release), arm), color, 45)
             for x, y in q:
                 draw.rectangle((x - 2.5, y - 2.5, x + 2.5, y + 2.5), fill=color + (230,))
     for arm in ARMS:
         grasp, color = np.asarray(points[arm]["grasp"]), COLORS[arm]
-        draw.polygon(
-            hull(to_px(_core(grasp), arm)), fill=color + (55,), outline=color + (255,), width=3
-        )
+        if not len(grasp):
+            continue
+        draw_hull(to_px(_core(grasp), arm), color, 55)
         for x, y in to_px(grasp, arm):
             draw.ellipse((x - 2.5, y - 2.5, x + 2.5, y + 2.5), fill=color + (230,))
         mx, my = to_px(np.median(grasp, 0), arm)[0]
@@ -459,7 +564,7 @@ def main():
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     sub = parser.add_subparsers(dest="command", required=True)
-    p = sub.add_parser("points", help="extract training grasp/release points")
+    p = sub.add_parser("points", help="extract demonstration or inference close/open points")
     p.add_argument("--dataset", type=Path, required=True)
     p.add_argument("--robot-config", type=Path, required=True)
     p.add_argument("--out", type=Path, required=True)
@@ -469,6 +574,10 @@ def main():
     si.add_argument("--dataset", type=Path, required=True)
     si.add_argument("--robot-config", type=Path, required=True)
     si.add_argument("--camera", type=Path, required=True)
+    si.add_argument(
+        "--video", default="top-images-rgb.mp4", help="Video name; use d405_front.mp4 for rollouts"
+    )
+    si.add_argument("--max-episodes", type=int, default=9)
     r = sub.add_parser("render", help="overlay on images or episode dirs, side by side")
     r.add_argument("--profile", type=Path, required=True)
     r.add_argument("--input", nargs="+", required=True, help="images, mp4 files or episode dirs")
@@ -491,7 +600,9 @@ def main():
             f"median error {camera['median_error_px']:.1f} px"
         )
     elif args.command == "silhouette":
-        camera, reference = calibrate_silhouette(args.dataset, args.robot_config)
+        camera, reference = calibrate_silhouette(
+            args.dataset, args.robot_config, video=args.video, max_episodes=args.max_episodes
+        )
         image = args.camera.with_name(args.camera.stem + "_reference.png")
         cv2.imwrite(str(image), reference)
         camera.update(reference_image=image.name, source=f"silhouette fit on {args.dataset}")

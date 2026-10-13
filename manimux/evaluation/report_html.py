@@ -8,6 +8,8 @@ import json
 import re
 from pathlib import Path
 
+from manimux.evaluation.report_zh import localize_html
+
 
 def esc(value):
     return html.escape(str(value), quote=True)
@@ -144,12 +146,25 @@ def experiment_rows(report):
                 s = g["human"][mode].get("completion_time", {})
                 if s.get("n"):
                     times.append(f"{number(s['mean'])}<small>{name} · n={s['n']}</small>")
-            values["Time(s)"] = "<br>".join(times) or "—"
+            values["Time(s)"] = (
+                "<br>".join(times) or "—<small>Missing completion annotation</small>"
+            )
             for metric in ("nldlj", "nsparc"):
                 s = g.get("smoothness", {}).get(metric, {})
                 values[metric.upper()] = (
                     f"{number(s['mean'])}<small>n={s['n']}</small>" if s.get("n") else "—"
                 )
+            for arm, prefix in (("left_arm", "L"), ("right_arm", "R")):
+                for stat, label in (("mean", "Mean"), ("p95", "P95"), ("max", "Max")):
+                    parts = []
+                    for kind, caption in (("continuous", "Continuous"), ("end_hold", "End hold")):
+                        v = g.get("formal_seam", {}).get(arm, {}).get(kind, {})
+                        if v.get("episode_count"):
+                            parts.append(
+                                f"{number(v[stat])}<small>{caption} · n={v['episode_count']}"
+                                f" · b={v['boundary_count']}</small>"
+                            )
+                    values[f"{prefix}-{label}"] = "<br>".join(parts) or "—"
             for key in ("H-Score", "H-SR"):
                 scores = []
                 for mode, name in (("live", "Live"), ("video", "Video")):
@@ -186,26 +201,26 @@ def experiment_table(rows):
     )
     return (
         '<div class="table-scroll experiment-matrix"><table><thead><tr>'
-        "<th>Method</th>"
-        + headers
-        + "</tr></thead><tbody>"
-        + rows
-        + "</tbody></table></div>"
+        "<th>Method</th>" + headers + "</tr></thead><tbody>" + rows + "</tbody></table></div>"
     )
 
 
-def outcome_plots(report, figures):
+def outcome_plots(report, figures, *, seams_only=False):
     """Per-attempt dots with a mean line; no zero-filled missing measurements."""
     output = []
     for metric, title in (
         ("time", "Successful completion time / s"),
         ("nldlj", "NLDLJ ↓"),
         ("nsparc", "NSPARC ↓"),
+        ("seam_left_arm", "Left reference seam / mm"),
+        ("seam_right_arm", "Right reference seam / mm"),
     ):
+        if metric.startswith("seam_") != seams_only:
+            continue
         series = []
         for group in report["groups"]:
             rows = [r for r in report["episodes"] if r["setting_id"] == group["setting_id"]]
-            label = f"{group['model']} / {method_label(group['method'])} · {group['setting_id']}"
+            label = f"{group['model']} / {method_label(group['method'])}"
             if metric == "time":
                 for mode in ("live", "video"):
                     values = [
@@ -216,6 +231,20 @@ def outcome_plots(report, figures):
                     ]
                     if values:
                         series.append((f"{label} / {mode}", values))
+            elif metric.startswith("seam_"):
+                arm = metric.removeprefix("seam_")
+                for kind in ("continuous", "end_hold"):
+                    values = [
+                        r["formal_seam"]["summary"][arm][kind]["mean"]
+                        for r in rows
+                        if r.get("formal_seam", {})
+                        .get("summary", {})
+                        .get(arm, {})
+                        .get(kind, {})
+                        .get("n")
+                    ]
+                    if values:
+                        series.append((f"{label} / {kind}", values))
             elif group.get("smoothness", {}).get(metric, {}).get("n"):
                 values = [
                     r["smoothness"][metric]["value"]
@@ -263,13 +292,18 @@ def outcome_plots(report, figures):
             )
         svg.append("</svg>")
         content = "".join(svg)
+        if report.get("language") == "zh-CN":
+            content = localize_html(content)
         filename = f"outcome-{metric}.svg"
         (figures / filename).write_text(content, encoding="utf-8")
         output.append(
             f'<figure>{content}<figcaption><a href="figures/{filename}">{esc(title)}</a>'
             " · Points are rollouts; vertical lines are means.</figcaption></figure>"
         )
-    return "".join(output) or '<p class="empty-state">No completion-time or smoothness values available.</p>'
+    return (
+        "".join(output)
+        or '<p class="empty-state">No completion-time or smoothness values available.</p>'
+    )
 
 
 def scope_figure(row, figures):
@@ -277,11 +311,12 @@ def scope_figure(row, figures):
     if scope.get("status") != "available":
         return ""
     encoded = base64.b64encode((figures / scope["filename"]).read_bytes()).decode("ascii")
+    caption = scope.get("caption", "First front frame with the demonstration manipulation scope.")
     return (
         '<figure class="seam-figure">'
         f'<a href="figures/{esc(scope["filename"])}" target="_blank" rel="noopener">'
         f'<img src="data:image/jpeg;base64,{encoded}" alt="manipulation scope"></a>'
-        "<figcaption>First front frame with the training data's manipulation scope."
+        f"<figcaption>{esc(caption)}"
         "</figcaption></figure>"
     )
 
@@ -289,6 +324,12 @@ def scope_figure(row, figures):
 def render_report(report: dict, figures: Path) -> str:
     groups = report["groups"]
     episodes = report["episodes"]
+    scope_gallery, seen_profiles = [], set()
+    for row in episodes:
+        scope = row.get("manipulation_scope", {})
+        if scope.get("status") == "available" and scope.get("profile") not in seen_profiles:
+            seen_profiles.add(scope.get("profile"))
+            scope_gallery.append(scope_figure(row, figures))
     metric_rows = []
     progress = []
     details = []
@@ -371,6 +412,8 @@ def render_report(report: dict, figures: Path) -> str:
                 ]
                 series.append({"label": f"{g['setting_id']} · {arm_label}", "points": points})
         svg = line_chart(series, title=title, ylabel=ylabel, cosine=cosine)
+        if svg and report.get("language") == "zh-CN":
+            svg = localize_html(svg)
         if svg:
             (figures / filename).write_text(svg, encoding="utf-8")
             plots.append(
@@ -394,7 +437,8 @@ def render_report(report: dict, figures: Path) -> str:
                 f"<figcaption>{esc(label)}<br>"
                 f"Left arm {figure['left_position_seam_mm']:.2f} mm · "
                 f"Right arm {figure['right_position_seam_mm']:.2f} mm. "
-                "Candidate reference seam: blue is the old plan, red is the new plan, and black marks the switch time."
+                "Candidate reference seam: blue is the old plan, red is the new plan, "
+                "and black marks the switch time."
                 "</figcaption></figure>"
             )
         h = row["human"]
@@ -428,7 +472,8 @@ def render_report(report: dict, figures: Path) -> str:
             + (f'<p class="warning">{esc("; ".join(notes))}</p>' if notes else "")
             + scope_figure(row, figures)
             + f'<p class="caption">Matching fields: {binding_text}</p>'
-            + f'<p class="caption path">Trajectory source: {esc(o.get("source") or "Not provided")}</p>'
+            + '<p class="caption path">Trajectory source: '
+            + f"{esc(o.get('source') or 'Not provided')}</p>"
             + "<details><summary>Completion-time / smoothness details</summary><pre>"
             + esc(
                 json.dumps(
@@ -441,8 +486,9 @@ def render_report(report: dict, figures: Path) -> str:
                 )
             )
             + "</pre></details>"
-            + '<p class="caption">Formal seams: actual execution-boundary filtering is not integrated; '
-            "PRM: matching profile/case import is not integrated.</p></details>"
+            + "<details><summary>Execution-qualified seam details</summary><pre>"
+            + esc(json.dumps(row.get("formal_seam", {}), ensure_ascii=False, indent=2))
+            + "</pre></details></details>"
         )
     total = sum(g["attempts"] for g in groups)
     tokens = {
@@ -453,12 +499,25 @@ def render_report(report: dict, figures: Path) -> str:
         "GENERATED": esc(report["generated_at"]),
         "OUTPUT": esc(report["output_dir"]),
         "REPORT_ID": esc(report["report_id"]),
-        "SEAM_FIGURES": "".join(seam_figures) or '<p class="empty-state">No matching seam plots available.</p>',
-        "METRIC_ROWS": "".join(metric_rows) or '<tr><td colspan="9">No trajectory metrics available.</td></tr>',
+        "SCOPE_GALLERY": (
+            '<section id="manipulation-scope"><h2>Manipulation coverage</h2>'
+            '<div class="seam-gallery">' + "".join(scope_gallery) + "</div></section>"
+            if scope_gallery
+            else ""
+        ),
+        "SEAM_SUMMARY_PLOTS": outcome_plots(report, figures, seams_only=True),
+        "SEAM_FIGURES": "".join(seam_figures)
+        or '<p class="empty-state">No matching seam plots available.</p>',
+        "METRIC_ROWS": "".join(metric_rows)
+        or '<tr><td colspan="9">No trajectory metrics available.</td></tr>',
         "PROGRESS": "".join(progress)
-        or '<p class="empty-state">Task registered; model/method settings still need to be bound.</p>',
+        or (
+            '<p class="empty-state">Task registered; '
+            "model/method settings still need to be bound.</p>"
+        ),
         "FIGURES": "".join(plots) or '<p class="empty-state">No similarity plots available.</p>',
-        "ATTEMPTS": "".join(details) or '<p class="empty-state">No evaluation records available.</p>',
+        "ATTEMPTS": "".join(details)
+        or '<p class="empty-state">No evaluation records available.</p>',
         "STATUS": "Partial results" if total else "Pending evaluation",
         "DATA": json.dumps(report, ensure_ascii=False, allow_nan=False)
         .replace("<", "\\u003c")
@@ -466,4 +525,5 @@ def render_report(report: dict, figures: Path) -> str:
         .replace("&", "\\u0026"),
     }
     template = Path(__file__).with_name("report_template.html").read_text(encoding="utf-8")
-    return re.sub(r"@@([A-Z_]+)@@", lambda match: tokens[match[1]], template)
+    document = re.sub(r"@@([A-Z_]+)@@", lambda match: tokens[match[1]], template)
+    return localize_html(document) if report.get("language") == "zh-CN" else document

@@ -119,9 +119,13 @@ class TargetZBias:
         self.full_below_m = float(options.get("full_below_m", 0.08))
         self.zero_above_m = float(options.get("zero_above_m", 0.15))
         self.min_height_m = float(options.get("min_height_m", 0.015))
-        values = (self.offset_m, self.table_z_m, self.full_below_m, self.zero_above_m, self.min_height_m)
+        values = (
+            self.offset_m, self.table_z_m, self.full_below_m, self.zero_above_m, self.min_height_m
+        )
         if not np.isfinite(values).all() or not 0 <= self.full_below_m < self.zero_above_m:
-            raise ValueError("target_z_bias needs finite values and 0 <= full_below_m < zero_above_m")
+            raise ValueError(
+                "target_z_bias needs finite values and 0 <= full_below_m < zero_above_m"
+            )
         # Keep the map strictly increasing so the RTC condition can be inverted.
         if abs(self.offset_m) >= self.zero_above_m - self.full_below_m:
             raise ValueError("|target_z_bias.offset_m| must be below zero_above_m - full_below_m")
@@ -222,6 +226,10 @@ class SAPolicyYamAdapter(PolicyAdapter):
         from manimux.kinematics import build_kinematics
 
         self._group_order = tuple(policy["adapter"].get("group_order", DEFAULT_GROUP_ORDER))
+        seed_source = policy["adapter"].get("ik_seed_source", "runtime")
+        if seed_source not in {"runtime", "previous_plan"}:
+            raise ValueError("SAPolicy ik_seed_source must be runtime or previous_plan")
+        self.uses_decode_reference = seed_source == "previous_plan"
         self._horizon_steps = policy["horizon_policy_steps"]
         self.action_space = policy["adapter"].get("action_space", "joint_position")
         if self.action_space != "joint_position":
@@ -462,6 +470,17 @@ class SAPolicyYamAdapter(PolicyAdapter):
                 seed_state = np.asarray(selected, dtype=np.float64)
                 if seed_state.shape != (GROUP_DIM,) or not np.isfinite(seed_state).all():
                     raise ValueError(f"SAPolicy IK seed group {group!r} is invalid")
+            seed_source = "runtime"
+            reference = context.decode_reference if self.uses_decode_reference else None
+            if reference is not None:
+                position = (context.observation_time_ns + offset*self._action_dt_ns
+                            - reference.start_time_ns) / reference.dt_ns
+                rows = reference.groups[group]
+                if 0 <= position <= len(rows)-1:
+                    lower = int(np.floor(position))
+                    upper = min(lower+1, len(rows)-1)
+                    seed_state = (1-(position-lower))*rows[lower] + (position-lower)*rows[upper]
+                    seed_source = "previous_plan"
             assert seed_state is not None
             if context.independent_groups:
                 groups[group], failed_at = self._solve_arm_bounded(
@@ -474,6 +493,7 @@ class SAPolicyYamAdapter(PolicyAdapter):
                 )
                 if failed_at is not None:
                     hold_from_step[group] = failed_at
+                ik_diagnostics[group]["seed_source"] = seed_source
                 continue
             groups[group] = self._solve_arm(
                 group,
@@ -482,6 +502,7 @@ class SAPolicyYamAdapter(PolicyAdapter):
                 diagnostics=ik_diagnostics,
             )
 
+            ik_diagnostics[group]["seed_source"] = seed_source
         return ActionChunk(
             plan_id=f"sapolicy-{context.request_seq}-{uuid.uuid4().hex[:8]}",
             request_seq=context.request_seq,

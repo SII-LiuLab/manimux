@@ -202,11 +202,12 @@ class DefaultChunkStrategy:
         measured: GroupVector,
         last_command: GroupVector,
     ) -> CommitSettings:
-        del response, last_command
+        del response
+        command_blend = self._config["inference"].get("blend_mode") == "command_cubic"
         return CommitSettings(
-            current_command=copy_group_vector(measured),
+            current_command=copy_group_vector(last_command if command_blend else measured),
             blend_steps=self._config["inference"]["blend_policy_steps"],
-            anchor_source="measured_state",
+            anchor_source="last_command" if command_blend else "measured_state",
         )
 
     def decode_handoff(self, *, response: InferenceResponse) -> bool:

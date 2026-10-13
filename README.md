@@ -15,7 +15,7 @@ and a runtime designed for **100–200 Hz command execution**.
 [![Demo video](https://img.shields.io/badge/Demo-Watch%20video-EF4444?style=flat-square)](https://sii-liulab.github.io/manimux/#manimux)
 [![Agent skills](https://img.shields.io/badge/Develop-Agent%20skills-8B5CF6?style=flat-square)](.agents/skills/manimux-development/SKILL.md)
 
-[![Policy recipes: 13](https://img.shields.io/badge/Policy%20recipes-13-F59E0B?style=flat-square)](#included-integrations)
+[![Policy recipes: 14](https://img.shields.io/badge/Policy%20recipes-14-F59E0B?style=flat-square)](#included-integrations)
 [![Inference modes: 8](https://img.shields.io/badge/Inference%20modes-8-EC4899?style=flat-square)](#included-integrations)
 [![Embodiments: 4](https://img.shields.io/badge/Embodiments-4-06B6D4?style=flat-square)](#included-integrations)
 [![Actively maintained](https://img.shields.io/badge/Status-Actively%20maintained-14B8A6?style=flat-square)](https://github.com/SII-LiuLab/manimux/commits/main/)
@@ -30,6 +30,9 @@ and a runtime designed for **100–200 Hz command execution**.
 
 ## News
 
+- **2026-10-13** — Added [execution-qualified evaluation](guideline.html#report-metric-definitions): chunk handoff jumps, 10/20/30-step overlap and segmented reference smoothness, with versioned offline HTML reports.
+- **2026-10-12** — Added [task and method switching](guideline.html#experiment-lists) from a config list, template-driven partial scores and explicit warmup controls.
+
 - **2026-10-02** — Added [ALOHA-AgileX](.agents/skills/manimux-station-setup/references/aloha.md) and [PiPER](.agents/skills/manimux-station-setup/references/piper.md) RoboGUI demos, plus experimental [ARX X5 / PiPER controllers](.agents/skills/manimux-station-setup/references/can-arms.md). Hardware validation is pending.
 - **2026-10-01** — The [ManiMux Guide](https://sii-liulab.github.io/manimux/) is live, covering setup, deployment, RoboGUI and integration protocols.
 - **2026-10-01** — Updated [research workflows](guideline.html#experiments) and [agent integration guides](.agents/skills/manimux-development/references/README.md) for free exploration, study templates and component development.
@@ -40,8 +43,9 @@ and a runtime designed for **100–200 Hz command execution**.
 
 [▶ Watch the real-robot demo](assets/manimux_2026-09-05_23-17-35-00.00.03.144-00.00.34.914-seg1-00.00.02.596-00.00.34.966.mp4)
 
-**Prepare → Start → Pause / Finish → Review.** Free rollouts need no scoring.
-Study rollouts can use a template and optional evaluation. Recorded trajectories replay
+**Prepare Run / Prepare Experiment → Activate Warmup → Start → Finish → Score.**
+Warmup is shown when configured. Free runs need no scoring; experiments read their
+score options from a YAML rubric. Recorded trajectories replay
 in a separate, hardware-free view. [Research workflow →](guideline.html#experiments)
 
 ## Included integrations
@@ -171,6 +175,41 @@ Upgrading an existing checkout? See the [RoboGUI interface migration](guideline.
 as configured; use the runbook matching your actual setup.
 
 [Configuration explained](manimux/configs/README.md) · [Annotated experiment](manimux/configs/examples/README.md)
+
+## Run an experiment campaign
+
+A config list exposes **Task → Method / Config → Layout** in RoboGUI. Switch while
+idle after finishing recovery and evaluation; compatible entries reuse the camera
+and model services. `serve` does not start those services for you.
+
+```bash
+# From the repository root, after starting cameras, RoboGUI and the matching model:
+envs/yam/.venv/bin/python -m manimux serve \
+  --config-list manimux/configs/experiment_lists/yam_pi05_latest300ep.yaml
+```
+
+The current list has **five tasks × six methods**: coin, medium blocks, bottles,
+rotating clock and moving cube; Serial, Async, RTC, AutoHorizon, PAINT and
+backward-only BID. All entries use Direct. Checkpoint paths are deployment-specific.
+[Complete launch commands](guideline.html#latest300ep-launch) ·
+[Rubrics and partial scores](guideline.html#experiments)
+
+Records go to `<run.output_dir>/session-…/rollout-…/`. Runtime completion and human
+task success are separate. A report index selects exact checkpoints/settings and
+recorded episodes; it is separate from the runtime scoring rubric.
+
+```bash
+envs/yam/.venv/bin/python -m manimux.evaluation \
+  --task-dir data/evaluation_tasks/coin
+```
+
+Create that directory's `task.yaml` using the [report example](guideline.html#reports).
+Each run writes a new HTML bundle and prints its absolute path. Reports include
+human scores, execution-qualified handoff plots, reference smoothness and
+10/20/30-step overlap where supported by the recording. Completion time needs an
+annotation; PRM needs a separate judge run. Use `language: zh-CN` for Chinese reports.
+[Metric definitions and aggregation](guideline.html#report-metric-definitions) ·
+[Saved files](guideline.html#records)
 
 ## Integrate
 

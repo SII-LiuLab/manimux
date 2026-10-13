@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import copy
 import math
+from collections import deque
 from dataclasses import dataclass
 
 import numpy as np
@@ -119,6 +121,9 @@ class SmoothExecutor:
         # Pause and Home start unlatched, independently of measured aperture.
         latched = self._gripper_closed if preserve_gripper_latch and self.uses_close_latch else {}
         closed_since = self._gripper_closed_since_ns
+        self._command_history = deque(
+            [(state.monotonic_ns, copy_group_vector(state.groups))], maxlen=32
+        )
         self._previous = copy_group_vector(state.groups)
         self._previous_velocity = {
             name: np.zeros_like(value) for name, value in state.groups.items()
@@ -482,6 +487,46 @@ class SmoothExecutor:
             observation_time_ns=reference.observation_time_ns,
         )
 
+    def predict_commands(self, *, timeline, origin_ns, dt_ns, steps, group_order, now_ns):
+        """Forecast held-plan commands without mutating the live filter.
+
+        Uses recent issued commands before the forecast origin and the same
+        nominal control cadence/step implementation afterwards. Feedback-driven
+        gripper guards cannot be forecast and are explicitly unsupported.
+        """
+        if (self._release_guard is not None or self._grasp_guard is not None
+                or (self._gripper is not None and not self.uses_continuous_gripper)):
+            raise ValueError(
+                "command prediction requires a stateless continuous gripper without guards"
+            )
+        if self._previous is None:
+            return np.zeros(steps, dtype=bool), None
+        clone = copy.deepcopy(self)
+        history = list(self._command_history)
+        control_ns = round(self._dt_s * 1e9)
+        end_ns = origin_ns + (steps-1)*dt_ns
+        tick_ns = max(now_ns, history[-1][0] + control_ns)
+        while history[-1][0] < end_ns:
+            reference = timeline.reference_horizon(
+                now_ns=tick_ns, dt_ns=control_ns, horizon_steps=clone.horizon_steps,
+            )
+            if reference is None:
+                break
+            command = clone.step(tick_ns, RobotState(clone._previous, tick_ns, 0), reference)
+            history.append((tick_ns, command.groups))
+            tick_ns += control_ns
+        times = np.asarray([entry[0] for entry in history], dtype=np.int64)
+        targets = origin_ns + np.arange(steps, dtype=np.int64)*dt_ns
+        valid = (targets >= times[0]) & (targets <= times[-1])
+        rows = np.zeros((steps, sum(len(self._previous[name]) for name in group_order)))
+        packed = np.stack([np.concatenate([q[name] for name in group_order]) for _, q in history])
+        for column in range(rows.shape[1]):
+            # Subtract epoch before interpolation to preserve sub-tick precision.
+            rows[valid, column] = np.interp(
+                targets[valid]-times[0], times-times[0], packed[:, column]
+            )
+        return valid, rows
+
     def step(
         self,
         now_ns: int,
@@ -579,6 +624,7 @@ class SmoothExecutor:
             )
             output[name] = self._previous[name] + velocities[name] * self._dt_s
         self._shape_grippers(now_ns, reference, output, velocities, state)
+        self._command_history.append((now_ns, copy_group_vector(output)))
         self._previous = copy_group_vector(output)
         self._previous_velocity = copy_group_vector(velocities)
         return RobotCommand(groups=output, monotonic_ns=now_ns, plan_id=reference.plan_id)
@@ -670,7 +716,7 @@ def gripper_hysteresis_parameters(**options) -> dict:
 
 
 def gripper_release_guard_parameters(**options) -> dict:
-    """Preserve pose tolerances and timeout before release; only executors enabling this guard use them."""
+    """Preserve pose tolerances and timeout for executors enabling the release guard."""
 
     values = {
         "mode": "latched_release",

@@ -12,7 +12,7 @@ rtc:
   # RTC E2E latency includes observation age, request preparation, transport and decoding.
   delay_buffer_size: 10
   # RTC guidance-strength cap in the sampler; not a timing or motor-control gain.
-  beta: 5.0
+  beta: 10
 # Reject a returned plan older than 2 s from its observation timestamp at commit.
 max_plan_age_s: 2.0
 # Extra linear blending of the new chunk's first N points; 0 disables this layer.

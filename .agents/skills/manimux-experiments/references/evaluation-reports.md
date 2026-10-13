@@ -22,6 +22,9 @@ Pass multiple task directories after `--task-dir` to produce separate reports.
 The command prints the absolute HTML path for every completed task. Subsequent
 runs publish a new version; they never overwrite a previous report.
 Each task has its own table; no cross-task aggregate table is generated.
+Set `language: zh-CN` in `task.yaml` for Chinese report text and SVG labels.
+Metric identifiers, embedded evidence JSON, file paths and raw code fields remain
+unchanged. Scope-image labels and captions come from the selected scope profile.
 
 ## Task index
 
@@ -79,6 +82,12 @@ for the same path. Duplicate paths within a setting count once; mapping an episo
 to two settings is an error. Separate attempts with the same layout/repeat remain
 visible and are not silently selected or discarded. Roots and all episode inputs
 must be outside the report output tree.
+
+`manipulation_scope` may be set per group, overriding the task-wide profile.
+Use separate inference point profiles for different methods; never render RTC
+events as Serial coverage. The report shows each profile once in the main gallery
+and again over each attempt's first frame. Profiles retain their source kind,
+caption and camera/points/reference hashes in the report provenance.
 
 Optional `handoff_summary` and `handoff_images` attach selected existing plotter
 PNGs to an episode. Each filename must match exactly one summary row. The report
@@ -159,20 +168,26 @@ connect hardware. Select the assembly/tool matching the recording. Source paths
 resolve relative to the task file. Re-run the usual report command; no separate
 metric service or raw-record modification is needed.
 
-The `scheduled-eef-smoothness-v1` profile reads `ticks/scheduled`, the timeline
-reference before executor filtering, not raw model candidates, SDK/CAN commands
-or measured `state`. It linearly resamples recorded joint references on a common
-30 Hz grid, then uses the assembly FK to obtain each EEF position and orientation.
-The window spans the first through last recorded RUNNING tick, including ordinary
-holds. It is not automatically cropped at the human success timestamp. Use the
-same stop protocol across methods. A pause/Home event inside the window or a tick
-gap above the configured threshold makes the metric unavailable; the implementation
-does not interpolate through such a break or pick a favorable segment.
+The `scheduled-eef-smoothness-v2` profile uses committed plans and execution ticks.
+It reads `ticks/scheduled` during active plans. After plan expiry, some recordings
+put measured state in `scheduled`; only a verified constant recorded `ticks/command`
+is used for that hold interval. Raw files are never rewritten. References are
+resampled at the configured rate before assembly FK.
+
+Pause/reset events, missing or unknown plan IDs, timestamps before committed start,
+unverified holds and long tick gaps split or exclude intervals. Compute every segment
+long enough for the metric (at least nine resampled poses), without bridging breaks.
+Weight segment results by duration within each active channel, then weight channels
+and episodes equally. Segment identities, excluded intervals, corrected hold ticks
+and full recorded tick span remain in episode JSON. No segment is selected for a
+favorable score and the window is not cropped at inferred task success.
+Legacy records without committed plans retain the strict v1 calculation and must
+not be aggregated with v2 profiles.
 
 - **NLDLJ ↓**: `ln(T³ * integral(||jerk||² dt) / peak_speed²)`. Translation uses
   finite differences of XYZ; rotation uses spatial SO(3) increments. Four-pose
   jerk stencils that cross plan changes or ambiguous cross-plan interpolation
-  samples are excluded. Duration and peak speed refer to the full window.
+  samples are excluded. Duration and peak speed refer to each uninterrupted segment.
   Retained/excluded stencil counts are exported. A separate seam metric still
   matters because this measure excludes the connection itself.
 - **NSPARC ↓**: positive spectral arc length of linear/angular speed magnitude,
@@ -218,15 +233,16 @@ with the experiment for reproducibility. No timing labels are inferred for old e
   metadata hashes, metric schema and numeric fields. Different metric definitions,
   windows, action intervals, FK configuration hashes or implementation hashes within
   a setting are excluded from aggregate curves.
-- At each window, use the source's common valid boundary set across all requested
-  windows, then average per-episode means with equal episode weights. Left/right
-  arms remain separate. Cosine has its own denominator because stationary motion
-  has no defined direction. Per-window counts and reasons remain in the episode
-  data. Missing metrics are never converted to zeros.
-- These are committed-reference candidate diagnostics, not measured robot motion
-  or certified executed handoffs. Formal seam qualification and matched PRM case
-  import remain separate unfinished steps. No formal seam/PRM scores are invented.
-  Import does not recompute Zarr arrays or establish historical FK equivalence.
+- With execution evidence, `seams.py` recomputes committed-reference jumps and
+  future-window similarity from executed owner transitions. Continuous and end-hold
+  boundaries remain separate. Each 10/20/30-step window has its own complete-coverage
+  sample set; no endpoint padding. Average episode means equally. Serial hold restarts
+  can have a seam value without a future overlap window. Cosine excludes stationary
+  pairs. The common-window candidate summary remains separately under `candidate_overlap`.
+- Without execution evidence, imported artifacts remain candidate diagnostics with
+  their original common-window cohort. These metrics describe references, not actual
+  physical motion. PRM results remain separately pending.
+
 
 The initial local report inventory covers `put_bottles`, `coin`, `stack_blocks`,
 `stack_blocks_small`, `assemble_screwdriver`, `pass_ball` and `redball`. Only the

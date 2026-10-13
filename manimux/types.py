@@ -114,6 +114,8 @@ class ActionContext:
     independent_groups: bool = False
     # Outgoing runtime rows around execution_time_ns for a waypoint handoff.
     handoff_reference: ActionHorizon | None = None
+    # Timestamped accepted joint trajectory; independent of measured model input.
+    decode_reference: ActionHorizon | None = None
 
 
 @dataclass(slots=True)

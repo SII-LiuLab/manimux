@@ -41,6 +41,8 @@ class RtcInferenceStrategy:
         rtc = config["inference"]["rtc"]
         self._group_order = tuple(config["robot"]["group_dims"])
         self._rtc_beta = float(rtc["beta"])
+        self._condition_source = rtc.get("condition_source", "canonical")
+        self._condition_predictor = None
         self._min_execute_steps = rtc["min_execute_policy_steps"]
         initial_delay = rtc["initial_delay_policy_steps"]
         self._initial_delay_steps = None if initial_delay is None else int(initial_delay)
@@ -59,6 +61,10 @@ class RtcInferenceStrategy:
         self._loop_ms: list[float]
         self._last_report_step: int
         self.reset()
+
+    def set_condition_predictor(self, predictor) -> None:
+        """Runtime injects an executor-owned, non-mutating command forecast."""
+        self._condition_predictor = predictor
 
     @property
     def name(self) -> str:
@@ -196,16 +202,24 @@ class RtcInferenceStrategy:
                         delay_steps=delay,
                     )
                     forecast_used = delay
-                    if (self._config["inference"].get("temporal_ensemble") or {}).get(
+                    ensemble = (self._config["inference"].get("temporal_ensemble") or {}).get(
                         "enabled", False,
-                    ):
+                    )
+                    if self._condition_source != "canonical" or ensemble:
                         # ACT compositions condition the accepted fused timeline on
                         # the new observation grid, including fractional intervals.
-                        valid, condition = sample_reference(
-                            timeline, origin_ns=snapshot.state.monotonic_ns,
+                        arguments = dict(origin_ns=snapshot.state.monotonic_ns,
                             dt_ns=int(action_interval(self._config["policy"]) * 1e9),
-                            steps=horizon, group_order=self._group_order,
-                        )
+                            steps=horizon, group_order=self._group_order)
+                        if self._condition_source == "executor":
+                            if self._condition_predictor is None:
+                                raise RuntimeError(
+                                    "RTC executor condition requires a command predictor"
+                                )
+                            valid, condition = self._condition_predictor(
+                                timeline=timeline, now_ns=now_ns, **arguments)
+                        else:
+                            valid, condition = sample_reference(timeline, **arguments)
                         if condition is None or not valid[:delay].all():
                             condition = weights = None
                             forecast_used = 0
@@ -239,6 +253,7 @@ class RtcInferenceStrategy:
                 "executed_steps": executed,
                 "forecast_delay": forecast_used,
                 "conditioned": condition is not None,
+                "condition_source": self._condition_source,
                 "condition_handoff_skip_steps": 0,
             },
         )
@@ -403,6 +418,9 @@ def rtc_parameters(**options) -> dict:
         "initial_delay_policy_steps": 4,
         "delay_buffer_size": 10,
         "beta": 5.0,
+        "condition_source": "canonical",
         **options,
     }
+    if values["condition_source"] not in {"canonical", "timeline", "executor"}:
+        raise ValueError("rtc.condition_source must be canonical, timeline, or executor")
     return values

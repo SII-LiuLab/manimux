@@ -23,6 +23,7 @@ HARDWARE_VERIFIED_VARIANTS = {
 }
 YAM_FINETUNED_VARIANTS = HARDWARE_VERIFIED_VARIANTS | {
     "pi05_yam_mixed300ep_step30000",
+    "pi05_yam_latest300ep_step30000",
     "pi05_yam_put_bottles_joint_ee_step_30000_eef",
     "pi05_yam_assemble_screwdriver_step_15000",
     "pi05_yam_put_bottles_joint_step_30000",

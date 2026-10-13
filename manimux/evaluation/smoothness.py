@@ -145,6 +145,16 @@ def analyze_episode(episode: Path, profile, models):
     ids = np.asarray(ticks["plan_id"][:]).astype(str)
     if len(times) < 9 or ids.shape != times.shape or np.any(np.diff(times) <= 0):
         raise ValueError("missing_or_nonmonotonic_ticks")
+    # RUNNING ticks include the initial wait before the first accepted plan.
+    # Exclude that leading hold only; never bridge missing identity mid-rollout.
+    recorded_count = len(times)
+    active = np.flatnonzero(ids != "")
+    if not len(active):
+        raise ValueError("missing_tick_plan_identity")
+    start = int(active[0])
+    times, ids = times[start:], ids[start:]
+    if len(times) < 9:
+        raise ValueError("too_short_for_smoothness")
     if np.max(np.diff(times)) / 1e9 > profile["max_gap_s"]:
         raise ValueError("running_tick_gap_or_pause")
     if np.any(ids == ""):
@@ -159,8 +169,9 @@ def analyze_episode(episode: Path, profile, models):
                 and times[0] < event.get("monotonic_ns", -1) < times[-1]
             ):
                 raise ValueError("pause_inside_recorded_window")
-            if event.get("kind") == "robogui_home_requested" and 0 < event.get("step", 0) < len(
-                times
+            if (
+                event.get("kind") == "robogui_home_requested"
+                and start < event.get("step", 0) < recorded_count
             ):
                 raise ValueError("home_inside_recorded_window")
     dt = 1 / profile["sample_hz"]
@@ -177,7 +188,10 @@ def analyze_episode(episode: Path, profile, models):
     components = {}
     for group, model in models.items():
         q = np.asarray(ticks["scheduled"][group][:], dtype=float)
-        if q.ndim != 2 or len(q) != len(t) or not np.isfinite(q).all():
+        if q.ndim != 2 or len(q) != recorded_count:
+            raise ValueError(f"invalid_scheduled_reference:{group}")
+        q = q[start:]
+        if not np.isfinite(q).all():
             raise ValueError(f"invalid_scheduled_reference:{group}")
         digest.update(group.encode() + str(q.shape).encode() + q.tobytes())
         sampled = np.column_stack([np.interp(grid, t, col) for col in q.T])
@@ -209,7 +223,118 @@ def analyze_episode(episode: Path, profile, models):
         ).hexdigest(),
         "input_sha256": digest.hexdigest(),
         "duration_s": float(grid[-1]),
+        "excluded_leading_wait_ticks": start,
+        "analysis_start_monotonic_ns": int(times[0]),
         "sample_count": len(grid),
         "components": components,
         **values,
     }
+
+
+def analyze_execution(evidence, profile, models):
+    """Duration-weight segments inside an episode; never differentiate over resets."""
+    from collections import Counter
+
+    from manimux.evaluation.execution import segments
+
+    dt = 1 / profile["sample_hz"]
+    segment_rows = []
+    for start, stop in segments(evidence):
+        times = evidence["times"][start:stop]
+        row = dict(
+            start_tick=start,
+            stop_tick_exclusive=stop,
+            start_ns=int(times[0]),
+            end_ns=int(times[-1]),
+            status="excluded",
+            reason="too_short_for_smoothness",
+        )
+        segment_rows.append(row)
+        t = (times - times[0]) / 1e9
+        grid = np.arange(int(np.floor(t[-1] / dt)) + 1) * dt
+        if len(grid) < 9:
+            continue
+        ids = evidence["ids"][start:stop]
+        lower = np.clip(np.searchsorted(t, grid, side="right") - 1, 0, len(t) - 1)
+        upper = np.minimum(lower + 1, len(t) - 1)
+        grid_ids = ids[lower].astype(object)
+        for i in np.flatnonzero((ids[lower] != ids[upper]) & (grid != t[lower])):
+            grid_ids[i] = ("boundary", int(i))
+        components = {}
+        for group, model in models.items():
+            q = evidence["references"][group][start:stop]
+            sampled = np.column_stack([np.interp(grid, t, col) for col in q.T])
+            poses = np.asarray([model.fk(v) for v in sampled])
+            components[group] = pose_metrics(
+                poses, dt, grid_ids, cutoff_hz=profile["cutoff_hz"], threshold=profile["threshold"]
+            )
+        row.update(
+            status="available",
+            reason=None,
+            duration_s=float(grid[-1]),
+            sample_count=len(grid),
+            components=components,
+        )
+    valid = [r for r in segment_rows if r["status"] == "available"]
+    if not valid:
+        raise ValueError("no_valid_execution_segment")
+    components = {}
+    for group in models:
+        components[group] = {}
+        for channel in ("linear", "angular"):
+            active = [
+                (s, s["components"][group][channel])
+                for s in valid
+                if s["components"][group][channel]["reason"] != "stationary"
+            ]
+            component = dict(reason=None if active else "stationary")
+            for metric in ("nldlj", "nsparc"):
+                component[metric] = (
+                    float(
+                        np.average(
+                            [v[metric] for s, v in active],
+                            weights=[s["duration_s"] for s, v in active],
+                        )
+                    )
+                    if active and all(v[metric] is not None for s, v in active)
+                    else None
+                )
+            components[group][channel] = component
+    values = {}
+    for metric in ("nldlj", "nsparc"):
+        active = {
+            f"{g}/{c}": v[metric]
+            for g, cs in components.items()
+            for c, v in cs.items()
+            if v["reason"] != "stationary"
+        }
+        values[metric] = dict(
+            value=float(np.mean(list(active.values())))
+            if active and all(v is not None for v in active.values())
+            else None,
+            channels=sorted(active),
+        )
+    profile = profile | {
+        "schema": "scheduled-eef-smoothness-v2",
+        "source": "ticks/scheduled; verified expired-plan holds use ticks/command",
+        "window": "all valid execution segments; split pauses, missing identities and long gaps",
+        "aggregation": (
+            "duration-weight segments per channel; equal active channels; equal episodes"
+        ),
+    }
+    return dict(
+        status="available",
+        reason=None,
+        profile=profile,
+        profile_signature=hashlib.sha256(json.dumps(profile, sort_keys=True).encode()).hexdigest(),
+        input_sha256=evidence["input_sha256"],
+        segments=segment_rows,
+        segment_count=len(valid),
+        components=components,
+        duration_s=sum(r["duration_s"] for r in valid),
+        sample_count=sum(r["sample_count"] for r in valid),
+        recorded_tick_span_s=float((evidence["times"][-1] - evidence["times"][0]) / 1e9),
+        corrected_hold_ticks=int(evidence["corrected"].sum()),
+        excluded_ticks=dict(Counter(str(x) for x in evidence["reasons"] if x)),
+        **values,
+    )

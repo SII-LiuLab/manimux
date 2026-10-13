@@ -136,6 +136,7 @@ def inference_parameters(*, executor: dict, **options) -> dict:
         "handoff_skip_steps": 0,
         "max_plan_age_s": 1.0,
         "blend_policy_steps": 2,
+        "blend_mode": "linear",
         "action_start_mode": "drop_infer_latency",
         # Chunk handoff: blend joints at commit, or an adapter EE waypoint before dense IK.
         "handoff": "blend",
@@ -252,6 +253,22 @@ def validate_runtime_parameters(config: dict) -> None:
         and config["policy"]["action_decoding"] != "process"
     ):
         raise ValueError("inference.expected_decode_s requires process action decoding")
+    if (config["inference"].get("rtc") or {}).get("condition_source") == "executor":
+        smooth = config["executor"].get("smooth") or {}
+        gripper = smooth.get("gripper")
+        if (config["inference"]["algorithm"] != "rtc"
+                or (config["inference"].get("temporal_ensemble") or {}).get("enabled")
+                or config["executor"]["type"] != "smooth"
+                or smooth.get("release_guard") or smooth.get("grasp_guard")
+                or (gripper and gripper["mode"] not in {"continuous", "curve"})):
+            raise ValueError(
+                "RTC executor conditions require standalone RTC and smooth without gripper guards"
+            )
+    if (
+        (config["inference"].get("rtc") or {}).get("condition_source", "canonical") != "canonical"
+        and config["inference"]["handoff_skip_steps"]
+    ):
+        raise ValueError("timeline/executor RTC conditions do not support handoff row skipping")
     # A positive expected_decode_s already implies process decoding, checked above.
     if (
         config["inference"]["decode_forecast_size"]
@@ -388,6 +405,20 @@ def validate_inference_parameters(values: dict, executor: dict, *, provided=froz
         raise ValueError(f"inference.decode_forecast_mode must be one of {FORECAST_MODES}")
     if values["handoff"] not in {"blend", "waypoint"}:
         raise ValueError("inference.handoff must be blend or waypoint")
+    if values["blend_mode"] not in {"linear", "command_cubic"}:
+        raise ValueError("inference.blend_mode must be linear or command_cubic")
+    if values["blend_mode"] == "command_cubic" and (
+        values["handoff"] != "blend" or values["blend_policy_steps"] < 2
+        or values["algorithm"] not in {"async", "rtc"}
+        or values["inference_schedule"] == "serial"
+        or executor["type"] != "smooth"
+        or (values.get("temporal_ensemble") or {}).get("enabled")
+        or values["independent_group_decoding"]
+    ):
+        raise ValueError(
+            "command_cubic requires standalone async/rtc with smooth, complete groups, "
+            "and at least two blend rows"
+        )
     if not values["handoff_margin_s"] >= 0:
         raise ValueError("inference.handoff_margin_s must be non-negative")
     if values["handoff"] == "waypoint" and (

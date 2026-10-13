@@ -68,7 +68,9 @@ This is a **committed reference seam**, not measured displacement or command jum
 For a continuous seam require actual outgoing/incoming execution evidence and
 valid outgoing coverage at the boundary. Serial end-hold restart comparisons are
 a different boundary class; use the task's explicit hold convention and report
-them separately. Do not silently clamp expired trajectories into a continuous
+them separately. The implemented `end_hold` class uses the recorded constant
+command before takeover (verified against recorded hold ticks), not an assumed
+endpoint. Do not silently clamp expired trajectories into a continuous
 seam. No eligible boundaries means missing.
 
 Match recorded `request_seq`/plan IDs, committed timestamps, `ticks.plan_id` and
@@ -108,8 +110,11 @@ endpoint; it does not implement the boundary review above. Nonzero
 `source_offset_steps` also affects its source-timeline illustration. Treat its
 CSV as candidates; calculate summary statistics only over the explicitly
 reviewed pairs. A missing pause/takeover record may prevent formal scoring even
-when a picture can be drawn. There is currently no complete, validated unified
-seam evaluator to invoke instead.
+when a picture can be drawn. The task report now invokes `manimux/evaluation/seams.py` with execution
+evidence from `execution.py`: observed tick ownership, matching request/plan
+boundary events, bracketing control times and pause/reset exclusions. Never-executed
+accepted plans are not paired. The report separates `continuous` and `end_hold`,
+retains rejected boundary identities/reasons and exports each arm’s worst case.
 
 Do not run historical `data/analysis/.../generate.py` as a general CLI: some bind
 one episode/output and assert a fixed handoff count. Existing image-only subsets

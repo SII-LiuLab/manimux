@@ -1,0 +1,45 @@
+# Latest six-task checkpoint; prompts are selected by run.task.
+policy_name: Pi_05
+protocol: ws
+host: 127.0.0.1
+port: 8500
+task_name: yam_latest_20261012_300ep
+env_cfg_type: yam_dual
+robot_action_dim_info:
+  arm_dim:
+  - 6
+  - 6
+  ee_dim:
+  - 1
+  - 1
+num_envs: 1
+action_type: joint
+eval_batch: false
+checkpoint_variant: pi05_yam_latest300ep_step30000
+train_config_name: pi05_yam
+observation_profile: yam_native
+repo_id: yam_latest_20261012_300ep_joint_ee_v1
+model_path: /media/ubuntu/CY的三星T7/ManiMux/checkpoints/finetuned/Pi05/pi05_yam_latest_20261012_300ep_30k/30000
+checkpoint_source: pi05_yam_latest_20261012_300ep_30k_step30000
+norm_stats_path: /media/ubuntu/CY的三星T7/ManiMux/checkpoints/finetuned/Pi05/pi05_yam_latest_20261012_300ep_30k/30000/assets/yam_latest_20261012_300ep_joint_ee_v1
+norm_stats_source: sha256_6b7b890981157f443be6faf2ecabad2c048dc5f3554f0b3bd0d36e50234a9f07
+use_delta_joint_actions: true
+action_horizon: 50
+num_steps: 10
+inference_seed: 0
+backend_identity:
+  fields:
+  - checkpoint_variant
+  - checkpoint_source
+  - norm_stats_path
+  - norm_stats_source
+  - train_config_name
+  - action_horizon
+  - num_steps
+  - inference_seed
+  - observation_profile
+  - action_type
+  aliases:
+    model_root: model_path
+  model:
+    policy_family: pi05
