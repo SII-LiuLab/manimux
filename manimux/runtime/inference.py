@@ -305,7 +305,7 @@ def build_warmup_submission(
     snapshot: ObservationSnapshot,
     adapter: PolicyAdapter,
     conditioned: bool = False,
-) -> InferenceSubmission:
+) -> InferenceSubmission | None:
     """Build an inference-only request without advancing the formal scheduler."""
     method = getattr(strategy, "build_warmup_submission", None)
     if callable(method):

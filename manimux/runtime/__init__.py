@@ -214,8 +214,6 @@ def validate_runtime_parameters(config: dict) -> None:
     if config["run"].get("warmup_before_start", False):
         if not config["robogui"]["enabled"]:
             raise ValueError("run.warmup_before_start requires RoboGUI Start control")
-        if config["policy"]["action_decoding"] != "inline":
-            raise ValueError("pre-Start warmup currently requires inline action decoding")
     motion = config["executor"]["motion_limits"]
     if motion is not None:
         for group, index in motion["gripper"]["group_indices"].items():

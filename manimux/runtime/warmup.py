@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import Counter, deque
 
 from manimux.clock import Clock
+from manimux.policies.decoder import ActionDecoderClient
 from manimux.policies.worker import PolicyWorkerClient
 from manimux.policy_adapter.base import PolicyAdapter
 from manimux.runtime.inference import (
@@ -15,7 +16,7 @@ from manimux.runtime.inference import (
     seed_strategy_warmup,
 )
 from manimux.timing import stage
-from manimux.types import ActionChunk, ActionContext, ObservationSnapshot
+from manimux.types import ActionChunk, ActionContext, InferenceResponse, ObservationSnapshot
 
 
 class PolicyWarmup:
@@ -28,6 +29,7 @@ class PolicyWarmup:
     def __init__(
         self, config: dict, *, worker: PolicyWorkerClient, strategy: InferenceStrategy,
         adapter: PolicyAdapter, session_id: str, clock: Clock,
+        decoder: ActionDecoderClient | None = None,
     ) -> None:
         self.config = config
         self.worker = worker
@@ -35,6 +37,10 @@ class PolicyWarmup:
         self.adapter = adapter
         self.session_id = session_id
         self.clock = clock
+        self.decoder = decoder
+        if config["policy"]["action_decoding"] == "process" and decoder is None:
+            raise ValueError("Process warmup requires the runtime action decoder")
+        self._decoding = False
         self.phase = "idle"
         self.completed_requests = 0
         self.latest_branch: str | None = None
@@ -110,11 +116,58 @@ class PolicyWarmup:
             self.error = f"{type(exc).__name__}: {exc}"
             self._event("warmup_failed", error=self.error)
 
+    def _poll_result(self) -> tuple[InferenceResponse, ActionChunk | None, str | None] | None:
+        """Keep inference and decoding pending until both finish, including on Start."""
+        if self._decoding:
+            with stage("decoder_poll"):
+                result = self.decoder.poll()
+            if result is None:
+                return None
+            self._decoding = False
+            return result.response, result.chunk, result.error
+
+        with stage("worker_poll"):
+            response = self.worker.poll()
+        if response is None:
+            return None
+        request, _, _ = self._pending
+        if response.session_id != self.session_id or response.request_seq != request.request_seq:
+            return response, None, "Unexpected warmup response identity"
+        if response.error is not None:
+            return response, None, response.error
+        context = ActionContext(
+            request_seq=response.request_seq,
+            observation_time_ns=response.observation_time_ns,
+            created_time_ns=response.finished_time_ns,
+            observation_state=request.observation.state,
+            ik_seed=request.observation.state,
+            ik_seed_source="observation_state",
+            max_source_steps=self.config["policy"]["horizon_policy_steps"],
+        )
+        if self.decoder is not None:
+            # Reuse the runtime-owned decoder while formal scheduling is paused.
+            # No next request or backend reset can pass this pending decode.
+            with stage("decoder_submit"):
+                self.decoder.submit(response, context, request.deadline_ns)
+            self._decoding = True
+            return None
+        try:
+            with stage("policy_decode"):
+                chunk = decode_strategy_action(
+                    self.strategy, self.adapter, response.raw_action, context,
+                )
+            return response, chunk, None
+        except Exception as exc:
+            return response, None, f"{type(exc).__name__}: {exc}"
+
     def _advance(self, *, paused: bool, snapshot: ObservationSnapshot) -> None:
         start_requested = self._was_paused and not paused
         self._was_paused = paused
         if self.complete or self.phase == "idle":
             return
+        observe = getattr(self.strategy, "observe_snapshot", None)
+        if callable(observe):
+            observe(snapshot)
         if not self.worker.is_alive:
             self.phase = "error"
             self.error = "Policy worker stopped. Finish and prepare a new rollout."
@@ -126,33 +179,13 @@ class PolicyWarmup:
             self._event("warmup_start_requested")
 
         if self._pending is not None:
-            with stage("worker_poll"):
-                response = self.worker.poll()
-            if response is not None:
+            result = self._poll_result()
+            if result is not None:
+                response, chunk, error = result
                 request, started_ns, branch = self._pending
                 self._pending = None
-                error = response.error
-                if (
-                    response.session_id != self.session_id
-                    or response.request_seq != request.request_seq
-                ):
-                    error = "Unexpected warmup response identity"
                 if error is None:
                     try:
-                        with stage("policy_decode"):
-                            chunk = decode_strategy_action(
-                                self.strategy, self.adapter,
-                                response.raw_action,
-                                ActionContext(
-                                    request_seq=response.request_seq,
-                                    observation_time_ns=response.observation_time_ns,
-                                    created_time_ns=response.finished_time_ns,
-                                    observation_state=request.observation.state,
-                                    ik_seed=request.observation.state,
-                                    ik_seed_source="observation_state",
-                                    max_source_steps=self.config["policy"]["horizon_policy_steps"],
-                                ),
-                            )
                         if isinstance(self.strategy, StrategyChunkSelector):
                             chunk = self.strategy.select_chunk(
                                 chunk=chunk, now_ns=self.clock.now_ns(),
@@ -234,6 +267,8 @@ class PolicyWarmup:
                         snapshot=snapshot, adapter=self.adapter,
                         conditioned=bool(self.completed_requests % 2),
                     )
+                if submission is None:
+                    return  # History-based policies wait for a measured observation window.
                 with stage("policy_prepare"):
                     request = self.adapter.prepare_request(submission.request)
                 branch = "conditioned" if submission.event_fields.get("conditioned") else "ordinary"

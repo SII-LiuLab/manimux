@@ -511,6 +511,7 @@ class EdgeRuntime:
                     self._config, worker=self._worker,
                     strategy=build_inference_strategy(self._config),
                     adapter=self._build_adapter(), session_id=self._session_id, clock=self._clock,
+                    decoder=self._decoder,
                 )
             sensor_reader.start()
             self._worker.start()

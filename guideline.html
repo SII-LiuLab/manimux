@@ -170,7 +170,11 @@ root in four terminals, using the same experiment in cameras, model and runtime.
 <p>Open <code>http://127.0.0.1:8086</code>. <code>serve</code> waits for GUI preparation; it does not launch the other
 three services. <strong>Prepare can connect hardware and move to the configured start pose.</strong>
 Use <strong>Prepare → adjust layout → Activate Warmup → Start rollout → Finish</strong>.</p><p>Recovery controls follow the connected runtime's declared capabilities and arm selections. When idle Home is available, <strong>Finish rollout</strong> does not home; use <strong>Return Home</strong>, which applies to all configured arms. Otherwise Finish preserves the experiment's <code>home_on_close</code>. Drag and Release finish an active rollout without homing. Tianji Release offers continuous or five-second cooperative hand-guiding when declared; loss of the recovery lease cancels it.</p><p>Pack-plate deployments select <code>tianji_taccap_pack_plate.yaml</code> for the saved <code>pack_plate_start</code> Home. Update older bound configurations and restart the runtime to load a changed assembly.</p><p>
-Warmup is explicit when <code>run.warmup_before_start: true</code>; otherwise go directly to Start. Follow the selected Finish/Home behavior before
+Warmup is explicit when <code>run.warmup_before_start: true</code>; otherwise go directly to Start.
+The button appears after Prepare. Both inline and process action decoding are supported;
+UMI DP waits for a measured two-frame observation window. After changing this setting
+in an experiment list, restart <code>manimux serve</code> to reload the catalog.
+Follow the selected Finish/Home behavior before
 stopping runtime, then stop model, camera and GUI processes.</p>
 <p>For another method, use its YAML in all experiment-aware commands. For another model,
 replace terminal 3 with that model's environment and launcher; do not reuse Pi05's interpreter.</p>

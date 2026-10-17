@@ -364,6 +364,15 @@ waits for the in-flight request, then acknowledged backend reset; only a fresh s
 observation enters formal execution. Warmup timings remain separate from formal metrics.
 The control mailbox suppresses activation/selection on stale transport snapshots.
 
+Warmup supports inline and process action decoding. Process warmup reuses the
+runtime-owned decoder while formal scheduling is paused, keeps the inference request
+pending through decode completion, and drains both stages before backend reset. Its
+previews use the request observation as the IK seed and never enter the Timeline.
+History strategies collect measured observations on every warmup tick and may return
+no submission until a valid window is available; UMI DP supplies its measured two-frame
+window to the delegate's warmup builder. Restart `serve` after changing a catalog's
+warmup settings; the catalog is loaded once at service startup.
+
 PAINT implements `build_warmup_submission()` for ordinary and anchored-prefix requests.
 Its `warmup_required_calls` requests two successful calls per branch: the first compiles
 that branch, the second supplies a steady end-to-end sample. An early Start remains in

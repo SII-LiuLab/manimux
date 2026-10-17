@@ -176,6 +176,7 @@ class HistoryStrategy:
         validate_inference_parameters(delegate_config["inference"], delegate_config["executor"])
         validate_runtime_parameters(delegate_config)
         self.delegate = build_inference_strategy(delegate_config)
+        self._warmup_config = delegate_config
         camera_map = options["camera_map"]
         names = [value for key, value in camera_map.items() if not key.endswith("_prev")]
         self.history = MeasuredHistory(
@@ -199,6 +200,16 @@ class HistoryStrategy:
 
     def observe_snapshot(self, snapshot):
         self.history.observe(snapshot)
+
+    def build_warmup_submission(self, **kwargs):
+        from manimux.runtime.inference import build_warmup_submission
+
+        window = self.history.window(kwargs["now_ns"])
+        if window is None:
+            return None
+        return build_warmup_submission(
+            self.delegate, self._warmup_config, **{**kwargs, "snapshot": window},
+        )
 
     def build_submission(self, **kwargs):
         window = self.history.window(kwargs["now_ns"])
