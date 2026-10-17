@@ -544,3 +544,15 @@ joint recording and failure events remain visible without reproducing execution
 logic in the control loop. The same executor instance remains available for
 existing pause, gap hold, reset and forecast behavior. No waypoint scheduling or
 waypoint-time stretching is introduced by this component split.
+
+## Externally submitted actions
+
+`EdgeRuntime(..., external=ExternalActionSource())` accepts one bounded action
+batch from an external orchestrator without creating a policy worker. The same
+hardware loop retains timeline, executor, safety, recording and cleanup ownership.
+The initial implementation requires direct, serial, inline, unblended execution
+without automatic start/Home or warmup; the producer owns action timing and
+selection. Completion counts successfully dispatched source rows and is
+acknowledged on the following control tick. Stop is latched and handled on the
+control thread. See the [RPent YAM guide](rpent-yam.md) for the
+concrete environment protocol and limitations.

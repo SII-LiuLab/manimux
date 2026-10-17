@@ -423,6 +423,15 @@ change these times.</p>
 values are rejected; setting <code>chunk_policy_steps: null</code> does not clear an inherited
 counterpart. Remove/reset that field too. Do not carry <code>max_chunk_policy_steps</code> into
 a specialized method.</p>
+<h3 id="rpent-yam">RPent YAM integration</h3>
+<p>RPent owns VLA inference; ManiMux owns cameras, YAM execution and recording.
+Use <code>manimux/configs/experiments/rpent/yam_vla.yaml</code> and launch
+<code>python -m manimux.integrations.rpent.server --experiment /path/to/yam_vla.yaml --local /path/to/station.yaml</code>.
+The example connects to hardware with physical command dispatch disabled. Before enabling execution,
+configure the station, command limits and aligned RGB-D camera service. Reset requires a local
+operator ready receipt; rearming waits for control-thread acknowledgement of a requested stop.
+See the <a href="https://github.com/SII-LiuLab/manimux/blob/main/.agents/skills/manimux-development/references/rpent-yam.md">RPent YAM reference</a>
+for installation, camera launch, operator commands and the supported VLA-only scope.</p>
 <h3 id="related-deployment-controls">Related deployment controls</h3>
 <table><thead><tr><th>Parameter</th><th>Meaning</th><th>Usage</th></tr></thead><tbody>
 <tr>

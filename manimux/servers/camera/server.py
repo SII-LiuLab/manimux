@@ -147,6 +147,19 @@ class CameraServer:
         """Snapshot the latest color frame from every camera (RGB uint8)."""
         return self._response(self._read_frames(camera_names))
 
+    def _rgbd_snapshot(self, camera_names: list[str] | None = None) -> dict[str, Any]:
+        names = list(self.cameras) if camera_names is None else camera_names
+        if not isinstance(names, list) or not names or not all(isinstance(n, str) for n in names):
+            raise ValueError("camera_names must be a nonempty list of names")
+        if set(names) - self.cameras.keys():
+            raise ValueError("unknown RGB-D camera")
+        frames = {name: self.cameras[name].read_rgbd() for name in names}
+        response = self._response(frames)
+        response["depths"] = {name: frame.depth for name, frame in frames.items()}
+        response["camera_meta"] = {name: frame.camera_meta for name, frame in frames.items()}
+        response["sequences"] = {name: frame.sequence for name, frame in frames.items()}
+        return response
+
     # ------------------------------------------------------------------
     # Request handling
     # ------------------------------------------------------------------
@@ -164,6 +177,8 @@ class CameraServer:
         try:
             if cmd == "obs":
                 resp = self._snapshot(req.get("camera_names"))
+            elif cmd == "rgbd":
+                resp = self._rgbd_snapshot(req.get("camera_names"))
             elif cmd == "ping":
                 resp = {"ok": True, "pong": True}
             else:
@@ -307,10 +322,7 @@ def _build_cameras_from_config(cfg_path: Path, local: Path | None = None) -> dic
 
 def _build_cameras(cfg: dict) -> dict[str, SensorBase]:
     """Construct every component before starting any device; clean up failed starts."""
-    cameras = {
-        name: build_camera(name, spec)
-        for name, spec in cfg["sensors"]["cameras"].items()
-    }
+    cameras = {name: build_camera(name, spec) for name, spec in cfg["sensors"]["cameras"].items()}
     try:
         for name, camera in cameras.items():
             logger.info("Starting camera %s", name)
@@ -335,7 +347,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     source.add_argument("--experiment", type=Path, help="Experiment with named camera components")
     parser.add_argument(
-        "--local", type=Path,
+        "--local",
+        type=Path,
         help="Station bindings (default: manimux/configs/local/station.yaml)",
     )
     parser.add_argument("--rep-endpoint")

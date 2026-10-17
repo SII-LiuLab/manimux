@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TypeAlias
+from typing import Any, TypeAlias
 
 import numpy as np
 from numpy.typing import NDArray
@@ -71,12 +71,18 @@ class SensorFrame:
     data: UInt8Array
     capture_monotonic_ns: int
     sequence: int
+    depth: FloatArray | None = None  # Optional aligned metric depth from the same capture.
+    camera_meta: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         array = np.asarray(self.data, dtype=np.uint8)
         if array.ndim != 3 or array.shape[2] != 3:
             raise ValueError("sensor frame must have shape (height, width, 3)")
         self.data = np.ascontiguousarray(array)
+        if self.depth is not None:
+            self.depth = np.asarray(self.depth, dtype=np.float64)
+            if self.depth.shape != self.data.shape[:2]:
+                raise ValueError("metric depth must match the RGB image shape")
 
 
 @dataclass(slots=True)
@@ -241,8 +247,7 @@ def copy_action_chunk(chunk: ActionChunk) -> ActionChunk:
                 start_time_ns=chunk.runtime_trajectory.start_time_ns,
                 dt_ns=chunk.runtime_trajectory.dt_ns,
                 groups={
-                    name: values.copy()
-                    for name, values in chunk.runtime_trajectory.groups.items()
+                    name: values.copy() for name, values in chunk.runtime_trajectory.groups.items()
                 },
             )
         ),

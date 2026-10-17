@@ -86,6 +86,10 @@ class CameraClient:
         """Return ``{cam_name: np.ndarray (H,W,3) uint8 RGB}`` with the latest frames."""
         return self.get_bundle(camera_names)["frames"]
 
+    def get_rgbd_bundle(self, camera_names: list[str] | None = None) -> dict[str, Any]:
+        """Read optional aligned RGB-D captures without changing the RGB protocol."""
+        return self._request("rgbd", camera_names)
+
     def get_bundle(self, camera_names: list[str] | None = None) -> dict[str, Any]:
         """Keep the server capture timestamps alongside the selected RGB images."""
         resp = self._request("obs", camera_names)
