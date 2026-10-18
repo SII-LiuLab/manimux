@@ -19,12 +19,21 @@ policy architecture. Pi05 PyTorch and Pi05 EEF are outside this matrix. Other
 embodiments need their own action conversion validation.
 
 The loaded server's `HELLO.capabilities.sampling_modes` is authoritative.
-OpenWAM specialized flow modes require `compile_enabled: false`,
-`dit_cache_enabled: false`, and CFG scale 1; AutoHorizon additionally requires
+OpenWAM specialized flow modes require `compile_enabled: false` and CFG scale 1;
+RTC can opt into `dit_cache_enabled: true` with `dit_cache_modes: [default, rtc]`.
+PAINT/AutoHorizon requests always disable reuse; unsupported cache modes fail. AutoHorizon additionally requires
 the joint self-attention MoT driver. LingBot requires a complete native horizon
 for RTC/PAINT/AutoHorizon and eager execution for attention capture. AutoHorizon
 needs at least three denoising evaluations and one action token per waypoint.
 Unsupported combinations must fail rather than execute the default sampler.
+
+ABC-DiT's existing `yam_abc_dit_rtc_200k*.yaml` deployments use the generic
+`train_time_rtc` strategy and model hook. Fixed runtime prefix 7 / request progress
+16 retain the official model prefix 4: only the final four fixed rows condition
+the model, while all seven rows are preserved in the returned 30-row trajectory.
+ABC no longer advertises `paint`; its separate `rtc` hook remains inference-time
+guidance. The mount-compensation adapter transforms the generic action condition
+through the same joint/frame mapping as observations and decoded actions.
 
 ## Selecting configurations
 
@@ -39,7 +48,7 @@ OpenWAM's entire generated comparison disables compilation and DiT caching.
 PYTHONPATH=. envs/yam/.venv/bin/python scripts/experiments/build_inference_matrix.py \
   --base manimux/configs/experiments/put_bottles/pi05/yam_pi05_serial_joint_step30000.yaml \
   --output-dir data/configs/pi05-inference \
-  --execution-steps 16 --paint-delay-steps 4 \
+  --execution-steps 16 --paint-delay-steps 4 --async-trigger progress \
   --methods serial async act rtc paint autohorizon
 ```
 
@@ -49,9 +58,18 @@ the existence of `yam_60ep_ee_increment.json` is not evidence that it matches a
 new task. AAC requests 20 samples by default in the generated smoke presets;
 review memory and latency before fixing the experiment budget.
 
+`--async-trigger progress` retains the complete prediction and uses
+`chunk_policy_steps` as the source-progress threshold, including latency-trimmed rows.
+`--async-trigger refill` (the compatibility default) caps the source prefix to K and
+sets the refill threshold to K action intervals. Choose explicitly; these are different
+experiments even when K is equal. Progress currently requires built-in Async with
+single-inflight scheduling, not an observation-history strategy plugin.
+The generator covers the listed standalone methods; configure BID and ensemble
+compositions through the [composition guide](../../../../guideline.html#optional-algorithm-composition).
+
 Existing inputs for the remaining families:
 
-- XR1: `manimux/configs/experiments/put_bottles/xiaomi-xr1/yam_xiaomi_xr1_manimux_step30000.yaml`.
+- XR1: `manimux/configs/experiments/put_bottles/xiaomi-xr1/yam_xiaomi_xr1_async_step30000.yaml`.
   Supply `--policy-server manimux/configs/policy/xiaomi-xr1/yam/finetune-put-bottles-step30000.yaml`
   when the base only describes the client. H=30; example K=12, d=4.
 - LingBot: `manimux/configs/examples/lingbot_vla2_yam_sampling.yaml`.
@@ -143,3 +161,20 @@ identical noise and nonzero weights against a known prefix. For AAC, check actua
 candidate diversity; for AutoHorizon, compare identical-noise actions with default.
 Record latency and peak memory. These real-weight checks and robot trials remain
 outstanding for the newly added combinations.
+
+
+## Shared sampler structure and cache validation
+
+`XPolicyLab/utils/sampling_contracts.py` owns CPU request checks (shapes, finite
+values, weights in [0,1], positive beta). It imports neither Torch nor JAX.
+Pi05 asks for writable copies; each model retains its normalization and schedule.
+`flow_sampling.rtc_correction` shares only the clean-estimate Torch VJP between
+OpenWAM, FastWAM and the generic RTC sampler. Pi05 JAX, Xiaomi and LingBot native
+loops remain separate. Do not force them through a common scheduler.
+
+OpenWAM's `dit_cache_modes` is a startup-validated allowlist, default `[default]`.
+The engine selects cache per request without swapping its global cache object.
+RTC stores corrected action predictions and native video predictions; reuse
+skips forward and VJP together. Preserve native similarity and skip rules.
+For an all-task example and commands see [RTC cache](../../../../guideline.html#openwam-rtc-cache).
+Keep uncached parity tests distinct from approximate cached quality/latency tests.

@@ -48,6 +48,10 @@ reference before copying an older integration; compatibility paths are not templ
 
 For another installation of a supported robot, start with
 [local station setup](../../manimux-station-setup/references/station.md) and its matching template.
+Before giving Tianji/TacCap launch commands, verify the hardware interpreter's
+actual SDK import path and required methods. Check existing compiled SDK artifacts
+before recommending installation. This workstation's verified SDK path and Pi05
+Serial commands are recorded in the [pack-plate runbook](../../manimux-inference/references/deployment/pi05-tianji-pack-plate.md#local-serial-launch-verified-2026-10-13).
 Keep machine-specific CAN interfaces, controller IPs, device serials and service addresses
 in one private station file. Read an existing file before editing it, preserve component
 names, and establish physical device mappings instead of assuming enumeration order means left/right.

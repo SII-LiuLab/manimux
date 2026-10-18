@@ -91,10 +91,11 @@ def episode_info(path, method):
     b = meta.get("policy_backend", {}).get("model", {})
     inf = c["inference"]
     alg = inf.get("algorithm")
-    expected = "train_time_rtc" if method == "train" else "manimux"
+    # Historical manifests retain the old Async selector; do not rewrite recordings.
+    expected = {"train_time_rtc"} if method == "train" else {"async", "manimux"}
     partial = path.name.endswith(".partial") or not (path / "result.json").is_file()
     reason = None
-    if alg != expected:
+    if alg not in expected:
         reason = f"algorithm_mismatch:{alg}"
     elif meta.get("horizon_steps") != 32:
         reason = "not_H32"
@@ -353,7 +354,7 @@ def main():
         "rows": rows,
         "summary": aggregate(infos),
         "notes": [
-            "Baseline = DP ManiMux async; train = train-time RTC. No ordinary RTC included.",
+            "Baseline = DP Async; train = train-time RTC. No ordinary RTC included.",
             "All H32 finalized attempts in both roots; partial and empty runs inventoried.",
             "canonical_raw is post-adapter joint reference (waypoint / IK may modify it),"
             " not native DP output. Native EE chunk/prefix residuals are not recorded.",

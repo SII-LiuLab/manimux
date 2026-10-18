@@ -1,7 +1,7 @@
 # DP chunk overlap comparison
 
 `scripts/validation/compare_dp_chunk_overlap.py` compares recorded H32 UMI-DP
-ManiMux asynchronous rollouts with train-time RTC. It generates a self-contained,
+Asynchronous rollouts with train-time RTC. It generates a self-contained,
 offline HTML report plus machine-readable metrics, without starting hardware.
 
 ## Run
@@ -24,8 +24,9 @@ algorithm and select its offline robot assembly. Those assembly files and their
 dependencies must still be available on the analysis machine.
 
 Every `*/rollout-*/meta.json` in the two explicit roots is inventoried. Analysis
-requires finalized H32 episodes and the matching manifest algorithm (`manimux`
-or `train_time_rtc`). Partial, empty, mismatched and failed-processing records
+requires finalized H32 episodes and the matching manifest algorithm (`async`
+or `train_time_rtc`). Historical baseline manifests using `manimux` are also accepted;
+their recorded algorithm value is preserved. Partial, empty, mismatched and failed-processing records
 retain explicit reasons. There is no filtering on task success. An empty episode
 is not a zero-error episode.
 

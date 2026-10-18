@@ -77,8 +77,8 @@ def _validate(
                     f"{expected_adapter_type} for this checkpoint"
                 )
         runtime = execution.get("algorithm")
-        if runtime not in {"manimux", "rtc"}:
-            infra_errors.append("infra inference.algorithm must be manimux or rtc")
+        if runtime not in {"async", "serial", "rtc"}:
+            infra_errors.append("infra inference.algorithm must be async, serial or rtc")
         if runtime == "rtc":
             if report.get("rtc_capability") != "pi_guided_v1_sampler":
                 infra_errors.append("RTC config requires sampler-level pi_guided_v1 support")

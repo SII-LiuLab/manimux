@@ -62,7 +62,7 @@ recording:
 
 inference:
   algorithm: async
-  config: ../../../inference/tianji_taccap_manimux.yaml
+  config: ../../../inference/tianji_taccap_async.yaml
   # Initial process-decode forecast; tune from recorded decode_stage_ms.
   expected_decode_s: 0.08
   decode_forecast_size: 10

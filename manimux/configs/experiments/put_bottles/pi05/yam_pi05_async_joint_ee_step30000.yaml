@@ -1,6 +1,6 @@
 run:
   task: Put the bottles into the bin.
-  output_dir: ./data/experiments/dp-put-bottles-eef-step100000/manimux-default
+  output_dir: ./data/experiments/pi05-put-bottles-joint-ee-step30000/manimux
   max_control_steps: 12000
 
 robot:
@@ -42,57 +42,42 @@ sensors:
 
 policy:
   worker: xpolicylab_ws
+  service: policy
   adapter:
-    type: manimux.policy_adapter.dp.yam:DPYamAdapter
-    physical_cameras:
-    - d405_front
-    - d405_left
-    - d405_right
+    type: manimux.policy_adapter.joint:JointAdapter
     camera_map:
-      cam_head_t0: d405_front_t0
-      cam_left_wrist_t0: d405_left_t0
-      cam_right_wrist_t0: d405_right_t0
-      cam_head_t1: d405_front_t1
-      cam_left_wrist_t1: d405_left_t1
-      cam_right_wrist_t1: d405_right_t1
-      cam_head_t2: d405_front_t2
-      cam_left_wrist_t2: d405_left_t2
-      cam_right_wrist_t2: d405_right_t2
+      cam_head: d405_front
+      cam_left_wrist: d405_left
+      cam_right_wrist: d405_right
+
   action_dt_s: 0.03333333333333333
-  timeout_s: 10
-  horizon_policy_steps: 6
+  timeout_s: 2.0
+  horizon_policy_steps: 50
   inference_delay_s: 0.0
   startup_timeout_s: 30.0
   options:
-    action_format: pose
+    action_format: joint
     request_timeout_s: 10.0
-    server: ws://127.0.0.1:8520
-  service: policy_dp
 
 robogui:
   enabled: true
   robot: yam
-  policy_label: DP YAM EEF 100k - ManiMux default
+  policy_label: Pi05 YAM put-bottles joint+EE step-30000 - Async first 12
 
 recording:
   enabled: true
   video_fps: 30.0
 
+# Inference controls requests and chunk handoff; the executor controls smoothing and limits.
 inference:
   algorithm: async
-  strategy: manimux.policy_adapter.dp.yam:HistoryStrategy
-  history:
-    period_s: 0.03333333333333333
-    period_tolerance_s: 0.015
-    state_tolerance_s: 0.04
-    camera_skew_s: 0.04
-    max_age_s: 0.2
+  config: ../../../inference/yam_async_chunk12.yaml
 
 executor:
   type: direct
 
 policy_server:
-  config: ../../../policy/dp/yam/put-bottles/eef-step100000.yaml
+  config: ../../../policy/pi05/yam/put-bottles/joint-ee-step30000.yaml
 
 # Device serials and service addresses come from the shared station file.
 camera_server:

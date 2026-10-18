@@ -62,7 +62,7 @@ policy:
 robogui:
   enabled: true
   robot: yam
-  policy_label: Xiaomi XR-1 ManiMux via XPolicyLab
+  policy_label: Xiaomi XR-1 Async via XPolicyLab
 
 recording:
   enabled: true
@@ -70,7 +70,7 @@ recording:
 # Inference controls requests and chunk handoff; the executor controls smoothing and limits.
 inference:
   algorithm: async
-  config: ../../../inference/yam_manimux_single.yaml
+  config: ../../../inference/yam_async_single.yaml
   refill_threshold_s: 0.4
   max_plan_age_s: 1.0
   blend_policy_steps: 8

@@ -1,6 +1,6 @@
 run:
   task: Put the bottles into the bin.
-  output_dir: ./data/experiments/pi05-put-bottles-joint-step30000/manimux
+  output_dir: ./data/experiments/xiaomi-xr1-put-bottles-step30000/async-exec15
   max_control_steps: 12000
 
 robot:
@@ -44,40 +44,39 @@ policy:
   worker: xpolicylab_ws
   service: policy
   adapter:
-    type: manimux.policy_adapter.joint:JointAdapter
+    type: manimux.policy_adapter.xr1.yam:XR1YamAdapter
     camera_map:
       cam_head: d405_front
       cam_left_wrist: d405_left
       cam_right_wrist: d405_right
-
+    action_codec: xr1_ee_delta
   action_dt_s: 0.03333333333333333
-  timeout_s: 2.0
-  horizon_policy_steps: 50
+  timeout_s: 10
+  horizon_policy_steps: 30
   inference_delay_s: 0.0
-  startup_timeout_s: 30.0
+  startup_timeout_s: 120.0
   options:
-    action_format: joint
     request_timeout_s: 10.0
+    server: ws://127.0.0.1:8500
 
 robogui:
   enabled: true
   robot: yam
-  policy_label: Pi05 YAM put-bottles joint step-30000 - ManiMux first 12
+  policy_label: Xiaomi XR1 bottles 30k - Async first 12
 
 recording:
   enabled: true
   video_fps: 30.0
 
-# Inference controls requests and chunk handoff; the executor controls smoothing and limits.
 inference:
   algorithm: async
-  config: ../../../inference/yam_manimux_chunk12.yaml
+  config: ../../../inference/yam_async_chunk12.yaml
 
 executor:
   type: direct
 
 policy_server:
-  config: ../../../policy/pi05/yam/put-bottles/joint-step30000.yaml
+  config: ../../../policy/xiaomi-xr1/yam/finetune-put-bottles-step30000.yaml
 
 # Device serials and service addresses come from the shared station file.
 camera_server:

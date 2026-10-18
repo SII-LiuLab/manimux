@@ -63,7 +63,7 @@ policy:
 robogui:
   enabled: true
   robot: yam
-  policy_label: Pi05 joint+EEF 30k - EEF execution - ManiMux first 20
+  policy_label: Pi05 joint+EEF 30k - EEF execution - Async first 20
 
 recording:
   enabled: true
@@ -71,7 +71,7 @@ recording:
 
 inference:
   algorithm: async
-  config: ../../../inference/yam_manimux_chunk20.yaml
+  config: ../../../inference/yam_async_chunk20.yaml
 
 executor:
   type: direct

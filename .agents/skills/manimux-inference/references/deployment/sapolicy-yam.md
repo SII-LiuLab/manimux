@@ -158,7 +158,7 @@ Initial requests compile for several minutes; warm up with requests before start
 
 | Item | Setting | Reason |
 | --- | --- | --- |
-| Scheduling | ManiMux async, execute 40/50 steps per chunk, blend 4, refill 0.2 s | obs_hist=1; descent is in the latter half of each chunk, so executing only 16–25 steps causes persistent hovering |
+| Scheduling | Async, execute 40/50 steps per chunk, blend 4, refill 0.2 s | obs_hist=1; descent is in the latter half of each chunk, so executing only 16–25 steps causes persistent hovering |
 | IK decoding | `action_decoding: process` | Control-thread IK stalls each handover for 30–100 ms, causing arm shaking |
 | Executor | Smooth braking, 0.6 rad/s, 1.5 rad/s² | Measured `yam_smooth_braking.yaml` values; high-frequency jitter 2.4 → 1.05 °/s |
 | Gripper | Continuous, no rate limit or guard | — |

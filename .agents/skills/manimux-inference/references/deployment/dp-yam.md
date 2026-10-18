@@ -1,7 +1,7 @@
 # Ordinary DP on YAM: bottle task, absolute EEF
 
 The paired experiment is
-`manimux/configs/experiments/put_bottles/dp/yam_dp_manimux_eef_step100000.yaml`.
+`manimux/configs/experiments/put_bottles/dp/yam_dp_async_eef_step100000.yaml`.
 It uses the ordinary XPolicyLab DP model, checkpoint EMA weights, 100 DDPM
 sampling steps, three RGB cameras, three measured observations at 30 Hz,
 and six action waypoints per request. The training horizon is eight: the model
@@ -32,7 +32,7 @@ and RoboGUI processes when their configuration matches.
 
 ```bash
 envs/yam/.venv/bin/python -m manimux.servers.camera.server \
-  --experiment manimux/configs/experiments/put_bottles/dp/yam_dp_manimux_eef_step100000.yaml
+  --experiment manimux/configs/experiments/put_bottles/dp/yam_dp_async_eef_step100000.yaml
 ```
 
 ```bash
@@ -43,12 +43,12 @@ envs/yam/.venv/bin/python -m manimux.robogui.dashboard \
 
 ```bash
 XPolicyLab/policy/DP/.venv/bin/python -m manimux.servers.dp \
-  --experiment manimux/configs/experiments/put_bottles/dp/yam_dp_manimux_eef_step100000.yaml
+  --experiment manimux/configs/experiments/put_bottles/dp/yam_dp_async_eef_step100000.yaml
 ```
 
 ```bash
 envs/yam/.venv/bin/python -m manimux serve \
-  --config manimux/configs/experiments/put_bottles/dp/yam_dp_manimux_eef_step100000.yaml
+  --config manimux/configs/experiments/put_bottles/dp/yam_dp_async_eef_step100000.yaml
 ```
 
 The policy endpoint is `ws://127.0.0.1:8520`; a private station may override it
@@ -62,7 +62,7 @@ approximately 33 ms apart. It never fills history with repeated polling frames.
 The RoboGUI configuration displays current physical camera frames. DP's `_t0`,
 `_t1`, and `_t2` model inputs are temporal aliases assembled separately by the
 adapter and are not physical stream names published to the RoboGUI.
-The experiment uses the standard ManiMux defaults: deadline scheduling, a
+The experiment uses the standard Asyncs: deadline scheduling, a
 0.4-second refill threshold and two blending steps. Accepted decoded results take
 effect immediately at commit, without an additional switch delay.
 Inference may overlap execution; the model uses ordinary DDPM sampling, without
