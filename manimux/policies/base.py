@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from copy import deepcopy
 from typing import Protocol
 
 from manimux.policies.capabilities import PolicyCapabilities
-from manimux.types import InferenceRequest
+from manimux.types import ActionChunk, InferenceRequest
 
 
 class PolicyModel(Protocol):
@@ -78,3 +79,17 @@ def action_interval(policy: dict) -> float:
         if duration is None
         else duration / (policy["horizon_policy_steps"] - 1)
     )
+
+
+def attach_sampling_stats(chunk: ActionChunk, raw: object) -> ActionChunk:
+    """Preserve optional model counters through inline and process decoding.
+
+    Only the dedicated metadata field crosses this boundary, never raw tensors
+    or action arrays. Recording already persists chunk.metadata in plan traces.
+    """
+    if isinstance(raw, Mapping) and "sampling_stats" in raw:
+        stats = raw["sampling_stats"]
+        if not isinstance(stats, Mapping):
+            raise ValueError("sampling_stats must be a mapping")
+        chunk.metadata["sampling_stats"] = deepcopy(dict(stats))
+    return chunk

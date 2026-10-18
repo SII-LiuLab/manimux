@@ -27,11 +27,16 @@ def read_execution(episode: Path, groups, max_gap_s):
     digest = hashlib.sha256(times.tobytes() + json.dumps(ids.tolist()).encode())
     for name, item in root["plans"].groups():
         c = item["committed"]
-        if c.attrs.get("action_space") != "joint_position":
+        action_space = c.attrs.get("action_space")
+        if action_space not in {"joint_position", "absolute_tcp_pose"}:
             raise ValueError("unsupported_committed_action_space")
         arrays = {g: np.asarray(c[g][:], float) for g in groups}
         if any(v.ndim != 2 or not len(v) or not np.isfinite(v).all() for v in arrays.values()):
             raise ValueError("invalid_committed_plan")
+        if action_space == "absolute_tcp_pose":
+            from manimux.policy_adapter.pose_output import validate_pose_rows
+
+            arrays = {g: validate_pose_rows(v) for g, v in arrays.items()}
         plan = ReferenceTrajectory(
             int(name),
             str(c.attrs["plan_id"]),
@@ -39,6 +44,7 @@ def read_execution(episode: Path, groups, max_gap_s):
             int(c.attrs["start_time_ns"]),
             int(c.attrs["dt_ns"]),
             arrays,
+            action_space=action_space,
         )
         if plan.dt_ns <= 0 or plan.plan_id in plans:
             raise ValueError("invalid_or_duplicate_plan")
@@ -102,7 +108,11 @@ def read_execution(episode: Path, groups, max_gap_s):
                 and not breaks[i]
                 and np.allclose(command, commands[g][i - 1], atol=1e-7, rtol=0)
             )
-            endpoint = np.allclose(command, plan.groups[g][-1], atol=1e-7, rtol=0)
+            # Pose endpoints are not joint commands, even for 8-DOF groups.
+            # A pose plan's expired interval needs an observed constant hold.
+            endpoint = plan.action_space == "joint_position" and np.allclose(
+                command, plan.groups[g][-1], atol=1e-7, rtol=0
+            )
             if not (held or endpoint):
                 valid[i], reasons[i] = False, "unverified_expired_plan_hold"
             elif not np.allclose(references[g][i], command, atol=1e-7, rtol=0):
@@ -143,4 +153,4 @@ def sample(plan, group, time_ns):
     end = plan.start_ns + (len(values) - 1) * plan.dt_ns
     if not plan.start_ns <= time_ns <= end:
         raise ValueError("sample_outside_plan")
-    return _sample(values, np.array([time_ns - plan.start_ns]), plan.dt_ns)[0]
+    return _sample(values, np.array([time_ns - plan.start_ns]), plan.dt_ns, plan.action_space)[0]

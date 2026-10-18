@@ -212,6 +212,7 @@ class PaintInferenceStrategy:
             paint_action_prefix=prefix,
             paint_delay_steps=delay,
             paint_execution_steps=executed,
+            action_condition_space=timeline.action_space,
         )
         self._request_started_ns[request_seq] = now_ns
         self._request_forecast[request_seq] = delay

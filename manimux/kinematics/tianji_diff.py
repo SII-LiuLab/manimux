@@ -68,6 +68,54 @@ class DifferentialIKResult:
     lag_exceeded: bool = False  # residual over max_lag_*; still ok under lag_policy report
 
 
+def step_diff_config(motion_limits, tuning):
+    """Use the shared execution rate limit, never a separate step-IK speed setting."""
+    arm = (motion_limits or {}).get("arm") or {}
+    if arm.get("max_velocity") is None:
+        raise ValueError("step diffIK requires executor.motion_limits.arm.max_velocity")
+    tuning = dict(tuning or {})
+    if "max_velocity_rad_s" in tuning:
+        raise ValueError("step diffIK velocity comes from executor.motion_limits.arm.max_velocity")
+    return DifferentialIKConfig(max_velocity_rad_s=arm["max_velocity"], **tuning)
+
+
+class TianjiStepDifferentialIK:
+    """One rate-controlled update from the last command, with composed TCP geometry.
+
+    This reports tracking lag; it does not claim exact inverse-kinematics
+    convergence. The caller owns atomic rejection, deadlines and command holds.
+    """
+
+    def __init__(self, models, config, dt_s):
+        from manimux.kinematics.composed import ComposedManipulatorKinematics
+
+        if not math.isfinite(dt_s) or dt_s <= 0:
+            raise ValueError("step diffIK requires a positive finite control period")
+        self.models = models
+        self.dt_s = dt_s
+        self.solvers = {}
+        for name, model in models.items():
+            if not (
+                isinstance(model, ComposedManipulatorKinematics)
+                and isinstance(model.arm, TianjiArmKinematics)
+                and len(model.coordinates) == 8
+            ):
+                raise ValueError("step diffIK requires composed Tianji kinematics with one tool coordinate")
+            self.solvers[name] = TianjiDifferentialIK(model.arm, config)
+
+    def reset(self):
+        for solver in self.solvers.values():
+            solver.reset()
+
+    def solve(self, name, target_tcp, command_seed, gripper):
+        command_seed = np.asarray(command_seed, dtype=float)
+        if (command_seed.shape != (8,) or not np.isfinite(command_seed).all()
+                or not np.isfinite(gripper) or not 0 <= gripper <= 1):
+            return DifferentialIKResult(False, "invalid_input")
+        flange = self.models[name].flange_target(target_tcp, np.array([gripper]))
+        return self.solvers[name].solve(flange, command_seed[:7], self.dt_s)
+
+
 def _upper_csc(matrix):
     rows, cols = np.triu_indices(7)
     return sparse.csc_matrix((matrix[rows, cols], (rows, cols)), shape=(7, 7))

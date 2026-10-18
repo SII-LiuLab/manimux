@@ -38,7 +38,7 @@ def validate_request_schedule(values: dict, *, provided=frozenset()) -> None:
     trigger = values["request_trigger"]
     if schedule not in {"deadline", "single_inflight", "multi_inflight", "serial"}:
         raise ValueError(f"unknown inference_schedule: {schedule!r}")
-    if trigger not in {"refill", "continuous", "algorithm"}:
+    if trigger not in {"refill", "continuous", "algorithm", "progress"}:
         raise ValueError(f"unknown inference.request_trigger: {trigger!r}")
     if values["strategy"] is not None and (
         schedule == "multi_inflight" or trigger == "continuous"
@@ -56,8 +56,23 @@ def validate_request_schedule(values: dict, *, provided=frozenset()) -> None:
     if algorithm == "serial" and schedule != "serial":
         raise ValueError("inference.algorithm=serial requires inference_schedule=serial")
     ordinary_async = algorithm in _CHUNK_STRATEGIES | _ADAPTIVE and schedule != "serial"
-    if ordinary_async and trigger not in {"refill", "continuous"}:
-        raise ValueError("ordinary asynchronous requests require refill or continuous trigger")
+    if trigger == "progress":
+        if (
+            algorithm != "async" or schedule != "single_inflight"
+            or values["strategy"] is not None
+            or values["action_start_mode"] != "drop_infer_latency"
+            or values["handoff"] != "blend" or values["handoff_skip_steps"]
+            or values["max_chunk_policy_steps"] is not None
+        ):
+            raise ValueError(
+                "progress trigger requires built-in single_inflight Async, drop_infer_latency, "
+                "blend handoff, no handoff skip and no source-prefix cap"
+            )
+        steps = values["chunk_policy_steps"]
+        if type(steps) is not int or steps < 1:
+            raise ValueError("progress trigger requires positive integer chunk_policy_steps")
+    if ordinary_async and trigger not in {"refill", "continuous", "progress"}:
+        raise ValueError("ordinary asynchronous requests require refill, continuous or progress trigger")
     if not ordinary_async and trigger != "algorithm":
         raise ValueError(f"{algorithm} with {schedule} requires request_trigger=algorithm")
     if trigger != "refill" and "refill_threshold_s" in provided:

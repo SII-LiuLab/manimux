@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from manimux.policy_adapter import build_policy_adapter
+from manimux.policies.base import attach_sampling_stats
 from manimux.types import ActionChunk, ActionContext, InferenceResponse
 
 
@@ -53,6 +54,7 @@ def _decode_main(
                 chunk = adapter.decode_action(raw, context)
             else:
                 chunk = adapter.decode_action_partition(raw, context, partition)
+            chunk = attach_sampling_stats(chunk, raw)
             if time.monotonic_ns() > deadline_ns:
                 raise TimeoutError("decode deadline exceeded")
         except Exception as exc:

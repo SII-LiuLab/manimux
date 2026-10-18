@@ -9,6 +9,7 @@ from scipy.spatial.transform import Rotation
 
 from manimux.policies.actions import action_groups
 from manimux.policy_adapter.kinematics import KinematicAdapter
+from manimux.policy_adapter.pose_output import pose_chunk
 from manimux.policy_adapter.umi_dp.history import MeasuredHistory
 from manimux.types import ActionChunk, InferenceRequest, ObservationSnapshot, SensorFrame
 
@@ -82,6 +83,8 @@ class HistoryStrategy:
 
 
 class DPYamAdapter(KinematicAdapter):
+    supports_step_ik = True
+
     def __init__(self, robot, policy, *, kinematics=None):
         super().__init__(robot, policy, kinematics=kinematics)
 
@@ -158,6 +161,11 @@ class DPYamAdapter(KinematicAdapter):
         seed_state = context.ik_seed if context.ik_seed is not None else anchor
         if seed_state is None:
             raise ValueError("DP IK requires a seed")
+        if self.decode_pose_only:
+            poses = {name: rows.copy() for name, rows in actions.items()}
+            for rows in poses.values():
+                rows[:, 7] = np.clip(rows[:, 7], 0, 1)
+            return pose_chunk(context, poses, self.dt)
         groups = {}
         for group in self.groups:
             seed = np.asarray(seed_state.groups[group][:6]).copy()

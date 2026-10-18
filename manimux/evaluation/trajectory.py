@@ -30,6 +30,7 @@ class ReferenceTrajectory:
     start_ns: int
     dt_ns: int
     groups: dict[str, np.ndarray]
+    action_space: str = "joint_position"
 
 
 METRICS = (
@@ -51,12 +52,25 @@ def _invalid(reason: str) -> dict:
     }
 
 
-def _sample(values: np.ndarray, offsets_ns: np.ndarray, dt_ns: int) -> np.ndarray:
+def _sample(
+    values: np.ndarray, offsets_ns: np.ndarray, dt_ns: int, action_space: str = "joint_position"
+) -> np.ndarray:
     # Coverage is checked by the caller. Integer-relative time avoids loss of
     # precision at large absolute timestamps; no out-of-range endpoint padding.
     lower, remainder = np.divmod(offsets_ns, dt_ns)
     upper = np.minimum(lower + 1, len(values) - 1)
     alpha = (remainder / dt_ns)[:, None]
+    if action_space == "absolute_tcp_pose":
+        from manimux.policy_adapter.pose_output import interpolate_pose
+
+        return np.stack(
+            [
+                interpolate_pose(a, b, float(w[0]))
+                for a, b, w in zip(values[lower], values[upper], alpha, strict=True)
+            ]
+        )
+    if action_space != "joint_position":
+        raise ValueError("unsupported_reference_action_space")
     return (1 - alpha) * values[lower] + alpha * values[upper]
 
 
@@ -73,7 +87,8 @@ def compare_window(
 
     The sample interval is the incoming committed trajectory's recorded dt.
     Both trajectories are sampled at t_new + k*dt, using their own dt for
-    joint interpolation before FK. All N+1 points must be in both domains.
+    joint interpolation before FK, or pose interpolation for TCP plans.
+    All N+1 points must be in both domains.
     """
     if isinstance(steps, bool) or not isinstance(steps, int) or steps <= 0:
         raise ValueError("steps must be a positive integer")
@@ -91,6 +106,8 @@ def compare_window(
         if not np.isfinite(values).all():
             return _invalid(f"{label}_nonfinite")
         arrays.append(values)
+    if old.action_space != new.action_space:
+        return _invalid("action_space_mismatch")
     if arrays[0].shape[1] != arrays[1].shape[1]:
         return _invalid("coordinate_dimension_mismatch")
     if new.start_ns < old.start_ns:
@@ -105,8 +122,14 @@ def compare_window(
     xyz = []
     offsets = np.arange(steps + 1, dtype=np.int64) * new.dt_ns
     for ref, values in zip((old, new), arrays, strict=True):
-        sampled = _sample(values, offsets + (new.start_ns - ref.start_ns), ref.dt_ns)
-        points = np.asarray([model.fk(q)[:3, 3] for q in sampled], dtype=np.float64)
+        sampled = _sample(
+            values, offsets + (new.start_ns - ref.start_ns), ref.dt_ns, ref.action_space
+        )
+        points = (
+            sampled[:, :3]
+            if ref.action_space == "absolute_tcp_pose"
+            else np.asarray([model.fk(q)[:3, 3] for q in sampled], dtype=np.float64)
+        )
         if points.shape != (steps + 1, 3) or not np.isfinite(points).all():
             return _invalid("invalid_fk_output")
         xyz.append(points * 1000)
@@ -183,7 +206,14 @@ def analyze_candidates(
     for plan in plans:
         input_hash.update(
             json.dumps(
-                [plan.index, plan.plan_id, plan.request_seq, plan.start_ns, plan.dt_ns]
+                [
+                    plan.index,
+                    plan.plan_id,
+                    plan.request_seq,
+                    plan.start_ns,
+                    plan.dt_ns,
+                    plan.action_space,
+                ]
             ).encode()
         )
         for group, values in sorted(plan.groups.items()):

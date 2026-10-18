@@ -22,6 +22,7 @@ from scipy.spatial.transform import Rotation
 
 from manimux.policies.base import action_interval
 from manimux.policy_adapter.base import PolicyAdapter
+from manimux.policy_adapter.pose_output import pose_chunk
 from manimux.runtime.rtc.request import RtcInferenceRequest
 from manimux.types import (
     ActionChunk,
@@ -221,6 +222,10 @@ def _wire_endpose_to_pose(endpose: np.ndarray) -> np.ndarray:
 
 class SAPolicyYamAdapter(PolicyAdapter):
     """Encode YAM observations and solve SAPolicy Cartesian chunks back to joints."""
+
+    # This adapter owns custom TCP geometry and bounded solver settings which
+    # are not yet shared with robot.kinematics used by execution-time IK.
+    supports_step_ik = False
 
     def __init__(self, robot: dict, policy: dict, *, kinematics=None) -> None:
         from manimux.kinematics import build_kinematics
@@ -444,6 +449,16 @@ class SAPolicyYamAdapter(PolicyAdapter):
                 f"SAPolicy adapter has no observation anchor for request {context.request_seq}"
             )
 
+        if self.decode_pose_only:
+            targets = {}
+            for index, group in enumerate(self._group_order):
+                rows = actions[:, index * 8:index * 8 + 8].copy()
+                from manimux.kinematics.poses import matrix_pose
+                targets[group] = np.stack([
+                    np.r_[matrix_pose(self._kinematics_from_model[group] @ _wire_endpose_to_pose(row[:7])), row[7]]
+                    for row in rows
+                ])
+            return pose_chunk(context, targets, self._action_dt_ns)
         groups: dict[str, np.ndarray] = {}
         ik_diagnostics: dict[str, object] = {}
         raw_eef: dict[str, object] = {}

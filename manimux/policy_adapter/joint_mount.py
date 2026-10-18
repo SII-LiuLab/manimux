@@ -16,11 +16,14 @@ from dataclasses import replace
 import numpy as np
 
 from manimux.policy_adapter.joint import JointAdapter
+from manimux.policy_adapter.pose_output import pose_chunk, target_rows
 from manimux.types import ActionChunk, ActionContext, InferenceRequest
 
 
 class MountOffsetJointAdapter(JointAdapter):
     """``JointAdapter`` with a fixed base translation between model and robot."""
+
+    supports_step_ik = True
 
     def __init__(self, robot: dict, policy: dict, *, kinematics=None) -> None:
         super().__init__(robot, policy, kinematics=kinematics)
@@ -90,6 +93,15 @@ class MountOffsetJointAdapter(JointAdapter):
 
     def decode_action(self, raw: object, context: ActionContext) -> ActionChunk:
         chunk = super().decode_action(raw, context)
+        if self.decode_pose_only:
+            targets = {}
+            for group, rows in chunk.groups.items():
+                targets[group] = []
+                for row in rows:
+                    pose = self._kinematics.models[group].fk(row)
+                    pose[:3, 3] -= self._offsets[group]
+                    targets[group].append((pose, float(row[-1])))
+            return pose_chunk(context, target_rows(targets), chunk.dt_ns)
         groups = {
             group: np.stack([self._shift(group, row, -1.0) for row in rows])
             for group, rows in chunk.groups.items()

@@ -7,7 +7,7 @@
 <main>
 <header><div class="eyebrow">MANIMUX / OFFLINE TRAJECTORY STUDY <span class="badge">探索性分析 · H32</span></div>
 <h1>Chunk 在哪里接不上？</h1><p class="lead">DP ManiMux 异步调度与 train-time RTC 的 overlap 对比。先看首尾误差，再看整段形状和运动方向，最后回到具体 chunk 检查差异。</p>
-<div class="legend"><span><i class="dot" style="background:var(--base)"></i>DP · ManiMux async</span><span><i class="dot" style="background:var(--train)"></i>DP · train-time RTC</span></div>
+<div class="legend"><span><i class="dot" style="background:var(--base)"></i>DP · Async</span><span><i class="dot" style="background:var(--train)"></i>DP · train-time RTC</span></div>
 <div class="stats" id="stats"></div>
 <div class="notice"><b>比较的是已保存的参考轨迹。</b>两组 checkpoint、日期、handoff 设置与布局不完全匹配。ManiMux 使用 waypoint，train-time RTC 使用 blend 模式（blend_steps=0）。canonical_raw 已经过适配器/IK，可能包含 waypoint 修改；这里不能单独归因于训练方法，也不能证明实测运动更平滑。<br><span class="muted">默认只纳入 tick 中观察到相邻接管且没有明显 tick 缺口的候选；暂停/hold 的完整正式审查仍未完成。partial 与空记录单独列出。</span></div>
 <section><h2>主要观察 · 全部设置</h2><div id="overview" class="keyline"></div><p id="prefix-note" class="muted"></p></section></header>

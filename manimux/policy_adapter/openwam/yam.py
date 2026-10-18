@@ -11,6 +11,7 @@ from manimux.kinematics.poses import matrix_pose, pose_matrix
 from manimux.policies.actions import action_groups
 from manimux.policies.base import action_interval
 from manimux.policy_adapter.kinematics import KinematicAdapter
+from manimux.policy_adapter.pose_output import pose_chunk
 from manimux.types import ActionChunk, InferenceRequest
 
 DEFAULT_CAMERA_MAP = {
@@ -29,6 +30,9 @@ class PoseRequest(InferenceRequest):
 
 
 class OpenWAMYamAdapter(KinematicAdapter):
+    supports_step_ik = True
+    pose_condition_modes = ("rtc", "paint")
+
     def __init__(self, robot, policy, *, kinematics=None):
         super().__init__(robot, policy, kinematics=kinematics)
 
@@ -86,6 +90,22 @@ class OpenWAMYamAdapter(KinematicAdapter):
             if values is None:
                 continue
             values = np.asarray(values, dtype=float)
+            if request.action_condition_space == "absolute_tcp_pose":
+                if values.ndim != 2 or values.shape[1] != 16:
+                    raise ValueError("OpenWAM pose condition must be dual pose8")
+                native = []
+                weights = getattr(request, "condition_weights", None)
+                for i, row in enumerate(values):
+                    if weights is not None and weights[i] == 0:
+                        native.append(np.zeros(20))
+                        continue
+                    arms = []
+                    for offset in (0, 8):
+                        pose = pose_matrix(row[offset:offset + 7])
+                        arms.extend([pose[:3, 3], pose[:3, 0], pose[:3, 1], row[offset + 7:offset + 8]])
+                    native.append(np.concatenate(arms))
+                request = replace(request, **{field: np.asarray(native)})
+                continue
             if values.ndim != 2 or values.shape[1] != 14 or not np.isfinite(values).all():
                 raise ValueError("OpenWAM condition must contain absolute dual-arm joint targets")
             native = []
@@ -117,6 +137,8 @@ class OpenWAMYamAdapter(KinematicAdapter):
         anchors = self.anchors.pop(context.request_seq, None)
         if anchors is None:
             raise ValueError("OpenWAM action has no matching observation anchor")
+        if self.decode_pose_only:
+            return pose_chunk(context, actions, self.dt)
         groups = {}
         for side in ("left", "right"):
             group = f"{side}_arm"

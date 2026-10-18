@@ -238,6 +238,7 @@ class RtcInferenceStrategy:
             instruction=self._config["run"]["task"],
             action_condition=None if condition is None else condition.astype(np.float64),
             condition_weights=None if weights is None else weights.astype(np.float64),
+            action_condition_space=timeline.action_space,
             rtc_beta=self._rtc_beta,
         )
         if condition is not None:

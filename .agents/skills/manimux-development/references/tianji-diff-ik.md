@@ -208,3 +208,27 @@ an explicit differential-IK profile in the model environment; the runtime
 environment loaded the paired config, validated
 the shared profile, and constructed both QP solvers with no torch or SDK loaded.
 No hardware motion, real closed-loop policy rollout or task success was tested.
+
+
+## Execution-time step + diffIK (2026-10-16)
+
+`execution.ik: {mode: step, backend: diff}` reuses `TianjiDifferentialIK` through
+`TianjiStepDifferentialIK`. The policy adapter decodes poses inline; no chunk IK
+or dense substeps run. At each control tick, convert the sampled TCP target to
+flange using the composed geometry, solve once from the last dispatched arm command with the
+nominal control period, and apply direct execution plus existing command safety.
+The seed includes executor shaping; it is not the previous speculative IK result.
+Runtime initializes/reanchors the command on startup and lifecycle transitions.
+No separate joint-position integrator is retained in the solver, so failed ticks
+resume from the held command. Analytic step IK still uses measured joint seeds.
+
+Tuning lives under `execution.ik.diff_ik`; the joint velocity bound is resolved
+from `executor.motion_limits.arm.max_velocity`. The QP's lag policy is explicit:
+`report` accepts a bounded step with tracking lag, whereas `abort` rejects it.
+The optional pose limiter is upstream, so reported lag is the solved command's
+FK residual against that limited target, not measured robot tracking error.
+Both arms share the IK budget; any failed or late update holds all arm
+and gripper commands. QP warm state is discarded on rejected ticks, pause, Home,
+timeline gaps and episode warmup. Successful ticks record `step_diff_ik`; rejected
+ticks record `step_ik_hold`. Native branch-jump rejection is not used by this QP;
+its rate, joint-margin and J6/J7 constraints remain active.

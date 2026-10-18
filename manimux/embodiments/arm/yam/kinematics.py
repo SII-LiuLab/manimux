@@ -457,6 +457,19 @@ class YamManipulatorKinematics(ManipulatorKinematicsBase):
     def ik(self, target_tcp, seed_configuration, *, fixed_coordinates):
         return self._ik(target_tcp, seed_configuration, **fixed_coordinates)
 
+    def ik_deadline(self, target_tcp, seed_configuration, *, fixed_coordinates, deadline_ns):
+        """Use the configured YAM solver with a shared execution-tick deadline."""
+        if set(fixed_coordinates) != {"gripper"}:
+            raise ValueError("YAM IK requires the gripper coordinate")
+        gripper = fixed_coordinates["gripper"]
+        ok, joints, info = self.solver.ik_bounded(
+            target_tcp, np.asarray(seed_configuration)[:6], gripper,
+            deadline_ns=deadline_ns,
+        )
+        if ok:
+            return IKResult(True, joints=np.r_[joints, gripper])
+        return IKResult(False, reason=info.get("reason", "no_solution"))
+
     def _ik(self, target, seed, *, gripper):
         # Pass the target gripper value before solving so FK and IK use the same complete configuration.
         ok, joints = self.solver.ik(target, np.asarray(seed)[:6], gripper)

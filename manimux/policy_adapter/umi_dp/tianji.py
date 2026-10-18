@@ -17,6 +17,7 @@ from manimux.policies.xpolicylab.codec import matrix_pose, pose_matrix
 from manimux.policy_adapter.base import PolicyAdapter
 from manimux.policy_adapter.gripper_mapping import GripperMapping
 from manimux.policy_adapter.handoff import WaypointHandoff
+from manimux.policy_adapter.pose_output import pose_chunk
 from manimux.policy_adapter.umi_dp.history import WindowSnapshot, execution_offset_s
 from manimux.runtime.rtc.request import RtcInferenceRequest
 from manimux.types import ActionChunk, RuntimeTrajectory
@@ -66,6 +67,9 @@ class UmiDpTianjiAdapter(PolicyAdapter):
     # Arm IK is independent, so process decoding can solve both sides in
     # parallel and merge them atomically.
     decode_partitions = ("left_arm", "right_arm")
+
+    supports_step_ik = True
+    pose_condition_modes = ("rtc",)
 
     def __init__(self, robot, policy, *, kinematics=None, motion_limits=None):
         self.validate(robot, policy)
@@ -227,6 +231,12 @@ class UmiDpTianjiAdapter(PolicyAdapter):
                 if weight == 0:
                     continue
                 for index, side in enumerate(("left", "right")):
+                    if request.action_condition_space == "absolute_tcp_pose":
+                        from manimux.policy_adapter.pose_output import validate_pose_rows
+                        value = validate_pose_rows(condition[row:row + 1, index * 8:(index + 1) * 8])[0]
+                        poses[row, index * 8:(index + 1) * 8] = value
+                        poses[row, index * 8 + 7] = self.gripper_mapping.inverse(value[-1])
+                        continue
                     values = state_vector(condition[row, index * 8 : (index + 1) * 8])
                     poses[row, index * 8 : index * 8 + 7] = matrix_pose(
                         self._fk(self.kin[side], values[:7], float(values[-1]))
@@ -499,6 +509,11 @@ class UmiDpTianjiAdapter(PolicyAdapter):
             for side in sides
         }
         steps = self._map_gripper_steps(steps)
+        if self.decode_pose_only:
+            targets = {f"{side}_arm": np.stack([
+                np.r_[step[f"{side}_ee_pose"], step[f"{side}_ee_joint_state"]]
+                for step in steps]) for side in sides}
+            return pose_chunk(context, targets, self.dt_ns, observation_time_ns=action_origin)
         handoff = None
         if context.handoff_reference is not None and self.waypoint_handoff is not None:
             handoff = self.waypoint_handoff.plan(

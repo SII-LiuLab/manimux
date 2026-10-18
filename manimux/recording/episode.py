@@ -113,6 +113,7 @@ class EpisodeRecorder:
                 else {name: value.copy() for name, value in horizon.tracking_groups.items()}
             ),
             observation_time_ns=horizon.observation_time_ns,
+            action_space=horizon.action_space,
         )
 
     @timed("recording.plan")

@@ -82,8 +82,8 @@ def _validate(config_path: Path, config: dict[str, Any]) -> dict[str, Any]:
         "num_steps": num_steps,
         "inference_seed": config.get("inference_seed", 0),
         "fast_inference": bool(config.get("fast_inference", False)),
-        # paint: official ABC action-prefix RTC; rtc: PiGDM inference-time guidance.
-        "sampling_modes": ["default", "paint", "rtc"],
+        # train_time_rtc: trained hard-prefix continuation; rtc: inference-time guidance.
+        "sampling_modes": ["default", "train_time_rtc", "rtc"],
         "rtc_prefix_length": int(config.get("rtc_prefix_length", 4)),
     }
 

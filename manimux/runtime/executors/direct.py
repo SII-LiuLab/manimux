@@ -4,7 +4,12 @@ import math
 
 import numpy as np
 
-from manimux.runtime.executors.limits import ScalarLimits, limit_step, limit_velocity
+from manimux.runtime.executors.limits import (
+    ScalarLimits,
+    braking_velocity,
+    limit_step,
+    limit_velocity,
+)
 from manimux.types import ActionHorizon, GroupVector, RobotCommand, RobotState, copy_group_vector
 
 
@@ -61,9 +66,21 @@ class DirectExecutor:
             for name, index in gripper["group_indices"].items():
                 desired = reference.groups[name][0, index]
                 previous = self._previous[name][index]
+                error = desired - previous
+                desired_velocity = error / self._dt_s
+                if gripper["max_acceleration"] is not None:
+                    # Reserve enough distance to stop before a fixed target.
+                    # A sudden replan may cross the new target while braking;
+                    # retain the acceleration limit rather than snapping to it.
+                    desired_velocity = np.sign(error) * min(
+                        abs(desired_velocity),
+                        float(braking_velocity(
+                            np.asarray(abs(error)), gripper["max_acceleration"], self._dt_s
+                        )),
+                    )
                 velocity = float(
                     limit_velocity(
-                        np.asarray((desired - previous) / self._dt_s),
+                        np.asarray(desired_velocity),
                         np.asarray(self._previous_velocity[name][index]),
                         self._dt_s,
                         gripper["max_velocity"],

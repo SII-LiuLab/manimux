@@ -14,6 +14,11 @@ class PolicyAdapter(ABC):
     kinematics is an assembled offline model; passing it does not connect cameras or robots.
     """
 
+    # The runtime selects pose decoding only after validating step IK support.
+    decode_pose_only = False
+    supports_step_ik = False
+    pose_condition_modes = ()
+
     # True when decode_action honors ActionContext.handoff_reference.
     supports_waypoint_handoff = False
 

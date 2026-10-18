@@ -190,9 +190,12 @@ class PolicyWarmup:
                             chunk = self.strategy.select_chunk(
                                 chunk=chunk, now_ns=self.clock.now_ns(),
                             )
-                        if chunk.action_space != "joint_position":
-                            raise ValueError("Warmup requires canonical joint-position output")
-                    except Exception as exc:  # Keep model/adapter failures visible without motion.
+                        from manimux.runtime.ik import step_ik_enabled
+                        from manimux.policy_adapter.pose_output import POSE_SPACE
+                        expected_space = POSE_SPACE if step_ik_enabled(self.config) else "joint_position"
+                        if chunk.action_space != expected_space:
+                            raise ValueError(f"Warmup requires canonical {expected_space} output")
+                    except Exception as exc:
                         error = f"{type(exc).__name__}: {exc}"
                 self.error = error or ""
                 if error is None:

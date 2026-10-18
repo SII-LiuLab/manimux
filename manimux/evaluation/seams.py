@@ -39,7 +39,11 @@ def analyze(evidence, models, max_gap_s):
             continue
         old, new = plans[old_id], plans[new_id]
         row.update(
-            old_request_seq=old.request_seq, new_request_seq=new.request_seq, switch_ns=new.start_ns
+            old_request_seq=old.request_seq,
+            new_request_seq=new.request_seq,
+            switch_ns=new.start_ns,
+            old_action_space=old.action_space,
+            new_action_space=new.action_space,
         )
         event = boundaries.get(new_id)
         if event is None or event.get("request_seq") != new.request_seq:
@@ -66,6 +70,11 @@ def analyze(evidence, models, max_gap_s):
             kind = "continuous" if new.start_ns <= end else "end_hold"
             if kind == "continuous":
                 outgoing = sample(old, group, new.start_ns)
+                a = (
+                    outgoing[:3]
+                    if old.action_space == "absolute_tcp_pose"
+                    else model.fk(outgoing)[:3, 3]
+                )
             else:
                 # Explicit hold convention: the actual last recorded held target,
                 # never an assumed/clamped old endpoint.
@@ -81,8 +90,13 @@ def analyze(evidence, models, max_gap_s):
                 ):
                     row["arms"][group] = dict(status="missing", reason="hold_not_constant")
                     continue
+                a = model.fk(outgoing)[:3, 3]
             incoming = new.groups[group][0]
-            a, b = model.fk(outgoing)[:3, 3], model.fk(incoming)[:3, 3]
+            b = (
+                incoming[:3]
+                if new.action_space == "absolute_tcp_pose"
+                else model.fk(incoming)[:3, 3]
+            )
             if not np.isfinite([a, b]).all():
                 raise ValueError("invalid_fk_output")
             row["arms"][group] = dict(

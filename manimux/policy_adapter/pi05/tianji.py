@@ -16,6 +16,7 @@ from manimux.policies.xpolicylab.codec import matrix_pose, pose_matrix
 from manimux.policy_adapter.base import PolicyAdapter
 from manimux.policy_adapter.gripper_mapping import GripperMapping
 from manimux.policy_adapter.handoff import WaypointHandoff
+from manimux.policy_adapter.pose_output import pose_chunk, target_rows
 from manimux.runtime.rtc.request import RtcInferenceRequest
 from manimux.types import (
     ActionChunk,
@@ -64,6 +65,9 @@ class _Pi05TianjiEEAdapter(PolicyAdapter):
     # Each arm can be solved in its own process, but the decoder client commits
     # only after both partitions have completed successfully.
     decode_partitions = tuple(GROUP_DIMS)
+
+    supports_step_ik = True
+    pose_condition_modes = ("rtc",)
 
     def __init__(
         self, robot: dict, policy: dict, *, kinematics=None, motion_limits=None
@@ -175,7 +179,20 @@ class _Pi05TianjiEEAdapter(PolicyAdapter):
         condition = getattr(request, "action_condition", None)
         weights = getattr(request, "condition_weights", None)
         if condition is not None:
-            condition, weights = self._absolute_condition(condition, weights)
+            if request.action_condition_space == "absolute_tcp_pose":
+                from manimux.policy_adapter.pose_output import validate_pose_rows
+                condition = np.array(condition, dtype=float, copy=True)
+                weights = np.asarray(weights, dtype=float)
+                if condition.shape != (self._horizon_steps, 16) or weights.shape != (self._horizon_steps,):
+                    raise ValueError("RTC pose condition shape mismatch")
+                for offset in (0, 8):
+                    valid = weights != 0
+                    if valid.any():
+                        condition[valid, offset:offset + 8] = validate_pose_rows(condition[valid, offset:offset + 8])
+                    condition[:, offset + 7] = self._gripper_mapping.inverse(condition[:, offset + 7])
+                condition[weights == 0] = 0
+            else:
+                condition, weights = self._absolute_condition(condition, weights)
         return Pi05TianjiRequest(
             session_id=request.session_id,
             request_seq=request.request_seq,
@@ -379,6 +396,8 @@ class _Pi05TianjiEEAdapter(PolicyAdapter):
             ]
             for name in self._group_order
         }
+        if self.decode_pose_only:
+            return pose_chunk(context, target_rows(targets), self._action_dt_ns)
         handoff = None
         if context.handoff_reference is not None and self.waypoint_handoff is not None:
             # Plan over both groups even in a partition so atomic decodes agree.

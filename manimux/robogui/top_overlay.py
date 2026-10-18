@@ -41,6 +41,26 @@ _PANEL_STYLE = """
   }
   .manimux-reference-image-space { height: var(--reference-image-height); }
   .manimux-reference-panel footer { margin-top: 7px; color: #a6b5c7; }
+  /* Native image previews use a portal. Target image-only dialogs, leaving
+     control/confirmation dialogs and the live thumbnail layout unchanged. */
+  .mantine-Modal-inner:has(.mantine-Modal-body > img:only-child) {
+    padding: 0 !important;
+  }
+  .mantine-Modal-content:has(.mantine-Modal-body > img:only-child) {
+    flex: 0 0 100vw !important; width: 100vw !important;
+    max-width: 100vw !important; height: 100dvh; max-height: 100dvh !important;
+    border-radius: 0; display: flex; flex-direction: column;
+  }
+  .mantine-Modal-content:has(.mantine-Modal-body > img:only-child) .mantine-Modal-header {
+    flex: 0 0 auto;
+  }
+  .mantine-Modal-body:has(> img:only-child) {
+    flex: 1; min-height: 0; padding: 8px; display: flex;
+    background: #0e131c;
+  }
+  .mantine-Modal-body > img:only-child {
+    width: 100%; height: 100% !important; object-fit: contain;
+  }
   div:has(> .manimux-reference-anchor) + div {
     position: absolute; left: 11px; top: calc(var(--reference-top) + 51px);
     width: calc(var(--manimux-camera-width, 460px) - 22px);

@@ -93,6 +93,8 @@ class InferenceRequest:
     deadline_ns: int
     observation: ObservationSnapshot
     instruction: str = ""
+    # Explicit because joint and pose conditions can share the same width.
+    action_condition_space: str = field(default="joint_position", kw_only=True)
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,6 +206,7 @@ class ActionHorizon:
     # Unblended joint reference at start_time_ns for measured tracking checks.
     tracking_groups: GroupVector | None = None
     observation_time_ns: int | None = None
+    action_space: str = "joint_position"
 
     def __post_init__(self) -> None:
         if self.dt_ns <= 0:

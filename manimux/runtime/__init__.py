@@ -100,8 +100,9 @@ def inference_parameters(*, executor: dict, **options) -> dict:
         options.get("algorithm") == "act_temporal_ensemble"
         and options.get("inference_schedule") == "serial"
     )
-    # Serial ACT consumes this field directly as its execution prefix, not a query interval.
-    if options.get("chunk_policy_steps") is not None and not serial_act:
+    progress_async = options["algorithm"] == "async" and options.get("request_trigger") == "progress"
+    # Serial ACT and progress-triggered Async consume the shared step count directly.
+    if options.get("chunk_policy_steps") is not None and not (serial_act or progress_async):
         paths = {
             "async": (None, "max_chunk_policy_steps"),
             "serial": (None, "max_chunk_policy_steps"),
@@ -184,6 +185,8 @@ def inference_parameters(*, executor: dict, **options) -> dict:
 
 def validate_runtime_parameters(config: dict) -> None:
     """Preserve constraints between scheduling, action decoding and execution limits."""
+    from manimux.runtime.ik import validate_ik_config
+    validate_ik_config(config)
     settings = config["inference"]
     ensemble = (settings.get("temporal_ensemble") or {}).get("enabled", False)
     candidate_aac = settings["algorithm"] == "aac" and (
@@ -236,6 +239,11 @@ def validate_runtime_parameters(config: dict) -> None:
         and config["inference"]["chunk_policy_steps"] > config["policy"]["horizon_policy_steps"]
     ):
         raise ValueError("inference.chunk_policy_steps must not exceed policy.horizon_policy_steps")
+    if (
+        config["inference"]["request_trigger"] == "progress"
+        and config["inference"]["chunk_policy_steps"] >= config["policy"]["horizon_policy_steps"]
+    ):
+        raise ValueError("progress chunk_policy_steps must be smaller than policy.horizon_policy_steps")
     if (
         config["inference"]["handoff"] == "waypoint"
         and config["policy"]["action_decoding"] != "process"

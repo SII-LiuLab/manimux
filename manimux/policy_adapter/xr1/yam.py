@@ -34,6 +34,7 @@ import numpy as np
 
 from manimux.policies.base import action_interval
 from manimux.policy_adapter.kinematics import KinematicAdapter
+from manimux.policy_adapter.pose_output import pose_chunk
 from manimux.runtime.paint import PaintInferenceRequest
 from manimux.runtime.rtc.request import RtcInferenceRequest
 from manimux.types import (
@@ -125,6 +126,9 @@ def _axis_angle_to_rotation(axis_angle: np.ndarray) -> np.ndarray:
 class XR1YamAdapter(KinematicAdapter):
     """End-effector deltas -> absolute poses -> YAM joint groups via IK."""
 
+    supports_step_ik = True
+    pose_condition_modes = ("rtc", "paint")
+
     def __init__(self, robot: dict, policy: dict, *, kinematics=None) -> None:
         super().__init__(robot, policy, kinematics=kinematics)
 
@@ -152,6 +156,32 @@ class XR1YamAdapter(KinematicAdapter):
         self._anchors[request.request_seq] = np.ascontiguousarray(anchor)
         while len(self._anchors) > 8:
             self._anchors.popitem(last=False)
+        if request.action_condition_space == "absolute_tcp_pose":
+            from manimux.kinematics.poses import pose_matrix
+            from manimux.policy_adapter.xr1.rotation import rotm2aa_batch
+            changes = {}
+            for field in ("action_condition", "paint_action_prefix"):
+                values = getattr(request, field, None)
+                if values is None:
+                    continue
+                values = np.asarray(values, dtype=float)
+                if values.ndim != 2 or values.shape[1] != 16:
+                    raise ValueError("XR1 pose condition must be dual pose8")
+                native = np.zeros((len(values), ACTION_DIM))
+                weights = getattr(request, "condition_weights", None)
+                for index, group in enumerate(self._group_order):
+                    q = request.observation.state.groups[group]
+                    anchor_pose = self._fk(group, q[:ARM_JOINTS], float(q[ARM_JOINTS]))
+                    cols = ARM_SLICES[group]
+                    for j, row in enumerate(values[:, index * 8:(index + 1) * 8]):
+                        if weights is not None and weights[j] == 0:
+                            continue
+                        target = pose_matrix(row[:7])
+                        native[j, cols["pos"]] = anchor_pose[:3, :3].T @ (target[:3, 3] - anchor_pose[:3, 3])
+                        native[j, cols["aa"]] = rotm2aa_batch((anchor_pose[:3, :3].T @ target[:3, :3])[None])[0]
+                        native[j, cols["gripper"]] = row[7] - q[ARM_JOINTS]
+                changes[field] = np.ascontiguousarray(native, dtype=np.float32)
+            return replace(request, **changes)
         if isinstance(request, PaintInferenceRequest):
             return replace(
                 request,
@@ -196,6 +226,24 @@ class XR1YamAdapter(KinematicAdapter):
                 f"XR-1 actions must have shape (horizon, {ACTION_DIM}), got {actions.shape}"
             )
 
+        if self.decode_pose_only:
+            from manimux.kinematics.poses import matrix_pose
+            targets, start = {}, 0
+            for name in self._group_order:
+                width = self._group_dims[name]
+                q = anchor[start:start + width]
+                reference = self._fk(name, q[:ARM_JOINTS], float(q[ARM_JOINTS]))
+                columns = ARM_SLICES[name]
+                rows = []
+                for row in actions:
+                    target = reference.copy()
+                    target[:3, 3] += reference[:3, :3] @ row[columns["pos"]]
+                    target[:3, :3] = reference[:3, :3] @ _axis_angle_to_rotation(row[columns["aa"]])
+                    grip = float(q[ARM_JOINTS] + row[columns["gripper"]][0])
+                    rows.append(np.r_[matrix_pose(target), grip])
+                targets[name] = np.asarray(rows)
+                start += width
+            return pose_chunk(context, targets, self._action_dt_ns)
         groups: dict[str, np.ndarray] = {}
         start = 0
         for name in self._group_order:

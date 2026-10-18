@@ -4,9 +4,21 @@ Executors generate commands from timeline references. Action decoding converts m
 actions into those references; it is a separate stage. The options below are specialized
 choices, not requirements for a basic joint-space deployment.
 
+## Direct execution: gripper braking
+
+With `executor.motion_limits.gripper.max_acceleration` set, direct execution
+bounds the requested gripper speed by the remaining stopping distance using the
+shared `braking_velocity` helper, then applies the existing speed, closing-speed
+and acceleration limits. Without this distance-aware braking, a valid target
+near fully open/closed can produce an out-of-range command as the previous
+velocity takes several ticks to decay. Fixed targets converge without overshoot;
+a replan inside the stopping distance can still be crossed while decelerating.
+No target snapping, position-limit relaxation or gripper curve is introduced.
+With acceleration limiting disabled, the existing direct rate behavior remains.
+
 ## Decode in a separate process
 
-`manimux/configs/experiments/put_bottles/sapolicy/yam_sapolicy_manimux_direct_async.yaml` preserves SAPolicy's
+`manimux/configs/experiments/put_bottles/sapolicy/yam_sapolicy_async_direct.yaml` preserves SAPolicy's
 full-pose IK and direct joint execution. It enables `policy.action_decoding:
 process`; the default remains `inline` for existing configurations.
 
@@ -281,7 +293,7 @@ by that replay.
 
 ## Braking-aware tracking
 
-`manimux/configs/experiments/put_bottles/sapolicy/yam_sapolicy_manimux_braking_h25.yaml` enables the optional
+`manimux/configs/experiments/put_bottles/sapolicy/yam_sapolicy_async_braking_h25.yaml` enables the optional
 `executor.smooth.tracking_mode: braking` mode. Existing profiles retain the
 legacy mode unless explicitly changed. MPC is unchanged. The bottle profile also
 uses the optional [latched release](execution.md) rule.

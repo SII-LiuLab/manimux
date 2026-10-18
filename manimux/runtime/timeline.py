@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from manimux.policy_adapter.pose_output import POSE_SPACE, interpolate_pose
 from manimux.types import (
     ACTION_START_MODES,
     ActionChunk,
@@ -53,6 +54,7 @@ class _ActivePlan:
     hold_last_step: bool = False
 
     command_blend: _CommandBlend | None = None
+    action_space: str = "joint_position"
 
     @property
     def activation_time_ns(self) -> int:
@@ -101,7 +103,9 @@ def _sample_plan(plan: _ActivePlan, time_ns: int) -> GroupVector | None:
     upper = min(lower + 1, plan.horizon_steps - 1)
     alpha = min(position - lower, 1.0)
     return {
-        name: (1.0 - alpha) * values[lower] + alpha * values[upper]
+        name: (interpolate_pose(values[lower], values[upper], alpha)
+               if plan.action_space == POSE_SPACE else
+               (1.0 - alpha) * values[lower] + alpha * values[upper])
         for name, values in plan.groups.items()
     }
 
@@ -113,6 +117,7 @@ class ActionTimeline:
         self,
         group_dims: dict[str, int],
         *,
+        action_space: str = "joint_position",
         max_source_steps: int | None = None,
         action_start_mode: str = "drop_infer_latency",
         hold_last_step: bool = False,
@@ -125,6 +130,11 @@ class ActionTimeline:
             raise ValueError(f"action_start_mode must be one of {sorted(ACTION_START_MODES)}")
         if blend_mode not in {"linear", "command_cubic"}:
             raise ValueError("unknown timeline blend_mode")
+        if action_space not in {"joint_position", POSE_SPACE}:
+            raise ValueError("unknown timeline action space")
+        if action_space == POSE_SPACE and blend_mode != "linear":
+            raise ValueError("pose timelines require linear/SLERP blending")
+        self.action_space = action_space
         self._blend_mode = blend_mode
         self._gripper_indices = dict(gripper_indices or {})
         self._max_source_steps = max_source_steps
@@ -178,6 +188,7 @@ class ActionTimeline:
             plan_id=active.plan_id,
             groups=groups,
             observation_time_ns=active.observation_time_ns,
+            action_space=self.action_space,
         )
 
     def commit(
@@ -194,6 +205,10 @@ class ActionTimeline:
         """Validate, time-align, trim, and activate a new action chunk."""
         if type(handoff_skip_steps) is not int or handoff_skip_steps < 0:
             raise ValueError("handoff_skip_steps must be a non-negative integer")
+        if chunk.action_space != self.action_space:
+            return CommitResult(False, "action_space_mismatch")
+        if self.action_space == POSE_SPACE and (chunk.runtime_trajectory is not None or chunk.handoff is not None):
+            return CommitResult(False, "joint_handoff_on_pose_timeline")
         if chunk.request_seq <= self._accepted_request_seq:
             return CommitResult(False, "stale_request_seq")
         if now_ns - chunk.observation_time_ns > max_plan_age_ns:
@@ -275,7 +290,9 @@ class ActionTimeline:
             for name, values in groups.items():
                 for index in range(actual_blend_steps):
                     alpha = (index + 1) / actual_blend_steps
-                    values[index] = (1.0 - alpha) * current[name] + alpha * values[index]
+                    values[index] = (interpolate_pose(current[name], values[index], alpha)
+                                     if self.action_space == POSE_SPACE else
+                                     (1.0 - alpha) * current[name] + alpha * values[index])
 
         new_plan = _ActivePlan(
             plan_id=chunk.plan_id,
@@ -287,6 +304,7 @@ class ActionTimeline:
             unblended_groups=unblended_groups,
             observation_time_ns=chunk.observation_time_ns,
             hold_last_step=self._hold_last_step,
+            action_space=self.action_space,
         )
 
         if self._blend_mode == "command_cubic" and blend_steps:
@@ -396,6 +414,7 @@ class ActionTimeline:
                 unblended_groups=unblended_runtime_groups,
                 observation_time_ns=chunk.observation_time_ns,
                 hold_last_step=self._hold_last_step,
+                action_space=self.action_space,
             )
         self._outgoing = self._retain_outgoing(self._outgoing, self._active, new_plan, now_ns)
         self._runtime_outgoing = self._retain_outgoing(
@@ -544,6 +563,7 @@ class ActionTimeline:
             groups={name: np.stack(values) for name, values in samples.items()},
             tracking_groups=self._tracking_sample(now_ns),
             observation_time_ns=active.observation_time_ns,
+            action_space=self.action_space,
             # Stop before interpolation/feedforward could enter an invalid row.
             hold_groups=tuple(
                 name
