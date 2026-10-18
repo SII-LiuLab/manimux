@@ -1,4 +1,8 @@
-# Illustrative display placement only; not calibrated inter-arm geometry or Home.
+# Display-only wall mount for the current dual Rizon4s station.
+# xyz/rpy place each arm base on a vertical plate; they are not embodiment
+# FK/IK, Home targets or calibrated inter-arm geometry. The right base keeps
+# the documented x/y-reversed relation to the left base, so the displayed Home
+# flange positions are symmetric. Adjust xyz to the measured mount.
 label: Flexiv Rizon4s dual arms (no grippers)
 model: ../../../configs/embodiment/robot/flexiv_dual.yaml
 camera_mode: policy
@@ -11,76 +15,39 @@ cameras:
   slot: right
 groups:
   left_arm:
-    label: Left Arm
+    label: Left Arm (A)
     robogui_display_frame:
-      xyz:
-      - 0
-      - 0.5
-      - 0
-      rpy:
-      - 0
-      - 0
-      - 0
-    prediction_color:
-    - 52
-    - 111
-    - 255
-    trail_color:
-    - 33
-    - 180
-    - 106
-    initial:
-    - 0
-    - 0.5
-    - 0
-    - 1.2
-    - 0
-    - 0.7
-    - 0
+      xyz: [-0.45, 0.55, 1.0]
+      # Base x up, base y left, base z forward (-world y).
+      rpy: [1.5707963267948966, -1.5707963267948966, 0.0]
+    prediction_color: [52, 111, 255]
+    trail_color: [33, 180, 106]
+    # Measured 2026-10-18 HOME joints (radians), display only.
+    initial: [0.925021, 1.125734, 0.654498, 1.396259, 0.733037, 1.500982, 1.073384]
     demo:
-      amplitude:
-      - 0.1
-      - 0.1
-      - 0.1
-      - 0.1
-      - 0.1
-      - 0.1
-      - 0.1
+      amplitude: [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
       phase: 0.0
   right_arm:
-    label: Right Arm
+    label: Right Arm (B)
     robogui_display_frame:
-      xyz:
-      - 0
-      - -0.5
-      - 0
-      rpy:
-      - 0
-      - 0
-      - 3.141592653589793
-    prediction_color:
-    - 255
-    - 94
-    - 87
-    trail_color:
-    - 33
-    - 180
-    - 106
-    initial:
-    - 0
-    - 0.5
-    - 0
-    - 1.2
-    - 0
-    - 0.7
-    - 0
+      xyz: [0.45, 0.55, 1.0]
+      # x/y reversed from the left base (180 deg about base z); z stays forward.
+      rpy: [1.5707963267948966, 1.5707963267948966, 0.0]
+    prediction_color: [255, 94, 87]
+    trail_color: [255, 170, 0]
+    # Measured 2026-10-18 HOME joints (radians), display only.
+    initial: [0.438466, 0.610942, -0.325089, 1.414768, 1.406154, 0.908435, -1.075826]
     demo:
-      amplitude:
-      - 0.1
-      - 0.1
-      - 0.1
-      - 0.1
-      - 0.1
-      - 0.1
-      - 0.1
+      amplitude: [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
       phase: 1.5
+scene:
+  view:
+    camera_position: [2.2, -2.4, 1.7]
+    camera_look_at: [0.0, -0.2, 0.9]
+    grid_position: [0.0, 0.0, -0.01]
+    grid_size: [2.0, 2.0]
+  boxes:
+    - name: flexiv_mount_plate
+      dimensions: [1.2, 0.04, 1.2]
+      position: [0.0, 0.62, 0.95]
+      color: [70, 76, 86]

@@ -35,9 +35,11 @@ python -m manimux serve --config manimux/configs/examples/flexiv_joint.yaml --lo
 # Or select flexiv_pose.yaml with the matching model-side contract.
 ```
 
-RoboGUI preset name: `flexiv`; runtime identity: `flexiv-dual`. Display placements
-and initial poses are illustrative, not calibrated mounts or hardware Home targets.
-Home and idle fault/drag recovery are not advertised.
+RoboGUI preset name: `flexiv`; runtime identity: `flexiv-dual`. The preset
+places both bases on a vertical display plate using the documented x/y-reversed
+base relation and starts at the measured HOME joints. `xyz`/`rpy` are display-only,
+not calibrated inter-arm geometry or hardware Home targets; adjust them to the
+measured station mount. Home and idle fault/drag recovery are not advertised.
 
 ## Policy contracts
 
