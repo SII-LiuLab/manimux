@@ -1,76 +1,69 @@
 ---
 name: manimux-inference
-description: Integrate, configure or verify ManiMux inference algorithms across Pi05, XR1, LingBot-VLA2, DP and OpenWAM. Use for sampling capability audits, model-algorithm matrices and condition conversion; use manimux-experiments for rollout scoring and station-setup for hardware binding.
+description: Select, configure or verify ManiMux inference algorithms and model-side sampling support. Use for runtime timing, algorithm combinations, selecting YAMLs and sampler/adapter audits; use experiments for study design and scoring.
 ---
 
 # ManiMux Inference
 
-Work from the user's ManiMux checkout. Read its
-`.agents/skills/manimux-development/SKILL.md` and relevant nested `AGENTS.md` before
-editing. The maintained implementation map, selecting commands and validation
-limits live in `.agents/skills/manimux-inference/references/inference-matrix.md`; read that document rather than
-copying a historical capability table into a new answer.
+Read [development](../manimux-development/SKILL.md) before implementation and the
+[model matrix](references/inference-matrix.md) for the selected deployment. Trace the
+experiment through `read_experiment`, its model recipe, adapter and loaded backend.
+Pi05 JAX/PyTorch, DP diffusion/flow and OpenWAM variants have different capabilities.
+The live HELLO sampling modes are authoritative; a method name or YAML is not proof.
 
-## Choose the actual path
+## Configure a comparison
 
-Trace the selected experiment through `manimux.cli.read_experiment`, its policy
-server recipe, action adapter and loaded model. Distinguish Pi05 JAX from PyTorch,
-DP U-Net diffusion from flow policies, and OpenWAM architecture variants. The
-loaded server's HELLO sampling modes decide availability; an inherited method or
-configuration name alone is insufficient. ACT in this matrix is temporal
-ensembling, not a different trained policy.
+Keep checkpoint, normalization, camera mapping, action interval/horizon and executor
+fixed unless the user's comparison changes them. Start from a working deployment;
+use `scripts/experiments/build_inference_matrix.py` to generate and loader-validate
+variants. The matrix reference has commands. Generated presets are starting choices,
+not a frozen study protocol. AAC requires explicitly selected EE-increment statistics.
 
-When a user asks about combining algorithms, read
-[Supported combinations](../../../guideline.html#optional-algorithm-composition).
-Explain the existing standalone ACT algorithm versus optional output ensemble on
-another base strategy. Show explicit true/false YAML overrides; distinguish RTC's
-sampling condition from Timeline blending and output averaging. When implementing
-a combination, follow the optional strategy protocols and ensemble_scope contract
-in the [runtime reference](../manimux-development/references/runtime-config.md).
+Read [algorithm settings](../../../guideline.html#algorithms) and
+[scheduling contracts](references/inference.md) before interpreting a step count:
 
-For selecting YAMLs, reuse `scripts/experiments/build_inference_matrix.py` with
-an existing task and checkpoint. It validates output through the real loader.
-AAC requires an explicitly chosen EE-increment statistics file. Check its data
-provenance before using it for a formal comparison. Preserve checkpoint horizon,
-action interval, observation history, adapter, executor and station ownership.
-Do not silently exchange checkpoints to fill a matrix cell. Generated presets
-are not automatically an agreed study protocol.
+- `chunk_policy_steps` is the common control, but its meaning depends on the method.
+  Async `progress` uses it as a source-progress threshold and retains the full horizon;
+  Async `refill` uses it as a source-prefix cap. Select the generator's `--async-trigger`
+  explicitly when that distinction matters. Source progress includes trimmed rows.
+- RTC/PAINT request after their progress window and continue execution during inference.
+  Their `algorithm` trigger does not use the ordinary refill-time threshold.
+- ACT here means temporal ensembling from the ACT paper, not an ACT-trained checkpoint.
+  BID is backward-only candidate selection, not the full strong/weak-policy method.
+- Sampling, admission (`single_inflight`/`multi_inflight`/serial), chunk blending and
+  ensemble averaging are separate choices. Multi-inflight coalesces observations;
+  it does not imply concurrent GPU model calls.
 
-## Preserve action meaning
+For combinations, use [supported compositions](../../../guideline.html#optional-algorithm-composition).
+One base algorithm can opt into `temporal_ensemble.enabled`; BID can opt into AAC's
+horizon. Adding another algorithm's parameter block does not activate that algorithm.
+Show explicit enable/disable overrides when relevant. Validate with `load_config`;
+report effective settings and which service must reload them.
 
-Runtime owns time alignment and supplies canonical absolute joint targets.
-The embodiment adapter owns FK, reference-frame conversion and native physical
-representation. Model-side transforms own training normalization, masks and
-padding. Keep these stages in that order. For relative actions, rebase against
-this request's observation, never the response-time state. Keep gripper semantics
-separate from arm deltas.
+## Preserve model/action meaning
 
-When an adapter constructs a new request dataclass, preserve the sampling
-request fields. Test the prepared request through the policy client's wire path;
-a sampler unit test cannot detect a dropped field. Unified OpenWAM state and
-action normalization maps are different. DP returns a window starting at
-`n_obs_steps - 1` and requires measured history in the configured deployment.
+Runtime owns timing and canonical actions; adapters own physical representation and
+FK/frame conversion; model transforms own normalization, masks and padding. Rebase
+relative actions against this request's observation, never response-time state.
+Keep gripper semantics separate. Request reconstruction must preserve sampling fields;
+verify them through the policy client's wire path.
 
-AAC must sample independent noise on the same observation and score equivalent
-physical EE motion across native representations. Return the complete selected
-chunk plus execution-length metadata so fixed-horizon adapters can decode it
-before runtime trimming. Never score relative rows as absolute joints.
+AAC candidates use independent noise on the same observation and equivalent physical
+EE motion for scoring. Return full chunks plus execution metadata so fixed-horizon
+adapters decode before runtime cropping. Do not score relative rows as absolute joints.
+DP's observation history and `n_obs_steps - 1` output offset remain model contracts.
 
-## Verify and describe faithfully
+## Validate and report
 
-Check no-condition/zero-weight equivalence with fixed noise, normalized target
-shapes, finite output, anchor conversion, attention capture timing, metadata,
-reset behavior and unsupported-mode failures. Then verify selecting YAMLs through
-the real loader. Use local test locations according to the repository policy.
+For implementation changes, test fixed-noise no-condition/zero-weight equivalence,
+condition shapes, action/frame conversion, metadata, reset and unsupported-mode errors
+as applicable. Read model-specific and nested repository instructions before editing.
+Keep the pinned AutoHorizon selector separate from proposed corrections; label local
+DP/OpenWAM adaptations explicitly. [Reproduction records](references/reproductions/README.md)
+separate official sources, ports and measured evidence.
 
-Keep provenance explicit: a local DP VP-guidance extension or OpenWAM joint-flow
-extension is not an official port. Do not implement an unrelated substitute under
-PAINT/AutoHorizon when a backbone lacks flow inversion or action attention.
-Preserve the pinned AutoHorizon selector separately from proposed corrections.
-
-Report source/CPU checks, real-weight inference and robot trials separately.
-Model validation requires the intended checkpoint, actual sampling requests,
-candidate diversity or guidance effects, latency and memory measurements. Code
-integration or skill creation alone does not authorize starting robots or jobs;
-honor any existing authorization and otherwise finish offline work. Commit or
-push only when requested.
+Distinguish loader/CPU checks, real-weight inference and physical trials. Real-model
+validation checks actual specialized requests, full finite actions, candidate diversity
+or guidance effects, latency/memory and reset. Offline integration does not authorize
+starting services, GPU jobs or robot motion. Return to
+[experiments](../manimux-experiments/SKILL.md) for collection and evaluation.

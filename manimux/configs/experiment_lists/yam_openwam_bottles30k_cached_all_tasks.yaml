@@ -1,0 +1,32 @@
+# Recommended Serial/Async entry: five tasks, compilation and DiT cache enabled.
+experiments:
+- id: coin_serial
+  label: Serial
+  config: ../experiments/coin/openwam/yam_openwam_bottles30k_alltasks_serial_cached.yaml
+- id: coin_async
+  label: Async
+  config: ../experiments/coin/openwam/yam_openwam_bottles30k_alltasks_async_cached.yaml
+- id: stack_blocks_medium_serial
+  label: Serial
+  config: ../experiments/stack_blocks_medium/openwam/yam_openwam_bottles30k_alltasks_serial_cached.yaml
+- id: stack_blocks_medium_async
+  label: Async
+  config: ../experiments/stack_blocks_medium/openwam/yam_openwam_bottles30k_alltasks_async_cached.yaml
+- id: put_bottles_serial
+  label: Serial
+  config: ../experiments/put_bottles/openwam/yam_openwam_bottles30k_alltasks_serial_cached.yaml
+- id: put_bottles_async
+  label: Async
+  config: ../experiments/put_bottles/openwam/yam_openwam_bottles30k_alltasks_async_cached.yaml
+- id: press_rotating_clock_serial
+  label: Serial
+  config: ../experiments/press_rotating_clock/openwam/yam_openwam_bottles30k_alltasks_serial_cached.yaml
+- id: press_rotating_clock_async
+  label: Async
+  config: ../experiments/press_rotating_clock/openwam/yam_openwam_bottles30k_alltasks_async_cached.yaml
+- id: pick_the_moving_cube_serial
+  label: Serial
+  config: ../experiments/pick_the_moving_cube/openwam/yam_openwam_bottles30k_alltasks_serial_cached.yaml
+- id: pick_the_moving_cube_async
+  label: Async
+  config: ../experiments/pick_the_moving_cube/openwam/yam_openwam_bottles30k_alltasks_async_cached.yaml

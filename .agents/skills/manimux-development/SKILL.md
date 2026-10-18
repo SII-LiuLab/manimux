@@ -1,92 +1,60 @@
 ---
 name: manimux-development
-description: Integrate or review ManiMux robot components, policy frameworks, action adapters, inference strategies, executors and RoboGUI features using the existing protocols.
+description: Implement or review ManiMux components, model adapters, inference strategies, execution and RoboGUI features using the existing protocols. Use when configuration alone cannot supply the requested behavior.
 ---
 
 # ManiMux Development
 
-ManiMux provides shared real-robot inference, execution and experiment operation.
-Users choose their research and optional evaluation; integrations reuse the common
-runtime and RoboGUI. Read the [repository guide](references/agent-guide.md)
-before editing, plus relevant nested or framework `AGENTS.md` instructions.
+Read the [repository guide](references/agent-guide.md) and relevant nested/framework
+`AGENTS.md` before editing. For a custom study using supported components, start with
+[experiments](../manimux-experiments/SKILL.md); for another local hardware installation,
+use [station setup](../manimux-station-setup/SKILL.md).
 
-## Choose the extension point
+## Choose the owning layer
 
-Trace the selected YAML through its loader, interface, one working implementation
-and caller. Inspect upstream code before classifying a model versus a reusable
-framework. A new checkpoint usually needs configuration, not a new backend.
+Trace the selected YAML through its loader, interface, working implementation and
+caller before changing behavior. Read only the relevant reference:
 
-Read only the matching technical reference (paths are relative to repository root):
+| Change | Reference |
+| --- | --- |
+| Robot, arm, gripper, camera, SDK or kinematics | [Components](references/components.md) |
+| Model framework, transport, action adapter or normalization | [Policies](references/policies.md) |
+| Scheduling, timelines, recording, executor or RoboGUI | [Runtime](references/runtime-config.md) |
+| Sampler capabilities or model/algorithm combinations | [Inference](../manimux-inference/SKILL.md) |
+| Extension entry points and contributing | [Integration map](references/README.md) |
 
-- [Hardware components](references/components.md): arms/controllers,
-  tools, assembled robots, offline FK/IK, cameras and sensors.
-- [Policies](references/policies.md): models, peer frameworks,
-  clients, wire codecs and observation/action adapters.
-- [Runtime and configuration](references/runtime-config.md):
-  scheduling, timelines, executors, display, records/replay and YAML ownership.
-- [Model sampling matrix](../manimux-inference/references/inference-matrix.md): supported
-  YAM model/algorithm combinations, configuration generation and validation limits.
-- [Integration map](references/README.md): entry points and concrete recipes.
+Model frameworks own weights, network/sampling and training. ManiMux owns transport,
+adapters, strategy/timeline, execution, recording and GUI. Inspect upstream code before
+classifying a model as a framework: XPolicyLab models stay under its `policy/<name>/`,
+while a distinct framework stays a peer with its own ManiMux client. Do not duplicate
+model implementations inside `manimux/` or migrate a working deployment incidentally.
 
-Binding an existing supported robot to another workstation uses
-`manimux-station-setup`. Studying saved rollouts uses `manimux-experiments`.
+## Implement against the contract
 
-## Plan around ownership
+- Preserve unrelated work and state the edit scope. Reuse the existing factory,
+  configuration loader and runtime loop. Validate data in the layer that owns it.
+- Preserve units, frames, group order, input/output shapes, timestamps, action meaning,
+  lifecycle and failure behavior across implementations of the same interface.
+  Matching method names alone is insufficient. Fail explicitly for unsupported modes.
+- For components, use the [operation contract](references/components.md#shared-behavior-across-embodiments).
+  SDK device semantics must not leak into caller-side robot-name branches.
+- XPolicyLab deployment recipes own `robot_action_dim_info` and `num_envs`; use its
+  shared helpers and contribution rules. Preserve sampling flags through adapters and
+  transport. Configuration cannot create a model-side sampler hook.
+- Keep deployment constants in YAML. New capability needs an explicit protocol when
+  it cannot fit the existing one; do not hide extra tool coordinates or weaken IK to
+  imitate a supported interface.
 
-Preserve unrelated work and explain the affected files and data path before a
-structural change. Resolve ambiguous ownership with the user; continue within an
-already approved scope without asking again at every stage.
+## Complete and verify
 
-## Preserve the base-class contract
+Deliver the implementation, selecting YAML, a usable config/launch example and checks
+through the real loader or public interface. Use fake hardware for lifecycle tests
+and synthetic timed chunks for scheduling. Separate CPU/config checks, actual model
+inference, connected-device evidence and physical task success. Local regression tests
+are ignored by repository policy; do not force-add them.
 
-Implementations of the same interface must give each operation the same public
-meaning. Matching method names is insufficient: preserve input/output types,
-shapes, group order, units, frames, action meanings, timestamp semantics,
-completion guarantees, lifecycle and failure behavior. Different component kinds
-retain their own interfaces; an arm and a camera need not share one base class.
-
-Vendor SDK/RDK calls, wire formats and device mode transitions may differ inside
-each implementation. Callers must not need vendor-name branches to compensate for
-those differences. For embodiment work, read the operation table and review steps
-in [the component contract](references/components.md#shared-behavior-across-embodiments).
-
-Review existing drivers, including YAM and Tianji, against that contract; their
-presence in the repository is not proof of compliance. Report mismatches as
-implementation gaps rather than redefining the protocol around an SDK. Required
-operations must work; optional unsupported operations must be explicit to callers,
-never silent no-ops or fabricated success. If the current capability declaration
-or caller behavior is insufficient, identify the gap before changing the interface.
-
-XPolicyLab deployment recipes own explicit `robot_action_dim_info` and `num_envs`;
-pass the resolved policy config to the shared framework helpers. Do not recreate a
-parent `env_cfg/` registry. Model representation and physical joint layout remain
-separate responsibilities connected by the action adapter.
-
-Use the existing loader and factory for each layer. Do not create a parallel main
-loop, registry or config framework. Do not spread SDK calls, model codecs or
-experiment constants into unrelated components. Validate data at the boundary
-that owns its meaning, rather than repeatedly checking it throughout the stack.
-
-If a capability does not fit an existing interface, identify that limitation and
-propose the smallest explicit extension. Never hide extra tool coordinates, replace
-specialized bounded IK with a weaker solver, or report sampling support without
-model-side hooks. Compatibility paths are not templates for new integrations.
-
-For an embodiment review, show the affected operation, required behavior, actual
-SDK mapping, owning file and focused verification. Distinguish documented requirements
-from verified implementation behavior. Keep unrelated drivers and ongoing migrations
-outside the edit scope.
-
-## Complete one usable integration
-
-Deliver implementation, selecting YAML, a short launch/config example, and focused
-validation through the actual loader or public interface. Use fake devices for
-lifecycle/dispatch tests and synthetic chunks for scheduling tests. Separate offline
-checks, actual model inference and physical task success. Tests remain local under
-this repository's ignore policy; do not force-add them.
-
-Update the owning skill reference when the interface changes, and update
-`guideline.html` when user operations or configurable parameters change. Do not
-maintain another guide under the ignored `docs/` archive. Maintain comments, user-facing text and documentation in English.
-Development authorization does not authorize robot motion or stopping live services.
+Update the owning reference for interface changes and `guideline.html` for user-facing
+settings/operations. Keep code comments and maintained documentation in English;
+do not create a second guide under ignored `docs/`. Honor existing authorization;
+development alone does not authorize robot motion or stopping live services.
 Commit/push only when requested.

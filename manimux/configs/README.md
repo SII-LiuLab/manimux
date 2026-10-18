@@ -5,7 +5,11 @@ To connect your own installation of a supported robot, start with
 one private `manimux/configs/local/station.yaml`. The guide explains which entry points
 read it automatically and which still use separate configuration.
 
-An experiment starts at `manimux/configs/experiments/<task>/<model>/<experiment>.yaml`.
+Managed studies keep `protocol.yaml`, setting folders and their catalog under
+`manimux/configs/experiments/<study>/`. Each setting/task/method config mirrors its
+recording directory under `data/experiments/<study>/`; see the
+[storage protocol](../../guideline.html#study-storage-protocol). Standalone deployment
+recipes may retain `experiments/<task>/<model>/<experiment>.yaml`.
 `manimux.cli.read_experiment()` resolves references and selected station bindings;
 `load_config()` supplies runtime defaults. These readers do not connect hardware or services.
 

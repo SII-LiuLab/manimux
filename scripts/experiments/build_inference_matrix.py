@@ -25,12 +25,15 @@ def build_matrix(
     policy_server=None,
     paint_delay_steps=None,
     aac_stats=None,
+    async_trigger="refill",
 ):
     """Keep the base embodiment/checkpoint/timing and select compatible algorithms.
 
     Generated settings are engineering smoke-test presets, not a frozen study.
     The live server's sampling_modes remains authoritative for a loaded model.
     """
+    if async_trigger not in {"refill", "progress"}:
+        raise ValueError("async_trigger must be refill or progress")
     source = read_experiment(base, bind_local=False)
     if policy_server is not None:
         source["policy_server"] = read_yaml(policy_server)
@@ -95,7 +98,9 @@ def build_matrix(
             if method == "serial":
                 inference["action_start_mode"] = "first_step_when_ready"
             else:
-                inference["refill_threshold_s"] = execution_steps * source["policy"]["action_dt_s"]
+                inference["request_trigger"] = async_trigger
+                if async_trigger == "refill":
+                    inference["refill_threshold_s"] = execution_steps * source["policy"]["action_dt_s"]
         elif method == "act":
             inference["temporal_ensemble"] = {"coefficient": 0.01, "query_interval_policy_steps": 1}
         elif method == "rtc":
@@ -147,6 +152,10 @@ def main():
     parser.add_argument("--policy-server", type=Path)
     parser.add_argument("--execution-steps", type=int, required=True)
     parser.add_argument("--paint-delay-steps", type=int)
+    parser.add_argument(
+        "--async-trigger", choices=("refill", "progress"), default="refill",
+        help="Async step meaning: refill caps the source prefix; progress retains the full horizon and replans after K source steps",
+    )
     parser.add_argument("--aac-stats", type=Path)
     parser.add_argument("--methods", nargs="+", choices=METHODS, default=METHODS)
     args = parser.parse_args()

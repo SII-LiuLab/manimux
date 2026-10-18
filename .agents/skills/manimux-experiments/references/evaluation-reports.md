@@ -244,11 +244,9 @@ with the experiment for reproducibility. No timing labels are inferred for old e
   physical motion. PRM results remain separately pending.
 
 
-The initial local report inventory covers `put_bottles`, `coin`, `stack_blocks`,
-`stack_blocks_small`, `assemble_screwdriver`, `pass_ball` and `redball`. Only the
-explicit historical bottle episode is currently selected as report evidence;
-other tasks await an explicit evaluation cohort. Training demonstrations are not
-automatically included as evaluation trials.
+Each study selects its own task indexes and cohorts. Example task names do not
+establish available evidence. Training demonstrations are not automatically included
+as evaluation trials.
 
 
 ## Configurable human scoring
@@ -268,8 +266,8 @@ Supported types:
 - `binary`: Completed / Not completed.
 - `count`: `completed_count / target_count`. Block stacking uses target 2;
   bottles retain target 6.
-- `stages`: select one named total-score option. Coin uses 0 / 0.3 / 1;
-  completing a deposit scores 1, not 1.3.
+- `stages`: select one named total-score option from the episode's rubric snapshot;
+  completing a deposit scores 1, not the sum of preceding milestones.
 
 ```yaml
 kind: stages

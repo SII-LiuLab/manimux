@@ -1,10 +1,9 @@
 # ABC-DiT XL 200k (official pretrain, zero-shot) put-bottles with the OFFICIAL ABC RTC: training-time
 # action-prefix conditioning, deploy README bottles command --rtc-prefix-length=4
 # --rtc-inference-lead-steps=7 --execute-chunk-dim=16 --diffusion-steps=10.
-# Scheduled by ManiMux's existing PAINT strategy: observe at chunk row 16 (= execute 16), send the
-# 7 rows that run during inference (lead 7, kept fixed by a 1000-entry delay buffer seeded with 7);
-# the ABC_DiT server conditions on their last 4 (prefix 4) and switches to new actions at row 23,
-# exactly upstream _RTCManager. Only the first chunk differs (upstream observes at row 9).
+# Generic train-time RTC: request at source row 16 and preserve the next 7 rows.
+# ABC conditions on their last 4 rows, retaining the upstream lead/prefix split.
+# Fixed scheduling keeps the lead at 7 independently of measured inference latency.
 # Pi05 Joint 30k RTC (yam_pi05_rtc_joint_step30000.yaml) uses inference-time PiGDM guidance instead.
 # Otherwise aligned to Pi05 (Direct, unlimited profile, blend 0, 100 Hz, 12000 steps).
 # Model-specific: horizon 30,
@@ -14,7 +13,7 @@ control_profile: ../../../embodiment/robot/yam_control_unlimited.yaml
 
 run:
   task: throw plastic bottles in bin
-  output_dir: ./data/experiments/abc-dit-put-bottles-pretrained-200k/rtc-abc-prefix
+  output_dir: ./data/experiments/abc-dit-put-bottles-pretrained-200k/train-time-rtc-abc-prefix
   max_control_steps: 12000
   warmup_before_start: true
   experiment_template:
@@ -79,19 +78,21 @@ policy:
 robogui:
   enabled: true
   robot: yam
-  policy_label: ABC-DiT XL 200k pretrain (zero-shot) - official ABC RTC (prefix 4, lead 7, exec 16)
+  policy_label: ABC-DiT XL 200k pretrain (zero-shot) - train-time RTC (prefix 4, lead 7, exec 16)
 
 recording:
   enabled: true
   video_fps: 30.0
 
 inference:
-  algorithm: paint
-  config: ../../../inference/yam_paint.yaml
-  paint:
-    execution_policy_steps: 16     # --execute-chunk-dim=16
-    initial_delay_policy_steps: 7  # --rtc-inference-lead-steps=7
-    delay_buffer_size: 1000        # keep the lead at 7 for the whole rollout
+  algorithm: train_time_rtc
+  max_plan_age_s: 2.0
+  action_start_mode: drop_infer_latency
+  blend_policy_steps: 0
+  chunk_policy_steps: 16
+  train_time_rtc:
+    delay_estimator: fixed
+    fixed_prefix_steps: 7         # Runtime lead; model conditions on the last 4.
 
 executor:
   type: direct

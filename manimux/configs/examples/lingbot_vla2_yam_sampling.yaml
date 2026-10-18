@@ -2,7 +2,7 @@
 # This preserves an existing checkpoint, not a new study/task assignment.
 run:
   task: Assemble the screwdriver.
-  output_dir: ./data/smoke/lingbot-vla2-inference
+  output_dir: ./data/smoke/lingbot-vla2-inference-exec25
   max_control_steps: 12000
 robot:
   config: ../embodiment/robot/yam_dual.yaml
@@ -62,14 +62,15 @@ policy:
 robogui:
   enabled: true
   robot: yam
-  policy_label: LingBot-VLA2 sampling smoke example
+  policy_label: LingBot-VLA2 sampling smoke example - Serial exec25
 recording:
   enabled: true
   video_fps: 30.0
 inference:
   algorithm: serial
   inference_schedule: serial
-  chunk_policy_steps: 16
+  # Half of the 50-step prediction horizon; robot execution remains disabled.
+  chunk_policy_steps: 25
   max_plan_age_s: 2.0
   blend_policy_steps: 0
   action_start_mode: first_step_when_ready

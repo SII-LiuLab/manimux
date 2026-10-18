@@ -28,7 +28,7 @@ num_steps: 10
 # Official ABC RTC (deploy README, bottles): --rtc-prefix-length=4 --rtc-inference-lead-steps=7
 # --execute-chunk-dim=16 --diffusion-steps=10. The lead/execute values live in the experiment.
 rtc_prefix_length: 4
-inference_seed: 20260511
+inference_seed: 0
 device: cuda:0
 # Official fast path (abc_minimal/fast_inference.py, deploy flag --fast-inference): bf16 weights,
 # compiled velocity, one CUDA graph per sampler incl. FastRTCInferenceGraph for the prefix RTC.

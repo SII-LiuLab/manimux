@@ -1,90 +1,57 @@
 ---
 name: manimux-station-setup
-description: Connect a ManiMux installation to a developer's local YAM, Tianji or newly integrated robot and cameras. Use for SDK environments, CAN or controller addresses, device serials and local configuration binding, rather than experiment scheduling.
+description: Bind a ManiMux deployment to a local robot, cameras, SDK environments and model/service paths. Use for first installation or another station using supported hardware; use experiments for study design and development for new drivers.
 ---
 
 # ManiMux Station Setup
 
-Paths are relative to the repository root. Read the
-[repository guide](../manimux-development/references/agent-guide.md) before editing. Start with
-[`.agents/skills/manimux-station-setup/references/station.md`](references/station.md).
-Installing ManiMux does not discover, name or connect a robot automatically. Bind existing
-components to the actual devices; do not copy a developer's addresses, serials or paths as
-universal defaults.
+Read the [repository guide](../manimux-development/references/agent-guide.md) before
+editing and use the [station walkthrough](references/station.md) for commands and
+binding schemas. Paths are relative to the checkout. A clone does not install SDKs,
+create CAN interfaces, download weights or identify the user's devices.
 
-## One private station file
+## Bind an existing deployment
 
-The default is `manimux/configs/local/station.yaml`, ignored by Git and excluded from
-packages. Copy either `yam_example.yaml` or `tianji_taccap_example.yaml` from the same
-directory if no station file exists. Read an existing file before changing it and preserve
-unrelated bindings. Device keys must match the selected assembly's component names.
+1. Inspect the chosen experiment, robot assembly and existing station. Confirm only
+   unknown hardware placement, addresses, model paths or execution settings.
+2. Prepare the matching [hardware/model environments](references/environments.md).
+   Existing `envs/*/.venv` directories are local assets. Install into the intended
+   interpreter; root `uv sync` must not replace an independent hardware/model environment.
+3. Create or update the private `manimux/configs/local/station.yaml`, using a matching
+   template linked from the walkthrough. Preserve unrelated bindings. Component names
+   must match the assembly. Another unit of the same robot does not need SDK edits.
+4. Resolve the configuration with `resolve_local_path` and `load_config`; inspect
+   addresses, component bindings, model paths and camera configuration without
+   constructing a robot. Report unverified device connectivity separately.
+5. Hand off interpreter, station, experiment, resolved bindings and the matching
+   startup commands. Continue with [experiments](../manimux-experiments/SKILL.md)
+   when the user is building a study rather than only connecting a station.
 
-Physical runtime startup and camera/Pi05/UMI_DP/XR-1 Tianji `--experiment` entry points
-resolve the station in this order: CLI `--local`, experiment `local:`, default station path. CLI paths
-are relative to the working directory, experiment references to that YAML, and `paths`
-values to the station file. Use the same experiment and station for the three processes.
-Pi05 and camera-server `--config` also read the selected station. UMI_DP standalone
-`--config`, RoboGUI sockets, other model launchers retain separate
-configuration paths; do not claim they all use the station file. Some historical YAM
-experiments still lack named camera/service mappings; check the selected recipe instead
-of assuming every existing experiment supports camera `--experiment` startup.
+## Contracts that commonly cause mistakes
 
-## Hardware connection paths
+- YAM CAN names are actual Linux interfaces; `can_left` is not created by ManiMux.
+  Left/right placement cannot be inferred from enumeration order. YAM's integrated
+  grippers share arm CAN; TacCap gripper serials are separate from camera serials.
+- Camera mapping is physical device → component → server stream → runtime sensor →
+  `policy.adapter.camera_map`. A RoboGUI preview does not change model input mapping.
+- Use one experiment/station across runtime, camera and supported model launchers.
+  Selection precedence is CLI `--local`, experiment `local:`, then the default station.
+  CLI paths are cwd-relative; experiment references and station paths have their own
+  file-relative bases. Read the walkthrough's scope table for unsupported entry points.
+- Pi05 `paths.checkpoints` relocates a root; its recipe still selects checkpoint and
+  normalization subpaths. UMI_DP/XR-1 artifact overrides have different contracts.
+  Address binding must not change action semantics, timing, FK/IK, limits or weights.
+- RoboGUI's Tianji preset is `--robot tianji`; the assembly/runtime identity is
+  `tianji-taccap`. Match the deployment's identity rather than copying the CLI alias.
+- Read `execute`, `move_to_start_on_connect` and `home_on_close` from the experiment.
+  Prepare can cause motion; `execute: false` alone does not make a launch offline.
+  Inspecting bindings or providing commands does not authorize service startup/motion.
 
-| Robot | Connection | Station bindings |
-| --- | --- | --- |
-| YAM | `YamRobot` → `YamController` → `i2rt.get_yam_robot(channel=...)` | `robot.components.left_yam.channel` and `right_yam.channel` |
-| Tianji | `TianjiTaccapRobot` → `TianjiController` → Marvin SDK | Shared `robot.hardware.ip` |
-| TacCap grippers | End-effector components → TacCap SDK | Each component's `serial` |
-| RealSense/TacCap cameras | Camera server → camera components → USB devices | Each component's `camera_serial` |
+## References by task
 
-CAN values must name actual Linux interfaces. `can_left` is a station-specific name,
-not an interface created by installation. Determine physical left/right mapping; enumeration
-order is insufficient. YAM's integrated grippers use their arm CAN connections and require
-no separate end-effector binding. Tianji's arm bindings belong under
-`manimux/embodiments/arm/tianji/sdk/`; TacCap needs its native dependency installed.
-Neither robot requires a separate original control/reproduction repository at runtime.
-
-Follow physical camera → assembly component → camera-server stream name → runtime sensor
-name → `policy.adapter.camera_map`. A camera serial and a gripper serial identify different
-devices. Follow the chosen template's REP/PUB addressing: current YAM uses requests on
-port 5555, while Tianji's timestamped client subscribes on 5556. A manual RoboGUI preview
-does not alter model inputs. Confirm unknown placement with the user or an authorized preview.
-
-RoboGUI preset names and runtime robot identities are distinct: `--robot tianji` selects
-the RoboGUI preset, while the Tianji assembly is named `tianji-taccap`. Experiments must
-use `robogui.robot: tianji-taccap` so RoboGUI message filtering and runtime ownership agree.
-
-## Environments and model paths
-
-Read `.agents/skills/manimux-station-setup/references/environments.md` and the component/model runbook. Existing `envs/*/.venv` paths are
-local assets, not installed by cloning. Target hardware/model interpreters explicitly with
-`uv pip install --python`; do not point root `uv sync` or `uv run` at those environments.
-Do not invent a single all-hardware dependency extra.
-
-`paths.checkpoints` supplies Pi05's checkpoint root; the selected experiment/server recipe
-chooses relative checkpoint and normalization paths within it. UMI_DP retains the explicit
-`paths.checkpoint` artifact binding. XR-1 Tianji also uses `paths.checkpoint`, with optional
-`paths.norm_stats` and `paths.vlm_processor`; see its deployment runbook linked from the
-station guide. These relocate selected artifacts without replacing the experiment's
-checkpoint identity, transforms or action conventions.
-The SDK/model dependency environment is separate from these configuration bindings.
-
-## Inspect without connecting
-
-Use `resolve_local_path(experiment)` with `load_config(experiment, local=...)` and inspect
-`robot.options.hardware`, `component_hardware`, client endpoints and `camera_config(config)`.
-The station guide contains a complete example. Pure configuration readers do not implicitly
-require a local station; real startup selects it explicitly through the shared resolver.
-Do not construct or connect hardware just to inspect addresses. Tianji configuration
-inspection does not require revalidating its FK/IK or its team's hardware validation.
-
-Keep action semantics, TCP/FK/IK, timing, limits and execution switches unchanged when
-binding the same robot model. The current YAM Pi05 RTC 30k experiment enables execution,
-uses a 100 Hz command loop and can move during Prepare; the generic YAM assembly example
-has different execution settings. Do not substitute one for the other without saying so.
-
-Hand off the chosen experiment, interpreter, station file and resolved device/service
-bindings. Address inspection and requests for commands do not authorize starting services
-or moving hardware; avoid an unsolicited home/reconnect workflow. Offline inspection is
-not proof of device connection.
+[Station schemas and launch scope](references/station.md) ·
+[Environments](references/environments.md) ·
+[CAN/ARX/PiPER adapters](references/can-arms.md) ·
+[SDK installation](references/robot-sdks.md) ·
+[Offline replay](references/replay.md).
+For unsupported hardware, follow [development](../manimux-development/SKILL.md).

@@ -146,7 +146,7 @@ requests (`train_time_rtc.delay_estimator: fixed`, `fixed_prefix_steps: 5`). Ini
 requests and missing committed coverage use zero. Measured latency remains recorded
 but cannot increase the prefix. It uses separate strategy/history/adapter
 classes and the `train_time_rtc` sampling capability, with no PiGDM or soft-inpaint
-guidance. See [the timing contract](../advanced/inference.md#train-time-rtc).
+guidance. See [the timing contract](../inference.md#train-time-rtc).
 
 Set `paths.checkpoint` in the selected private station to the prefix-trained
 checkpoint, then validate and export the paired configs without starting services:

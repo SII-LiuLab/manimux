@@ -179,3 +179,20 @@ For FK/IK changes compare default results and failure handling, test injected
 geometry and independent-process reconstruction where used. Exercise the selected
 recipe's client-format/adapter pairing. Offline geometry or synthetic transport
 tests do not prove checkpoint inference or physical task success.
+
+
+## Optional pose decoding for step IK
+
+IK adapters declare `supports_step_ik` and implement `decode_pose_only`, selected
+by EdgeRuntime after validation. Preserve each model's original action meaning,
+request-relative anchors, frame/TCP conversion and gripper mapping. Use
+`policy_adapter/pose_output.py` to publish `absolute_tcp_pose` chunks, with finite
+`(H,8)` xyz/wxyz/gripper rows in the physical group's base frame. Pure joint
+adapters keep `joint_position`. Mount-offset joint conversion is an IK adapter:
+its step output is the corrected TCP target, while request-side frame mapping
+remains unchanged.
+
+Condition codecs declare `pose_condition_modes`; test the explicit
+`request.action_condition_space` before interpreting condition arrays. Never
+infer joint versus pose space from width alone. The runtime and restrictions
+are documented in [Runtime](runtime-config.md#chunk-ik-and-execution-time-ik).

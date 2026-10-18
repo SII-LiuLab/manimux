@@ -168,7 +168,9 @@ Upgrading an existing checkout? See the [RoboGUI interface migration](guideline.
 3. Start the camera, RoboGUI, model server and runtime using the
    [complete Pi05/YAM example](guideline.html#launch)
    or the selected model's runbook.
-4. Continue in RoboGUI: enter your task, prepare and run trials, then review records.
+4. Continue in RoboGUI: select the configured task/method, prepare and run trials,
+   then review records. For your own task/study, start with the
+   [experiment skill](.agents/skills/manimux-experiments/SKILL.md).
 
 `manimux serve` keeps the service available for repeated GUI-driven rollouts.
 `manimux run` executes one rollout. Preparation can connect and move the selected robot
@@ -224,7 +226,7 @@ ask it to read the linked `SKILL.md` explicitly.
 | Add a model, framework or action adapter | [Policy protocols](.agents/skills/manimux-development/references/policies.md) |
 | Add scheduling, execution or a GUI feature | [Runtime protocols](.agents/skills/manimux-development/references/runtime-config.md) |
 | Connect supported hardware at another lab | [Station setup skill](.agents/skills/manimux-station-setup/SKILL.md) |
-| Analyze your recorded experiments | [Experiment skill](.agents/skills/manimux-experiments/SKILL.md) |
+| Build a custom study, collect trials or evaluate recordings | [Experiment skill](.agents/skills/manimux-experiments/SKILL.md) |
 
 Each integration documents its input/output semantics, owning files, YAML selection and
 validation.
