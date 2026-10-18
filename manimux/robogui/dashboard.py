@@ -2215,7 +2215,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--robot",
         default="tianji",
-        help="RoboGUI preset containing robogui.yaml (yam, tianji, piper or aloha)",
+        help="RoboGUI preset containing robogui.yaml (yam, tianji, piper, aloha or flexiv)",
     )
     parser.add_argument(
         "--list-robots",

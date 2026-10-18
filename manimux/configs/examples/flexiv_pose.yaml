@@ -1,0 +1,62 @@
+# Deployment template: requires a compatible model server and two wrist camera streams.
+# Timing is illustrative; match the eventual checkpoint. Execution is disabled.
+# Pose rows: xyz metres + quaternion wxyz, flange in each arm base; no gripper.
+run:
+  task: Flexiv inference template
+  output_dir: ./data/flexiv
+  max_control_steps: 1500
+robot:
+  type: manimux.embodiments.robot.flexiv:build_robot
+  config: ../embodiment/robot/flexiv_dual.yaml
+  control_hz: 50.0
+  options:
+    execute: false
+sensors:
+- name: wrist_cameras
+  driver: camera_server
+  service: camera
+  options:
+    camera_names:
+    - left_wrist
+    - right_wrist
+    request_timeout_ms: 500
+    max_frame_age_sec: 0.5
+policy:
+  worker: xpolicylab_ws
+  service: policy
+  action_dt_s: 0.05
+  horizon_policy_steps: 16
+  adapter:
+    type: manimux.policy_adapter.pose:PoseAdapter
+    camera_map:
+      cam_left_wrist: left_wrist
+      cam_right_wrist: right_wrist
+    action_semantics: absolute_per_arm_base_xyz_wxyz
+  options:
+    action_format: pose
+  expected_backend:
+    model:
+      action_semantics: absolute_per_arm_base_xyz_wxyz
+  action_decoding: process
+inference:
+  algorithm: async
+  chunk_policy_steps: 16
+  blend_policy_steps: 0
+  action_start_mode: first_step_when_ready
+  max_plan_age_s: 5.0
+executor:
+  type: smooth
+  smooth:
+    cutoff_hz: 5.0
+    position_limit_abs: null
+  motion_limits:
+    arm:
+      max_velocity: 0.15
+      max_acceleration: 0.3
+    gripper: {}
+robogui:
+  enabled: true
+  robot: flexiv-dual
+  policy_label: Flexiv flange pose template
+recording:
+  enabled: true

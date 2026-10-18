@@ -1,5 +1,11 @@
 # Complete experiment example
 
+Flexiv Rizon4s templates: [joint actions](flexiv_joint.yaml) and
+[flange poses](flexiv_pose.yaml). Both use two bare seven-axis arms, two wrist
+camera streams, and disabled execution. A matching trained model and actual
+cameras must be supplied. See the [Flexiv runbook](../../embodiments/arm/flexiv/README.md)
+for station bindings, SDK ABI, pose frames, limits and validation scope.
+
 [`yam_pi05_rtc.yaml`](yam_pi05_rtc.yaml) is an annotated YAM / Pi05 joint-action /
 put-bottles / step-30000 example. It composes existing robot, camera, policy-server,
 inference and executor recipes. For the regular executable experiment, see

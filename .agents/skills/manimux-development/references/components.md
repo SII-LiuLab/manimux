@@ -72,6 +72,13 @@ with a fake SDK. State separately what still needs the real SDK or authorized ha
 
 ## Arm and shared controller
 
+Flexiv Rizon4s uses `embodiments/arm/flexiv` and the independent-session assembly
+`embodiments/robot/flexiv`. See its [runbook](../../../../manimux/embodiments/arm/flexiv/README.md).
+Each bare arm has seven radians and zero gripper coordinates. The driver adapts
+flat/grouped RDK APIs; feedback host time is first observation of a new device
+timestamp. Nominal URDF poses use physical base_link, which may differ from RDK
+world/mounting coordinates. Calibrated private URDFs must preserve that convention.
+
 Start at `manimux/embodiments/arm/base.py`: `ArmBase`, `ArmController`, `ArmState`
 and `ArmModel`. Put a vendor implementation and its assets under
 `manimux/embodiments/arm/<name>/`; declare it in

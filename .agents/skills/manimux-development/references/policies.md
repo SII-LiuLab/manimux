@@ -5,6 +5,13 @@ Source paths below are relative to the repository root. Read
 
 ## Classify the integration first
 
+The shared `policy_adapter.pose:PoseAdapter` supports either zero tool coordinates
+or one trailing normalized gripper per group. Pose rows have `7 + gripper_dofs`
+values: xyz, quaternion wxyz, then optional aperture. Bare-arm IK receives an empty
+fixed-coordinate mapping; it must never treat J7 as a gripper. Flexiv examples
+use bare flange targets in physical arm-base coordinates. Keep backend handshake
+semantics, camera requirements, horizon checks and whole-chunk IK rejection.
+
 Do not infer the integration layer from an upstream repository name or from the fact
 that it contains model code. Establish which of these changes is being introduced:
 

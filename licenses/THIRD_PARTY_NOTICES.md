@@ -1,5 +1,14 @@
 # Third-party notices
 
+## Flexiv Rizon4s model assets
+
+`manimux/embodiments/arm/flexiv/model.urdf` and `meshes/` contain the generated
+Rizon4s model and meshes from `flexivrobotics/flexiv_description`, `humble-v1`
+revision `92ef7865d76585e6e08d291bdfe652d32f7740f4`. The model was generated with
+no gripper or external force sensor; mesh references were made relative. The
+upstream Apache-2.0 license is retained in that component's `LICENSE.txt`.
+RDK libraries and the local Python binding are not distributed with ManiMux.
+
 ## XPolicyLab
 
 `XPolicyLab/` is a Git submodule tracking the `Cuzyoung/XPolicyLab` fork of

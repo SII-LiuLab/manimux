@@ -37,8 +37,8 @@ class PoseAdapter(KinematicAdapter):
         super().__init__(robot, policy, kinematics=kinematics)
         options = policy["adapter"]
         self.layouts = group_layouts(robot["group_dims"], options)
-        if any(layout["gripper_dofs"] != 1 for layout in self.layouts.values()):
-            raise ValueError("PoseAdapter requires one trailing normalized gripper per arm")
+        if any(layout["gripper_dofs"] not in (0, 1) for layout in self.layouts.values()):
+            raise ValueError("PoseAdapter supports zero or one normalized gripper per arm")
         self.prefixes = options["group_prefixes"]
         parallel = options.get("parallel_ik", False)
         if type(parallel) is not bool:
@@ -87,9 +87,10 @@ class PoseAdapter(KinematicAdapter):
         self.required_cameras = tuple(options.get("camera_map", {}).values())
         for group, dim in robot["group_dims"].items():
             coordinates = self.kinematics.models[group].coordinates
-            if len(coordinates) != dim or coordinates[-1].unit != "normalized":
+            has_gripper = self.layouts[group]["gripper_dofs"] == 1
+            if len(coordinates) != dim or (has_gripper and coordinates[-1].unit != "normalized"):
                 raise ValueError(
-                    f"{group} requires matching geometry with a normalized trailing gripper"
+                    f"{group} geometry must match the declared arm/tool coordinate layout"
                 )
         warmup = options.get("ik_warmup_joints")
         self._warmup_joints = {}
@@ -101,7 +102,7 @@ class PoseAdapter(KinematicAdapter):
                 if (
                     q.shape != (robot["group_dims"][group],)
                     or not np.isfinite(q).all()
-                    or not 0 <= q[-1] <= 1
+                    or (self.layouts[group]["gripper_dofs"] == 1 and not 0 <= q[-1] <= 1)
                 ):
                     raise ValueError(f"Invalid ik_warmup_joints for {group}")
                 self._warmup_joints[group] = q
@@ -121,7 +122,11 @@ class PoseAdapter(KinematicAdapter):
             result = model.ik(
                 model.fk(seed),
                 seed.copy(),
-                fixed_coordinates={model.coordinates[-1].name: float(seed[-1])},
+                fixed_coordinates=(
+                    {model.coordinates[-1].name: float(seed[-1])}
+                    if self.layouts[group]["gripper_dofs"]
+                    else {}
+                ),
             )
             if not result.converged:
                 raise ValueError(f"Pose IK warmup failed: group={group} reason={result.reason}")
@@ -159,7 +164,11 @@ class PoseAdapter(KinematicAdapter):
         return self._decode_action(raw, context, (partition,))
 
     def _decode_action(self, raw, context, selected_groups):
-        actions = action_groups(raw, {group: 8 for group in self.layouts}, format="pose")
+        actions = action_groups(
+            raw,
+            {group: 7 + layout["gripper_dofs"] for group, layout in self.layouts.items()},
+            format="pose",
+        )
         if raw.get("action_semantics", self.semantics) != self.semantics:
             raise ValueError("Pose action semantics mismatch")
         if any(len(rows) != self.horizon for rows in actions.values()):
@@ -180,9 +189,12 @@ class PoseAdapter(KinematicAdapter):
             solved = []
             for step, row in enumerate(rows[: self.decode_steps]):
                 target = pose_matrix(row[:7])
-                aperture = float(row[7])
-                if not 0 <= aperture <= 1:
-                    raise ValueError("Pose gripper must be a normalized opening in [0, 1]")
+                fixed = {}
+                if self.layouts[group]["gripper_dofs"]:
+                    aperture = float(row[7])
+                    if not 0 <= aperture <= 1:
+                        raise ValueError("Pose gripper must be a normalized opening in [0, 1]")
+                    fixed[model.coordinates[-1].name] = aperture
                 if self.semantics == "delta_observation_tool_xyz_wxyz":
                     target = anchor @ target
                 elif self.semantics in {
@@ -192,11 +204,11 @@ class PoseAdapter(KinematicAdapter):
                     target[:3, 3] += anchor[:3, 3]
                     target[:3, :3] = target[:3, :3] @ anchor[:3, :3]
                 if self.decode_pose_only:
+                    if not self.layouts[group]["gripper_dofs"]:
+                        raise ValueError("Pose-only decoding requires a normalized gripper")
                     solved.append(np.r_[matrix_pose(target), aperture])
                     continue
-                result = model.ik(
-                    target, seed, fixed_coordinates={model.coordinates[-1].name: aperture}
-                )
+                result = model.ik(target, seed, fixed_coordinates=fixed)
                 if not result.converged:
                     raise ValueError(
                         f"Pose IK failed: group={group} step={step} reason={result.reason}"

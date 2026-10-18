@@ -1,0 +1,12 @@
+type: arm
+implementation: manimux.embodiments.arm.flexiv:FlexivArm
+controller: manimux.embodiments.arm.flexiv:FlexivController
+action_layout: {arm_dofs: 7, gripper_dofs: 0}
+options: {}
+hardware:
+  backend: flexivpy
+  enable_on_connect: false
+  max_velocity: 0.15  # rad/s, RDK internal trajectory limit
+  max_acceleration: 0.3  # rad/s^2
+  joint_margin: 0.03490658503988659  # 2 degrees inside device-reported limits
+  feedback_timeout_s: 0.2

@@ -40,7 +40,21 @@ def validate_ik_config(config):
     )
     if not getattr(cls, "supports_step_ik", False):
         raise ValueError(
-            "execution.ik.mode=step requires a pose-producing adapter; joint adapters need no IK mode"
+            "execution.ik.mode=step requires a pose-producing adapter; "
+            "joint adapters need no IK mode"
+        )
+    # Step IK packs one pose row and currently appends one gripper coordinate
+    # per group in the control loop. Keep that contract explicit so a bare-arm
+    # deployment cannot treat J7 as an aperture and fail only after connecting.
+    from manimux.embodiments.layout import group_layouts
+
+    layouts = config["robot"].get("group_layouts")
+    if layouts is None:
+        layouts = group_layouts(config["robot"]["group_dims"], config["policy"]["adapter"])
+    if any(layout["gripper_dofs"] != 1 for layout in layouts.values()):
+        raise ValueError(
+            "execution.ik.mode=step requires one normalized gripper coordinate per group; "
+            "use execution.ik.mode=chunk for bare arms"
         )
     if config["executor"]["type"] != "direct":
         raise ValueError(
@@ -72,11 +86,13 @@ def validate_ik_config(config):
     options = config["policy"]["adapter"]
     if options.get("execute_diff_ik_substeps") or options.get("handoff_waypoint"):
         raise ValueError(
-            "step IK replaces decode-time substeps; remove execute_diff_ik_substeps/waypoint_handoff"
+            "step IK replaces decode-time substeps; "
+            "remove execute_diff_ik_substeps/waypoint_handoff"
         )
     if options.get("ik_backend", "analytic") != "analytic":
         raise ValueError(
-            "step IK currently requires the robot native solver (ik_backend: analytic); decode-time diffIK is not interchangeable"
+            "step IK currently requires the robot native solver (ik_backend: analytic); "
+            "decode-time diffIK is not interchangeable"
         )
     budget = config["execution"]["ik"]["budget_ms"]
     if budget is not None and budget >= 1000 / config["robot"]["control_hz"]:

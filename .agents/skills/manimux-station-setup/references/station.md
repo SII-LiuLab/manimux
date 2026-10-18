@@ -1,5 +1,13 @@
 # Connect your local robot
 
+Flexiv Rizon4s: use `manimux/configs/local/flexiv_example.yaml` and the
+[Flexiv runbook](../../../../manimux/embodiments/arm/flexiv/README.md). Bind
+`left_flexiv.serial` and `right_flexiv.serial` under `robot.components`, with a
+firmware/ABI-compatible `backend` and optional absolute `sdk_path`. `interfaces`
+contains host NIC addresses for the flat API, not robot IPs. Rizon's existing
+Python 3.10 binding must be rebuilt for ManiMux's Python 3.11/3.12 environment.
+Two wrist streams are reserved; camera models/serials remain station choices.
+
 For your own installation of a supported robot, start here. **One private station file
 binds the existing components to your CAN interfaces, controller IPs, USB serials and
 service addresses.** Keep task, action format, inference algorithm and control settings

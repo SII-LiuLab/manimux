@@ -190,6 +190,42 @@ from the chosen deployment. They are not additional services to run alongside Pi
 "$MM_MODEL_PY" -m manimux.servers.openwam --config "$MM_RECIPE"
 </code></pre>
 </details>
+<h3 id="flexiv-launch">Flexiv Rizon4s dual arms</h3>
+<p>Use <code>manimux/configs/examples/flexiv_joint.yaml</code> for seven absolute joint angles per arm,
+or <code>manimux/configs/examples/flexiv_pose.yaml</code> for xyz + quaternion wxyz flange poses in each
+physical arm base. Both reserve <code>left_wrist</code> and <code>right_wrist</code> camera streams,
+use zero gripper coordinates, and disable execution. A matching model server and installed cameras
+are required; these templates do not supply a checkpoint or choose a camera model.</p>
+<p>Copy <code>manimux/configs/local/flexiv_example.yaml</code> to a private station file.
+Bind <code>left_flexiv.serial</code> and <code>right_flexiv.serial</code> under
+<code>robot.components</code>. Select a firmware-compatible SDK with <code>backend</code> and
+an optional absolute <code>sdk_path</code>. The Python binding must match ManiMux's Python 3.11/3.12 ABI.</p>
+<pre><code class="language-bash"># Offline checks; no device connections:
+python scripts/validation/flexiv_offline.py --config manimux/configs/examples/flexiv_joint.yaml
+python scripts/validation/flexiv_offline.py --config manimux/configs/examples/flexiv_pose.yaml
+python -m manimux.robogui.dashboard --robot flexiv --demo
+
+# First live gate: read-only feedback/FK; refuses execute=true/enable_on_connect.
+python scripts/validation/flexiv_readonly_probe.py \
+  --config manimux/configs/examples/flexiv_joint.yaml --local &lt;station.yaml&gt; --seconds 5
+
+# After supplying model and camera services (separate terminals):
+python -m manimux.robogui.dashboard --robot flexiv
+python -m manimux serve --config manimux/configs/examples/flexiv_joint.yaml --local &lt;station.yaml&gt;
+</code></pre>
+<p>NRT command rate is 50 Hz (supported range 1–100 Hz). The template's 20 Hz model action grid
+and 16-step horizon must match the selected checkpoint. Controller limits default to 0.15 rad/s,
+0.3 rad/s² and a 2-degree device joint-limit margin. Enable requires both
+<code>execute: true</code> in the experiment and <code>enable_on_connect: true</code> in the station;
+otherwise sending requires an already operational arm. Read-only lifecycle sends no enable,
+mode-change, motion or Stop requests. No Home or fault recovery is automatic.</p>
+<p>The nominal URDF provides offline FK/IK and display geometry. Use calibrated per-arm URDFs through
+assembly component <code>options.urdf_path</code> when needed. RDK world/mounting poses may differ
+from physical base-frame poses. The current path converts flange targets to joints, not Cartesian
+force control. See the <a href="https://github.com/SII-LiuLab/manimux/blob/main/manimux/embodiments/arm/flexiv/README.md">Flexiv runbook</a>
+for SDK setup, frame conventions, retryable cleanup and future gripper integration.
+The pose template uses chunk IK; <code>execution.ik.mode: step</code> is rejected for
+zero-gripper groups because step IK currently requires a trailing aperture coordinate.</p>
 </section>
 <section aria-labelledby="shared-parameters" class="guide-page" data-page-id="shared-parameters" data-title="Shared parameters" hidden=""><h2 id="shared-parameters">Shared parameters</h2>
 <p>Use this guide to configure Serial, asynchronous chunking, RTC, ACT temporal
