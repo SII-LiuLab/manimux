@@ -11,6 +11,7 @@ from typing import Any, Protocol
 from manimux.clock import SystemClock
 from manimux.embodiments.robot import build_robot
 from manimux.experiment_list import ExperimentList
+from manimux.policy_service import ManagedPolicyService
 from manimux.robogui.communication import ControlClient, RoboGUIPublisher, RuntimeEvent
 from manimux.runtime import RunResult, build_runtime
 
@@ -231,6 +232,10 @@ class RuntimeSessionService:
         if experiment_list is not None and selection_dir_factory is None:
             raise ValueError("Experiment switching requires a recording directory factory")
         self._selection_id = experiment_list.default_id if experiment_list else ""
+        self._policy_service = (
+            ManagedPolicyService(experiment_list.policy_services)
+            if experiment_list is not None and experiment_list.policy_services else None
+        )
         self._selection_error = ""
         self._run_dir = run_dir
         self._runtime_factory = runtime_factory or _build_served_runtime
@@ -252,6 +257,8 @@ class RuntimeSessionService:
             "experiment_choices": self._experiment_list.metadata() if self._experiment_list else [],
             "experiment_id": self._selection_id,
             "selection_error": self._selection_error,
+            "policy_service": (self._policy_service.metadata() if self._policy_service else
+                               {"status": "external"}),
             "task": self._config["run"]["task"],
             "evaluation": deepcopy(self._config.get("evaluation", {"kind": "binary"})),
             "runtime": self._config["inference"]["algorithm"],
@@ -294,6 +301,8 @@ class RuntimeSessionService:
         last_announcement = float("-inf")
         try:
             while True:
+                if self._policy_service is not None:
+                    self._policy_service.poll()
                 state = control.poll()
                 recovery_control = (
                     state
@@ -317,6 +326,7 @@ class RuntimeSessionService:
                     last_announcement = now
                 if (
                     bool(state.get("new_rollout_requested", False))
+                    and (self._policy_service is None or self._policy_service.ready)
                     and (self._recovery is None or not self._recovery.busy)
                     and not state.get("recovery_lease", False)
                     and not state.get("recovery_request", "")
@@ -349,7 +359,9 @@ class RuntimeSessionService:
                 or (self._recovery is not None and self._recovery.busy)):
             self._selection_error = "Finish evaluation and recovery before changing experiments."
             return True
-        if requested == self._selection_id:
+        if requested == self._selection_id and not (
+            self._policy_service is not None and self._policy_service.status == "failed"
+        ):
             self._selection_error = ""
             return False
         try:
@@ -363,11 +375,24 @@ class RuntimeSessionService:
         self._selection_id = requested
         self._selection_error = self._last_error = self._last_failure_id = ""
         self._last_episode_dir = None
+        if self._policy_service is not None:
+            self._policy_service.request(choice, run_dir)
         # Hardware/recovery contract is identical across the validated catalog.
         # Next Prepare builds a fresh worker, strategy, timeline and warmup state.
         return True
 
     def serve(self, *, max_rollout_attempts: int | None = None) -> None:
+        try:
+            if self._policy_service is not None:
+                self._policy_service.request(
+                    self._experiment_list.choices[self._selection_id], self._run_dir,
+                )
+            self._serve_rollouts(max_rollout_attempts=max_rollout_attempts)
+        finally:
+            if self._policy_service is not None:
+                self._policy_service.close()
+
+    def _serve_rollouts(self, *, max_rollout_attempts: int | None = None) -> None:
         attempts = 0
         print(f"runtime service ready; run_dir={self._run_dir.resolve()}")
         print("RoboGUI flow: Prepare -> Activate Warmup (when enabled) -> Start rollout -> Finish")

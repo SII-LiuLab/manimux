@@ -123,6 +123,7 @@ class PolicyRoboGUI:
         self._experiment_choices: list[dict[str, Any]] = []
         self._experiment_id = ""
         self._pending_experiment_id = ""
+        self._policy_service_state: dict[str, Any] = {"status": "external"}
         self._start_identity: dict[str, Any] | None = None
         self.warmup_requested = False
         self.preparing_rollout = False
@@ -275,11 +276,25 @@ class PolicyRoboGUI:
                 "⚪ Waiting for a ManiMux runtime service."
             )
             self.setup_summary = self.server.gui.add_markdown("Waiting for configuration.")
+            self.experiment_policy = self.server.gui.add_dropdown(
+                "Policy", ("default",), disabled=True, visible=False,
+            )
+            self.switch_policy_btn = self.server.gui.add_button(
+                "Switch policy", color="blue", disabled=True, visible=False,
+            )
+            self.policy_service_status = self.server.gui.add_markdown("", visible=False)
             self.experiment_task = self.server.gui.add_dropdown(
                 "Task", ("—",), disabled=True, visible=False,
             )
             self.experiment_config = self.server.gui.add_dropdown(
                 "Method / Config", ("—",), disabled=True, visible=False,
+            )
+            self.initial_pose = self.server.gui.add_dropdown(
+                "Initial pose", ("Default pose",), disabled=True, visible=False,
+            )
+            self.initial_pose_hint = self.server.gui.add_markdown(
+                "Prepare moves to the selected pose. Selection alone does not move the robot.",
+                visible=False,
             )
             self.layout = self.server.gui.add_dropdown("Layout", ("—",), disabled=True)
             self.layout_progress = self.server.gui.add_markdown("")
@@ -424,16 +439,32 @@ class PolicyRoboGUI:
             with self.lock:
                 self._start_rollout()
 
+        @self.experiment_policy.on_update
+        def _select_policy(event: Any) -> None:
+            if event.client is not None:
+                with self.lock:
+                    self._update_prepare_enabled()
+
+        @self.switch_policy_btn.on_click
+        def _switch_policy(_event: Any) -> None:
+            with self.lock:
+                self._request_policy()
+
         @self.experiment_task.on_update
         def _select_task(event: Any) -> None:
             if event.client is None:
                 return
             with self.lock:
                 candidates = [c for c in self._experiment_choices
-                              if c["task"] == self.experiment_task.value]
+                              if c["task"] == self.experiment_task.value
+                              and c.get("policy", "default") == self.experiment_policy.value]
                 current = next((c for c in self._experiment_choices
                                 if c["id"] == self._experiment_id), {})
-                choice = next((c for c in candidates if c["label"] == current.get("label")),
+                matching = [c for c in candidates if c["label"] == current.get("label")]
+                candidates = matching or candidates
+                pose_id = current.get("initial_pose", {}).get("id", "default")
+                choice = next((c for c in candidates
+                               if c.get("initial_pose", {}).get("id", "default") == pose_id),
                               candidates[0] if candidates else None)
                 if choice is not None:
                     self._request_experiment(choice["id"])
@@ -443,9 +474,28 @@ class PolicyRoboGUI:
             if event.client is None:
                 return
             with self.lock:
+                candidates = [c for c in self._experiment_choices
+                              if c["task"] == self.experiment_task.value
+                              and c.get("policy", "default") == self.experiment_policy.value
+                              and c["label"] == self.experiment_config.value]
+                choice = next((c for c in candidates
+                               if c.get("initial_pose", {}).get("label", "Default pose")
+                               == self.initial_pose.value),
+                              candidates[0] if candidates else None)
+                if choice is not None:
+                    self._request_experiment(choice["id"])
+
+        @self.initial_pose.on_update
+        def _select_initial_pose(event: Any) -> None:
+            if event.client is None:
+                return
+            with self.lock:
                 choice = next((c for c in self._experiment_choices
                                if c["task"] == self.experiment_task.value
-                               and c["label"] == self.experiment_config.value), None)
+                               and c.get("policy", "default") == self.experiment_policy.value
+                               and c["label"] == self.experiment_config.value
+                               and c.get("initial_pose", {}).get("label", "Default pose")
+                               == self.initial_pose.value), None)
                 if choice is not None:
                     self._request_experiment(choice["id"])
 
@@ -1198,10 +1248,20 @@ class PolicyRoboGUI:
         allowed = (enabled and self.evaluation_complete and not self._recovery_pending()
                    and not self._pending_experiment_id)
         can_prepare = allowed and not self.preparing_rollout and not self.episode_active
+        self.experiment_policy.disabled = not can_prepare
+        retry = self._policy_service_state.get("status") == "failed"
+        changed_policy = self._policy_selection_changed()
+        self.switch_policy_btn.label = (
+            "Retry policy" if retry and not changed_policy else "Switch policy"
+        )
+        self.switch_policy_btn.disabled = not can_prepare or not (changed_policy or retry)
+        can_prepare = can_prepare and not self._policy_selection_changed()
         self.experiment_task.disabled = not can_prepare
         self.experiment_config.disabled = not can_prepare
-        self.prepare_normal_btn.disabled = not can_prepare
-        self.prepare_experiment_btn.disabled = not can_prepare
+        self.initial_pose.disabled = not can_prepare
+        model_ready = self._policy_service_state.get("status") in {"ready", "external"}
+        self.prepare_normal_btn.disabled = not can_prepare or not model_ready
+        self.prepare_experiment_btn.disabled = not can_prepare or not model_ready
         self.unscored_experiment.disabled = not can_prepare or not self._unscored_experiments
         self.score_previous_btn.disabled = self.unscored_experiment.disabled
         self._set_layout_controls_enabled(allowed or (
@@ -1246,20 +1306,62 @@ class PolicyRoboGUI:
         self._experiment_id = str(metadata.get("experiment_id", ""))
         visible = bool(self._experiment_choices)
         self.experiment_task.visible = self.experiment_config.visible = visible
+        policies = tuple(dict.fromkeys(c.get("policy", "default") for c in self._experiment_choices))
+        self.experiment_policy.visible = len(policies) > 1
+        self.switch_policy_btn.visible = (
+            len(policies) > 1 or self._policy_service_state.get("status") != "external"
+        )
         if not visible:
+            self.initial_pose.visible = self.initial_pose_hint.visible = False
             return
         choice = next(c for c in self._experiment_choices if c["id"] == self._experiment_id)
-        self.experiment_task.options = tuple(dict.fromkeys(c["task"] for c in self._experiment_choices))
+        policy = choice.get("policy", "default")
+        self.experiment_policy.options = policies
+        self.experiment_policy.value = policy
+        choices = [c for c in self._experiment_choices if c.get("policy", "default") == policy]
+        self.experiment_task.options = tuple(dict.fromkeys(c["task"] for c in choices))
         self.experiment_task.value = choice["task"]
-        self.experiment_config.options = tuple(c["label"] for c in self._experiment_choices
-                                               if c["task"] == choice["task"])
+        self.experiment_config.options = tuple(dict.fromkeys(
+            c["label"] for c in choices if c["task"] == choice["task"]
+        ))
         self.experiment_config.value = choice["label"]
+        self.initial_pose.options = tuple(dict.fromkeys(
+            c.get("initial_pose", {}).get("label", "Default pose") for c in choices
+            if c["task"] == choice["task"] and c["label"] == choice["label"]
+        ))
+        self.initial_pose.value = choice.get("initial_pose", {}).get("label", "Default pose")
+        self.initial_pose.visible = len(self.initial_pose.options) > 1
+        self.initial_pose_hint.visible = self.initial_pose.visible
+
+    def _policy_selection_changed(self) -> bool:
+        current = next(
+            (c for c in self._experiment_choices if c["id"] == self._experiment_id), None
+        )
+        return (
+            current is not None
+            and self.experiment_policy.value != current.get("policy", "default")
+        )
+
+    def _request_policy(self) -> None:
+        candidates = [c for c in self._experiment_choices
+                      if c.get("policy", "default") == self.experiment_policy.value]
+        if not candidates:
+            return
+        matching_task = [c for c in candidates if c["task"] == self.experiment_task.value]
+        candidates = matching_task or candidates
+        matching_method = [c for c in candidates if c["label"] == self.experiment_config.value]
+        candidates = matching_method or candidates
+        choice = next((c for c in candidates
+                       if c.get("initial_pose", {}).get("label", "Default pose")
+                       == self.initial_pose.value), candidates[0])
+        self._request_experiment(choice["id"])
 
     def _request_experiment(self, choice_id: str) -> None:
         if (not self.service_ready or not self.evaluation_complete or self.preparing_rollout
                 or self.episode_active or self._recovery_pending() or self._pending_experiment_id):
             return
-        if choice_id == self._experiment_id:
+        if (choice_id == self._experiment_id
+                and self._policy_service_state.get("status") != "failed"):
             return
         self._pending_experiment_id = choice_id
         self._update_prepare_enabled()
@@ -1364,7 +1466,9 @@ class PolicyRoboGUI:
     def _prepare_rollout(self, *, experiment_mode: bool) -> None:
         with self.lock:
             if (self._recovery_pending() or not self.service_ready or not self.evaluation_complete
-                    or self.preparing_rollout or self.episode_active or self._pending_experiment_id):
+                    or self.preparing_rollout or self.episode_active or self._pending_experiment_id
+                    or self._policy_selection_changed()
+                    or self._policy_service_state.get("status") not in {"ready", "external"}):
                 return
             try:
                 selection = self._selected_layout(freeze=True) if experiment_mode else {}
@@ -1655,15 +1759,22 @@ class PolicyRoboGUI:
 
     def _update_plan(self, message: dict[str, Any]) -> None:
         action_space = str(message.get("action_space", "joint_position"))
-        if action_space != "joint_position":
-            raise ValueError("RoboGUI expects decoded joint_position plans")
-        grouped_actions = self.robot.validate_groups(message.get("groups"), sequence=True)
+        pose_plan = action_space == "absolute_tcp_pose"
+        if pose_plan:
+            from manimux.policy_adapter.pose_output import validate_pose_rows
+            grouped_actions = {name: validate_pose_rows(rows) for name, rows in message["groups"].items()}
+            if set(grouped_actions) != {g.name for g in self.robot.groups}:
+                raise ValueError("Pose plan groups do not match the robot")
+        elif action_space == "joint_position":
+            grouped_actions = self.robot.validate_groups(message.get("groups"), sequence=True)
+        else:
+            raise ValueError(f"Unsupported plan space: {action_space}")
         horizon = len(next(iter(grouped_actions.values())))
         metadata = dict(message.get("metadata") or {})
-        gripper_by_group = self.robot.gripper_closed_steps_by_group(
+        gripper_by_group = ({} if pose_plan else self.robot.gripper_closed_steps_by_group(
             grouped_actions,
             previous_positions=getattr(self, "last_joint_positions", {}),
-        )
+        ))
         metadata["gripper_closed_steps_by_group"] = {
             group_name: flags.tolist() for group_name, flags in gripper_by_group.items()
         }
@@ -1682,7 +1793,7 @@ class PolicyRoboGUI:
             for group_name, group_actions in grouped_actions.items()
         }
         self._plan_points = {
-            name: self.robot.positions(name, actions)
+            name: (actions[:, :3].copy() if pose_plan else self.robot.positions(name, actions))
             for name, actions in self.plan_actions.items()
         }
         self._plan_cursor = start_index
@@ -1718,7 +1829,9 @@ class PolicyRoboGUI:
         if self._warmup_preview_chunk_id is not None and chunk_id >= self._warmup_preview_chunk_id:
             return
         trajectories = {
-            group.name: self.robot.positions(group.name, grouped_actions[group.name][start_index:])
+            group.name: (grouped_actions[group.name][start_index:, :3].copy()
+                         if message.get("action_space") == "absolute_tcp_pose" else
+                         self.robot.positions(group.name, grouped_actions[group.name][start_index:]))
             for group in self.robot.groups
             if group.name in grouped_actions and len(grouped_actions[group.name][start_index:]) > 0
         }
@@ -2023,6 +2136,25 @@ class PolicyRoboGUI:
                     else "⚪ **One-shot run finished · use `manimux serve` for UI rollouts**"
                 )
         elif event == "runtime_service_ready":
+            self._policy_service_state = dict(
+                metadata.get("policy_service", {"status": "external"})
+            )
+            model_status = self._policy_service_state.get("status", "external")
+            self.policy_service_status.visible = model_status != "external"
+            descriptions = {
+                "idle": "Waiting to start the selected policy.",
+                "stopping": "Stopping the previous model and releasing its memory…",
+                "starting": "Loading the selected model…",
+                "ready": "Model server is listening. Prepare will verify identity and capabilities.",
+                "failed": "Model startup failed. Fix the issue and Retry policy, or select another.",
+            }
+            self.policy_service_status.content = descriptions.get(model_status, "")
+            if self._policy_service_state.get("error"):
+                self.policy_service_status.content += "\n\n" + self._policy_service_state["error"]
+            if self._policy_service_state.get("log_path"):
+                self.policy_service_status.content += (
+                    "\n\nLog: `" + self._policy_service_state["log_path"] + "`"
+                )
             self.last_service_time = time.time()
             incoming_service_id = str(metadata.get("run_dir", ""))
             new_service = bool(incoming_service_id and incoming_service_id != self.service_id)
