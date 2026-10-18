@@ -36,10 +36,11 @@ python -m manimux serve --config manimux/configs/examples/flexiv_joint.yaml --lo
 ```
 
 RoboGUI preset name: `flexiv`; runtime identity: `flexiv-dual`. The preset
-places both bases on a vertical display plate using the documented x/y-reversed
-base relation and starts at the measured HOME joints. `xyz`/`rpy` are display-only,
-not calibrated inter-arm geometry or hardware Home targets; adjust them to the
-measured station mount. Home and idle fault/drag recovery are not advertised.
+places both bases on the top beam of a vertical support column with their z axes
+pointing down and a common x/y orientation; the differing HOME joints reproduce
+the photographed left/right poses. `xyz`/`rpy` are display-only, not calibrated
+inter-arm geometry or hardware Home targets; adjust them to the measured station
+mount. Home and idle fault/drag recovery are not advertised.
 
 ## Policy contracts
 

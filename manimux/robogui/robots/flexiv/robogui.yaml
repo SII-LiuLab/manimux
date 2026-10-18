@@ -1,8 +1,8 @@
-# Display-only wall mount for the current dual Rizon4s station.
-# xyz/rpy place each arm base on a vertical plate; they are not embodiment
-# FK/IK, Home targets or calibrated inter-arm geometry. The right base keeps
-# the documented x/y-reversed relation to the left base, so the displayed Home
-# flange positions are symmetric. Adjust xyz to the measured mount.
+# Display-only overhead mount for the current dual Rizon4s station.
+# Both bases sit on the top beam of a vertical column, face down, and keep the
+# same x/y orientation, so the displayed HOME joint poses are not mirrored. The
+# arms hang over the table as in the station photo. xyz/rpy are not embodiment
+# FK/IK, Home targets or calibrated inter-arm geometry. Adjust them to the mount.
 label: Flexiv Rizon4s dual arms (no grippers)
 model: ../../../configs/embodiment/robot/flexiv_dual.yaml
 camera_mode: policy
@@ -17,9 +17,9 @@ groups:
   left_arm:
     label: Left Arm (A)
     robogui_display_frame:
-      xyz: [-0.45, 0.55, 1.0]
-      # Base x up, base y left, base z forward (-world y).
-      rpy: [1.5707963267948966, -1.5707963267948966, 0.0]
+      xyz: [0.0, -0.45, 1.80]
+      # Base x +world x, base y -world y, base z down.
+      rpy: [3.141592653589793, 0.0, 0.0]
     prediction_color: [52, 111, 255]
     trail_color: [33, 180, 106]
     # Measured 2026-10-18 HOME joints (radians), display only.
@@ -30,9 +30,9 @@ groups:
   right_arm:
     label: Right Arm (B)
     robogui_display_frame:
-      xyz: [0.45, 0.55, 1.0]
-      # x/y reversed from the left base (180 deg about base z); z stays forward.
-      rpy: [1.5707963267948966, 1.5707963267948966, 0.0]
+      xyz: [0.0, 0.45, 1.80]
+      # Same base orientation as A; base z down.
+      rpy: [3.141592653589793, 0.0, 0.0]
     prediction_color: [255, 94, 87]
     trail_color: [255, 170, 0]
     # Measured 2026-10-18 HOME joints (radians), display only.
@@ -42,12 +42,20 @@ groups:
       phase: 1.5
 scene:
   view:
-    camera_position: [2.2, -2.4, 1.7]
-    camera_look_at: [0.0, -0.2, 0.9]
+    camera_position: [1.8, -2.6, 1.9]
+    camera_look_at: [0.0, 0.0, 1.0]
     grid_position: [0.0, 0.0, -0.01]
     grid_size: [2.0, 2.0]
   boxes:
-    - name: flexiv_mount_plate
-      dimensions: [1.2, 0.04, 1.2]
-      position: [0.0, 0.62, 0.95]
-      color: [70, 76, 86]
+    - name: flexiv_column
+      dimensions: [0.22, 0.18, 1.64]
+      position: [0.0, 0.8, 0.82]
+      color: [238, 238, 238]
+    - name: flexiv_top_beam
+      dimensions: [1.2, 0.18, 0.16]
+      position: [0.0, 0.8, 1.72]
+      color: [238, 238, 238]
+    - name: table
+      dimensions: [1.6, 0.9, 0.04]
+      position: [0.0, 0.2, 0.68]
+      color: [240, 240, 240]
