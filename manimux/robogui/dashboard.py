@@ -436,10 +436,6 @@ class PolicyRoboGUI:
         self.skip_evaluation_btn.order = self.completion_score.order + 0.2
         # Keep the active task ahead of secondary diagnostics in every stage.
         self.evaluation_folder.order = self.run_folder.order - 0.5
-        self.recording_btn = self.server.gui.add_button(
-            "Review camera recordings", visible=False, disabled=True,
-            order=self.evaluation_folder.order + 0.1,
-        )
         self.overlay_folder = self.server.gui.add_folder(
             "Overlay controls", expand_by_default=False
         )
@@ -617,10 +613,6 @@ class PolicyRoboGUI:
         @self.last_evaluation_btn.on_click
         def _edit_evaluation(_event: Any) -> None:
             self._open_last_evaluation()
-
-        @self.recording_btn.on_click
-        def _recordings(event: Any) -> None:
-            self._show_recordings(event)
 
         @self.skip_evaluation_btn.on_click
         def _skip_evaluation(_event: Any) -> None:
@@ -1275,9 +1267,6 @@ class PolicyRoboGUI:
         """Expose only the controls that are actionable in the current stage."""
 
         self._gui_stage = stage
-        if hasattr(self, "recording_btn"):
-            self.recording_btn.visible = self.episode_finalized
-            self.recording_btn.disabled = not self.episode_finalized
         self.new_rollout_folder.visible = stage in {"waiting", "setup", "preparing"} or (
             stage == "control" and not self.rollout_started
         )
@@ -1982,38 +1971,6 @@ class PolicyRoboGUI:
                 )
             except (OSError, TypeError, KeyError, ValueError) as exc:
                 self._report_error("Edit evaluation", exc)
-
-    def _show_recordings(self, event: Any) -> None:
-        episode = self.current_episode_dir
-        client = event.client
-        if client is None or episode is None or not self.episode_finalized:
-            return
-        with client.gui.add_modal("Recorded camera videos") as modal:
-            files = sorted((episode / "videos").glob("*.mp4"))
-            client.gui.add_markdown(
-                "Download a camera recording to review the trial, including the task before Home."
-                if files else "No camera videos were recorded for this trial."
-            )
-            for path in files:
-                button = client.gui.add_button(f"Download {path.stem}")
-
-                @button.on_click
-                def download(_event, source=path, handle=button):
-                    handle.disabled = True
-                    handle.label = "Loading recording…"
-
-                    def send():
-                        try:
-                            client.send_file_download(source.name, source.read_bytes())
-                        except OSError as exc:
-                            client.add_notification(title="Recording unavailable", body=str(exc))
-                        finally:
-                            handle.disabled = False
-                            handle.label = f"Download {source.stem}"
-
-                    self._jobs.submit(send)
-            close = client.gui.add_button("Close")
-            close.on_click(lambda _event: modal.close())
 
     def _skip_manual_evaluation(self) -> None:
         with self.lock:

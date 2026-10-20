@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 class RtcInferenceStrategy:
     """Pi-guided RTC request scheduling and chunk conditioning."""
 
+    warmup_required_calls = {"ordinary": 1, "conditioned": 2}
     discard_plans_while_paused = True
     ensemble_scope: EnsembleScope = "execution_prefix"
 

@@ -41,6 +41,11 @@ Matching method names alone is insufficient. Fail explicitly for unsupported mod
 - XPolicyLab deployment recipes own `robot_action_dim_info` and `num_envs`; use its
   shared helpers and contribution rules. Preserve sampling flags through adapters and
   transport. Configuration cannot create a model-side sampler hook.
+- Warmup must exercise the current resolved rollout configuration through shared
+  planning/execution components, with only predicted hardware dispatch suppressed.
+  Do not introduce model-specific warmup shortcuts or synthetic condition branches.
+  Test dry-run isolation, real scheduling/IK, failures and the Start reset fence;
+  see [the inference contract](../manimux-inference/SKILL.md#warmup-must-use-the-selected-configuration).
 - Keep deployment constants in YAML. New capability needs an explicit protocol when
   it cannot fit the existing one; do not hide extra tool coordinates or weaken IK to
   imitate a supported interface.

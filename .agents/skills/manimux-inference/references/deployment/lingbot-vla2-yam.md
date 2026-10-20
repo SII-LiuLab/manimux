@@ -1,5 +1,22 @@
 # LingBot-VLA2 + YAM runbook
 
+## Current local experiment entry (2026-10-20)
+
+Use `manimux/configs/lists/lingbot-vla2-latest300ep-step30000.yaml` for the
+five-task study: Serial, zero-blend progress-triggered Async, compiled PAINT and
+serial-scheduled adaptive AutoHorizon. The list uses the existing
+`paint32_compiled_sampler` and `autohorizon_serial_compile` variants and preserves
+their recording identities. The fixed-window methods use 32/50 source steps;
+AutoHorizon selects its own window. All tasks currently stop at 6000 control ticks.
+Moving cube defaults to `raised_ready`; Home remains selectable for every task.
+
+The model interpreter is `envs/lingbot-vla2/.venv/bin/python`; runtime and cameras
+use `envs/yam/.venv/bin/python`. Pass the same `--config-list` to the generic
+policy server, camera server and `manimux run`; no experiment ID is needed.
+RTC is withdrawn, and BID is excluded from the approved experiment menu.
+Historical configs and recordings remain available. The compiled-samplers list
+below is a PAINT/AutoHorizon subset, not the full study entry.
+
 > 2026-10-09: The old screwdriver, red-object, pass-ball and offline experiment entries below were retired. These commands are historical; select a current entry from the [experiment index](../../../../../manimux/configs/experiments/README.md). Diagnostic tools now require an explicit experiment argument.
 
 
@@ -401,8 +418,9 @@ Keep historical data; do not resume RTC collection or regenerate its configs.
 
 ## Latest300ep compilation entry
 
-`manimux/configs/lists/lingbot-vla2-latest300ep-step30000.yaml` now selects
-`use_compile: true` for Serial, BID, Async and PAINT across five tasks.
+`manimux/configs/lists/lingbot-vla2-latest300ep-step30000.yaml` selects
+`use_compile: true` for Serial, Async, PAINT and AutoHorizon across five tasks.
+BID settings described below are retained historical configurations, not active study entries.
 
 The anchor-relative YAM adapter supports repeated candidate decoding for BID:
 all candidates from one request share its captured observation joints. The

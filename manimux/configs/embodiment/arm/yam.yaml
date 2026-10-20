@@ -2,7 +2,10 @@
 type: arm
 implementation: manimux.embodiments.arm.yam:YamArm
 action_layout: {arm_dofs: 6, gripper_dofs: 1}
-options: {}
+options:
+  # Metres; null disables final IK position-error acceptance, not optimization.
+  # Orientation acceptance and joint position limits remain enforced.
+  pos_threshold: 0.001
 hardware:
   arm_type: yam
   gripper_type: linear_4310

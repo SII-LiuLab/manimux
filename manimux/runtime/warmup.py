@@ -1,80 +1,99 @@
-"""Pre-rollout model warmup, isolated from execution and formal plan metrics."""
-
-from __future__ import annotations
+"""Reset-fenced dry run of the selected configuration, without action dispatch."""
 
 from collections import Counter, deque
+from dataclasses import dataclass, replace
 
-from manimux.clock import Clock
-from manimux.policies.worker import PolicyWorkerClient
-from manimux.policy_adapter.base import PolicyAdapter
-from manimux.runtime.inference import (
-    InferenceStrategy,
-    InferenceTimingError,
-    StrategyChunkSelector,
-    build_warmup_submission,
-    decode_strategy_action,
-    seed_strategy_warmup,
-)
-from manimux.timing import stage
-from manimux.types import ActionChunk, ActionContext, ObservationSnapshot
+from manimux.runtime.inference import InferenceTimingError, decode_strategy_action
+from manimux.runtime.preview import PreviewPlanner
+from manimux.types import copy_action_chunk
+
+
+@dataclass
+class PendingPreview:
+    request: object
+    started_ns: int
+    branch: str
+    fields: dict
+    decode_started_ns: int = 0
 
 
 class PolicyWarmup:
-    """Run real requests while paused, then fence them with an acknowledged reset.
+    """Use real observations and the rollout planner; discard predicted commands.
 
-    This component has no robot, executor, timeline, or recorder reference. Its
-    decoded outputs are offered only as RoboGUI previews, never as executable plans.
+    Negative transport/GUI IDs fence previews from formal plans. Strategy, adapter,
+    timeline, scheduler, executor and safety history are private to this dry run.
+    The process decoder is borrowed exclusively until the reset acknowledgement.
+    There is no robot/recorder/command sink in this component.
     """
 
     def __init__(
-        self, config: dict, *, worker: PolicyWorkerClient, strategy: InferenceStrategy,
-        adapter: PolicyAdapter, session_id: str, clock: Clock,
-    ) -> None:
-        self.config = config
-        self.worker = worker
-        self.strategy = strategy
-        self.adapter = adapter
-        self.session_id = session_id
-        self.clock = clock
+        self,
+        config,
+        *,
+        worker,
+        strategy,
+        adapter,
+        session_id,
+        clock,
+        executor,
+        kinematics,
+        safety,
+        decoder=None,
+    ):
+        self.config, self.worker, self.strategy, self.adapter = config, worker, strategy, adapter
+        self.session_id, self.clock = session_id, clock
+        self.planner = PreviewPlanner(
+            config,
+            strategy=strategy,
+            adapter=adapter,
+            executor=executor,
+            kinematics=kinematics,
+            safety=safety,
+            decoder=decoder,
+            session_id=session_id,
+            clock=clock,
+        )
+        self.decoder = decoder
         self.phase = "idle"
         self.completed_requests = 0
-        self.latest_branch: str | None = None
+        self.latest_branch = None
         self.error = ""
         inference = config["inference"]
-        delay_config = inference.get(inference.get("algorithm", "rtc"), inference["rtc"])
-        self.latency_ns: deque[int] = deque(
+        delay_config = inference.get(inference["algorithm"], inference["rtc"])
+        self.latency_ns = deque(
             maxlen=delay_config.get("delay_buffer_size", inference["rtc"]["delay_buffer_size"])
         )
-        self._required_calls = dict(getattr(strategy, "warmup_required_calls", {}))
-        self._branch_calls: Counter[str] = Counter()
-        self._recent_ns: deque[int] = deque(maxlen=10)
-        self.first_inference_ms: dict[str, float] = {}
-        self._request_seq = 0
-        self._pending = None
-        self._reset_seq: int | None = None
+        self._required_calls = dict(getattr(strategy, "warmup_required_calls", {"ordinary": 1}))
+        self._branch_calls = Counter()
+        self._recent_ns = deque(maxlen=10)
+        self.first_inference_ms = {}
+        self._pending = {}
+        self._waiting_response = None
+        self._decoding_seq = None
+        self._reset_seq = None
         self._was_paused = True
-        self._events: list[tuple[str, dict]] = []
-        self._preview: tuple[ActionChunk, float, dict] | None = None
+        self._events = []
+        self._preview = None
+        self._execution_ms = None
+        self._ik_status = None
 
-    def activate(self) -> None:
-        """Explicitly enable display-only warmup; repeated activation is harmless."""
+    def activate(self):
         if self.phase == "idle":
             self.phase = "warming"
             self._was_paused = True
             self._event("warmup_activated")
 
     @property
-    def complete(self) -> bool:
+    def complete(self):
         return self.phase == "complete"
 
     @property
-    def ready(self) -> bool:
+    def ready(self):
         return all(
-            self._branch_calls[branch] >= count
-            for branch, count in self._required_calls.items()
+            self._branch_calls[branch] >= count for branch, count in self._required_calls.items()
         )
 
-    def metadata(self) -> dict:
+    def metadata(self):
         return {
             "phase": self.phase,
             "completed_requests": self.completed_requests,
@@ -88,172 +107,240 @@ class PolicyWarmup:
             "latency_calibrated": bool(self.latency_ns),
             "calibration_latency_ns": list(self.latency_ns),
             "error": self.error,
+            "execution_ms": self._execution_ms,
+            "ik_status": self._ik_status,
+            "configured_planning": True,
+            **self.planner.metadata(),
         }
 
-    def take_events(self) -> list[tuple[str, dict]]:
+    def take_events(self):
         events, self._events = self._events, []
         return events
 
-    def take_preview(self) -> tuple[ActionChunk, float, dict] | None:
-        """Consume the latest display-only output; Start suppresses late previews."""
+    def take_preview(self):
         preview, self._preview = self._preview, None
         return preview if self.phase == "warming" else None
 
-    def _event(self, name: str, **fields) -> None:
+    def _event(self, name, **fields):
         self._events.append((name, fields))
 
-    def advance(self, *, paused: bool, snapshot: ObservationSnapshot) -> None:
+    def advance(self, *, paused, snapshot):
         try:
             self._advance(paused=paused, snapshot=snapshot)
         except InferenceTimingError:
-            # A measured infeasible schedule cannot be fixed by repeatedly
-            # warming the same recipe. Let EdgeRuntime stop and Home normally.
             raise
-        except Exception as exc:  # IPC failures must remain visible while motion stays paused.
+        except Exception as exc:
             self.phase = "error"
             self._preview = None
             self.error = f"{type(exc).__name__}: {exc}"
             self._event("warmup_failed", error=self.error)
 
-    def _advance(self, *, paused: bool, snapshot: ObservationSnapshot) -> None:
+    def _fail_response(self, response, error):
+        job = self._pending.pop(response.request_seq)
+        self.strategy.on_response_rejected(response)
+        self.error = error
+        self._event(
+            "warmup_inference_failed",
+            branch=job.branch,
+            request_seq=-(response.request_seq + 1),
+            error=error,
+        )
+        if self.phase == "draining" and not self.ready:
+            self.phase = "error"
+
+    def _finish_response(self, response, snapshot, decoded=None):
+        job = self._pending[response.request_seq]
+        try:
+            reason = self.planner.rejection_reason(response)
+            if reason:
+                raise ValueError(reason)
+            if decoded is None:
+                context = self.planner._decode_context(
+                    response,
+                    snapshot.state,
+                    self.clock.now_ns(),
+                    job.request.observation.state,
+                )
+                chunk = decode_strategy_action(
+                    self.strategy, self.adapter, response.raw_action, context
+                )
+            else:
+                chunk = decoded
+                self.planner._decode_forecast.observe(chunk.metadata["decode_stage_ms"])
+            decode_finished_ns = self.clock.now_ns()
+            chunk, result, fields = self.planner.accept(chunk, response, snapshot.state)
+            if not result.accepted:
+                raise ValueError(result.reason)
+        except (TypeError, ValueError) as exc:
+            self._fail_response(response, f"{type(exc).__name__}: {exc}")
+            return
+        self._pending.pop(response.request_seq)
+        end_ns = self.clock.now_ns()
+        elapsed_ns = max(0, end_ns - min(job.started_ns, job.request.observation_time_ns))
+        breakdown = {
+            "observation_age_ms": max(0, job.started_ns - job.request.observation_time_ns) / 1e6,
+            "request_to_decode_ms": (job.decode_started_ns - job.started_ns) / 1e6,
+            "decode_ms": (decode_finished_ns - job.decode_started_ns) / 1e6,
+            "post_decode_ms": (end_ns - decode_finished_ns) / 1e6,
+        }
+        first_call = job.branch not in self.first_inference_ms
+        if not first_call:
+            self.latency_ns.append(elapsed_ns)
+        self.first_inference_ms.setdefault(job.branch, elapsed_ns / 1e6)
+        self._recent_ns.append(elapsed_ns)
+        self.completed_requests += 1
+        self._branch_calls[job.branch] += 1
+        self.error = ""
+        if self.phase == "warming":
+            display = copy_action_chunk(chunk)
+            display.request_seq = -(response.request_seq + 1)
+            self._preview = (
+                display,
+                response.inference_ms,
+                {
+                    **job.fields,
+                    **fields,
+                    "warmup_preview": True,
+                    "warmup_branch": job.branch,
+                    "warmup_e2e_ms": elapsed_ns / 1e6,
+                    "warmup_timing": breakdown,
+                    "configured_planning": True,
+                    "conditioned": job.branch == "conditioned",
+                    "trimmed_steps": result.trimmed_steps,
+                    "time_trimmed_steps": result.time_trimmed_steps,
+                    "handoff_skipped_steps": result.handoff_skipped_steps,
+                    "committed_horizon_steps": (
+                        self.planner._timeline.active_horizon().horizon_steps
+                    ),
+                },
+            )
+        self._event(
+            "warmup_inference_completed",
+            branch=job.branch,
+            request_seq=-(response.request_seq + 1),
+            e2e_ms=elapsed_ns / 1e6,
+            inference_ms=response.inference_ms,
+            first_call=first_call,
+            **breakdown,
+        )
+
+    def _poll(self, snapshot):
+        """Drain model/decoder output; return whether this tick consumed a response."""
+        processed = False
+        decoded = self.decoder.poll() if self.decoder is not None else None
+        if decoded is not None:
+            self._decoding_seq = None
+            processed = True
+            response = decoded.response
+            if decoded.error:
+                self._fail_response(response, decoded.error)
+            else:
+                self._finish_response(response, snapshot, decoded.chunk)
+        wire = self.worker.poll() if self._pending else None
+        if wire is not None:
+            processed = True
+            seq = -wire.request_seq - 1
+            if wire.request_seq >= 0 or seq not in self._pending:
+                raise ValueError("Unexpected warmup response identity")
+            response = replace(wire, request_seq=seq)
+            if self._waiting_response is not None:
+                self._fail_response(self._waiting_response, "superseded_pending_response")
+            self._waiting_response = response
+            # Multi-inflight transport coalesces uploads. Earlier unreturned
+            # jobs cannot later become accepted plans, and must not block Start.
+            for old_seq in list(self._pending):
+                if old_seq < seq and old_seq != self._decoding_seq:
+                    self._pending.pop(old_seq)
+        if self._waiting_response is not None and self.planner.replacement_ready():
+            if self.decoder is not None and self.decoder.busy:
+                return processed
+            response, self._waiting_response = self._waiting_response, None
+            job = self._pending[response.request_seq]
+            job.decode_started_ns = self.clock.now_ns()
+            reason = self.planner.rejection_reason(response)
+            if reason:
+                self._fail_response(response, reason)
+            elif self.decoder is not None:
+                context = self.planner._decode_context(
+                    response,
+                    snapshot.state,
+                    self.clock.now_ns(),
+                    job.request.observation.state,
+                )
+                self.decoder.submit(response, context, job.request.deadline_ns)
+                self._decoding_seq = response.request_seq
+            else:
+                self._finish_response(response, snapshot)
+            processed = True
+        return processed
+
+    def _advance(self, *, paused, snapshot):
+        loop_started_ns = self.clock.now_ns()
         start_requested = self._was_paused and not paused
         self._was_paused = paused
         if self.complete or self.phase == "idle":
             return
         if not self.worker.is_alive:
-            self.phase = "error"
-            self.error = "Policy worker stopped. Finish and prepare a new rollout."
-            return
+            raise RuntimeError("Policy worker stopped. Finish and prepare a new rollout.")
         if start_requested and self.phase in {"warming", "error"}:
             self.phase = "draining"
             self._preview = None
             self.error = ""
             self._event("warmup_start_requested")
-
-        if self._pending is not None:
-            with stage("worker_poll"):
-                response = self.worker.poll()
-            if response is not None:
-                request, started_ns, branch = self._pending
-                self._pending = None
-                error = response.error
-                if (
-                    response.session_id != self.session_id
-                    or response.request_seq != request.request_seq
-                ):
-                    error = "Unexpected warmup response identity"
-                if error is None:
-                    try:
-                        with stage("policy_decode"):
-                            chunk = decode_strategy_action(
-                                self.strategy, self.adapter,
-                                response.raw_action,
-                                ActionContext(
-                                    request_seq=response.request_seq,
-                                    observation_time_ns=response.observation_time_ns,
-                                    created_time_ns=response.finished_time_ns,
-                                    observation_state=request.observation.state,
-                                    ik_seed=request.observation.state,
-                                    ik_seed_source="observation_state",
-                                    max_source_steps=self.config["policy"]["horizon_policy_steps"],
-                                ),
-                            )
-                        if isinstance(self.strategy, StrategyChunkSelector):
-                            chunk = self.strategy.select_chunk(
-                                chunk=chunk, now_ns=self.clock.now_ns(),
-                            )
-                        from manimux.runtime.ik import step_ik_enabled
-                        from manimux.policy_adapter.pose_output import POSE_SPACE
-                        expected_space = POSE_SPACE if step_ik_enabled(self.config) else "joint_position"
-                        if chunk.action_space != expected_space:
-                            raise ValueError(f"Warmup requires canonical {expected_space} output")
-                    except Exception as exc:  # Keep model/adapter failures visible without motion.
-                        error = f"{type(exc).__name__}: {exc}"
-                self.error = error or ""
-                if error is None:
-                    end_ns = self.clock.now_ns()
-                    elapsed_ns = max(0, end_ns - min(started_ns, request.observation_time_ns))
-                    self._recent_ns.append(elapsed_ns)
-                    first_call = branch not in self.first_inference_ms
-                    if not first_call:
-                        self.latency_ns.append(elapsed_ns)
-                        seed_strategy_warmup(self.strategy, latency_ns=list(self.latency_ns))
-                    self.completed_requests += 1
-                    self._branch_calls[branch] += 1
-                    self.first_inference_ms.setdefault(branch, elapsed_ns / 1e6)
-                    if self.phase == "warming":
-                        self._preview = (
-                            chunk,
-                            response.inference_ms,
-                            {
-                                "warmup_preview": True,
-                                "warmup_branch": branch,
-                                "warmup_e2e_ms": elapsed_ns / 1e6,
-                                "conditioned": branch == "conditioned",
-                            },
+        if self.phase in {"warming", "draining"}:
+            self.planner.initialize(snapshot.state)
+            response_processed = self._poll(snapshot)
+            # Schedule before execution, as in rollout. Never reuse the snapshot
+            # captured before a blocking decode for the next model submission.
+            should_submit = self.phase == "warming" or not self.ready
+            if should_submit and not response_processed:
+                started_ns = self.clock.now_ns()
+                submission = self.planner.submission(snapshot, in_flight=bool(self._pending))
+                if submission is not None:
+                    request = self.adapter.prepare_request(submission.request)
+                    self.worker.submit_latest(
+                        replace(request, request_seq=-(request.request_seq + 1))
+                    )
+                    self.planner.submitted(request, started_ns)
+                    fields = {**self.planner.metadata(), **submission.event_fields}
+                    fields["active_chunk_index"] = fields.pop("chunk_index")
+                    branch = "conditioned" if fields.get("conditioned") else "ordinary"
+                    if branch == "conditioned":
+                        fields["conditioned_overlap_steps"] = max(
+                            0,
+                            self.config["policy"]["horizon_policy_steps"]
+                            - int(fields.get("executed_steps", 0)),
                         )
-                    self._event(
-                        "warmup_inference_completed", branch=branch,
-                        request_seq=request.request_seq, e2e_ms=elapsed_ns / 1e6,
-                        inference_ms=response.inference_ms, first_call=first_call,
+                        fields["frozen_steps"] = int(fields.get("forecast_delay", 0))
+                    self._pending[request.request_seq] = PendingPreview(
+                        request, started_ns, branch, fields
                     )
-                else:
+                    self.latest_branch = branch
                     self._event(
-                        "warmup_inference_failed", branch=branch,
-                        request_seq=request.request_seq, error=error,
+                        "warmup_inference_submitted",
+                        request_seq=-(request.request_seq + 1),
+                        branch=branch,
+                        horizon_steps=self.config["policy"]["horizon_policy_steps"],
+                        **fields,
                     )
-                    if self.phase == "draining" and not self.ready:
-                        self.phase = "error"
-
-        if self.phase == "draining" and self._pending is None and self.ready:
-            try:
-                with stage("worker_submit_reset"):
-                    self._reset_seq = self.worker.submit_reset(self.session_id)
-                self.phase = "resetting"
-            except Exception as exc:
-                self.phase = "error"
-                self.error = f"{type(exc).__name__}: {exc}"
-                self._event("warmup_reset_failed", error=self.error)
-
+            self._execution_ms, self._ik_status = self.planner.tick(
+                snapshot.state, loop_started_ns=loop_started_ns
+            )
+            for kind, fields in self.strategy.take_runtime_events(step=self.planner.steps):
+                self._event("warmup_strategy_event", strategy_event=kind, **fields)
+        if self.phase == "draining" and not self._pending and self.ready:
+            self._reset_seq = self.worker.submit_reset(self.session_id)
+            self.phase = "resetting"
         if self.phase == "resetting":
-            with stage("worker_poll_reset"):
-                result = self.worker.poll_reset()
+            result = self.worker.poll_reset()
             if result is not None:
                 error = result.error
                 if result.reset_seq != self._reset_seq or result.session_id != self.session_id:
                     error = "Unexpected warmup reset acknowledgement"
                 self.error = error or ""
                 self.phase = "error" if error else "complete"
+                if not error:
+                    self.strategy.reset()
                 self._event(
                     "warmup_reset_failed" if error else "warmup_completed", **self.metadata()
                 )
-
-        if (
-            self.phase == "warming" or (self.phase == "draining" and not self.ready)
-        ) and self._pending is None:
-            started_ns = self.clock.now_ns()
-            try:
-                # Negative IDs cannot be mistaken for a formal rollout request.
-                self._request_seq -= 1
-                with stage("policy_schedule"):
-                    submission = build_warmup_submission(
-                        self.strategy, self.config, session_id=self.session_id,
-                        request_seq=self._request_seq, now_ns=started_ns,
-                        snapshot=snapshot, adapter=self.adapter,
-                        conditioned=bool(self.completed_requests % 2),
-                    )
-                with stage("policy_prepare"):
-                    request = self.adapter.prepare_request(submission.request)
-                branch = "conditioned" if submission.event_fields.get("conditioned") else "ordinary"
-                with stage("worker_submit"):
-                    self.worker.submit_latest(request)
-                self._pending = (request, started_ns, branch)
-                self.latest_branch = branch
-                self._event(
-                    "warmup_inference_submitted", request_seq=request.request_seq, branch=branch,
-                    horizon_steps=self.config["policy"]["horizon_policy_steps"],
-                )
-            except Exception as exc:
-                self.phase = "error"
-                self.error = f"{type(exc).__name__}: {exc}"
-                self._event("warmup_inference_failed", error=self.error)

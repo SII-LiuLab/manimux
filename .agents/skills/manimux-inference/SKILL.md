@@ -87,6 +87,22 @@ not proven active merely because a flag is true. Check model identity and first-
 warmup separately from steady-state timing. Do not mix compiled and eager results
 under one experiment variant. See the dated audit in [the matrix](references/inference-matrix.md#compilation-audit-2026-10-18).
 
+## Warmup must use the selected configuration
+
+Warmup is a dry run of the current resolved runtime configuration, not a separate
+sampling recipe. Use the same scheduler, strategy request, adapter, decode context,
+chunk selection/trimming, IK mode, executor and command checks. Keep model precision,
+compilation/cache, task prompt, horizon, window, guidance and candidate count unchanged.
+Never substitute ordinary sampling for AutoHorizon/RTC/PAINT/BID or fabricate a held
+pose as a conditioning trajectory. Conditions come from an isolated preview timeline.
+
+Use real sensor/state observations; discard computed commands at the hardware boundary.
+A preview is not closed-loop robot validation. Keep preview histories and counters out
+of formal trials, drain worker/decoder output and acknowledge backend reset before
+Start. Verify serial/progress cadence, conditioned requests, adaptive horizons, step
+and chunk IK, process decoding, error visibility and zero predicted-command dispatch
+with fake devices. Report cold-call, steady model-call, decode/IK and E2E separately.
+
 ## Validate and report
 
 For implementation changes, test fixed-noise no-condition/zero-weight equivalence,

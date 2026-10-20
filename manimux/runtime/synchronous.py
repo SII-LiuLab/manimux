@@ -51,30 +51,22 @@ class SynchronousChunkStrategy:
     def build_warmup_submission(
         self, *, session_id, request_seq, now_ns, snapshot, adapter, conditioned=False,
     ):
-        settings = self._config["inference"]
-        legacy = settings["inference_schedule"] == "serial" and not (
-            settings.get("temporal_ensemble") or {}
-        ).get("enabled", False)
         return self._make_submission(
             session_id=session_id, request_seq=request_seq, now_ns=now_ns,
-            snapshot=snapshot, adapter=adapter, default_sampling=legacy,
+            snapshot=snapshot, adapter=adapter,
         )
 
-    def _make_submission(
-        self, *, session_id, request_seq, now_ns, snapshot, adapter, default_sampling=False,
-    ):
-        # Preserve legacy serial warmup; new combinations exercise their own sampler.
-        request_type = InferenceRequest if default_sampling else self.request_type
+    def _make_submission(self, *, session_id, request_seq, now_ns, snapshot, adapter):
         return InferenceSubmission(
-            request=request_type(
+            request=self.request_type(
                 session_id=session_id, request_seq=request_seq,
                 observation_time_ns=snapshot.state.monotonic_ns,
                 deadline_ns=now_ns + int(self._config["policy"]["timeout_s"] * 1e9),
                 observation=adapter.build_observation(snapshot),
                 instruction=self._config["run"]["task_prompt"],
-                **({} if default_sampling else self.request_options()),
+                **self.request_options(),
             ),
-            event_fields={"conditioned": False} if default_sampling else self.submission_fields(),
+            event_fields=self.submission_fields(),
         )
 
     def build_submission(

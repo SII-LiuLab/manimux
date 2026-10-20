@@ -72,8 +72,8 @@ class StrategyChunkSelector(Protocol):
     """Optional selection after decoding, immediately before preparation/commit.
 
     now_ns is the same timestamp used by prepare_chunk and Timeline.commit.
-    Warmup may select a preview without accepting it. Only on_plan_accepted may
-    advance accepted reference history; rejection/reset discard pending state.
+    Warmup commits only to its isolated preview timeline. Only on_plan_accepted
+    may advance reference history; rejection/reset discard pending state.
     """
 
     def select_chunk(self, *, chunk: ActionChunk, now_ns: int) -> ActionChunk: ...
@@ -333,7 +333,11 @@ def build_warmup_submission(
     adapter: PolicyAdapter,
     conditioned: bool = False,
 ) -> InferenceSubmission:
-    """Build an inference-only request without advancing the formal scheduler."""
+    """Legacy sampler-probe helper, not the runtime warmup entry point.
+
+    PolicyWarmup uses RequestScheduler.build_submission on a preview timeline.
+    This helper does not provide scheduling/conditioning parity with rollout.
+    """
     method = getattr(strategy, "build_warmup_submission", None)
     if callable(method):
         return method(

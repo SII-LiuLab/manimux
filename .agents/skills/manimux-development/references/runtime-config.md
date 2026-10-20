@@ -515,15 +515,44 @@ waits for the in-flight request, then acknowledged backend reset; only a fresh s
 observation enters formal execution. Warmup timings remain separate from formal metrics.
 The control mailbox suppresses activation/selection on stale transport snapshots.
 
-PAINT implements `build_warmup_submission()` for ordinary and anchored-prefix requests.
-Its `warmup_required_calls` requests two successful calls per branch: the first compiles
-that branch, the second supplies a steady end-to-end sample. An early Start remains in
-the draining phase while these calls finish, then waits for reset acknowledgement.
-Failed required calls cannot release formal execution. Metadata reports required and
-completed branch counts and `branches_ready`; warmup plans never enter the Timeline.
-The delay buffer uses the selected algorithm's window. PAINT's `seed_warmup()` preserves
-ceil-rounded steady samples across reset, with its explicit initial delay as a floor;
-first calls of both branches remain visible but are excluded from calibration.
+Warmup never submits another request in the tick that decodes a response: inline
+IK can block, so the next request must use state/cameras acquired on the next tick.
+Otherwise the previous decode becomes observation age in the next E2E sample and
+inflates delay calibration. Completed events include `observation_age_ms`,
+`request_to_decode_ms`, `decode_ms`, and `post_decode_ms`; these sum to `e2e_ms`.
+`inference_ms` is the worker model-call duration (including its client/transport),
+a subset of request-to-decode time, not a separate additive term or GPU-only time.
+RoboGUI labels E2E explicitly and displays model-call and decode/IK durations.
+
+`PolicyWarmup` uses `PreviewPlanner` and the same `PlanningContext` as rollout.
+The resolved config supplies the scheduler, strategy requests, decode seed/time,
+source cap, trimming/blending, candidate selection, adaptive prefix, IK and executor.
+Each preview owns its timeline, strategy/adapter, executor and command-safety history;
+no robot or command sink is passed to it. The process decoder, when configured, is
+borrowed exclusively and drained before backend reset. The physical runtime continues
+to send its existing measured-position hold command, never preview commands.
+
+Serial waits for its configured prefix to finish. Async progress/refill triggers and
+RTC/PAINT condition generation use actual preview progress. AutoHorizon and candidate
+samplers retain their specialized requests. There is no alternating synthetic branch
+loop or ordinary-sampler fallback. Preview state uses measured feedback and real camera
+frames; it does not simulate the robot achieving predicted positions. Consequently
+warmup is a compute-path check, not a physical feasibility or task-success claim.
+
+RTC/PAINT require one accepted ordinary plan and two accepted conditioned plans before
+an early Start can complete draining. This follows their natural branch sequence, rather
+than resetting history to manufacture another ordinary call. First calls remain visible
+but are excluded from latency calibration; accepted responses update the preview
+strategy's own estimator exactly as in rollout. Formal strategy history is reset and
+only steady latency samples are transferred after backend reset acknowledgement.
+Cold compilation may exceed the executable plan deadline: the warmed response is
+reported as rejected and never bypasses configured age/deadline checks.
+
+E2E ends at preview plan acceptance, matching formal plan timing. Step IK and executor
+work occur on control ticks and are reported separately as `execution_ms`/`ik_status`;
+they must not be mislabeled as GPU inference or whole-chunk decode. GUI preview cursors,
+trimming and condition spans come from the runtime preview, not a free-running client
+animation. Preview commands/plans are excluded from formal recordings and step counts.
 
 ## Opt-in inference composition
 

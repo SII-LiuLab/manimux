@@ -186,6 +186,15 @@ requirements must remain explicit through supported solver configuration/API;
 never drop bounds, tolerances or failure behavior to fit a common signature.
 RoboGUI display placement is not a calibrated arm-base transform.
 
+YAM IK settings belong in the arm component's `options`, shared by model adapters.
+`pos_threshold` defaults to `0.0001` metres. An explicit YAML `null` disables only
+final position-residual acceptance in chunk and step IK. Optimization still pursues
+the original position objective and 0.1 mm convergence target; this is not a speed
+setting. Orientation acceptance, finite-value checks and model joint limits remain.
+Step IK still obeys its computation budget. Residuals can be arbitrarily large when
+position acceptance is disabled; do not infer task accuracy from acceptance.
+Keep the default enabled unless explicitly selected otherwise.
+
 Verify the new group's actual layout, FK/IK and component command split; include
 no-gripper or mixed layouts if supported. A known tool offset is a useful offline
 fixture to check geometry propagation, not a new runtime calibration mechanism.

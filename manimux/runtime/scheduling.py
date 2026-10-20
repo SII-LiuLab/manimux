@@ -106,7 +106,7 @@ class RequestScheduler:
 
     This object never prepares actions or advances algorithm state. Call
     on_submitted only after the worker accepts the submission into its queue.
-    Warmup deliberately bypasses it and uses its own reset-fenced lifecycle.
+    Warmup uses the same admission rules with an isolated preview timeline.
     """
 
     def __init__(self, settings: dict) -> None:

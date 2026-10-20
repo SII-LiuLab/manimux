@@ -6,7 +6,7 @@ Use `manimux/configs/lists/xiaomi-xr1-bottles30k-ratio64-step-ik-all-tasks.yaml`
 for five-task Serial/Async/RTC/PAINT comparisons. The RTC-only subset is
 `manimux/configs/lists/xiaomi-xr1-bottles30k-rtc-beta10-step-ik-all-tasks.yaml`.
 Both reference the same concrete variants. These installation-local studies are ignored by Git.
-The former base-checkpoint, chunk-IK and beta-4.25 launch entries were retired;
+The former base-checkpoint and beta-4.25 launch entries were retired;
 do not restore them as current experiment commands.
 
 | Setting | Current study |
@@ -15,10 +15,10 @@ do not restore them as current experiment commands.
 | Recipe | `manimux/configs/policy/xiaomi-xr1/yam/finetune-put-bottles-step30000.yaml` |
 | Normalization | Checkpoint-paired `norm_stats.json` selected by that recipe |
 | Native horizon / denoising | 30 actions / 5 denoising steps |
-| Execution window | 19 source steps, rounding 0.64 × 30 |
+| Execution window | 18 source steps, explicitly selected for subsequent trials on 2026-10-20 |
 | Action / robot rate | 30 Hz / 100 Hz |
 | RTC | beta 10; initial delay estimated from warmup; 10-sample delay buffer |
-| PAINT | 19 execution steps; initial delay 10; 10-sample delay buffer |
+| PAINT | 18 execution steps; initial delay 10; 10-sample delay buffer |
 | Async | Progress-triggered, single in-flight request, zero blend |
 | Serial | First step when ready, serial scheduling |
 | IK | Step IK; 5 ms budget; no additional pose-speed limit |
@@ -34,6 +34,25 @@ method. BID and AutoHorizon are not in this step-IK study; do not silently chang
 The bottle task is shared with the other comparison models. Its four-bottle rubric and
 reference IDs are a new protocol, with separate variant identities and no imported
 six-bottle scores. Historical recordings and reference images remain intact.
+
+## Chunk IK comparison (2026-10-20)
+
+For the operator-requested chunk IK trial, use
+`manimux/configs/lists/xiaomi-xr1-bottles30k-ratio64-chunk-ik-all-tasks.yaml`.
+Its 20 variants retain the step study's checkpoint, sampling, timing, scoring and
+initial poses, with `execution.ik.mode: chunk`. Labels and recording variant IDs
+explicitly say chunk IK; historical step IK records stay separate.
+Chunk IK solves predicted trajectories during decoding instead of applying the
+5 ms per-control-tick step IK budget. Decoding latency and convergence still need
+warmup and operator validation. Config loading is not a physical trial.
+The same model and camera services can be reused because their settings are unchanged.
+
+Both IK lists and the RTC-only subset now use 18 source steps. The existing launch
+filenames retain `ratio64` for command continuity, but the effective window is 18/30,
+not the previous rounded 19/30. List IDs have a `steps18` suffix and recording
+variants use `steps18` to keep subsequent trials separate from historical 19-step
+results. Restart the runtime to load this change; the model's 30-action horizon
+and five denoising steps are unchanged.
 
 ## Architecture and action contract
 

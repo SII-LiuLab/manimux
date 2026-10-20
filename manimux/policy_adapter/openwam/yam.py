@@ -1,5 +1,6 @@
 """YAM embodiment boundary for absolute per-arm base poses."""
 
+import logging
 import uuid
 from collections import OrderedDict
 from collections.abc import Mapping
@@ -21,6 +22,7 @@ DEFAULT_CAMERA_MAP = {
 }
 
 SEMANTICS = "absolute_per_arm_base_xyz_wxyz"
+log = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -42,6 +44,9 @@ class OpenWAMYamAdapter(KinematicAdapter):
             raise ValueError("OpenWAM requires the three standard XPolicy cameras")
         self.horizon = policy["horizon_policy_steps"]
         self.dt = int(action_interval(policy) * 1e9)
+        self.ik_failure_policy = policy["adapter"].get("ik_failure_policy", "reject")
+        if self.ik_failure_policy not in {"reject", "hold_last_valid"}:
+            raise ValueError("OpenWAM ik_failure_policy must be reject or hold_last_valid")
         self.anchors = OrderedDict()
 
     def validate(self, robot, policy):
@@ -139,7 +144,7 @@ class OpenWAMYamAdapter(KinematicAdapter):
             raise ValueError("OpenWAM action has no matching observation anchor")
         if self.decode_pose_only:
             return pose_chunk(context, actions, self.dt)
-        groups = {}
+        groups, diagnostics = {}, {}
         for side in ("left", "right"):
             group = f"{side}_arm"
             seed = (
@@ -151,17 +156,37 @@ class OpenWAMYamAdapter(KinematicAdapter):
             if seed.shape != (7,) or not np.isfinite(seed).all():
                 raise ValueError("Invalid YAM IK seed")
             current, rows = seed[:6].copy(), []
-            for step in actions[group]:
+            held_gripper = float(seed[6])
+            failed_indices = []
+            for index, step in enumerate(actions[group]):
                 target = pose_matrix(step[:7])
                 grip = step[7:]
                 if grip.shape != (1,) or not np.isfinite(grip).all() or not 0 <= grip[0] <= 1:
                     raise ValueError("OpenWAM gripper must be one value in [0, 1]")
                 ok, solved = self._ik(group, target, current, float(grip[0]))
                 solved = np.asarray(solved)
-                if not ok or solved.shape != (6,) or not np.isfinite(solved).all():
-                    raise ValueError("OpenWAM IK failed; rejecting the entire action chunk")
-                current = solved.copy()
-                rows.append(np.r_[current, grip])
+                if solved.shape != (6,) or not np.isfinite(solved).all():
+                    raise ValueError(f"OpenWAM IK invalid solution: group={group}, step={index}")
+                if not ok:
+                    if self.ik_failure_policy == "reject":
+                        raise ValueError(
+                            f"OpenWAM IK failed: group={group}, step={index}, "
+                            f"target_xyz_m={step[:3].tolist()}; rejecting the entire action chunk"
+                        )
+                    # Retain the last valid arm and gripper target on this row.
+                    # Never seed subsequent solves with a rejected IK result.
+                    failed_indices.append(index)
+                else:
+                    current = solved.copy()
+                    held_gripper = float(grip[0])
+                rows.append(np.r_[current, held_gripper])
+            if len(failed_indices) == self.horizon:
+                raise ValueError(f"OpenWAM IK failed on all {self.horizon} steps for {group}")
+            if failed_indices:
+                log.warning("OpenWAM %s: holding %d/%d IK rows; failed_indices=%s",
+                            group, len(failed_indices), self.horizon, failed_indices)
+            diagnostics[group] = {"failed_steps": len(failed_indices),
+                                  "failed_indices": failed_indices}
             groups[group] = np.asarray(rows)
         return ActionChunk(
             plan_id=f"openwam-{uuid.uuid4().hex}",
@@ -171,5 +196,6 @@ class OpenWAMYamAdapter(KinematicAdapter):
             action_space="joint_position",
             dt_ns=self.dt,
             groups=groups,
-            metadata={"native_action_semantics": SEMANTICS},
+            metadata={"native_action_semantics": SEMANTICS,
+                      "ik_failure_policy": self.ik_failure_policy, "ik": diagnostics},
         )

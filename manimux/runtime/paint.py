@@ -46,7 +46,7 @@ class PaintInferenceStrategy:
     # EdgeRuntime then retains the last command while inference is pending.
     hold_last_step = True
     # Compile both sampler branches, then measure each without its first call.
-    warmup_required_calls = {"ordinary": 2, "conditioned": 2}
+    warmup_required_calls = {"ordinary": 1, "conditioned": 2}
 
     def __init__(self, config: dict) -> None:
         self._config = config

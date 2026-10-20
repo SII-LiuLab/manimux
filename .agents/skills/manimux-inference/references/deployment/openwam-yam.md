@@ -31,8 +31,12 @@ state extension. No ARX-X5 simulation calibration is applied. Grippers are
 absolute `0=closed, 1=open` values. The policy converts poses to EEF20 using
 the upstream math, and returns absolute pose dictionaries with explicit
 `absolute_per_arm_base_xyz_wxyz` action semantics. ManiMux runs YAM IK;
-malformed poses, invalid grippers, wrong horizons and IK failures reject the
-whole chunk. The default action rate is 30 Hz and horizon is 32.
+malformed poses, invalid grippers and wrong horizons reject the whole chunk.
+Chunk IK defaults to `policy.adapter.ik_failure_policy: reject`. The explicit
+`hold_last_valid` policy holds the arm and gripper at the last accepted target on
+unconverged rows and continues with the clean seed. Invalid solutions or an arm
+with no converged rows still reject the chunk. Metadata records per-arm failed
+counts and indices. Step IK retains its separate atomic-hold contract. The default action rate is 30 Hz and horizon is 32.
 
 ARX-X5 simulation remains supported through `arx_x5_sim`; its calibration and
 standard XPolicy batch evaluation are separate from the YAM profile.
@@ -133,3 +137,18 @@ their settings; use a distinct variant when comparing compilation.
 RTC can use native DiT caching via `dit_cache_modes: [default, rtc]`; PAINT and
 AutoHorizon remain uncached. See the [cache settings and commands](../../../../guideline.html#openwam-rtc-cache). CPU/dummy tests do not establish GPU inference,
 training convergence, task success, or real-robot safety.
+
+## Local latest300 study (2026-10-20)
+
+`manimux/configs/lists/openwam-latest300ep-step60000.yaml` now contains five
+tasks with Serial/Async only, 20/32 source steps, compilation and native DiT
+cache enabled for default sampling. The policy recipe is
+`manimux/configs/policy/openwam/yam/latest300ep-step60000-cache-compile.yaml`;
+use `envs/openwam/.venv/bin/python -m manimux.servers.policy --config-list ...`.
+Runtime and camera services use the same list with the YAM environment.
+Current chunk IK variants explicitly select `hold_last_valid` and use distinct
+`_ik_hold` recording identities. The shared YAM arm configuration currently sets `options.pos_threshold: 0.001` (1 mm) for position convergence and acceptance; orientation acceptance and joint limits remain unchanged.
+An offline replay accepted a previously rejected prediction with held rows; this
+is not physical validation or evidence of task success. Restart the model and
+runtime after normal Finish/Home to load these changes; never hot-swap hardware
+control to apply a configuration.

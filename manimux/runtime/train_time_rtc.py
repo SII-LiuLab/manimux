@@ -185,6 +185,13 @@ class TrainTimeRtcInferenceStrategy(RtcInferenceStrategy):
         self._prefix_forecasts.pop(response.request_seq, None)
         super().on_response_rejected(response)
 
+    @property
+    def warmup_required_calls(self):
+        # A zero fixed prefix deliberately has no conditioned branch to compile.
+        if self._delay_estimator == "fixed" and self._fixed_prefix_steps == 0:
+            return {"ordinary": 2}
+        return super().warmup_required_calls
+
     def build_warmup_submission(self, **kwargs) -> InferenceSubmission:
         if self._delay_estimator != "fixed":
             return self._hard_prefix(super().build_warmup_submission(**kwargs))

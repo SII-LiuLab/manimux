@@ -92,15 +92,22 @@ class YamKinematics:
         num_arm_joints: int = 6,
         *,
         assets_root: Path | str | None = None,
-        pos_threshold: float = 1e-4,
+        pos_threshold: float | None = 1e-4,
         ori_threshold: float = 1e-4,
         max_iters: int = 200,
         recovery_ori_threshold: float | None = None,
         recovery_max_joint_delta: float = 0.35,
     ) -> None:
         self._num_arm_joints = int(num_arm_joints)
-        self._pos_threshold = float(pos_threshold)
+        # None disables final position acceptance only. Keep optimizing position
+        # at the normal tolerance rather than stopping on orientation alone.
+        self._check_position_error = pos_threshold is not None
+        self._pos_threshold = 1e-4 if pos_threshold is None else float(pos_threshold)
         self._ori_threshold = float(ori_threshold)
+        if not all(np.isfinite(value) and value > 0 for value in (
+            self._pos_threshold, self._ori_threshold,
+        )):
+            raise ValueError("IK tolerances must be finite and positive; pos_threshold may be None")
         self._max_iters = int(max_iters)
         if recovery_ori_threshold is not None and not 0 < recovery_ori_threshold <= np.pi / 18:
             raise ValueError("recovery_ori_threshold must be in (0, 10 degrees]")
@@ -292,7 +299,18 @@ class YamKinematics:
         joints = np.asarray(qpos, dtype=np.float64)[: self._num_arm_joints].copy()
         # mink's ConfigurationLimit still leaks ~1 mrad past a stop; clip so the
         # commanded joints stay inside the same range SafetyGuard enforces.
-        return bool(converged), self.clip_arm_joints(joints)
+        joints = self.clip_arm_joints(joints)
+        if not self._check_position_error:
+            pos, rot = self.pose_error(target, joints, gripper)
+            converged = self._accept_residual(pos, rot, self._ori_threshold)
+        return bool(converged), joints
+
+    def _accept_residual(self, pos: float, rot: float, ori_threshold: float) -> bool:
+        return bool(
+            np.isfinite(pos) and np.isfinite(rot)
+            and (not self._check_position_error or pos <= self._pos_threshold)
+            and rot <= ori_threshold
+        )
 
     def ik_bounded(
         self, target_pose: FloatArray, init_joints: FloatArray, gripper: float,
@@ -411,14 +429,15 @@ class YamKinematics:
                 joints = np.clip(joints, *joint_bounds)
         # Validate the actual clipped command, not the solver's unclipped state.
         pos, rot = self.pose_error(target, joints, gripper)
-        converged = pos <= self._pos_threshold and rot <= orientation_threshold
+        converged = self._accept_residual(pos, rot, orientation_threshold)
         if converged:
-            reason = "converged"
+            reason = "converged" if pos <= self._pos_threshold else "position_check_disabled"
         elif reason == "converged":
             reason = "clipped_residual"
         return converged, joints, {
             "reason": reason, "iterations": iterations,
             "position_error_m": pos, "rotation_error_rad": rot,
+            "position_error_check_enabled": self._check_position_error,
             "joint_limit_margin_rad": float(np.min(self.joint_limit_margins(joints))),
         }
 
