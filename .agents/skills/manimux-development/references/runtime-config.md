@@ -36,6 +36,14 @@ require an explicit ID when their recipes differ. No automatic service restart o
 model reload. Starting-pose-only changes are compatible and take effect at Prepare.
 
 Prepare uses a retained `prepare_request_id`: reading controls does not consume it.
+In plain `run --config` demo/trial sessions, RoboGUI exposes an editable **Task prompt**
+before Prepare. Prepare freezes the trimmed text in `task_command`; the session copies
+it into that rollout's `run.task_prompt` before constructing the runtime, so warmup,
+inference and episode metadata agree. Idle heartbeats preserve the local draft, while
+a new service seeds it from YAML. Finish before changing instructions. Formal
+`--config-list` studies retain configured prompts and evaluation controls; demo sessions
+hide layout/scoring controls, including **Edit last evaluation**.
+
 The idle session acknowledges admission with `rollout_prepare_accepted` and repeats
 `prepare_ack` in idle heartbeats. The GUI clears transmission only on matching
 acknowledgment, episode start, failure or a new service boundary. The session ignores
@@ -142,7 +150,11 @@ updates its source offset only on accepted plans and adds `timeline.cursor(now)`
 to count latency-trimmed rows like RTC/PAINT. Reset clears accepted progress;
 warmup and rejected responses do not advance it. The scheduler still owns capacity,
 and this mode does not consult `refill_threshold_s`. Validate K < H, no source cap,
-`drop_infer_latency`, and no waypoint or skipped-row handoff.
+`drop_infer_latency` or `first_step_when_ready`, and no waypoint or skipped-row handoff.
+With `first_step_when_ready` and an uncropped adapter output, progress starts at
+zero on activation, so K policy intervals pass before the next submission.
+This is distinct from `min_plan_hold_policy_steps`, which gates replacement,
+not submission. Warmup uses the same progress trigger through its private planner.
 
 On each eligible control tick, the scheduler calls the optional
 `observe_snapshot(snapshot)` hook **before** admission checks. DP/UMI history plugins
@@ -263,6 +275,16 @@ For scheduling changes use a deterministic clock and synthetic chunks to check
 timestamps, overlap, delayed/rejected responses and reset as relevant. For executor
 changes check actual arm/tool limits and output groups. Preserve capability checks;
 an algorithm setting alone does not implement the model's sampling hooks.
+
+### Signed Async handoff adjustment
+
+For standalone single-inflight Async using `drop_infer_latency` and blend handoff,
+`handoff_skip_steps` may be negative: retain that many latency-trimmed rows at the
+same handoff clock, extending the remaining trajectory. Total crop is clamped at
+zero and the first chunk is not adjusted. Source-progress triggers count the actual
+crop plus the active cursor. This changes timing alignment, not physical speed
+limits, and does not guarantee continuous commands. Other algorithms retain their
+existing nonnegative restrictions.
 
 ### RTC waypoint handoff skip
 
@@ -725,3 +747,19 @@ publishes that field in HELLO_ACK. Prefer the loaded model's effective setting o
 copying an expected value into the response. Exercise matching, mismatching and
 missing fields through the HELLO builder and runtime comparator before providing
 launch commands. Do not remove identity checks to make a missing-field error pass.
+
+## Recording management
+
+RoboGUI's `RecordingsPanel` browses the current method output directory using
+`recording.management`. Operators select complete rollouts and confirm paths and a
+reason. Deletion is reversible: whole episodes move to `_archive/deleted`, outside
+inventory and repeat scans. `.deleted` files reserve the original rollout IDs;
+the runtime allocator must not reuse them. Restore refuses to overwrite any newer
+finalized or partial recording. Saved manifests and other layouts remain unchanged.
+
+Serialize recording changes with Prepare and evaluation. Block mutations during an
+active episode, startup, recovery, pending selection, evaluation/save, or a missing
+service heartbeat. Recheck the metadata/result/label revision at confirmation.
+Refresh repeat history and existing derived indexes after deletion/restoration.
+Imported history is read-only in this panel. Test path boundaries, partial records,
+changed labels, rollback, ID allocation, progress and GUI lifecycle interlocks.

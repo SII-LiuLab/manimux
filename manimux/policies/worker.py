@@ -143,6 +143,7 @@ def _worker_main(
                     inference_ms=(finished_ns - started_ns) / 1_000_000,
                     raw_action=action,
                     observation_time_ns=request.observation_time_ns,
+                    deadline_ns=request.deadline_ns,
                 )
             except Exception as exc:  # worker boundary must report model failures
                 finished_ns = time.monotonic_ns()

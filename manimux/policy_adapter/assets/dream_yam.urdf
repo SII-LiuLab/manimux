@@ -1,0 +1,62 @@
+<!-- Derived from dreamlabs 1.0.5 dream_ik/assets/yam.urdf (Apache-2.0).
+     Modified: visual, collision and inertial elements removed; joint geometry unchanged.
+     Original SHA256: 90e1bb509b7be077c42c660e4528d5b8dad6fceca6e3780bd051c5f14b09c548
+     See licenses/dreamlabs-Apache-2.0.txt and THIRD_PARTY_NOTICES.md. -->
+<robot name="yam_v0">
+  <link name="base_link">
+    </link>
+  <link name="link_1">
+    </link>
+  <link name="link_2">
+    </link>
+  <link name="link_3">
+    </link>
+  <link name="link_4">
+    </link>
+  <link name="link_5">
+    </link>
+  <link name="link_6">
+    </link>
+  <joint name="joint6" type="revolute">
+    <origin xyz="-4.0742e-16 0.0353 0.0395" rpy="-1.5708 3.81639e-16 4.68582e-15" />
+    <parent link="link_5" />
+    <child link="link_6" />
+    <axis xyz="0 0 1" />
+    <limit effort="10" velocity="10" lower="-2.0944" upper="2.0944" />
+  </joint>
+  <joint name="joint5" type="revolute">
+    <origin xyz="-0.0739968 -0.0395003 2.44738e-05" rpy="-1.5708 1.5708 0" />
+    <parent link="link_4" />
+    <child link="link_5" />
+    <axis xyz="0 0 1" />
+    <limit effort="10" velocity="10" lower="-1.5708" upper="1.5708" />
+  </joint>
+  <joint name="joint4" type="revolute">
+    <origin xyz="-0.245 -0.0600003 -1.9984e-15" rpy="-5.65471e-31 -1.1507e-13 2.94252e-43" />
+    <parent link="link_3" />
+    <child link="link_4" />
+    <axis xyz="0 0 1" />
+    <limit effort="10" velocity="10" lower="-1.5708" upper="1.5708" />
+  </joint>
+  <joint name="joint3" type="revolute">
+    <origin xyz="0.264 0 6.77626e-21" rpy="-3.14159 1.26218e-29 7.88861e-31" />
+    <parent link="link_2" />
+    <child link="link_3" />
+    <axis xyz="0 0 1" />
+    <limit effort="10" velocity="10" lower="0" upper="3.13" />
+  </joint>
+  <joint name="joint2" type="revolute">
+    <origin xyz="2.5e-05 -0.02 0.0409" rpy="1.5708 -1.98004e-28 1.5708" />
+    <parent link="link_1" />
+    <child link="link_2" />
+    <axis xyz="0 0 1" />
+    <limit effort="10" velocity="10" lower="0" upper="3.65" />
+  </joint>
+  <joint name="joint1" type="revolute">
+    <origin xyz="-3.55271e-18 -1.05495e-18 0.0631" rpy="0 -0 1.5708" />
+    <parent link="base_link" />
+    <child link="link_1" />
+    <axis xyz="0 0 1" />
+    <limit effort="10" velocity="10" lower="-2.61799" upper="3.13" />
+  </joint>
+</robot>

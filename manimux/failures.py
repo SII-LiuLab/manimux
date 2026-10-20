@@ -88,6 +88,13 @@ def describe_failure(error, *, context=None):
         title = "Gripper target out of range"
         reason = detail
         action = "Check the observation opening, predicted gripper delta and adapter output handling before Start."
+    elif source == "runtime" and any(term in lower for term in (
+        "inference_deadline_exceeded", "deadline_exceeded_before_decode",
+        "deadline_exceeded_before_start",
+    )):
+        title = "Inference response rejected by deadline check"
+        reason = detail
+        action = "Inspect request and response deadlines, model round-trip time and time waiting before decoding in the runtime log."
     return {"source": source, "stage": origin.get("stage", ""),
             "target": origin.get("target", ""), "title": title,
             "reason": reason, "action": action, "detail": detail}

@@ -29,6 +29,7 @@ from .chunk_timeline import ChunkTimelineView
 from .communication import ControlServer, PolicyPlan, RoboGUIReceiver, RobotSnapshot
 from .errors import OperatorErrors
 from .reference_layouts import DEFAULT_LAYOUT_ROOT
+from .recordings_panel import RecordingsPanel
 from .robot_view import RobotGroup, RobotView, load_robogui_config, load_robot_view
 from .score_choices import ScoreChoices
 from .study_setup import completed_repeats, next_repeat, reference_task, unscored_experiments
@@ -199,6 +200,7 @@ class PolicyRoboGUI:
         self._build_scene()
         self._build_gui()
         self.camera_view.add_diagnostics(expand_by_default=True)
+        self.recordings_panel = RecordingsPanel(self)
 
         def display_message(message: dict[str, Any]) -> None:
             # Do not hold a global Viser atomic window across image/FK work:
@@ -306,6 +308,10 @@ class PolicyRoboGUI:
                 "⚪ Waiting for a ManiMux runtime service."
             )
             self.setup_summary = self.server.gui.add_markdown("Waiting for configuration.")
+            self.task_prompt = self.server.gui.add_text(
+                "Task prompt", "", disabled=True, visible=False,
+                hint="Edit before Prepare. This instruction is frozen for the whole rollout.",
+            )
             self.experiment_task = self.server.gui.add_dropdown(
                 "Task", ("—",), disabled=True, visible=False,
             )
@@ -1267,6 +1273,7 @@ class PolicyRoboGUI:
         """Expose only the controls that are actionable in the current stage."""
 
         self._gui_stage = stage
+        self.instruction.visible = self.experiments_available or stage not in {"waiting", "setup"}
         self.new_rollout_folder.visible = stage in {"waiting", "setup", "preparing"} or (
             stage == "control" and not self.rollout_started
         )
@@ -1383,12 +1390,23 @@ class PolicyRoboGUI:
 
     def _set_setup_controls_enabled(self, enabled: bool) -> None:
         allowed = (enabled and self.evaluation_complete
+                   and not self._records_busy()
                    and not getattr(self, "_history_loading", False)
                    and not getattr(self, "_history_error", False)
                    and not self._recovery_pending()
                    and not self._pending_experiment_id
                    and not getattr(self, "_pending_initial_pose_id", ""))
         can_prepare = allowed and not self.preparing_rollout and not self.episode_active
+        if hasattr(self, "task_prompt"):
+            self.task_prompt.visible = not self.experiments_available
+            self.task_prompt.disabled = not can_prepare or self.experiments_available
+        self.new_rollout_folder.label = (
+            "Trial setup" if self.experiments_available else "Demo setup"
+        )
+        if self.top_overlay is not None:
+            self.top_overlay.appearance_folder.visible = self.experiments_available
+            self.top_overlay.panel.visible = self.experiments_available
+            self.top_overlay.image.visible = self.experiments_available
         self.experiment_task.disabled = not can_prepare
         self.experiment_config.disabled = not can_prepare
         self.initial_pose.disabled = not can_prepare
@@ -1397,10 +1415,19 @@ class PolicyRoboGUI:
         self.unscored_experiment.disabled = not can_prepare or not self._unscored_experiments
         self.score_previous_btn.disabled = self.unscored_experiment.disabled
         if hasattr(self, "last_evaluation_btn"):
-            self.last_evaluation_btn.disabled = not can_prepare
+            self.last_evaluation_btn.disabled = not can_prepare or not self.experiments_available
+            self.last_evaluation_btn.visible = (
+                self.experiments_available and self._last_evaluated_episode is not None
+            )
         self._set_layout_controls_enabled(allowed or (
             self.episode_active and not self.rollout_started and not self.finish_btn.disabled
         ))
+        if hasattr(self, "recordings_panel"):
+            self.recordings_panel.update_enabled()
+
+    def _records_busy(self) -> bool:
+        panel = getattr(self, "recordings_panel", None)
+        return panel is not None and panel.busy
 
     def _set_layout_controls_enabled(self, enabled: bool) -> None:
         changed = self.layout.disabled == enabled
@@ -1413,7 +1440,7 @@ class PolicyRoboGUI:
     def _configure_research(
         self, metadata: dict[str, Any], *, reset_selection: bool = False,
     ) -> None:
-        """Task and study settings come from YAML, never duplicate UI inputs."""
+        """Seed demo instructions from YAML; keep study identity configuration-owned."""
         remembered = getattr(self, "_layout_by_task", {})
         if self.task_command and self.layout.value != "—":
             remembered[self.task_command] = self.layout.value
@@ -1422,6 +1449,8 @@ class PolicyRoboGUI:
         self._research_defaults = dict(metadata.get("research_defaults", {}))
         task = str(metadata.get("task", ""))
         self.task_command = task
+        self.task_prompt.value = task
+        self.task_prompt.visible = not self.experiments_available
         self.setup_summary.content = " · ".join(str(metadata.get(k, "")) for k in ("policy_label", "executor") if metadata.get(k))
         library = self.top_overlay.layouts if self.top_overlay is not None else None
         self._reference_task = reference_task(task, library.tasks() if library else ())
@@ -1468,7 +1497,7 @@ class PolicyRoboGUI:
         self.initial_pose_hint.visible = bool(labels)
 
     def _request_initial_pose(self, pose_id: str) -> None:
-        if (not self.service_ready or not self.evaluation_complete or self.preparing_rollout
+        if (self._records_busy() or not self.service_ready or not self.evaluation_complete or self.preparing_rollout
                 or self.episode_active or self._recovery_pending() or self._pending_experiment_id
                 or getattr(self, "_pending_initial_pose_id", "")):
             return
@@ -1479,7 +1508,7 @@ class PolicyRoboGUI:
         self.rollout_setup_status.content = "🟠 Selecting initial pose; robot motion starts on Prepare."
 
     def _request_experiment(self, choice_id: str) -> None:
-        if (not self.service_ready or not self.evaluation_complete or self.preparing_rollout
+        if (self._records_busy() or not self.service_ready or not self.evaluation_complete or self.preparing_rollout
                 or self.episode_active or self._recovery_pending() or self._pending_experiment_id
                 or getattr(self, "_pending_initial_pose_id", "")):
             return
@@ -1490,13 +1519,18 @@ class PolicyRoboGUI:
         self.rollout_setup_status.content = "🟠 Switching experiment configuration…"
 
     def _refresh_layout_visibility(self) -> None:
-        show_layout = not (self.preparing_rollout or self.episode_active) or self.experiment_mode
+        show_layout = self.experiments_available and (
+            not (self.preparing_rollout or self.episode_active) or self.experiment_mode
+        )
         self.layout.visible = show_layout and self.layout.options != ("—",)
         self.layout_progress.visible = self.layout.visible
 
     def _setup_hint(self) -> str:
         if not self.experiments_available:
-            return "Click **Prepare Run** to prepare a trial. Trials are saved separately, without scoring."
+            return (
+                "Edit **Task prompt** → **Prepare Run** → **Start**. "
+                "Finish to change the prompt."
+            )
         return (
             "Choose a **Layout**, then click **Prepare Experiment**. Score the result after **Finish**.\n\n"
             "**Prepare Run** is for an unscored trial; it does not count toward experiment progress."
@@ -1511,6 +1545,8 @@ class PolicyRoboGUI:
         epoch = self._history_epoch
         self._history_loading = True
         self._history_error = False
+        if hasattr(self, "recordings_panel"):
+            self.recordings_panel.configure(root)
         self.history_status.content = "Reading experiment history…"
         self.history_status.visible = True
         self.retry_history_btn.visible = False
@@ -1543,8 +1579,10 @@ class PolicyRoboGUI:
                     selected if selected in self._unscored_experiments
                     else self.unscored_experiment.options[0]
                 )
-                self.unscored_experiment.visible = bool(self._unscored_experiments)
-                self.score_previous_btn.visible = bool(self._unscored_experiments)
+                self.unscored_experiment.visible = (
+                    self.experiments_available and bool(self._unscored_experiments)
+                )
+                self.score_previous_btn.visible = self.unscored_experiment.visible
                 self._refresh_layout()
                 self._update_prepare_enabled()
 
@@ -1552,7 +1590,7 @@ class PolicyRoboGUI:
         self._jobs.submit(read_history).add_done_callback(apply)
 
     def _open_unscored_experiment(self) -> None:
-        if (not self.service_ready or self.episode_active or self.preparing_rollout
+        if (self._records_busy() or not self.service_ready or self.episode_active or self.preparing_rollout
                 or not self.evaluation_complete or self._recovery_pending()):
             return
         selected = self.unscored_experiment.value
@@ -1632,13 +1670,18 @@ class PolicyRoboGUI:
             self.rollout_setup_status.content = "Trial mode: use Prepare Run."
             return
         with self.lock:
-            if (getattr(self, "_history_loading", False) or getattr(self, "_history_error", False)
+            if (self._records_busy() or getattr(self, "_history_loading", False) or getattr(self, "_history_error", False)
                     or self._recovery_pending() or not self.service_ready
                     or not self.evaluation_complete
                     or self.preparing_rollout or self.episode_active or self._pending_experiment_id
                     or getattr(self, "_pending_initial_pose_id", "")):
                 return
             try:
+                task_command = (
+                    self.task_command if self.experiments_available else self.task_prompt.value
+                ).strip()
+                if not task_command:
+                    raise ValueError("Enter a task prompt before Prepare.")
                 selection = self._selected_layout(freeze=True) if experiment_mode else {}
                 repeat_id = self._suggest_repeat(selection) if experiment_mode else None
                 identity = rollout_identity({
@@ -1653,9 +1696,10 @@ class PolicyRoboGUI:
                 self.rollout_setup_status.content = f"🔴 Prepare was not submitted: {exc}"
                 self._update_prepare_enabled()
                 return
-            self._rollout_request = {"task_command": self.task_command.strip(),
+            self._rollout_request = {"task_command": task_command,
                                      "prepare_request_id": uuid.uuid4().hex,
                                      "experiment_id": self._experiment_id, **identity}
+            self._set_instruction(task_command)
             self._show_recorded_identity(identity)
             self._set_experiment_mode(experiment_mode)
             self._start_identity = None
@@ -1824,7 +1868,7 @@ class PolicyRoboGUI:
             self._submit_manual_evaluation()
 
     def _submit_manual_evaluation(self) -> None:
-        if (self.evaluation_complete or not self.experiment_mode
+        if (self._records_busy() or self.evaluation_complete or not self.experiment_mode
                 or getattr(self, "_saving_evaluation", False)):
             return
         if not self.episode_finalized or self.current_episode_dir is None:
@@ -1886,10 +1930,10 @@ class PolicyRoboGUI:
 
         def saved(future):
             with getattr(self, "lock", nullcontext()):
-                self._saving_evaluation = False
                 try:
                     target = future.result()
                 except (OSError, TypeError, ValueError) as exc:
+                    self._saving_evaluation = False
                     if self.current_episode_dir == episode:
                         self._report_error("Save evaluation", exc)
                         self.evaluation_status.content = f"🔴 Evaluation was not saved: {exc}"
@@ -1899,14 +1943,16 @@ class PolicyRoboGUI:
                 if hasattr(self, "receipt"):
                     self.receipt.content = f"🟢 **Evaluation saved** · {selected} · {result_label}"
                     self.receipt.visible = True
-                    self.last_evaluation_btn.visible = True
+                    self.last_evaluation_btn.visible = self.experiments_available
                 # A late disk result must never finish a different review/service.
                 if self.current_episode_dir != episode:
+                    self._saving_evaluation = False
                     return
                 self._resolve_error("Save evaluation")
                 self.evaluation_status.content = f"🟢 Saved `{target}`"
-                self.evaluation_complete = True
                 self._refresh_repeat_history()
+                self.evaluation_complete = True
+                self._saving_evaluation = False
                 self._refresh_layout()
                 self._set_evaluation_enabled(False)
                 self._update_prepare_enabled()
@@ -1928,7 +1974,7 @@ class PolicyRoboGUI:
 
     def _open_last_evaluation(self) -> None:
         with self.lock:
-            if (not self.service_ready or self.episode_active or self.preparing_rollout
+            if (self._records_busy() or not self.service_ready or self.episode_active or self.preparing_rollout
                     or not self.evaluation_complete or self.last_evaluation_btn.disabled):
                 return
             episode = self._last_evaluated_episode
@@ -2605,7 +2651,10 @@ class PolicyRoboGUI:
             self.launch_mode = "serve"
             self.policy_name.value = str(metadata.get("policy_label", "waiting"))
             self.runtime_name.value = str(metadata.get("runtime", "waiting"))
-            self._set_instruction(str(metadata.get("task", self.task_command)))
+            self._set_instruction(
+                str(metadata.get("task", self.task_command)) if self.experiments_available
+                else self.task_prompt.value
+            )
             last_error = str(metadata.get("last_error", ""))
             new_failure = self._accept_rollout_failure(metadata)
             prepare_completed = bool(

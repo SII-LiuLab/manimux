@@ -258,6 +258,18 @@ wheels = [
 ]
 
 [[package]]
+name = "dreamlabs-client"
+version = "1.0.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "websockets" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1d/ed/caf212b8d88b2079d257a78792c538c64d56358caea8588c1771739df736/dreamlabs_client-1.0.3-py3-none-any.whl", hash = "sha256:2a2afaaead696a5f76de5fb3a671dbf7ac85fa69c3311deae40f698f621af5c2", size = 458969, upload-time = "2026-10-20T04:45:46.705Z" },
+]
+
+[[package]]
 name = "embreex"
 version = "4.4.0"
 source = { registry = "https://pypi.org/simple" }
@@ -572,6 +584,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+dream = [
+    { name = "dreamlabs-client" },
+]
 realsense = [
     { name = "pyrealsense2" },
 ]
@@ -602,6 +617,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "av", marker = "extra == 'replay'", specifier = ">=12" },
+    { name = "dreamlabs-client", marker = "extra == 'dream'", specifier = "==1.0.3" },
     { name = "msgpack", marker = "extra == 'starvla'", specifier = ">=1.0.8" },
     { name = "msgpack", marker = "extra == 'xpolicylab'", specifier = ">=1.0.8" },
     { name = "msgpack-numpy", marker = "extra == 'xpolicylab'", specifier = ">=0.4.8" },
@@ -620,7 +636,7 @@ requires-dist = [
     { name = "yourdfpy", specifier = ">=0.0.58" },
     { name = "zarr", specifier = ">=2.18,<3" },
 ]
-provides-extras = ["realsense", "tianji-diff-ik", "replay", "starvla", "xpolicylab"]
+provides-extras = ["realsense", "tianji-diff-ik", "replay", "dream", "starvla", "xpolicylab"]
 
 [package.metadata.requires-dev]
 dev = [

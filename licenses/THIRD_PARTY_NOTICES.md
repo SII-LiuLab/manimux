@@ -1,5 +1,18 @@
 # Third-party notices
 
+## Dream Labs YAM training-reference geometry
+
+`manimux/policy_adapter/assets/dream_yam.urdf` is derived from
+`dream_ik/assets/yam.urdf` in the official `dreamlabs` 1.0.5 wheel
+(https://pypi.org/project/dreamlabs/1.0.5/). Dream Labs' distribution is
+Copyright 2026 Dream Labs, Apache License 2.0; its notice attributes the YAM
+description to i2rt, MIT License, Copyright (c) I2RT Robotics.
+See `licenses/dreamlabs-Apache-2.0.txt` and `licenses/i2rt-MIT.txt`.
+The source hash is recorded in the derived file. Visual, collision and inertial
+elements were removed; joint origins, axes and limits were preserved.
+This reference encodes the hosted model's proprioceptive inputs only. It does
+not replace the configured physical robot geometry or establish calibration.
+
 ## XPolicyLab
 
 `XPolicyLab/` is a Git submodule tracking the `Cuzyoung/XPolicyLab` fork of

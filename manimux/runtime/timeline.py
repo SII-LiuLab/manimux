@@ -218,8 +218,8 @@ class ActionTimeline:
         command_velocity: GroupVector | None = None,
     ) -> CommitResult:
         """Validate, time-align, trim, and activate a new action chunk."""
-        if type(handoff_skip_steps) is not int or handoff_skip_steps < 0:
-            raise ValueError("handoff_skip_steps must be a non-negative integer")
+        if type(handoff_skip_steps) is not int:
+            raise ValueError("handoff_skip_steps must be an integer")
         if chunk.action_space != self.action_space:
             return CommitResult(False, "action_space_mismatch")
         if self.action_space == POSE_SPACE and (chunk.runtime_trajectory is not None or chunk.handoff is not None):
@@ -271,10 +271,12 @@ class ActionTimeline:
         time_trimmed_steps = (
             0 if self._starts_at_commit else max(0, source_cursor - chunk.source_offset_steps)
         )
+        clock_trimmed_steps = time_trimmed_steps
         # Skip source actions without moving the time at which the new plan starts.
         # The first plan has no outgoing chunk to hand off from.
         handoff_skipped_steps = handoff_skip_steps if self._active is not None else 0
         # All adapters finish decoding before the execution-only crop is applied.
+        handoff_skipped_steps = max(-time_trimmed_steps, handoff_skipped_steps)
         row_skip_steps = handoff_skipped_steps
         trimmed_steps = time_trimmed_steps + row_skip_steps
         end = chunk.horizon_steps
@@ -285,7 +287,7 @@ class ActionTimeline:
 
         # Time trim determines the handoff instant. The intentional skip changes
         # only which source row occupies that instant, not the handoff clock.
-        first_time_step = chunk.source_offset_steps + time_trimmed_steps
+        first_time_step = chunk.source_offset_steps + clock_trimmed_steps
         start_time_ns = (
             earliest_ns
             if self._starts_at_commit

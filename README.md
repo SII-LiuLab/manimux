@@ -92,6 +92,18 @@ For agent-assisted development, use the [development skill](.agents/skills/manim
 
 **Latest update · 2026-10-18:** The [ManiMux website](https://sii-liulab.github.io/manimux/) and dedicated [user guide](https://sii-liulab.github.io/manimux/guideline.html) are live.
 
+## Developer community
+
+Join the **ManiMux developer WeChat group** to discuss integrations, experiments,
+and contributions. Scan the QR code below in WeChat.
+
+<p align="center">
+  <img src="assets/community/wechat-developers-20261021.jpg" alt="ManiMux developer WeChat group invitation QR code" width="300">
+</p>
+
+This invitation is valid until **October 28, 2026**. If it has expired, please open
+[a GitHub issue](https://github.com/SII-LiuLab/manimux/issues) to request an updated invitation.
+
 ## Citation
 
 If ManiMux supports your research, please cite this repository. The paper link is forthcoming.

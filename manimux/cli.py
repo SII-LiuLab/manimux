@@ -647,6 +647,8 @@ def run_parameters(**options) -> dict:
     }, options, 'run', extra=('task_prompt', 'initial_pose', 'initial_pose_options', 'history_sessions'))
     if values.get("output_dir") is not None:
         values["output_dir"] = Path(values["output_dir"])
+    if type(values["max_control_steps"]) is not int or values["max_control_steps"] < 0:
+        raise ValueError("run.max_control_steps must be a non-negative integer; 0 disables the limit")
     if not isinstance(values["warmup_before_start"], bool):
         raise ValueError("run.warmup_before_start must be boolean")
     if not isinstance(values["control_timing"], bool):

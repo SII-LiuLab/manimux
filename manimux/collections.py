@@ -28,7 +28,7 @@ def _has_rollout_records(session: Path) -> bool:
     # A session manifest is written before Prepare. Empty sessions from setup
     # failures contain no trials to protect; any rollout, including a partial,
     # retains the full condition-compatibility check.
-    return any(session.glob("rollout-*"))
+    return any(path.is_dir() for path in session.glob("rollout-*"))
 
 
 def fingerprint(config: dict) -> str:

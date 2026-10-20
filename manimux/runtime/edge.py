@@ -146,7 +146,7 @@ class RunResult:
 
 def _next_rollout_id(run_dir: Path) -> str:
     highest = 0
-    pattern = re.compile(r"^rollout-(\d+)(?:\.partial)?$")
+    pattern = re.compile(r"^rollout-(\d+)(?:\.partial|\.deleted)?$")
     if not run_dir.exists():
         return "rollout-001"
     for path in run_dir.iterdir():
@@ -651,7 +651,11 @@ class EdgeRuntime(PlanningContext):
                 )
             next_tick_ns = self._clock.now_ns()
 
-            while steps < self._config["run"]["max_control_steps"]:
+            # Zero disables only the tick budget; Finish/Home and faults still exit.
+            while (
+                self._config["run"]["max_control_steps"] == 0
+                or steps < self._config["run"]["max_control_steps"]
+            ):
                 timing.begin(
                     scheduled_start_ns=next_tick_ns,
                     phase=(

@@ -210,6 +210,16 @@ Never infer task success from normal runtime completion or delete failed trials 
 improve a mean. Derive metrics outside raw episodes and save cohort/provenance plus
 per-metric included counts and missing reasons. Missing results remain missing.
 
+For an explicit operator-requested deletion/retest, inspect saved metadata to identify
+the task, method, layout and exact rollouts before acting. Use RoboGUI's **Experiment
+records** panel for the selected Task/Method: filter, select finalized rollouts and
+confirm the displayed paths. Deletion moves whole episodes (including labels/videos)
+to `_archive/deleted` with a reason/receipt; repeat slots are recomputed from remaining
+records. Keep the audit receipt, exclude the archive from analyses and preserve
+`.deleted` ID reservations. Undo restores records without overwriting newer trials.
+Never delete partial/active recordings, session manifests or arbitrary directories
+through this flow. Imported history is read-only; do not silently remove source data.
+
 ## Deliver
 
 For setup: link the new experiment, station/model references, rubric/config list,

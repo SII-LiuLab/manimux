@@ -27,6 +27,7 @@ tianji-diff-ik = [
 replay = ["av>=12"]
 
 # Model frameworks run in separate environments; these extras provide transport only.
+dream = ["dreamlabs-client==1.0.3"]
 starvla = ["msgpack>=1.0.8", "websockets>=15"]
 xpolicylab = [
   "msgpack>=1.0.8",
@@ -62,6 +63,7 @@ exclude = ["manimux/configs/local/station.yaml"]
 "licenses/THIRD_PARTY_NOTICES.md" = "manimux/THIRD_PARTY_NOTICES.md"
 "licenses/i2rt-MIT.txt" = "manimux/licenses/i2rt-MIT.txt"
 "licenses/starvla-MIT.txt" = "manimux/licenses/starvla-MIT.txt"
+"licenses/dreamlabs-Apache-2.0.txt" = "manimux/licenses/dreamlabs-Apache-2.0.txt"
 
 [tool.pytest.ini_options]
 addopts = "-q"

@@ -22,6 +22,14 @@ retain their existing runbooks; do not silently convert them.
 2. Run `manimux doctor --config <recipe> --local <station> --runtime-python <python>
    --policy-python <python> --json`; add `--camera-python` if needed. This checks
    configuration, artifact paths and ports without connecting devices or loading weights.
+   For a new/changed policy integration, also satisfy the Development skill's
+   [complete run without hardware commands](../manimux-development/SKILL.md#deployment-handoff-requires-a-complete-run-without-hardware-commands)
+   before operator handoff. A healthy port or synthetic smoke test is insufficient.
+   Exercise representative observations through the real provider, adapter, configured
+   scheduler and executor into a disconnected command sink. Save raw rejected responses,
+   diagnose failures and retest without actuator sends (including Prepare/Home/cleanup).
+   Do not use real-robot Prepare to obtain this verification. Report missing evidence
+   explicitly; the operator starts physical execution through RoboGUI after qualification.
 3. For an authorized deployment, run `manimux up` with the same arguments. It starts
    camera, RoboGUI, policy and an interactive runtime, waits for service probes, and
    returns `gui_url`, logs, process identities and `attach_command`. Progress is on stderr;

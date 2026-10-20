@@ -121,7 +121,8 @@ class TopViewOverlay:
                 format="jpeg",
                 jpeg_quality=90,
             )
-        with gui.add_folder("Reference appearance", expand_by_default=True):
+        self.appearance_folder = gui.add_folder("Reference appearance", expand_by_default=True)
+        with self.appearance_folder:
             self.enabled = gui.add_checkbox("Show reference overlay", True)
             self.opacity = gui.add_slider(
                 "Reference opacity", min=0.0, max=1.0, step=0.05, initial_value=0.5

@@ -32,10 +32,13 @@ from __future__ import annotations
 
 import time
 import uuid
+import inspect
+import ipaddress
 from contextlib import suppress
 from datetime import UTC, datetime
 from types import TracebackType
 from typing import Any
+from urllib.parse import urlsplit
 
 HELLO = "hello"
 HELLO_ACK = "hello_ack"
@@ -168,10 +171,21 @@ class XPolicyLabWsClient:
             raise ImportError(
                 'the XPolicyLab bridge requires websockets; install it with the "xpolicylab" extra'
             ) from exc
+        connect_options = {}
+        host = urlsplit(self._url).hostname or ""
+        try:
+            loopback = ipaddress.ip_address(host).is_loopback
+        except ValueError:
+            loopback = host.rstrip(".").lower() == "localhost"
+        # websockets >=15 discovers environment proxies automatically. Local
+        # station traffic must stay local; v14 has no proxy keyword/support.
+        if loopback and "proxy" in inspect.signature(ws_connect).parameters:
+            connect_options["proxy"] = None
         self._conn = ws_connect(
             self._url,
             open_timeout=self._connect_timeout_s,
             max_size=_NO_FRAME_SIZE_LIMIT,
+            **connect_options,
         )
         try:
             # Finish terminates this rollout's transport worker. Its disconnect

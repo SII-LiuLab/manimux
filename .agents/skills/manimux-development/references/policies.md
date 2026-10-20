@@ -91,6 +91,71 @@ fields. Translation must not silently renormalize or reinterpret the action.
 
 ## Observation and action adapter
 
+### Hosted API policies
+
+`policy.worker: dream_api` uses the official `dreamlabs-client==1.0.3` package
+(`pip install -e '.[dream]'`) directly from `PolicyWorkerClient`. No local model
+server or GPU is required. Other API providers need their own explicit
+`PolicyModel` transport and observation/action contract; this is not a generic
+JSON-to-robot passthrough.
+
+The first supported deployment is
+`manimux/configs/examples/dream1-yam/async.yaml`: Dream-1 beta, YAM native
+joint output, current single RGB frame from each of three cameras, ordinary
+single-inflight Async and the existing Smooth executor. Keys are read from
+`DREAM_API_KEY`, never YAML. SDK episode recording is disabled. Endpoint
+selection follows the SDK's `DREAM_GATEWAY_URL` / `DREAM_API_URL` credentials.
+Camera images, task text and robot state are sent to the provider by inference.
+
+The adjacent `demo.yaml` selects ordinary Async refill with 48 rows,
+`refill_threshold_s: 1.4`, `first_step_when_ready` and a 5-second maximum plan
+age, keeping the same Smooth executor. It shows the full returned trajectory
+without pretending its observation is fresh at receipt. Compare policies with
+the same playback-clock and executor settings; keep the strict `async.yaml`
+variant for observation-aligned admission checks.
+
+`DreamYamJointAdapter` computes input hand poses using the pinned provider
+training-reference URDF, whose axes/geometry differ from the local grasp site.
+The configured robot still owns execution geometry. `per_key` joint/grip
+outputs retain model joint rows; do not use the SDK-smoothed `q_*_chunk` and then
+apply a second handoff. Timing is retained in `sampling_stats.dream_api`.
+Finite normalized gripper outputs saturate to `[0, 1]`, matching the official
+`dreamlabs==1.0.5` `robots.adapter._arm_command` conversion. Raw outputs remain
+in response logs, and `gripper_clipping` reports affected rows/ranges. Non-finite
+values and incorrect shapes still fail; arm joint predictions are never clipped
+in this provider codec.
+Reset closes the prior provider session and clears observations; failures
+propagate without a caller retry loop. Only default sampling is advertised;
+RTC, PAINT, AAC, BID, AutoHorizon and multi-inflight are refused.
+
+Every API response is saved before validation under
+`policy.options.response_log_dir` (default `data/diagnostics/dream-api`), grouped
+by a hash of the session ID. JSON includes the untouched SDK response values,
+request sequence, observation timestamp, prompt/state, camera hashes and timing.
+Non-finite numbers are represented by explicit `NaN`/`Infinity` strings, and API
+credentials are redacted. Transport failures also produce records. Successful
+sampling statistics and decode errors reference the saved path. A write failure
+fails inference rather than silently losing diagnostic evidence. These local
+records are separate from the disabled provider-side episode recorder.
+
+The recipe uses 48 rows at 30 Hz (the research page's 1.6-second horizon).
+The SDK pacing default is separately 20 Hz; it is not authoritative model
+timing and ManiMux does not use its pacing. Single-frame acceptance and finite
+actions are interface evidence, not proof of task quality or continuous motion.
+Latency trimming can exhaust the horizon, even with Smooth.
+Use `scripts/validation/dream_api_probe.py` for a hardware-free worker/adapter/
+executor check; it sends synthetic images and writes local evidence only.
+For recorded representative inputs, use `--recorded-observation <observation.npz>`
+with `image__<camera-name>` RGB arrays and `state__<group-name>` joint/gripper
+vectors, plus `--task-prompt "<instruction>" --calls 3 --runtime-seconds 12
+--output <report.json>`. Preserve capture provenance alongside the NPZ, including
+any mismatch between image and state capture times. The actual Async runtime uses
+the real API and Smooth with a disconnected synthetic robot and saved pixels;
+timestamps are playback timestamps, not fresh camera feedback. The report includes
+accepted/rejected plans, raw response paths and a `.commands.npz` artifact for every
+would-be command. This validates the software path, not live observation freshness,
+physical tracking or task success.
+
 Read `manimux/policy_adapter/base.py` and its factory in `__init__.py`.
 `policy.adapter.type: module:Class` selects the class. Construction receives
 `robot`, `policy`, and injected `kinematics`; `uses_motion_limits` opt-in supplies

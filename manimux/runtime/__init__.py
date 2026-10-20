@@ -416,8 +416,15 @@ def validate_inference_parameters(values: dict, executor: dict, *, provided=froz
         ):
             raise ValueError("serial BID requires first_step_when_ready")
     skip_steps = values["handoff_skip_steps"]
-    if type(skip_steps) is not int or skip_steps < 0:
-        raise ValueError("inference.handoff_skip_steps must be a non-negative integer")
+    if type(skip_steps) is not int:
+        raise ValueError("inference.handoff_skip_steps must be an integer")
+    if skip_steps < 0 and not (
+        values["algorithm"] == "async"
+        and values["inference_schedule"] == "single_inflight"
+        and values["action_start_mode"] == "drop_infer_latency"
+        and values["handoff"] == "blend"
+    ):
+        raise ValueError("negative handoff_skip_steps requires single-inflight Async with latency drop and blend handoff")
     if values["action_start_mode"] not in ACTION_START_MODES:
         raise ValueError(
             "inference.action_start_mode must be one of "

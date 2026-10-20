@@ -391,6 +391,52 @@ client must return a response or error. It also does not cancel a remote model c
 waiting observation with the newest available one. It starts another call when a
 fresh observation is available; this is not parallel model execution. RTC/PAINT
 execution windows and ACT query intervals still limit submissions.</p>
+<h3 id="hosted-policy-apis">Hosted policy APIs: Dream-1</h3>
+<p>For a demo launched with <code>manimux run --config ...</code>, edit
+<strong>Task prompt</strong> directly in RoboGUI before <strong>Prepare Run</strong>.
+Prepare freezes the instruction for warmup and execution. After <strong>Finish</strong>
+and cleanup, edit it for the next rollout without restarting the runtime.
+Demo sessions hide layout and scoring controls, including <strong>Edit last evaluation</strong>.
+Formal <code>--config-list</code> studies retain their configured task instructions and evaluation workflow.</p>
+<p>ManiMux can run a hosted API policy through its existing policy worker,
+asynchronous scheduler and executor, without a local model server or GPU.
+The first supported provider is <code>policy.worker: dream_api</code>.
+Other providers need an explicit observation/action adapter; arbitrary JSON
+responses are not robot commands.</p>
+<p>Install the optional client with <code>pip install -e '.[dream]'</code>.
+Set <code>DREAM_API_KEY</code> in the runtime environment, never in configuration
+files. The recipe
+<code>manimux/configs/examples/dream1-yam/async.yaml</code> selects Dream-1 beta,
+one current frame per camera (overhead and both wrists), Async single-inflight,
+and the standard YAM Smooth executor. Inference sends these images, state and
+task text to Dream Labs; the SDK's additional episode recording is disabled.</p>
+<p>For a full-trajectory demo, select
+<code>manimux/configs/examples/dream1-yam/demo.yaml</code>. It uses ordinary
+single-inflight Async with refill, 48 rows and the same Smooth executor.
+<code>first_step_when_ready</code> starts each prediction at receipt instead of
+discarding elapsed rows. This exposes trajectory shape but retains observation
+lag; it does not establish latency-compensated control. Use the same executor
+and playback-clock mode when comparing policies. The <code>async.yaml</code>
+variant retains strict observation-time alignment.</p>
+<pre><code>python -m manimux inspect --config manimux/configs/examples/dream1-yam/async.yaml
+python -m scripts.validation.dream_api_probe --calls 3 --output /tmp/dream-api-probe.json</code></pre>
+<p>The probe uses synthetic observations and opens no robot or cameras.
+For operator-controlled deployment, use the same config with the camera server
+and <code>manimux run --config ...</code>; no <code>policy_server</code> is needed.
+The key must be present in the process that runs the policy worker.
+Every SDK response is saved before validation under
+<code>policy.options.response_log_dir</code> (default
+<code>data/diagnostics/dream-api</code>), including rejected responses.
+Each JSON record links raw actions to session/request, prompt, state, camera hashes
+and timing; errors identify the file and offending action values.
+Non-finite numbers use explicit strings and credentials are redacted.
+Finite gripper commands are clipped to <code>[0,1]</code>, following the official
+Dream robot adapter. Raw values and affected rows remain in the diagnostic record;
+joint predictions are unchanged and non-finite output is still rejected.
+Only ordinary sampling is supported: RTC, PAINT and multi-inflight are not
+advertised. Smooth limits and filters commands but cannot fix stale predictions,
+network stalls or incorrect model trajectories. API and offline checks do not
+establish physical task success.</p>
 <h3 id="time-rate-and-handoff-parameters">Time, rate and handoff parameters</h3>
 <table>
 <thead>
@@ -459,7 +505,7 @@ execution windows and ACT query intervals still limit submissions.</p>
 <tr>
 <td><code>inference.handoff_skip_steps</code></td>
 <td><code>0</code></td>
-<td>Intentional action-row skip, not a latency estimate. Leave at zero for the combinations in this guide.</td>
+<td>Intentional action-row adjustment, not a latency estimate. Positive values skip more rows. Standalone single-inflight Async with latency dropping and blend handoff also accepts negative values to retain latency-trimmed rows, clamped at zero total crop. The first chunk is unchanged. Retained rows occupy the original handoff time and extend the remaining trajectory; this does not guarantee continuity. Leave at zero unless explicitly testing this behavior.</td>
 </tr>
 </tbody>
 </table>
@@ -556,7 +602,7 @@ a specialized method.</p>
 <tr>
 <td><code>run.max_control_steps</code></td>
 <td>Control-step budget</td>
-<td>A step limit, not a precisely measured wall-clock task timeout</td>
+<td>A step limit, not a precisely measured wall-clock task timeout. Set to <code>0</code> for no step limit; Finish &amp; Home and fault handling remain active.</td>
 </tr>
 <tr>
 <td><code>run.warmup_before_start</code></td>
@@ -775,6 +821,12 @@ replanning threshold, not a source-prefix cap. Retain the full model prediction;
 request a new chunk when source progress reaches 16 policy steps, including rows
 already dropped for observation-to-commit latency. This matches the RTC/PAINT source
 clock and does not promise 16 newly executed rows after each handoff.</p>
+<p>For playback from the first returned action, use
+<code>action_start_mode: first_step_when_ready</code>. With an uncropped prediction,
+the 16-step threshold is counted from activation: at 10 Hz the next request starts
+after 1.6 seconds. The previous trajectory continues during inference.
+This submission threshold is separate from <code>min_plan_hold_policy_steps</code>,
+which only delays replacement by an already returned prediction.</p>
 <p>The first request is immediate. Later requests wait for both the progress threshold
 and an available worker. Continue the old trajectory while inference runs, then trim
 the new result's expired prefix and switch on its action clock. Rejected results do
@@ -1426,6 +1478,20 @@ Once any rollout record exists, including a partial rollout, condition checks ap
 <p>Session manifests freeze the resolved configuration, component/base hashes and config list identity. Changed scientific conditions under an already recorded variant ID are rejected: create a clearly named variant. Labels and trial budgets can change without pretending that the model or algorithm changed.</p>
 <p>Existing recordings keep their paths, raw contents and recorded configurations. A config list entry may declare <code>history: [old-study/step32/coin/rtc_beta10]</code>, relative to <code>recording.root</code>. Only sessions with matching saved effective conditions count toward current progress. Canonical paths deduplicate aliases. Finalized, valid scored experiments count; partial, unlabelled and invalid attempts remain distinguishable. Historical 16-step data are preserved for analysis and never relabelled as 32-step trials.</p>
 <p><code>inspect --config-list … --index</code> refreshes the derived <code>recordings-index-v2.json</code> inside the config list's recording directory. It inventories real session directories without following aliases. It is a snapshot, not the score authority; labels are read from recordings. The earlier <code>recordings-index.json</code> and migration/deletion receipts remain historical records. Index generation never rewrites raw episode files.</p>
+<h3 id="delete-recordings">Delete recordings and retest</h3>
+<p>At the bottom of RoboGUI, expand <strong>Experiment records</strong> to browse the
+selected Task/Method output as sessions, rollouts and files. Filter by layout or session,
+select completed rollouts, then choose <strong>Delete selected…</strong>. The confirmation
+shows the exact paths and asks for a reason. Deletion moves the entire rollout, including
+its evaluation, videos and trajectories, into <code>_archive/deleted</code>; it releases
+the scored repeat slots and refreshes progress. <strong>Undo last deletion</strong> restores
+the last batch without overwriting newer recordings.</p>
+<p>Deletion is available only while the runtime is idle and evaluation is complete.
+Active, saving and partial recordings cannot be deleted here; imported history remains
+read-only. Session manifests stay in place. Small <code>.deleted</code> markers reserve
+rollout IDs so retests receive new IDs. Keep deletion receipts and exclude
+<code>_archive</code> from subsequent analyses. Changing a score uses
+<strong>Edit last evaluation</strong>; deletion is for explicitly discarded trials.</p>
 <h3 id="latest300ep-launch">Current Pi05 study: five tasks, 32-step fixed windows</h3>
 <p>Use <code>manimux/configs/lists/pi05-latest300ep-step30000.yaml</code>. It contains five tasks × six methods; moving-cube entries use the shared raised starting pose. Pi05 fixed windows use 32/50, Direct and blend=0; RTC beta=10. AutoHorizon remains adaptive. Async uses <code>request_trigger: progress</code> and retains the full model horizon. Async/RTC/PAINT source progress includes latency-trimmed rows; this is not a guarantee of 32 physical commands.</p>
 <p>For this comparison, LingBot uses 32/50 source steps and OpenWAM uses 20/32. Subsequent Xiaomi Robotics-1 trials use an explicitly selected 18/30 window (2026-10-20), replacing the previous rounded 19/30 window under separate recording identities. These are study choices, not universal defaults for new users. Xiaomi's chunk-IK and step-IK config lists both include Serial, Async, RTC and PAINT. FastWAM has no bound YAM config list.</p>

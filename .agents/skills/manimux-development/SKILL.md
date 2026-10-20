@@ -91,6 +91,31 @@ and the embodiment's implementation before declaring a lifecycle change complete
 
 ## Complete and verify
 
+### Deployment handoff requires a complete run without hardware commands
+
+Before handing a new or changed policy integration to an operator, the agent must
+exercise observation acquisition/encoding, the real provider, response validation,
+the configured adapter, asynchronous admission and executor through the final
+would-be robot command. Keep hardware dispatch suppressed throughout, including
+connect/Prepare, warmup, Home and cleanup. Use a demonstrably disconnected command
+sink; do not construct a motor driver whose connection sends commands. Record which
+observations are live, recorded or synthetic. A synthetic smoke test alone is not a
+real-station qualification. If representative observations or provider access are
+unavailable, state the missing verification rather than claim readiness.
+
+The agent owns the diagnose/fix/retest loop before asking the operator to Start.
+Persist raw provider responses **before** decoding or rejection, linked to session,
+request sequence, input identity, prompt/model and timing. Preserve malformed output
+as well as successful output; redact credentials and avoid dumping images into
+console logs. Errors must identify field, expected/actual shape or range, invalid
+indices/count and the saved artifact path. Do not silently clip or substitute invalid
+actions just to pass. Use the provider's documented action semantics for any conversion.
+Verify rejected-response persistence, timeout/error handling, request association and
+no hardware sends. Run multiple consecutive representative requests, inspect admission
+and command output, and report rejections/limitations rather than merely process exit.
+Once this chain passes, the operator explicitly starts physical execution through
+RoboGUI; software qualification is not a claim of physical task success.
+
 Deliver the implementation, selecting YAML, a usable config/launch example and checks
 through the real loader or public interface. Use fake hardware for lifecycle tests
 and synthetic timed chunks for scheduling. Separate CPU/config checks, actual model
