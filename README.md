@@ -20,8 +20,6 @@ An open-source harness for real-world manipulation inference and experiment mana
 **Dream-1 on YAM, through RoboGUI.** Watch a real-robot run with live camera views,
 robot state and predicted action chunks in one workspace.
 
-[Watch the original video · 1440p, 30 fps](https://sii-liulab.github.io/manimux/assets/dream1-task-1440p30.mp4) · [Run Dream-1 on your station](manimux/configs/examples/dream1-yam/README.md)
-
 <a id="what-you-can-do"></a>
 
 ## Why ManiMux
