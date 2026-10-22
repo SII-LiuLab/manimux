@@ -38,7 +38,7 @@ _STYLE = """
   .manimux-agent-feed-dot.live { background: #f08a4b; }
   /* column-reverse keeps the scroll anchored at the newest (bottom) line on re-render. */
   .manimux-agent-feed-list { display: flex; flex-direction: column-reverse;
-    height: 40vh; min-height: 220px; overflow-y: auto; scrollbar-width: thin; }
+    height: 18vh; min-height: 140px; overflow-y: auto; scrollbar-width: thin; }
   .manimux-agent-feed-row { display: flex; gap: 8px; padding: 1px 0; }
   .manimux-agent-feed-glyph { flex: none; width: 10px; text-align: center; color: #8f9db0; }
   .manimux-agent-feed-text { white-space: pre-wrap; word-break: break-word; min-width: 0; }
