@@ -313,17 +313,9 @@ representative live/recorded observations, the real provider and a disconnected
 command sink through the actual adapter/executor, including failure cases. Never
 connect a motor driver merely to call the run a dry run.
 
-The former manimux-rpent-env launcher and standalone manimux-dispatch console
-entry are retired, including direct module launches. Legacy launch attempts return migration guidance
-before constructing hardware. Old Env RPC classes and external-action fixtures
-remain for protocol regression/other callers; they are not another RPent product
-mode. Migrate native pi05_act/vla_grasp to execute_policy with an explicitly matched
-ManiMux model recipe. Migrate arm aliases to configured group names and use each
-group's base frame (the former YAM common left_base coordinates are not silently
-reinterpreted). Native ready-receipt reset is replaced by the shared RoboGUI lifecycle.
-
-Historical evidence from 2026-10-16 is retained under the private
-`data/acceptance/rpent-real-vla-20261016/` bundle: four real DROID predictions through
-the previous policy-only bridge used synthetic RGB and robot state. It did not
-exercise autonomous planning or physical tasks and does not qualify this unified
-implementation. Re-run real-provider and station checks for the selected deployment.
+The former native environment launcher (manimux-rpent-env), its Env RPC/external-action
+path and the standalone manimux-dispatch console entry have been removed; RPent runs only
+through this unified runtime. Migrate native pi05_act/vla_grasp to execute_policy with an
+explicitly matched ManiMux model recipe, and native arm aliases to the configured group
+names and base frames (the former YAM common left_base coordinates are not reinterpreted).
+Native ready-receipt reset is replaced by the shared RoboGUI lifecycle.

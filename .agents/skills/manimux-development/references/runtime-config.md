@@ -133,21 +133,13 @@ immutable; matching explicit history inputs contribute to live GUI repeat counti
 The derived inventory is refreshed during operation and by `inspect --index`; labels
 remain authoritative. See [the protocol](../../../../guideline.html#experiment-lists).
 
-## Native external actions
+## Runtimes without a policy worker
 
-`ExternalActionSource` supplies bounded joint rows to `EdgeRuntime` without a policy
-worker. The runtime retains the executor, shared `_send_command` validation,
-recording and GUI lifecycle. This mode is exclusive with policy dispatch and
-uses direct serial execution; every row advances only after successful submission.
-Stop is latched until a control-thread hold acknowledgement. The
-[legacy native protocol fixture](rpent-native.md) owns environment requests, calibrated path
-planning and logical episode receipts without writing hardware.
-
-Startup and cleanup do not assume a policy worker exists. Shutdown closes agent
-admission before potentially blocking Home/release operations, then uses the shared
-resource cleanup before finalizing recordings. External events and cleanup errors
-remain in aborted recordings. `max_control_steps: 0` disables the tick budget;
-Finish, faults and external shutdown still terminate the runtime.
+RPent primitive-only runs have no policy worker; startup and cleanup do not assume one.
+Shutdown closes agent admission before potentially blocking Home/release operations,
+then uses the shared resource cleanup before finalizing recordings. Agent events and
+cleanup errors remain in aborted recordings. `max_control_steps: 0` disables the tick
+budget; Finish and faults still terminate the runtime.
 
 ## Inference algorithm versus executor
 

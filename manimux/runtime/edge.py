@@ -7,7 +7,6 @@ import uuid
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass, replace
-from functools import partial
 from json import dumps, loads
 from pathlib import Path
 
@@ -35,7 +34,6 @@ from manimux.runtime.diagnostics import build_plan_boundary_payload
 from manimux.runtime.dispatch import DispatchStrategy, DispatchWarmupStrategy, PolicyDispatch
 from manimux.runtime.execution import ExecutionPipeline
 from manimux.runtime.executors import DirectExecutor, Executor, MPCExecutor, SmoothExecutor
-from manimux.runtime.external import ExternalActionSource
 from manimux.runtime.ik import step_ik_enabled, validate_ik_config
 from manimux.runtime.inference import (
     DefaultChunkStrategy,
@@ -172,10 +170,7 @@ class EdgeRuntime(PlanningContext):
         strategy: InferenceStrategy | None = None,
         launch_mode: str = "run",
         dispatch: PolicyDispatch | None = None,
-        external: ExternalActionSource | None = None,
     ) -> None:
-        if external is not None and (dispatch is not None or strategy is not None):
-            raise ValueError("external actions require exclusive runtime ownership")
         self._dispatch = dispatch
         if dispatch is not None:
             dispatch.validate_config(config)
@@ -184,23 +179,6 @@ class EdgeRuntime(PlanningContext):
             if strategy is not None:
                 raise ValueError("dispatch owns the inference strategy")
             strategy = DispatchStrategy(config, dispatch)
-        self._external = external
-        if external is not None and (
-            config["executor"]["type"] != "direct"
-            or config.get("execution", {}).get("ik", {}).get("mode", "chunk") != "chunk"
-            or config["inference"]["algorithm"] != "serial"
-            or config["policy"]["action_decoding"] != "inline"
-            or config["inference"]["inference_schedule"] != "serial"
-            or config["inference"]["blend_policy_steps"] != 0
-            or config["inference"]["action_start_mode"] != "first_step_when_ready"
-            or config["run"].get("warmup_before_start")
-            or config["robot"]["options"].get("home_on_close")
-            or config["robot"]["options"].get("move_to_start_on_connect")
-        ):
-            raise ValueError(
-                "external execution requires direct, serial, inline, unblended "
-                "joint actions without warmup, start motion or Home"
-            )
         self._rollout_identity = rollout_identity(config["run"])
         self._evaluation = evaluation_parameters(config.get("evaluation"))
         self._config = config
@@ -279,7 +257,7 @@ class EdgeRuntime(PlanningContext):
         self._session_id = f"session-{uuid.uuid4().hex}"
         self._worker = (
             None
-            if external is not None or (dispatch is not None and not dispatch.policy_enabled)
+            if dispatch is not None and not dispatch.policy_enabled
             else PolicyWorkerClient(
                 config["policy"],
                 self._session_id,
@@ -572,10 +550,7 @@ class EdgeRuntime(PlanningContext):
         # The base method explicitly rejects Home. Do not offer or call it on
         # assemblies such as Franka that have no implemented Home trajectory.
         can_home = callable(home) and getattr(home, "__func__", None) is not RobotBase.home
-        home_available = can_home and self._external is None
-        shutdown_home = can_home and (
-            self._external is None or getattr(self._robot, "home_before_close", False) is True
-        )
+        home_available = shutdown_home = can_home
         shutdown_status = ShutdownStatus(
             enabled=self._config["robogui"]["enabled"],
             robot=self._config["robogui"]["robot"],
@@ -606,8 +581,6 @@ class EdgeRuntime(PlanningContext):
             # Failed pending calls do not acknowledge physical hold or arrival.
             if self._dispatch is not None:
                 self._dispatch.close(abort_reason if faulted else terminal_reason)
-            if self._external is not None:
-                self._external.close()
             if self._worker is not None:
                 try:
                     self._worker.request_stop()
@@ -663,16 +636,12 @@ class EdgeRuntime(PlanningContext):
                 preparation.update("Connecting policy backend")
                 with failure_context("model", "model connection", str(self._config["policy"].get("options", {}).get("server", ""))):
                     self._worker.start()
-            logger.info("runtime_input_ready session=%s external=%s", self._session_id, self._external is not None)
+            logger.info("runtime_input_ready session=%s", self._session_id)
             if self._decoder is not None:
                 with failure_context("action", "decoder startup"):
                     self._decoder.start()
             self._validate_policy_capabilities()
-            capabilities = (
-                self._external.capabilities
-                if self._external is not None
-                else getattr(self._worker, "capabilities", PolicyCapabilities())
-            )
+            capabilities = getattr(self._worker, "capabilities", PolicyCapabilities())
             recorder.update_metadata(
                 policy_backend=dict(capabilities.backend_metadata),
             )
@@ -763,9 +732,6 @@ class EdgeRuntime(PlanningContext):
                 self._config["run"]["max_control_steps"] == 0
                 or steps < self._config["run"]["max_control_steps"]
             ):
-                if self._external is not None and self._external.shutdown.is_set():
-                    terminal_reason = "external_shutdown"
-                    break
                 timing.begin(
                     scheduled_start_ns=next_tick_ns,
                     phase=(
@@ -783,11 +749,6 @@ class EdgeRuntime(PlanningContext):
                     self._safety.validate_state(state)
                 with stage("camera_read", mode=sensor_reader.mode), failure_context("camera", "frame acquisition"):
                     frames = sensor_reader.read()
-                if self._external is not None:
-                    self._external.observe_tick(ObservationSnapshot(state, frames), last_command)
-                    for kind, fields in self._external.take_events():
-                        recorder.event(kind, **fields)
-
                 with stage("robogui_control"):
                     robogui_control = self._robogui.poll_control()
                 # RPent may hold while deciding its first tool. Remember the
@@ -1655,33 +1616,6 @@ class EdgeRuntime(PlanningContext):
                             self._dispatch.motion_rejected(f"motion_plan_rejected:{result.reason}")
                             recorder.event("plan_rejected", request_seq=motion.request_seq,
                                            reason=result.reason, **motion.metadata)
-                if self._external is not None:
-                    if self._external.stop_needed():
-                        self._robot.stop()
-                        self._timeline = self._build_timeline()
-                        last_command = copy_group_vector(state.groups)
-                        self._executor.reset(state)
-                        self._safety.reset(state)
-                        self._external.acknowledge_stop()
-                    if self._state != RuntimeState.RUNNING:
-                        self._external.request_stop()
-                    chunk = self._external.next_chunk(now_ns, self._control_dt_ns)
-                    if chunk is None:
-                        self._timeline = self._build_timeline()
-                    if chunk is not None:
-                        result = self._timeline.commit(
-                            chunk,
-                            now_ns=now_ns,
-                            max_plan_age_ns=self._control_dt_ns,
-                            current_command=last_command,
-                            blend_steps=0,
-                        )
-                        if not result.accepted:
-                            raise RuntimeError(f"external action rejected: {result.reason}")
-                        accepted_plans += 1
-                        recorder.event(
-                            "external_action", plan_id=chunk.plan_id, request_seq=chunk.request_seq
-                        )
                 with stage("timeline_reference"):
                     reference = self._timeline.reference_horizon(
                         now_ns=now_ns,
@@ -1754,14 +1688,7 @@ class EdgeRuntime(PlanningContext):
                             for name, values in command.groups.items()
                         },
                     )
-                if self._external is None:
-                    self._send_command(command, state, recorder, step=steps)
-                elif not self._external.dispatch(
-                    partial(self._send_command, state=state, recorder=recorder, step=steps),
-                    command,
-                ):
-                    command.groups = copy_group_vector(last_command)
-                    command.plan_id = None
+                self._send_command(command, state, recorder, step=steps)
                 if self._dispatch is not None:
                     self._dispatch.command_sent(
                         now_ns=command.monotonic_ns,
@@ -1838,9 +1765,6 @@ class EdgeRuntime(PlanningContext):
                 self._dispatch.close(terminal_reason)
                 for kind, fields in self._dispatch.take_events():
                     recorder.event(kind, **fields)
-            if self._external is not None:
-                for kind, fields in self._external.take_events():
-                    recorder.event(kind, **fields)
             episode_dir = recorder.finish(
                 run_completed=True,
                 terminal_reason=terminal_reason,
@@ -1887,8 +1811,6 @@ class EdgeRuntime(PlanningContext):
         except BaseException as exc:
             abort_reason = type(exc).__name__
             abort_detail = _exception_detail(exc)
-            if self._external is not None:
-                self._external.failure = exc
             logger.error("episode_aborted %s", abort_detail)
             raise
         finally:
@@ -1909,9 +1831,6 @@ class EdgeRuntime(PlanningContext):
                     if self._dispatch is not None:
                         self._dispatch.close(abort_reason)
                         for kind, fields in self._dispatch.take_events():
-                            recorder.event(kind, **fields)
-                    if self._external is not None:
-                        for kind, fields in self._external.take_events():
                             recorder.event(kind, **fields)
                     recorder.abort(
                         "runtime_cleanup_failed" if completed else abort_reason, detail=detail,
