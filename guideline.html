@@ -1822,11 +1822,24 @@ not a Cartesian straight line. The current bridge supports ordinary Serial and c
 joint chunks with optional pre-Start warmup; blending, specialized sampling and temporal
 ensemble remain unsupported.</p>
 <h3>Physical station recipes</h3>
-<p>Use <a href="manimux/configs/agents/rpent_franka.yaml">Franka</a> or
-<a href="manimux/configs/agents/rpent_yam.yaml">YAM</a>, and fill the corresponding
-motion template with measured workspace bounds. YAM also requires calibrated base/camera
-transforms and the configured table/collision checks. Missing values fail before connection.
-Both runtime examples default to execute=false. This setting alone does not make device
+<p>YAM examples run RPent with either VLA through the usual <code>manimux up</code>:</p>
+<pre><code class="language-bash"># Hosted Dream-1: no model service.
+export DREAM_API_KEY=...
+manimux up --config manimux/configs/examples/rpent_dream1_yam.yaml \
+  --runtime-python envs/yam/.venv/bin/python
+
+# Local Pi05 put-bottles model service.
+manimux up --config manimux/configs/examples/rpent_pi05_yam.yaml \
+  --runtime-python envs/yam/.venv/bin/python \
+  --policy-python third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python
+</code></pre>
+<p>Both reference the private <code>local/rpent_yam_motion.yaml</code>: copy
+<a href="manimux/configs/agents/rpent_yam_motion.example.yaml">the YAM motion template</a>
+and fill in measured workspace bounds; its whole-arm collision check is optional and needs
+measured hand-eye extrinsics and table height. For Franka use
+<a href="manimux/configs/agents/rpent_franka.yaml">its recipe</a> and motion template.
+Missing values fail before connection. The examples default to execute=false; enable it
+in a private experiment that inherits the example. This setting alone does not make device
 connection a hardware-free qualification. Use a disconnected sink for software acceptance.</p>
 <pre><code class="language-bash">manimux-rpent serve --config manimux/configs/agents/rpent_franka.yaml \
   --local /path/to/private/station.yaml --motion /path/to/private/motion.yaml

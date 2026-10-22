@@ -1,4 +1,12 @@
-# The model recipe owns checkpoint identity and action semantics.
+# RPent on YAM with a local Pi05 model service (XPolicyLab, put-bottles checkpoint).
+#   manimux up --config manimux/configs/examples/rpent_pi05_yam.yaml \
+#     --runtime-python envs/yam/.venv/bin/python \
+#     --policy-python third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python
+# The model recipe owns checkpoint identity and action semantics. For your station,
+# create local/<name>.yaml with `_base_: ../examples/rpent_pi05_yam.yaml` and
+# `robot: {options: {execute: true}}` after the offline and Finish checks.
+agent:
+  config: ../agents/rpent_pi05_yam.yaml
 run:
   task_prompt: Put the bottles into the bin.
   max_control_steps: 12000

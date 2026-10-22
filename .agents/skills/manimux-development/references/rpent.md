@@ -166,15 +166,19 @@ Changing experiments creates a new Toolkit and capability bound. The HTTP runtim
 still validates every request independently; oversized requests are rejected,
 never clipped or silently replaced.
 
-The public examples are:
+The public examples (experiment in `configs/examples/`, recipe in `configs/agents/`):
 
-- `configs/agents/rpent.yaml`: entirely synthetic robot, geometry and policy.
-- `configs/agents/rpent_franka.yaml`: standard Franka Pi05 joint-position policy recipe.
-- `configs/agents/rpent_yam.yaml`: standard YAM Pi05 joint-position policy recipe.
+- `rpent_dream1_yam`: YAM with hosted Dream-1 (Serial 30 Hz, no model service).
+- `rpent_pi05_yam`: YAM with a local Pi05 put-bottles model service (XPolicyLab).
+- `rpent_franka` (recipe only): Franka FR3 with Pi05 DROID joint positions.
+- `rpent_demo` / `agents/rpent.yaml`: entirely synthetic robot, geometry and policy, plus
+  the RoboGUI variants `rpent_gui_demo`, `rpent_gui_debug` and `rpent_gui_primitives`.
 
-The physical examples default to execute=false. Copy the corresponding
-`rpent_*_motion.example.yaml` to the private local directory and supply measured
-workspace bounds and calibration. Null bounds intentionally fail before connection.
+The YAM experiments carry their `agent` profile, so `manimux up --config` starts them
+directly; their recipes use the Codex Astra planner. Physical examples default to
+execute=false: for a station, add a private experiment that `_base_`s the example and
+sets `robot.options.execute: true`. Copy the corresponding `rpent_*_motion.example.yaml`
+to `local/` and supply measured workspace bounds (null bounds fail before connection).
 Do not copy the synthetic demo's workspace into a physical deployment.
 
 ## Ownership and action contracts

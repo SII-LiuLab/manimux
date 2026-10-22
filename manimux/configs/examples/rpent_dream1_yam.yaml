@@ -1,0 +1,24 @@
+# RPent on YAM with hosted Dream-1 (no local model service or GPU).
+#   export DREAM_API_KEY=...
+#   manimux up --config manimux/configs/examples/rpent_dream1_yam.yaml \
+#     --runtime-python envs/yam/.venv/bin/python
+# The Codex planner chooses observation, motion primitives and Dream-1 calls; RoboGUI
+# shows its transcript in the bottom bar. For your station, create local/<name>.yaml with
+# `_base_: ../examples/rpent_dream1_yam.yaml` and `robot: {options: {execute: true}}`
+# after the offline and Finish checks.
+_base_: dream1-yam/serial30-example.yaml
+agent:
+  config: ../agents/rpent_dream1_yam.yaml
+robot:
+  options:
+    execute: false
+robogui:
+  policy_label: Dream-1 beta - RPent - Serial 30 Hz
+inference:
+  # RPent sets rows per call (execute_policy.use_length); a configured chunk cap is rejected.
+  chunk_policy_steps: null
+  max_chunk_policy_steps: null
+  # The arms hold while a call waits; an expired Dream session costs one extra round trip.
+  max_plan_age_s: 10.0
+policy:
+  timeout_s: 10.0

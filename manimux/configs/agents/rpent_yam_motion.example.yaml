@@ -1,4 +1,7 @@
-# Copy to ../local/rpent_yam_motion.yaml. No installation geometry is guessed.
+# Copy to ../local/rpent_yam_motion.yaml and fill in this station's measured values.
+# Frames are each arm's own base (arm_base); the TCP is grasp_site. One way to measure the
+# workspace: run FK over joint positions recorded on this station (teleoperation or
+# rollouts) and take the per-arm XYZ range, padded slightly. Null bounds fail on purpose.
 max_waypoints: 2000
 settle_timeout_s: 5.0
 groups:
@@ -12,12 +15,15 @@ groups:
     workspace_max_m: null
     gripper_coordinate: gripper
     gripper_convention: zero_closed_one_open
-path_validator:
-  factory: manimux.integrations.rpent.geometry:build_path_validator
-  options:
-    extrinsics_path: extrinsics.json
-    planning_timeout_s: 1.0
-    path_joint_delta: 0.02
-    table_z: null
-    table_clearance_m: 0.03
-    collision_guard: {enabled: true, clearance_m: 0.01}
+# Optional whole-arm collision check. Enable only with measured hand-eye extrinsics
+# (RLinf solve_handeye format) and table height; without it, paths are checked against
+# the workspace box only.
+# path_validator:
+#   factory: manimux.integrations.rpent.geometry:build_path_validator
+#   options:
+#     extrinsics_path: extrinsics.json
+#     planning_timeout_s: 1.0
+#     path_joint_delta: 0.02
+#     table_z: <measured tabletop height in the left-base frame, metres>
+#     table_clearance_m: 0.03
+#     collision_guard: {enabled: true, clearance_m: 0.01}
