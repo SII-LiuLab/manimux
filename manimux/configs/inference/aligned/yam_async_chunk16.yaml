@@ -1,7 +1,0 @@
-# Ordinary async baseline; shared by the new Pi05 50k tasks.
-inference_schedule: single_inflight
-refill_threshold_s: 0.4
-max_plan_age_s: 2.0
-blend_policy_steps: 0
-action_start_mode: drop_infer_latency
-chunk_policy_steps: 16

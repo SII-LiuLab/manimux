@@ -1,3 +1,0 @@
-# Common single-inflight Async request scheduling.
-inference_schedule: single_inflight
-action_start_mode: drop_infer_latency
