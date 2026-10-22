@@ -5,8 +5,8 @@ For optional asynchronous execution and ACT/BID/AAC composition, see the
 The original/default reproduction described below remains available.
 
 This integration implements only the backward-coherence criterion from
-[Bidirectional Decoding](https://bid-robot.github.io/) and follows the selection rule
-in `reference_files/bid_policy.py`. It is not the full BID algorithm: there is no
+[Bidirectional Decoding](https://bid-robot.github.io/) using `select_backward` in `manimux/runtime/bid.py` as the maintained
+implementation. It is not the full BID algorithm: there is no
 forward contrast, weak policy, or second checkpoint. The fixed-horizon preset does
 not use AAC entropy/horizon selection; AAC's adaptive horizon is an optional combination.
 
@@ -22,7 +22,7 @@ chosen = argmin(score)
 The reference is the full previously selected, accepted prediction, including its
 unexecuted tail. The first prediction selects candidate 0; ties select the first
 minimum. Costs use per-row Euclidean distance, not squared distance. The weights
-are not normalized. The preset retains the reference defaults N=16, rho=0.9, K=5.
+are not normalized. The preset uses N=16, rho=0.9, K=5.
 
 ## ManiMux integration
 
