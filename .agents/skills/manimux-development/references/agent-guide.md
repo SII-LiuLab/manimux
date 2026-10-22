@@ -257,3 +257,8 @@ Keep local training variants and station-specific work on their designated branc
 until explicitly selected for public release. Build cleanup PRs from `main` so they
 do not pull in unrelated local experiments. Review references before removing scratch
 files; keep maintained runtime implementations, licenses and actively used assets.
+
+The `ziyang` integration pins XPolicyLab's `ziyang` branch, including the local
+`Pi_05_TrainRTC`, `OpenWAM_TrainRTC`, `Pi_05_Legato`, `OpenWAM_Legato` and `Pi_0_FAST`
+extensions. Do not merge these source additions or their submodule revision into
+`main` without explicit release authorization; prepare public changes independently.
