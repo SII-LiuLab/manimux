@@ -149,6 +149,22 @@ uv run manimux-robogui --robot yam --demo --host 127.0.0.1 --port 8086
 Open **http://127.0.0.1:8086**. The preview uses synthetic data and does not connect
 to a robot. Model environments and checkpoints are needed only for real deployment.
 
+On a configured station, one command starts camera, model, RoboGUI and runtime, then
+waits for manual Prepare in RoboGUI:
+
+```bash
+uv run manimux doctor --config <experiment.yaml> \
+  --runtime-python envs/yam/.venv/bin/python --policy-python <model-env>/bin/python  # read-only
+uv run manimux up --config <experiment.yaml> \
+  --runtime-python envs/yam/.venv/bin/python --policy-python <model-env>/bin/python --open
+uv run manimux status                    # process and service health
+uv run manimux attach --service runtime  # operator terminal; detach: Ctrl-B, then D
+uv run manimux down                      # graceful stop, runtime first
+```
+
+See [managed deployment](https://sii-liulab.github.io/manimux/guideline.html#managed-deployment)
+for external model/camera services, separate trial roots and Franka.
+
 <a id="dream-1-hosted-inference"></a>
 
 **Next, choose your workflow:**
