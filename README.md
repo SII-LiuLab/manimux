@@ -150,17 +150,26 @@ Open **http://127.0.0.1:8086**. The preview uses synthetic data and does not con
 to a robot. Model environments and checkpoints are needed only for real deployment.
 
 On a configured station, one command starts camera, model, RoboGUI and runtime, then
-waits for manual Prepare in RoboGUI:
+waits for manual Prepare in RoboGUI. It holds the terminal; **Ctrl-C** stops every service,
+runtime first:
 
 ```bash
 uv run manimux doctor --config <experiment.yaml> \
   --runtime-python envs/yam/.venv/bin/python --policy-python <model-env>/bin/python  # read-only
 uv run manimux up --config <experiment.yaml> \
   --runtime-python envs/yam/.venv/bin/python --policy-python <model-env>/bin/python --open
+```
+
+From another terminal, or after `up --detach`:
+
+```bash
 uv run manimux status                    # process and service health
 uv run manimux attach --service runtime  # operator terminal; detach: Ctrl-B, then D
 uv run manimux down                      # graceful stop, runtime first
 ```
+
+If runtime cleanup blocks (for example while waiting for hardware recovery), a second
+Ctrl-C force-kills the services; support all arms and payloads first.
 
 Hosted model APIs such as Dream-1 need no `--policy-python`; export their API key first.
 

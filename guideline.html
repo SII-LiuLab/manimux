@@ -263,6 +263,7 @@ uv run manimux doctor \
   --policy-python third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python --json
 
 # Start camera, RoboGUI, model and interactive runtime. Wait for manual Prepare.
+# Holds the terminal until Ctrl-C; add --detach to return after startup.
 uv run manimux up \
   --config manimux/configs/experiments/pi05-latest300ep-step30000/coin/serial32.yaml \
   --local manimux/configs/local/station.yaml \
@@ -278,6 +279,11 @@ interpreter; use <code>--camera-python</code> when needed. Use <code>--output-di
 select a separate trial root. <code>up --timeout</code> is a readiness deadline per service.
 JSON results stay on stdout and progress goes to stderr. <code>--open</code> opens the default
 browser; agents can instead open the returned <code>gui_url</code> in their browser panel.</p>
+<p><code>up</code> stays in the foreground. Ctrl-C runs the same ordered shutdown as
+<code>down</code> (runtime first). If runtime cleanup blocks, for example while waiting for
+hardware recovery, the terminal says so and keeps every service alive; use RoboGUI recovery,
+or support all arms and payloads and press Ctrl-C again to force-kill the services. Agents
+and scripts pass <code>--detach</code> and use <code>status</code>/<code>down</code>.</p>
 <p>Hosted policy APIs such as Dream-1 (<code>worker: dream_api</code>) have no model service:
 omit <code>--policy-python</code> and export the key named by
 <code>policy.options.api_key_env</code> in the shell that runs <code>up</code>; doctor checks it.</p>
@@ -332,7 +338,7 @@ stop in order; external dependencies remain available.</p>
 <h3 id="deployment-demo-video">Rehearse and record the deployment demo</h3>
 <pre><code class="language-bash"># Synthetic preview: no camera, policy service, runtime or robot connection.
 uv run manimux up --demo --robot yam --gui-port 18086 \
-  --deployment-dir .local/demo --open --json
+  --deployment-dir .local/demo --open --json --detach
 uv run manimux status --deployment-dir .local/demo --json
 uv run manimux down --deployment-dir .local/demo --json
 

@@ -33,10 +33,12 @@ frameworks retain their existing runbooks; do not silently convert them.
    diagnose failures and retest without actuator sends (including Prepare/Home/cleanup).
    Do not use real-robot Prepare to obtain this verification. Report missing evidence
    explicitly; the operator starts physical execution through RoboGUI after qualification.
-3. For an authorized deployment, run `manimux up` with the same arguments. It starts
-   owned services, probes external dependencies and starts the interactive runtime, then
-   returns `gui_url`, logs, process identities and `attach_command`. Progress is on stderr;
-   `--json` keeps stdout machine-readable. Do not add `--once` or press Prepare/Start.
+3. For an authorized deployment, run `manimux up --detach` with the same arguments. It
+   starts owned services, probes external dependencies and starts the interactive runtime,
+   then returns `gui_url`, logs, process identities and `attach_command`. Without
+   `--detach`, `up` holds the terminal until Ctrl-C (for operators); agents must detach.
+   Progress is on stderr; `--json` keeps stdout machine-readable. Do not add `--once` or
+   press Prepare/Start.
 4. Open `gui_url` using the host's browser-panel tool when available (in Codex,
    `open_in_codex` with a browser target). Otherwise use `up --open` for the default
    browser. Verify the rendered robot and operator panel; HTTP alone is insufficient.
@@ -108,7 +110,7 @@ is for logs, not the recovery workflow. Detach tmux with Ctrl-B then D.
 ## Product demo
 
 For rehearsal, run `manimux up --demo --robot yam --gui-port 18086 --deployment-dir
-.local/demo --json`, open its URL, and label footage **synthetic preview**. This starts
+.local/demo --json --detach`, open its URL, and label footage **synthetic preview**. This starts
 only RoboGUI, with isolated bridge ports and no station or weights. Follow the
 [capture workflow](../../../guideline.html#deployment-demo-video) and VHS tape for
 repeatable recording. Keep full real-robot takes and label accelerated waits.

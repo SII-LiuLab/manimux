@@ -70,6 +70,11 @@ def add_commands(subparsers):
             parser.add_argument(
                 "--open", action="store_true", help="Open RoboGUI in the default browser"
             )
+            parser.add_argument(
+                "--detach",
+                action="store_true",
+                help="Return after startup instead of holding the terminal until Ctrl-C",
+            )
         if name == "down":
             parser.add_argument(
                 "--timeout",
@@ -93,6 +98,9 @@ def main(args):
             result = doctor(build_plan(args), directory)
         elif args.command == "up":
             result = processes.up(build_plan(args), directory, args.timeout, open_browser=args.open)
+            if result.get("ok") and not args.detach:
+                _report(result, args)
+                result = processes.hold(directory, timeout=30.0)
         elif args.command == "status":
             result = processes.status(directory)
         elif args.command == "down":
@@ -106,15 +114,20 @@ def main(args):
             "error": str(exc) or "Interrupted",
             "deployment_dir": str(directory),
         }
-    if getattr(args, "json", False):
-        print(json.dumps(result, indent=2, default=str))
-    else:
-        print(f"ManiMux · {result.get('state', 'checked')}")
-        for check in result.get("checks", []):
-            print(f"  {'OK' if check['ok'] else 'BLOCKED'} {check['name']}: {check['detail']}")
-        for name, service in result.get("services", {}).items():
-            print(f"  {name}: {service.get('state', 'unknown')} — {service.get('detail', '')}")
-        for key in ("error", "gui_url", "next_action", "attach_command", "deployment_dir"):
-            if result.get(key):
-                print(f"{key}: {result[key]}")
+    _report(result, args)
     return 0 if result.get("ok") else 2
+
+
+def _report(result, args):
+    if getattr(args, "json", False):
+        print(json.dumps(result, indent=2, default=str), flush=True)
+        return
+    print(f"ManiMux · {result.get('state', 'checked')}")
+    for check in result.get("checks", []):
+        print(f"  {'OK' if check['ok'] else 'BLOCKED'} {check['name']}: {check['detail']}")
+    for name, service in result.get("services", {}).items():
+        print(f"  {name}: {service.get('state', 'unknown')} — {service.get('detail', '')}")
+    for key in ("error", "gui_url", "next_action", "attach_command", "deployment_dir"):
+        if result.get(key):
+            print(f"{key}: {result[key]}")
+    sys.stdout.flush()

@@ -70,13 +70,13 @@ def alive(service):
     return identity is not None and process_identity(identity["pid"]) == identity
 
 
-def signal_owned(service):
+def signal_owned(service, signum=signal.SIGTERM):
     """Signal the same kernel process we inspected, even if its PID is recycled."""
     with suppress(ProcessLookupError):
         fd = open_pidfd(service["identity"]["pid"])
         try:
             if alive(service):
-                send_pidfd(fd, signal.SIGTERM)
+                send_pidfd(fd, signum)
         finally:
             os.close(fd)
 
@@ -466,6 +466,71 @@ def down(directory, timeout):
             else "Attach to the blocked service terminal",
         )
         return result
+
+
+def force_down(directory):
+    """Operator-requested SIGKILL of every owned process still alive, runtime first.
+
+    Killing the runtime drops actuator control without Home or a release gate.
+    """
+    with locked(directory):
+        state = read_json(directory / "state.json")
+        if not state:
+            return {"ok": True, "state": "not_started", "deployment_dir": str(directory)}
+        for name in [n for n in ("runtime", "policy", "camera", "robogui")
+                     if n in state["services"]]:
+            service = state["services"][name]
+            if service.get("ownership") != "external" and alive(service):
+                signal_owned(service, signal.SIGKILL)
+                deadline = time.monotonic() + 3.0
+                while alive(service) and time.monotonic() < deadline:
+                    time.sleep(0.1)
+            service["state"] = "stopped"
+        state["phase"] = "stopped"
+        state.pop("error", None)
+        atomic_json(directory / "state.json", state)
+        result = _snapshot(directory, state, read_json(Path(state["run_dir"]) / "plan.json"))
+        result["next_action"] = "Owned services force-killed"
+        return result
+
+
+def hold(directory, timeout):
+    """Keep `up` in the foreground until Ctrl-C, then stop services runtime first.
+
+    A runtime blocked in hardware cleanup keeps everything alive; a second Ctrl-C
+    force-kills, after the operator supports all arms and payloads.
+    """
+    print("Services are running. Ctrl-C stops them (runtime first).", file=sys.stderr, flush=True)
+    try:
+        reported = set()
+        while True:
+            time.sleep(2.0)
+            state = read_json(directory / "state.json") or {}
+            if state.get("phase") in {"stopped", "failed"}:
+                return status(directory)
+            for name, service in state.get("services", {}).items():
+                if (service.get("ownership") != "external" and name not in reported
+                        and not alive(service)):
+                    reported.add(name)
+                    print(f"{name} exited; log: {service.get('log')}", file=sys.stderr, flush=True)
+    except KeyboardInterrupt:
+        pass
+    try:
+        print("\nStopping services (runtime first)…", file=sys.stderr, flush=True)
+        result = down(directory, timeout)
+        while not result["ok"]:
+            print(
+                "Runtime cleanup is blocked (e.g. waiting for hardware recovery). Use RoboGUI "
+                "recovery, or support ALL arms and payloads and press Ctrl-C again to "
+                "force-kill every service.",
+                file=sys.stderr, flush=True,
+            )
+            time.sleep(5.0)
+            result = down(directory, timeout)
+        return result
+    except KeyboardInterrupt:
+        print("\nForce-killing services…", file=sys.stderr, flush=True)
+        return force_down(directory)
 
 
 def attach(directory, name):
