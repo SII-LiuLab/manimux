@@ -7,6 +7,7 @@ on:
       - 'website/**'
       - 'guideline.html'
       - 'assets/manimux-robogui-demo.webp'
+      - 'assets/dream1-task-1440p30.mp4'
       - 'assets/manimux_2026-09-05_23-17-35-00.00.03.144-00.00.34.914-seg1-00.00.02.596-00.00.34.966.mp4'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
