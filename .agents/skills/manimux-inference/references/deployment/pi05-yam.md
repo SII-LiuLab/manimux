@@ -9,8 +9,8 @@ presets; retrieve their historical revision only when investigating those runs.
 
 Prepare the YAM environment using the [component installation](../../../../../manimux/embodiments/arm/yam/README.md).
 For model dependencies, initialize XPolicyLab and follow its
-[Pi05 installation](../../../../../XPolicyLab/policy/Pi_05/README.md#installation).
-The model interpreter is normally `XPolicyLab/policy/Pi_05/openpi/.venv/bin/python`;
+[Pi05 installation](../../../../../third_party/XPolicyLab/policy/Pi_05/README.md#installation).
+The model interpreter is normally `third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python`;
 the hardware interpreter is normally `envs/yam/.venv/bin/python`. A fresh clone does
 not create either environment or supply weights. Install the intended ManiMux checkout
 into the environments that launch its modules.
@@ -72,7 +72,7 @@ Validate model artifact paths and print the resolved server contract without loa
 weights or listening on a port:
 
 ```bash
-XPolicyLab/policy/Pi_05/openpi/.venv/bin/python -m manimux.servers.pi05 \
+third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python -m manimux.servers.pi05 \
   --config-list manimux/configs/lists/pi05-yam-put-bottles-joint-step30000-standalone.yaml --experiment-id put_bottles_rtc_joint_step30000 \
   --check
 ```

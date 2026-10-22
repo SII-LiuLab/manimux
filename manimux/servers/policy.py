@@ -44,7 +44,7 @@ def main(argv=None):
     if args.check:
         return 0
     repository = Path(__file__).resolve().parents[2]
-    for path in (repository, repository / "XPolicyLab"):
+    for path in (repository, repository / "third_party", repository / "third_party" / "XPolicyLab"):
         sys.path.insert(0, str(path))
     if recipe["policy_name"] == "Pi_05":
         from manimux.servers.pi05 import _prepare_imports, _validate_paths

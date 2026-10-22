@@ -226,11 +226,11 @@ selection and runtime below are shared.
 
 | File | Change | Invariant |
 |---|---|---|
-| `XPolicyLab/policy/GR00T_N17/gr00t_n17/gr00t/model/gr00t_n1d7/gr00t_n1d7.py` | Accept `options.n_samples`, expand post-backbone features and alternate-model masks | Denoising equations and step count unchanged |
-| `XPolicyLab/policy/GR00T_N17/gr00t_n17/gr00t/policy/gr00t_policy.py` | Pass options and repeat state batch only for decoding | One observation only |
-| `XPolicyLab/policy/GR00T_N17/model.py` | Add `get_action_aac`, return `N` native action-step sequences | No entropy or robot FK inside model package |
-| `XPolicyLab/client_server/ws/model_server.py` | Advertise and dispatch `aac` capability | Non-AAC models cannot claim support |
-| `XPolicyLab/tests/unit/test_ws_infer_sampling.py` | Cover capability and dispatch | Wire behavior remains explicit |
+| `third_party/XPolicyLab/policy/GR00T_N17/gr00t_n17/gr00t/model/gr00t_n1d7/gr00t_n1d7.py` | Accept `options.n_samples`, expand post-backbone features and alternate-model masks | Denoising equations and step count unchanged |
+| `third_party/XPolicyLab/policy/GR00T_N17/gr00t_n17/gr00t/policy/gr00t_policy.py` | Pass options and repeat state batch only for decoding | One observation only |
+| `third_party/XPolicyLab/policy/GR00T_N17/model.py` | Add `get_action_aac`, return `N` native action-step sequences | No entropy or robot FK inside model package |
+| `third_party/XPolicyLab/client_server/ws/model_server.py` | Advertise and dispatch `aac` capability | Non-AAC models cannot claim support |
+| `third_party/XPolicyLab/tests/unit/test_ws_infer_sampling.py` | Cover capability and dispatch | Wire behavior remains explicit |
 
 Only `mode=aac` and `num_samples=N` cross the WebSocket boundary. Motion threshold, normalization and
 selectors are ManiMux concerns and are not sent to the model server.

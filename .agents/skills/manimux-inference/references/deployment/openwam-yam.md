@@ -3,7 +3,7 @@
 ## Scope and layout
 
 OpenWAM follows the XR1/Pi05 split: the policy and trainer live under
-`XPolicyLab/policy/OpenWAM`; ManiMux owns robot observations, FK/IK, scheduling,
+`third_party/XPolicyLab/policy/OpenWAM`; ManiMux owns robot observations, FK/IK, scheduling,
 execution constraints, recording and the robogui. There is no ManiMux OpenWAM
 JSON client or standalone OpenWAM service. The vendored upstream deployment
 modules remain because the XPolicy adapter uses their loader and preprocessor
@@ -13,7 +13,7 @@ For an upstream-only environment, install OpenWAM and its XPolicy extras into
 an already compatible Python environment:
 
 ```bash
-bash XPolicyLab/policy/OpenWAM/install.sh
+bash third_party/XPolicyLab/policy/OpenWAM/install.sh
 python -m pip install -e '.[xpolicylab]'
 ```
 

@@ -13,7 +13,9 @@ def main():
     parser.add_argument("--local")
     args = parser.parse_args()
     config = load_config(args.experiment, local=args.local)
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "XPolicyLab"))
+    source = Path(__file__).resolve().parents[2] / "third_party" / "XPolicyLab"
+    for path in (source.parent, source):
+        sys.path.insert(0, str(path))
     from manimux.policies.xpolicylab.server import serve
 
     serve(config["policy_server"])

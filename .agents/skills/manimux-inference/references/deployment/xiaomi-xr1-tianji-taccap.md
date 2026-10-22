@@ -1,6 +1,6 @@
 # Xiaomi Robotics 1 / Tianji–TacCap 传球接入
 
-本入口使用 `XPolicyLab/policy/Xiaomi_Robotics_1` 加载本地 step-50000
+本入口使用 `third_party/XPolicyLab/policy/Xiaomi_Robotics_1` 加载本地 step-50000
 DeepSpeed 模型文件，并通过共享 `xpolicylab_ws` worker 服务 ManiMux。模型只接收两路
 真实腕部 RGB；训练时的第三路 ego view 是纯黑，因此由 XPolicyLab 在预处理阶段生成
 全零 `uint8 RGB`，不注册虚假相机，也不复用任意现场画面。
@@ -43,7 +43,7 @@ DeepSpeed 模型文件，并通过共享 `xpolicylab_ws` worker 服务 ManiMux�
 模型依赖不能装进 Tianji 硬件 runtime 环境：
 
 ```bash
-cd /path/to/manimux/XPolicyLab/policy/Xiaomi_Robotics_1
+cd /path/to/manimux/third_party/XPolicyLab/policy/Xiaomi_Robotics_1
 MIBOT_CONDA_ENV=mibot bash install.sh
 ```
 

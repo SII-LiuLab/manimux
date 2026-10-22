@@ -2,11 +2,11 @@
 
 ## Current deployment
 
-Official [ABC-DiT](https://abc.bot) (XL, 2.02B parameters) connects through `XPolicyLab/policy/ABC_DiT` and shared
+Official [ABC-DiT](https://abc.bot) (XL, 2.02B parameters) connects through `third_party/XPolicyLab/policy/ABC_DiT` and shared
 `xpolicylab_ws`. Like Pi05, it uses the generic `JointAdapter` without a dedicated ManiMux adapter.
 Model loading, image preprocessing, normalization, CLIP instruction encoding, and sampling reside in that policy directory. ManiMux owns cameras,
 observation mapping, scheduling, execution, and recording. For installation and `deploy.yml` keys, see
-[ABC_DiT README](../../../../../XPolicyLab/policy/ABC_DiT/README.md).
+[ABC_DiT README](../../../../../third_party/XPolicyLab/policy/ABC_DiT/README.md).
 
 | Parameter | Setting |
 | --- | --- |
@@ -95,7 +95,7 @@ The 8 GB checkpoint is excluded from Git. On a new machine, copy it to `checkpoi
 the service verifies its SHA-256 at startup.
 
 `envs/abc` is ABC's isolated environment (Python 3.12, torch 2.11 cu128). On a new machine, create it with
-`bash XPolicyLab/policy/ABC_DiT/install.sh envs/abc/.venv`. CLIP assets live in
+`bash third_party/XPolicyLab/policy/ABC_DiT/install.sh envs/abc/.venv`. CLIP assets live in
 `~/.cache/clip/` (`ViT-B-32.pt`, `bpe_simple_vocab_16e6.txt.gz`) and download on first startup if missing.
 
 ## Validation record (2026-10-07, RTX 4090)

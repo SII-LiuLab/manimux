@@ -11,7 +11,7 @@ and ignored by Git; follow the selected deployment guide to create them.
 | `envs/yam/.venv/` | YAM runtime, i2rt, cameras, RoboGUI and optional offline replay dependencies |
 | `envs/tianji/.venv/` | Tianji/TacCap hardware dependencies, prepared with the body runbook |
 | `envs/aloha/.venv/` | ALOHA/PiPER RoboGUI and optional ARX/PiPER SDKs; hardware validation pending |
-| Model-specific environment | XPolicyLab model inference/training, such as `XPolicyLab/policy/Pi_05/openpi/.venv/` |
+| Model-specific environment | XPolicyLab model inference/training, such as `third_party/XPolicyLab/policy/Pi_05/openpi/.venv/` |
 | Existing `envs/umi_dp/`, `envs/xr1/`, etc. | Local environment conventions still referenced by some model launchers; follow their runbooks |
 
 The hardware process does not need torch/JAX to consume Pi05 predictions from a separate
@@ -73,7 +73,7 @@ tests still run. Use `-rs` to see the missing prerequisites.
 Model-side checks need the matching model environment. For example:
 
 ```bash
-XPolicyLab/policy/Pi_05/openpi/.venv/bin/python -m pytest tests/unit/test_pi05_yam_eef.py
+third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python -m pytest tests/unit/test_pi05_yam_eef.py
 ```
 
 That module skips in a runtime environment without OpenPI. Installing model packages

@@ -31,6 +31,10 @@ class AgentConfig(BaseModel):
     reasoning_effort: Literal["none", "low", "medium", "high", "xhigh"] = "none"
     operator_control: bool = False
     max_turns: int = Field(default=30, gt=0)
+    base_url: str | None = None
+    max_tokens: int = Field(default=8192, gt=0)
+    planner_timeout_s: int | None = Field(default=None, gt=0)
+    claude_code_max_budget_usd: float | None = Field(default=None, gt=0, allow_inf_nan=False)
     experiment: Path | None = None
     motion: Path | None = None
     policy_enabled: StrictBool = True
@@ -76,6 +80,10 @@ def main() -> int:
         default=argparse.SUPPRESS,
     )
     parser.add_argument("--max-turns", type=int, default=argparse.SUPPRESS)
+    parser.add_argument("--base-url", default=argparse.SUPPRESS, help="API planner provider URL")
+    parser.add_argument("--max-tokens", type=int, default=argparse.SUPPRESS)
+    parser.add_argument("--planner-timeout-s", type=int, default=argparse.SUPPRESS)
+    parser.add_argument("--claude-code-max-budget-usd", type=float, default=argparse.SUPPRESS)
     args = vars(parser.parse_args(argv))
     source = args.pop("config")
     try:
@@ -83,14 +91,21 @@ def main() -> int:
     except (ValueError, TypeError, OSError) as exc:
         parser.error(str(exc))
 
+    if config.planner == "api" and not config.model:
+        parser.error("planner=api requires --model or a provider-prefixed model in the recipe")
+    if config.base_url is not None and config.planner != "api":
+        parser.error(
+            "base_url applies to planner=api; use the SDK's environment for other planners"
+        )
+
     # Basic package imports and CLI help never require the separately installed SDK.
     try:
+        import rpent
         from rpent.dashboard.events import NullDashboardEventSink
         from rpent.memory import MemoryManager
         from rpent.planner.base import build_planner
         from rpent.utils.logging import init_output_dir
 
-        import rpent
         from manimux.agents.rpent.toolkit import ManiMuxToolkit
     except ModuleNotFoundError as exc:
         parser.error(f"Install RPent in the agent environment; missing dependency: {exc.name}")
@@ -145,7 +160,11 @@ def main() -> int:
         )
         planner = build_planner(
             config.planner,
+            base_url=config.base_url,
             model=config.model,
+            max_tokens=config.max_tokens,
+            planner_timeout_s=config.planner_timeout_s,
+            claude_code_max_budget_usd=config.claude_code_max_budget_usd,
             reasoning_effort=config.reasoning_effort,
             output_dir=config.output_dir,
             recipe_tag=config.output_dir.name,

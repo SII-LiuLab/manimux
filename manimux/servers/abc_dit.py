@@ -12,7 +12,7 @@ from typing import Any
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-XPOLICY_ROOT = REPO_ROOT / "XPolicyLab"
+XPOLICY_ROOT = REPO_ROOT / "third_party" / "XPolicyLab"
 DEFAULT_CONFIG = REPO_ROOT / "manimux/configs/policy/abc_dit/yam/put-bottles/pretrained-200k.yaml"
 MODEL_PYTHON = REPO_ROOT / "envs/abc/.venv/bin/python"
 PATH_KEYS = ("model_path", "norm_stats_path", "clip_cache_dir")
@@ -21,7 +21,7 @@ STATION_SERVICE = "policy_abc_dit"
 
 
 def _prepare_imports() -> None:
-    for path in (REPO_ROOT, XPOLICY_ROOT):
+    for path in (REPO_ROOT, XPOLICY_ROOT.parent, XPOLICY_ROOT):
         value = str(path)
         if value not in sys.path:
             sys.path.insert(0, value)

@@ -2,7 +2,7 @@
 
 RPent owns planning, memory and tool selection. ManiMux owns the selected policy
 client, action adapter, motion planning, robot, execution, RoboGUI and recording.
-`RPent/` remains the pinned peer submodule at `efc392adc98a30045d8fb83c4097917f28e20a94`.
+`third_party/RPent/` remains the pinned peer submodule at `efc392adc98a30045d8fb83c4097917f28e20a94`.
 No model implementation or hardware controller is copied into the agent package.
 
 ## One entry, one toolkit, one runtime
@@ -90,6 +90,16 @@ into the runtime manifest. Machine addresses stay in the normal private station.
 For separate `serve` / `run` commands, the shared agent recipe also accepts the
 boolean `policy_enabled` field, defaulting to true. Both roles must use the same
 setting; the runtime remains authoritative about the tools it permits.
+
+Provider selection remains native to RPent: `planner` selects `api`, `codex` or
+`claude_code`. API mode requires an explicit provider-prefixed `model`; `model: null`
+is a template awaiting configuration, not an API default. The ManiMux launcher
+passes `base_url` (API only), `max_tokens`, `planner_timeout_s` and
+`claude_code_max_budget_usd` through to RPent's planner factory. Keys remain in the
+provider's environment. Codex reads its native `CODEX_BASE_URL` / `CODEX_API_KEY`
+settings; Claude Code retains its SDK authentication. Managed runs inherit the
+launching runtime's environment. `endpoint` addresses the ManiMux dispatch server,
+not the model provider. Do not place credentials in URLs or recipes saved as evidence.
 
 For autonomous Astra decisions, select `planner: codex`, `model: gpt-6-astra`
 and `reasoning_effort: high` (or another level supported by both RPent and the

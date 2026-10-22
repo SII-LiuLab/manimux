@@ -13,7 +13,7 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CHECKPOINT = REPO_ROOT / "checkpoints/pretrained/lingbot-vla-v2-6b"
-DEFAULT_SOURCE = REPO_ROOT / "XPolicyLab/policy/LingBot_VLA2/lingbot_vla_v2"
+DEFAULT_SOURCE = REPO_ROOT / "third_party/XPolicyLab/policy/LingBot_VLA2/lingbot_vla_v2"
 DEFAULT_SERVER_CONFIG = REPO_ROOT / "manimux/configs/policy/lingbot-vla2/yam/base.yaml"
 
 
@@ -33,7 +33,7 @@ def main() -> int:
     parser.add_argument("--server-config", type=Path, default=DEFAULT_SERVER_CONFIG)
     args = parser.parse_args()
     checkpoint = args.checkpoint.resolve()
-    for path in (REPO_ROOT, REPO_ROOT / "XPolicyLab"):
+    for path in (REPO_ROOT, REPO_ROOT / "third_party", REPO_ROOT / "third_party" / "XPolicyLab"):
         if str(path) not in sys.path:
             sys.path.insert(0, str(path))
     from XPolicyLab.policy.LingBot_VLA2.model import validate_deployment
@@ -54,7 +54,7 @@ def main() -> int:
         "official_source_present": (
             args.source_root / "deploy/lingbot_vla_v2_policy.py"
         ).is_file(),
-        "xpolicylab_adapter": "XPolicyLab/policy/LingBot_VLA2",
+        "xpolicylab_adapter": "third_party/XPolicyLab/policy/LingBot_VLA2",
         "yam_norm_stats": deployment["norm_stats_path"],
         "yam_action_mapping": "absolute 12 arm joints + 2 grippers",
         "deployment_status": deployment["status"],

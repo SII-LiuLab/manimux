@@ -12,7 +12,7 @@ baseline described in the historical section below. The recipe uses the
 checkpoint's three RGB views, absolute joint/gripper actions, 16 output steps,
 four denoising iterations and a 1/30-second action interval.
 
-The model implementation lives in `XPolicyLab/policy/GR00T_N17/`; ManiMux reuses
+The model implementation lives in `third_party/XPolicyLab/policy/GR00T_N17/`; ManiMux reuses
 its existing RTC strategy, WebSocket client, JointAdapter and smooth executor.
 `inference.rtc.beta` controls guided sampling, and
 `inference.rtc.min_execute_policy_steps` controls the execution window. Initial
@@ -33,7 +33,7 @@ envs/yam/.venv/bin/python -m manimux.servers.camera.server \
 
 ```bash
 cd /home/ubuntu/manimux
-XPolicyLab/policy/GR00T_N17/gr00t_n17/.venv/bin/python -m manimux.servers.groot \
+third_party/XPolicyLab/policy/GR00T_N17/gr00t_n17/.venv/bin/python -m manimux.servers.groot \
   --experiment manimux/configs/experiments/pick_red_object/groot/yam_groot_rtc_joint_step10000.yaml
 ```
 
@@ -87,8 +87,8 @@ checkpoint did not complete the tested tasks; this is a policy-quality result, n
 
 | Item | Value |
 |---|---|
-| Official model code | `XPolicyLab/policy/GR00T_N17/gr00t_n17/` (vendored Isaac-GR00T N1.7) |
-| XPolicy adapter | `XPolicyLab/policy/GR00T_N17/model.py` |
+| Official model code | `third_party/XPolicyLab/policy/GR00T_N17/gr00t_n17/` (vendored Isaac-GR00T N1.7) |
+| XPolicy adapter | `third_party/XPolicyLab/policy/GR00T_N17/model.py` |
 | Weights | `/home/ubuntu/manimux/checkpoints/finetuned/robocurve/gr00t-n1.7-yam-molmoact2` |
 | Release source | `robocurve/gr00t-n1.7-yam-molmoact2` |
 | Normalization | `new_embodiment` in the checkpoint's `statistics.json` |
@@ -124,7 +124,7 @@ means only that local files are complete. Until actual inference completes,
 The documented local `gr00t_n17/.venv` has its dependencies installed. Use the same installer for a new checkout:
 
 ```bash
-cd /home/ubuntu/manimux/XPolicyLab/policy/GR00T_N17
+cd /home/ubuntu/manimux/third_party/XPolicyLab/policy/GR00T_N17
 bash install.sh
 ```
 
@@ -145,7 +145,7 @@ Terminal 1:
 
 ```bash
 cd /home/ubuntu/manimux
-XPolicyLab/policy/GR00T_N17/gr00t_n17/.venv/bin/python \
+third_party/XPolicyLab/policy/GR00T_N17/gr00t_n17/.venv/bin/python \
   manimux/servers/groot.py \
   --config manimux/configs/policy/groot/yam/finetune.yaml
 ```

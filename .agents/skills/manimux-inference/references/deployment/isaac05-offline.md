@@ -24,7 +24,7 @@ offline forward validation, with no `manimux run` hardware configuration.
 
 - Isaac repository: `be6507b4aed7472f2029606c22684d4ebc9d73e6`
 - Perceptron LeRobot: `e12389c1f8f591ad05dced4e284d4e92e48c5df4`
-- XPolicy source: `XPolicyLab/policy/Isaac_05/lerobot`
+- XPolicy source: `third_party/XPolicyLab/policy/Isaac_05/lerobot`
 - Server config: `manimux/configs/policy/isaac05/libero/base.yaml`
 
 The model card requires Perceptron's LeRobot fork for this checkpoint; stock Transformers and
@@ -57,9 +57,9 @@ Do not start a second download process concurrently.
 After cloning the parent repository, fetch XPolicyLab and its Isaac source:
 
 ```bash
-git submodule update --init XPolicyLab
+git submodule update --init third_party/XPolicyLab
 git -C XPolicyLab submodule update --init policy/Isaac_05/lerobot
-bash XPolicyLab/policy/Isaac_05/install.sh
+bash third_party/XPolicyLab/policy/Isaac_05/install.sh
 ```
 
 The installer uses the official lockfile and CUDA extra. The official source also requires production
@@ -88,7 +88,7 @@ commands should be run by an operator only on a machine meeting the official ABI
 Terminal 1:
 
 ```bash
-bash XPolicyLab/policy/Isaac_05/setup_eval_policy_server.sh \
+bash third_party/XPolicyLab/policy/Isaac_05/setup_eval_policy_server.sh \
   manimux/configs/policy/isaac05/libero/base.yaml
 ```
 

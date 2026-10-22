@@ -54,8 +54,8 @@ UV_CACHE_DIR="${UV_CACHE_DIR}" uv pip install --python "${VENV}/bin/python" --no
     'ninja==1.13.2' \
     'setuptools==84.0.0' \
     'packaging==26.3' \
-    -e "${ROOT}/XPolicyLab" \
-    -e "${ROOT}/XPolicyLab/policy/OpenWAM/OpenWAM"
+    -e "${ROOT}/third_party/XPolicyLab" \
+    -e "${ROOT}/third_party/XPolicyLab/policy/OpenWAM/OpenWAM"
 
 "${VENV}/bin/python" - <<'PY'
 import torch

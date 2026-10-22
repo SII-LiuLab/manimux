@@ -1,4 +1,4 @@
-# Relative model_dir is resolved against XPolicyLab/policy/GR00T_N17/.
+# Relative model_dir is resolved against third_party/XPolicyLab/policy/GR00T_N17/.
 policy_name: GR00T_N17
 protocol: ws
 host: 127.0.0.1

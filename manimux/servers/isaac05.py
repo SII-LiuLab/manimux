@@ -12,7 +12,7 @@ from typing import Any
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-XPOLICY_ROOT = REPO_ROOT / "XPolicyLab"
+XPOLICY_ROOT = REPO_ROOT / "third_party" / "XPolicyLab"
 DEFAULT_CONFIG = REPO_ROOT / "manimux/configs/policy/isaac05/libero/base.yaml"
 
 
@@ -29,7 +29,7 @@ def main() -> int:
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
 
-    for path in (REPO_ROOT, XPOLICY_ROOT):
+    for path in (REPO_ROOT, XPOLICY_ROOT.parent, XPOLICY_ROOT):
         if str(path) not in sys.path:
             sys.path.insert(0, str(path))
     from XPolicyLab.policy.Isaac_05.model import validate_deployment

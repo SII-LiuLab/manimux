@@ -37,7 +37,7 @@ def main():
         parser.error("--local requires --experiment")
     if args.bind_runtime_config is not None and args.experiment is None:
         parser.error("--bind-runtime-config requires --experiment")
-    for path in (REPO, REPO / "XPolicyLab"):
+    for path in (REPO, REPO / "third_party", REPO / "third_party" / "XPolicyLab"):
         sys.path.insert(0, str(path))
     from manimux.cli import load_config, read_experiment, resolve_local_path
 

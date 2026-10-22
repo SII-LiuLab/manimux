@@ -31,8 +31,9 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [
     str(ROOT),
-    str(ROOT / "XPolicyLab"),
-    str(ROOT / "XPolicyLab/policy/Pi_05/openpi/src"),
+    str(ROOT / "third_party"),
+    str(ROOT / "third_party" / "XPolicyLab"),
+    str(ROOT / "third_party/XPolicyLab/policy/Pi_05/openpi/src"),
 ]
 
 

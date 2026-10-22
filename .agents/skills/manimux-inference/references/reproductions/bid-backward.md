@@ -115,7 +115,7 @@ blending also changes the actions executed and should be recorded in comparisons
 The selecting experiment keeps the existing Pi05 joint step-30000 checkpoint:
 
 ```bash
-XPolicyLab/policy/Pi_05/openpi/.venv/bin/python -m manimux.servers.pi05 \
+third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python -m manimux.servers.pi05 \
   --config-list manimux/configs/lists/pi05-yam-put-bottles-joint-step30000-standalone.yaml --experiment-id put_bottles_bid_backward_joint_step30000
 
 envs/yam/.venv/bin/python -m manimux.cli run \

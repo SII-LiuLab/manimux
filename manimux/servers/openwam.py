@@ -34,11 +34,12 @@ def main():
     args = parser.parse_args()
     if bool(args.bind_runtime_config) != bool(args.runtime_template):
         parser.error("--bind-runtime-config and --runtime-template must be supplied together")
-    for path in (REPO, REPO / "XPolicyLab"):
+    for path in (REPO, REPO / "third_party", REPO / "third_party" / "XPolicyLab"):
         sys.path.insert(0, str(path))
+    from XPolicyLab.policy.OpenWAM.model import validate_deployment
+
     from manimux.cli import read_experiment
     from manimux.policies.recipe import read_policy_recipe
-    from XPolicyLab.policy.OpenWAM.model import validate_deployment
     config = read_policy_recipe(args.config, local=args.local)
     if config.get("policy_name") != "OpenWAM" or config.get("protocol") != "ws":
         raise ValueError("Expected the standard XPolicy OpenWAM WebSocket config")

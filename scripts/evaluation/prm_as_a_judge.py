@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-PRM_EVAL_ROOT = PROJECT_ROOT / "PRM-as-a-Judge" / "eval"
+PRM_EVAL_ROOT = PROJECT_ROOT / "third_party" / "PRM-as-a-Judge" / "eval"
 
 
 def _install_gpu_budget_override() -> None:
@@ -44,7 +44,7 @@ def main() -> None:
     if not (PRM_EVAL_ROOT / "prm_judge" / "cli.py").is_file():
         raise SystemExit(
             "PRM-as-a-Judge submodule is missing; run "
-            "git submodule update --init PRM-as-a-Judge"
+            "git submodule update --init third_party/PRM-as-a-Judge"
         )
     sys.path.insert(0, str(PRM_EVAL_ROOT))
     _install_gpu_budget_override()

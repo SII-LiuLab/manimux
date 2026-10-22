@@ -260,14 +260,14 @@ uv run manimux doctor \
   --config manimux/configs/experiments/pi05-latest300ep-step30000/coin/serial32.yaml \
   --local manimux/configs/local/station.yaml \
   --runtime-python envs/yam/.venv/bin/python \
-  --policy-python XPolicyLab/policy/Pi_05/openpi/.venv/bin/python --json
+  --policy-python third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python --json
 
 # Start camera, RoboGUI, model and interactive runtime. Wait for manual Prepare.
 uv run manimux up \
   --config manimux/configs/experiments/pi05-latest300ep-step30000/coin/serial32.yaml \
   --local manimux/configs/local/station.yaml \
   --runtime-python envs/yam/.venv/bin/python \
-  --policy-python XPolicyLab/policy/Pi_05/openpi/.venv/bin/python --open --json
+  --policy-python third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python --open --json
 
 uv run manimux status --json
 uv run manimux attach --service runtime  # detach: Ctrl-B, then D
@@ -374,7 +374,7 @@ root in four terminals, using the same config list in cameras, model and runtime
   --robot yam --host 127.0.0.1 --port 8086
 </code></pre>
 <h3 id="3-pi05-model-service">3 · Pi05 model service</h3>
-<pre><code class="language-bash">XPolicyLab/policy/Pi_05/openpi/.venv/bin/python -m manimux.servers.policy \
+<pre><code class="language-bash">third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python -m manimux.servers.policy \
   --config-list manimux/configs/lists/pi05-latest300ep-step30000.yaml
 </code></pre>
 <h3 id="4-runtime">4 · Runtime</h3>
@@ -395,7 +395,7 @@ from the chosen deployment. They are not additional services to run alongside Pi
 "$MM_MODEL_PY" -m manimux.servers.xr1 --config "$MM_RECIPE"
 
 # LingBot: shared XPolicyLab server, matching model recipe
-"$MM_MODEL_PY" XPolicyLab/setup_policy_server.py --config-path "$MM_RECIPE"
+"$MM_MODEL_PY" third_party/XPolicyLab/setup_policy_server.py --config-path "$MM_RECIPE"
 
 # DP: recipe selected from the experiment
 "$MM_MODEL_PY" -m manimux.servers.dp --experiment "$MM_EXPERIMENT"
@@ -1123,7 +1123,7 @@ them. Pi05 loads the experiment with
 <code>python -m manimux.servers.pi05 --experiment path/to/experiment.yaml</code>
 in its model environment. With a standalone server recipe, put <code>autohorizon</code>
 at the recipe's top level and launch through the ManiMux wrapper; direct
-<code>XPolicyLab/setup_policy_server.py</code> does not apply these overrides.
+<code>third_party/XPolicyLab/setup_policy_server.py</code> does not apply these overrides.
 See the <a href=".agents/skills/manimux-inference/references/inference-matrix.md">model recipe and sampling matrix</a>
 for backend constraints.</p>
 </section>
@@ -1616,7 +1616,7 @@ envs/yam/.venv/bin/python -m manimux.robogui.dashboard \
 
 # Pi05 model service
 cd /home/ubuntu/manimux
-XPolicyLab/policy/Pi_05/openpi/.venv/bin/python -m manimux.servers.policy \
+third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python -m manimux.servers.policy \
   --config-list manimux/configs/lists/pi05-latest300ep-step30000.yaml
 
 # Runtime: Task / Method / Layout selection
@@ -1645,7 +1645,7 @@ envs/yam/.venv/bin/python -m manimux.servers.camera.server \
   --config manimux/configs/experiments/pi05-latest300ep-step30000/coin/rtc32_beta10.yaml
 
 # Pi05 model: separate terminal; append --check to avoid loading weights.
-XPolicyLab/policy/Pi_05/openpi/.venv/bin/python -m manimux.servers.policy \
+third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python -m manimux.servers.policy \
   --config manimux/configs/experiments/pi05-latest300ep-step30000/coin/rtc32_beta10.yaml
 
 # Runtime: separate terminal; reuse the RoboGUI command above.
@@ -1664,12 +1664,22 @@ envs/yam/.venv/bin/python -m manimux run \
 <p id="experiment-list-records">Current recorded conditions remain the authority. Configuration inspection does not validate model outputs or physical execution. Validate the first trials' actual switch timing before collecting a full cohort.</p>
 </section>
 <section aria-labelledby="agent-integrations" class="guide-page" data-page-id="agent-integrations" data-title="RPent / HarnessVLA" hidden=""><h2 id="agent-integrations">RPent / HarnessVLA</h2>
+<p>External framework sources are pinned under <code>third_party/</code>:
+<code>third_party/RPent</code>, <code>third_party/XPolicyLab</code>,
+<code>third_party/StarVLA</code> and <code>third_party/PRM-as-a-Judge</code>.
+Existing stations must update private paths and reinstall editable packages after
+moving a checkout; finish active runs before changing its source layout.</p>
+<p>RPent API mode requires an explicit provider-prefixed <code>model</code>.
+Its recipe also accepts <code>base_url</code> (API mode), <code>max_tokens</code>,
+<code>planner_timeout_s</code> and <code>claude_code_max_budget_usd</code>.
+Keep credentials in the native provider environment. The recipe's
+<code>endpoint</code> is the ManiMux tool service, not the model API.</p>
 <p><strong>One recipe and one Toolkit for motion and VLA calls.</strong> RPent owns planning,
 memory and tool selection. ManiMux owns the configured model worker, action adapter,
 motion planning, hardware execution and recording. A task can call move_to, execute_policy
 and set_gripper consecutively without changing runtime modes.</p>
 <h3 id="rpent-install">Install and start</h3>
-<pre><code class="language-bash">git submodule update --init RPent
+<pre><code class="language-bash">git submodule update --init third_party/RPent
 uv venv --python 3.11 envs/rpent/.venv
 uv pip install --python envs/rpent/.venv/bin/python -e ./RPent -e .
 
@@ -1820,7 +1830,7 @@ and Franka's existing stop/close semantics remain assembly-owned.</p>
 <p>This runs RPent's actual Toolkit through preposition, synthetic VLA calls, gripper
 and subsequent motion, retaining standard rollout/replay records. It uses no hardware
 or autonomous LLM and is not physical task evidence. The unified runtime saves provider
-responses before action validation; XPolicyLab/StarVLA also capture malformed wire replies.
+responses before action validation; third_party/XPolicyLab/StarVLA also capture malformed wire replies.
 Rejections identify their saved evidence. Qualify the chosen real provider and representative
 observations through a disconnected command sink before operator handoff.</p>
 <p>The former manimux-dispatch console entry and native environment launcher are retired.

@@ -15,7 +15,7 @@ XYZ+WXYZ. Gripper is normalized, zero closed and one open.
 From the repository root:
 
 ```bash
-bash XPolicyLab/policy/DP/install_inference.sh
+bash third_party/XPolicyLab/policy/DP/install_inference.sh
 ```
 
 Expected local checkpoint:
@@ -42,7 +42,7 @@ envs/yam/.venv/bin/python -m manimux.robogui.dashboard \
 ```
 
 ```bash
-XPolicyLab/policy/DP/.venv/bin/python -m manimux.servers.dp \
+third_party/XPolicyLab/policy/DP/.venv/bin/python -m manimux.servers.dp \
   --experiment manimux/configs/experiments/dp-yam-put-bottles-eef-step100000/put_bottles/manimux_eef_step100000.yaml
 ```
 

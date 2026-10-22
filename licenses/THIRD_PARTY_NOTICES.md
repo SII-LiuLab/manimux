@@ -42,13 +42,13 @@ not a measurement of fingertip contact or a physical calibration.
 
 ## XPolicyLab
 
-`XPolicyLab/` is a Git submodule tracking the `Cuzyoung/XPolicyLab` fork of
-`XPolicyLab/XPolicyLab`. It remains a separately versioned project and retains
+`third_party/XPolicyLab/` is a Git submodule tracking the `Cuzyoung/XPolicyLab` fork of
+`third_party/XPolicyLab/XPolicyLab`. It remains a separately versioned project and retains
 its own license and third-party notices inside the submodule.
 
 ## StarVLA
 
-`StarVLA/` is a separately versioned Git submodule tracking the
+`third_party/StarVLA/` is a separately versioned Git submodule tracking the
 `GuHaomingcs/starVLA` fork of `starVLA/starVLA`. The integration is based on upstream
 revision `312fac890ab75b7651d2bc4f8f8c8dbb5e055184`; the parent gitlink identifies
 its exact version. Source and sampler licenses remain in that submodule.
@@ -59,9 +59,9 @@ retained in `licenses/starvla-MIT.txt`.
 
 ## PRM-as-a-Judge
 
-`PRM-as-a-Judge/` is a Git submodule tracking
+`third_party/PRM-as-a-Judge/` is a Git submodule tracking
 `YuyangLiu2003/PRM-as-a-Judge`. It remains separately versioned under the
-Apache License 2.0; see `PRM-as-a-Judge/LICENSE`.
+Apache License 2.0; see `third_party/PRM-as-a-Judge/LICENSE`.
 
 ## i2rt YAM model assets
 

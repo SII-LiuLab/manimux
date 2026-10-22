@@ -125,7 +125,7 @@ experiment variable in each terminal:
 
 ```bash
 XLA_PYTHON_CLIENT_PREALLOCATE=false \
-XPolicyLab/policy/Pi_05/openpi/.venv/bin/python -m manimux.servers.pi05 \
+third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python -m manimux.servers.pi05 \
   --experiment "$PI05_INTERHAND_EXPERIMENT"
 ```
 
@@ -194,7 +194,7 @@ resources are available:
 
 ```bash
 XLA_PYTHON_CLIENT_PREALLOCATE=false \
-XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
+third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
   -m XPolicyLab.policy.Pi_05.offline_pack_plate \
   --config manimux/configs/policy/pi05/tianji/pack_plate/inter-hand-relative-step20000.yaml \
   --checkpoint /home/jw/Desktop/policy/pi05-pack-plate-inter-hand-relative-tracker-fixed-best-20000-final-59999/checkpoints/20000

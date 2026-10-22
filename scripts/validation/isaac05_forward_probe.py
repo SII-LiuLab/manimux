@@ -15,11 +15,13 @@ import numpy as np
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+for path in (REPO_ROOT, REPO_ROOT / "third_party"):
+    if str(path) not in sys.path:
+        sys.path.insert(0, str(path))
+
+from XPolicyLab.policy.Isaac_05.model import validate_deployment  # noqa: E402
 
 from manimux.policies.xpolicylab.ws_client import XPolicyLabWsClient  # noqa: E402
-from XPolicyLab.policy.Isaac_05.model import validate_deployment  # noqa: E402
 
 DEFAULT_CONFIG = REPO_ROOT / "manimux/configs/policy/isaac05/libero/base.yaml"
 

@@ -10,7 +10,7 @@ These examples use synthetic images and an offline plant. They never open a robo
 or camera connection. See [validation and limits](starvla-offline.md).
 
 ```text
-StarVLA/ native model service
+third_party/StarVLA/ native model service
     ↕ WebSocket / StarVLA MessagePack
 manimux/policies/starvla/     PolicyModel client and wire conversion
     → JointAdapter / PoseAdapter
@@ -19,7 +19,7 @@ manimux/policies/starvla/     PolicyModel client and wire conversion
 
 Use the steps below to select a recipe, launch its service and validate the paired
 runtime. For code review, see [Extension points](#extension-points). The native
-server guide (`StarVLA/deployment/model_server/README.md`, after submodule initialization)
+server guide (`third_party/StarVLA/deployment/model_server/README.md`, after submodule initialization)
 defines the wire protocol.
 
 ## Select a matching recipe
@@ -46,7 +46,7 @@ LIBERO or joint recipes.
 From a source checkout:
 
 ```bash
-git submodule update --init StarVLA
+git submodule update --init third_party/StarVLA
 ```
 
 Use separate Python environments:
@@ -55,7 +55,7 @@ Use separate Python environments:
   The client requires `websockets>=15` for synchronous connection keepalive options.
   YAM FK/IK examples also need the YAM geometry dependencies described in
   [Python environments](../../../manimux-station-setup/references/environments.md).
-- **StarVLA, Python 3.10:** follow its installation guide (`StarVLA/docs/starVLA_guideline.md`, after submodule initialization).
+- **StarVLA, Python 3.10:** follow its installation guide (`third_party/StarVLA/docs/starVLA_guideline.md`, after submodule initialization).
   The model process additionally needs `websockets>=14`, `msgpack`, `PyYAML`,
   `opencv-python` and the checkpoint's model dependencies. It does not import ManiMux.
 
@@ -132,7 +132,7 @@ CUDA_VISIBLE_DEVICES=0 OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 \
 The selected GPU must have enough free memory. Resolve a new server configuration
 when changing the checkpoint or deployment contract. Resolution and model loading
 use separate processes so Python 3.11 runtime dependencies do not enter Python 3.10.
-The native serving contract (`StarVLA/deployment/model_server/README.md`, after submodule initialization) describes
+The native serving contract (`third_party/StarVLA/deployment/model_server/README.md`, after submodule initialization) describes
 metadata, sessions and sampler requests.
 
 ## Validate without hardware
@@ -225,9 +225,9 @@ Follow the data path in this order when reviewing the integration:
 | Component | Responsibility |
 | --- | --- |
 | `manimux/servers/starvla.py` | Resolve the existing configuration and launch the independent native service |
-| `StarVLA/deployment/model_server/serve.py` | Load the checkpoint and start native serving |
-| `StarVLA/deployment/model_server/serving_contract.py` | Validate deployment identity and inspect loaded sampler capabilities |
-| `StarVLA/deployment/model_server/sampling_session.py` | Validate sampler inputs; own per-connection sampling sessions and reset |
+| `third_party/StarVLA/deployment/model_server/serve.py` | Load the checkpoint and start native serving |
+| `third_party/StarVLA/deployment/model_server/serving_contract.py` | Validate deployment identity and inspect loaded sampler capabilities |
+| `third_party/StarVLA/deployment/model_server/sampling_session.py` | Validate sampler inputs; own per-connection sampling sessions and reset |
 | `manimux/policies/starvla/client.py` | Own the connection, verify identity, exchange requests and select AAC candidates |
 | `manimux/policies/starvla/codec.py` and `eef.py` | Convert native arrays to canonical robot groups and pose conventions |
 | `manimux/policies/capabilities.py` | Shared backend identity comparison for clients and runtime |
@@ -248,4 +248,4 @@ boundaries. Identity, session, dimensions and unsupported-mode checks remain act
 Production source, recipes and documentation live in the repository directories
 listed above. `.local/` holds private station files, probe outputs and review material;
 `tests/` holds ignored local regression checks. Neither is imported by the production
-client or model service. Additional integration tests stay outside `StarVLA/`.
+client or model service. Additional integration tests stay outside `third_party/StarVLA/`.

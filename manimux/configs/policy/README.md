@@ -62,7 +62,7 @@ not packing order, action semantics, FK/IK, timing or execution behavior.
 XPolicyLab's shared LeRobot converters accept `--model-config <recipe> --fps <source-rate>`.
 Pi05/DP/LingBot conversion scripts also accept the recipe via `--model-config` or
 `XPOLICYLAB_MODEL_CONFIG` in their shell wrappers. See the
-[framework guide](../../../XPolicyLab/README.md#explicit-deployment-layout).
+[framework guide](../../../third_party/XPolicyLab/README.md#explicit-deployment-layout).
 
 ## Portable artifact roots
 

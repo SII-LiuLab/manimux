@@ -15,7 +15,7 @@ import yaml
 sys.dont_write_bytecode = True
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-XPOLICY_ROOT = REPO_ROOT / "XPolicyLab"
+XPOLICY_ROOT = REPO_ROOT / "third_party" / "XPolicyLab"
 DEFAULT_CONFIG = REPO_ROOT / "manimux/configs/policy/lingbot-vla2/yam/base.yaml"
 
 
@@ -27,7 +27,7 @@ def _load_config(path: Path) -> dict[str, Any]:
 
 
 def _prepare_imports() -> None:
-    for path in (REPO_ROOT, XPOLICY_ROOT):
+    for path in (REPO_ROOT, XPOLICY_ROOT.parent, XPOLICY_ROOT):
         value = str(path)
         if value not in sys.path:
             sys.path.insert(0, value)

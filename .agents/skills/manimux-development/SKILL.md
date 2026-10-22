@@ -19,7 +19,7 @@ caller before changing behavior. Read only the relevant reference:
 | --- | --- |
 | Robot, arm, gripper, camera, SDK or kinematics | [Components](references/components.md) |
 | Model framework, transport, action adapter or normalization | [Policies](references/policies.md) |
-| Robot agent, planner or tool bridge | [RPent / HarnessVLA](references/rpent.md) |
+| Robot agent, Harness, planner or tool bridge | [Framework boundaries](references/agent-guide.md#harness-frameworks) and [RPent example](references/rpent.md) |
 | Scheduling, timelines, recording, executor or RoboGUI | [Runtime](references/runtime-config.md) |
 | Sampler capabilities or model/algorithm combinations | [Inference](../manimux-inference/SKILL.md) |
 | Extension entry points and contributing | [Integration map](references/README.md) |
@@ -29,6 +29,13 @@ adapters, strategy/timeline, execution, recording and GUI. Inspect upstream code
 classifying a model as a framework: XPolicyLab models stay under its `policy/<name>/`,
 while a distinct framework stays a peer with its own ManiMux client. Do not duplicate
 model implementations inside `manimux/` or migrate a working deployment incidentally.
+
+Keep external framework sources in pinned `third_party/<project>/` submodules.
+Model clients belong in `manimux/policies/`; Harness bridges belong in
+`manimux/agents/<framework>/`. Preserve each Harness's native algorithms, memory,
+tools and provider configuration. VLA use is optional. Share ManiMux's hardware
+ownership, trajectory execution and experiment evidence through suitable adapters;
+do not require other Harnesses to copy RPent's Toolkit, HTTP transport or planner loop.
 
 ## Implement against the contract
 
@@ -49,7 +56,8 @@ Matching method names alone is insufficient. Fail explicitly for unsupported mod
   see [the inference contract](../manimux-inference/SKILL.md#warmup-must-use-the-selected-configuration).
 - Robot-agent motion and VLA tools must share one entry, runtime ownership and
   lifecycle. Select VLA workers/adapters through the ordinary experiment; do not
-  expose separate native-agent and policy-only execution modes. See [RPent](references/rpent.md).
+  create a second hardware or experiment lifecycle. RPent uses its existing unified
+  Toolkit; other Harnesses may use different adapters. See [RPent](references/rpent.md).
 - Keep deployment constants in YAML. New capability needs an explicit protocol when
   it cannot fit the existing one; do not hide extra tool coordinates or weaken IK to
   imitate a supported interface.

@@ -88,31 +88,49 @@ Classify an integration before choosing its directory. A learned model and a reu
 algorithm or serving framework are different extension types:
 
 - Add a model, checkpoint or model reproduction to the framework that owns its runtime.
-  When that framework is XPolicyLab, implement it under `XPolicyLab/policy/<POLICY>/`
+  When that framework is XPolicyLab, implement it under `third_party/XPolicyLab/policy/<POLICY>/`
   using the XPolicyLab adapter and serving conventions.
 - Keep a distinct upstream framework with its own reusable runtime, dependency stack,
   model registry or serving contract peer to XPolicyLab. Do not nest the framework under
-  `XPolicyLab/policy/` merely to reuse XPolicyLab's transport. Put its ManiMux client under
+  `third_party/XPolicyLab/policy/` merely to reuse XPolicyLab's transport. Put its ManiMux client under
   `manimux/policies/<framework>/` and implement the existing `PolicyModel` contract.
 - A new task, checkpoint, embodiment or one-model wrapper is not a new framework. Reuse
   the selected framework and change recipes or experiments instead of adding a backend.
 
 Do not add model implementations or framework runtimes inside the ManiMux Python package.
 
-Robot agents such as RPent / HarnessVLA are a separate integration category. Keep the
-upstream agent framework in a pinned peer submodule and its ManiMux tools/launcher in
-`manimux/agents/<framework>/`. Agent recipes live in `manimux/configs/agents/`; the
-existing experiment still selects the policy, robot and action contract. Agents use
-one Toolkit and shared runtime for motion tools and VLA calls, with
-no direct hardware ownership. The selected ManiMux worker/adapter owns all VLA
-calls; motion tools reuse shared kinematics and the same execution lifecycle. See the
-[RPent integration](rpent.md) for the reference implementation and acceptance matrix.
+### Harness frameworks
+
+Independent model, Harness and evaluation frameworks live side by side under
+`third_party/`, with their source revisions retained as submodules. ManiMux-facing
+model clients live in `manimux/policies/<framework>/`; Harness bridges live in
+`manimux/agents/<framework>/`. The directory grouping does not change upstream
+package names or make one framework a child of another.
+
+Preserve each Harness's native planner, memory, algorithm, tool structure, provider
+SDK and configuration. Adapt its boundary to ManiMux instead of requiring a common
+internal architecture. A standalone launcher such as `manimux-rpent` is allowed.
+Do not introduce a universal planner interface merely to remove a framework name
+from a registration or construction entry point.
+
+Harnesses may use motion primitives, trajectories, VLA calls, or a combination.
+VLA calls reuse the selected model client and action adapter, including XPolicyLab
+when configured. Harnesses do not own a second robot/camera session or bypass the
+shared runtime's command validation, execution, pause/finish and cleanup. Keep
+framework-specific decisions in the bridge and reusable trajectory behavior in the
+runtime/executor. Preserve timing, frames, cancellation and reset semantics.
+
+Associate decisions and tool requests with generated plans, sent commands, measured
+feedback and the experiment's evaluation. Record effective non-secret configuration
+and framework versions; keep command completion separate from task success. Verify
+primitive-only and VLA-backed paths when supported. RPent is one concrete
+[implementation](rpent.md), not a mandatory Toolkit or HTTP template for other Harnesses.
 
 For models owned by XPolicyLab:
 
-- Read [XPolicyLab/AGENTS.md](../../../../XPolicyLab/AGENTS.md),
-  [the contribution standard](../../../../XPolicyLab/CONTRIBUTING.md) and
-  [the reference adapter](../../../../XPolicyLab/policy/demo_policy) before implementation.
+- Read [third_party/XPolicyLab/AGENTS.md](../../../../third_party/XPolicyLab/AGENTS.md),
+  [the contribution standard](../../../../third_party/XPolicyLab/CONTRIBUTING.md) and
+  [the reference adapter](../../../../third_party/XPolicyLab/policy/demo_policy) before implementation.
 - Reuse an existing policy directory when an XPolicyLab model is already integrated.
 - Keep upstream model source and reproduction changes under that policy directory,
   following XPolicyLab's vendored-source or pinned-submodule conventions. Preserve upstream
@@ -136,15 +154,17 @@ must reuse ManiMux's adapter, scheduling and execution layers instead of duplica
 ## Required structure and boundaries
 
 ```text
-XPolicyLab/policy/<POLICY>/  # when XPolicyLab owns the model
+third_party/XPolicyLab/policy/<POLICY>/  # when XPolicyLab owns the model
     model.py + deploy.yml + deploy.py
     upstream model source / pinned source submodule
     installation, data, training and evaluation entry points
     README.md
-<FRAMEWORK>/                 # when adding a peer framework
+third_party/<FRAMEWORK>/     # independently versioned peer framework
     independently versioned framework source and deployment entry points
 manimux/policies/<framework>/
     PolicyModel client + framework wire codec
+manimux/agents/<framework>/
+    Harness-specific bridge and optional launcher
 manimux/configs/policy/<model>/<embodiment>/<task>/
 manimux/configs/lists/<study>.yaml  # entries, trial plan and recording.root
 manimux/configs/tasks/<task>.yaml  # reusable task semantics
@@ -196,7 +216,7 @@ identity checks; never disable them to make a mismatched checkpoint or unsupport
 ## Removed native and compatibility paths
 
 The built-in MolmoAct2 and ABC model servers, HTTP clients, ManiMux action adapters and
-experiments have been removed. Reuse `XPolicyLab/policy/MolmoACT2/` for MolmoAct2. Any future
+experiments have been removed. Reuse `third_party/XPolicyLab/policy/MolmoACT2/` for MolmoAct2. Any future
 ABC integration must also use XPolicyLab rather than restoring the deleted native or HTTP path.
 Do not assume that an existing policy directory already covers a local checkpoint and action
 contract.

@@ -7,7 +7,7 @@ motion: rp_motion_demo.yaml
 endpoint: http://127.0.0.1:8088
 task: Put the red object into the tray.
 planner: api
-# Select an authenticated provider/model with --model, or use RPent's planner default.
+# API mode requires an explicit provider-prefixed model via --model or this field.
 model: null
 max_turns: 30
 memory_root: ../../../data/agent-memory

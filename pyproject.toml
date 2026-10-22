@@ -77,14 +77,14 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-extend-exclude = []
+extend-exclude = ["third_party"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.pyright]
 include = ["manimux", "tests", "scripts"]
-extraPaths = ["."]
+extraPaths = [".", "third_party"]
 venvPath = "."
 venv = ".venv"
 pythonVersion = "3.12"

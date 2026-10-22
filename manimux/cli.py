@@ -351,7 +351,7 @@ def _create_run_dir(config: dict, config_path: Path, *, mode: str,
                 "git_sha": repositories["manimux"].get("head"),
                 "xpolicylab_git_sha": (
                     repositories["xpolicylab"].get("head") if "xpolicylab" in repositories
-                    else _git_sha(repository_root / "XPolicyLab")
+                    else _git_sha(repository_root / "third_party" / "XPolicyLab")
                 ),
                 "source_provenance": sources,
                 "deployment_artifacts": deployment_artifact_provenance(recipe),

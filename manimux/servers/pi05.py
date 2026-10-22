@@ -12,7 +12,7 @@ from typing import Any
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-XPOLICY_ROOT = REPO_ROOT / "XPolicyLab"
+XPOLICY_ROOT = REPO_ROOT / "third_party" / "XPolicyLab"
 OPENPI_SRC = XPOLICY_ROOT / "policy/Pi_05/openpi/src"
 DEFAULT_CONFIG = REPO_ROOT / "manimux/configs/policy/pi05/yam/finetune.yaml"
 MODEL_PYTHON = XPOLICY_ROOT / "policy/Pi_05/openpi/.venv/bin/python"
@@ -40,7 +40,7 @@ TASK_QUALITY_LIMITED_VARIANTS = {
 
 
 def _prepare_imports() -> None:
-    for path in (REPO_ROOT, XPOLICY_ROOT, OPENPI_SRC):
+    for path in (REPO_ROOT, XPOLICY_ROOT.parent, XPOLICY_ROOT, OPENPI_SRC):
         value = str(path)
         if value not in sys.path:
             sys.path.insert(0, value)

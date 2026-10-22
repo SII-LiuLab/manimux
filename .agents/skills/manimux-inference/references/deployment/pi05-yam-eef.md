@@ -51,7 +51,7 @@ envs/yam/.venv/bin/python -m manimux.robogui.dashboard \
 
 ```bash
 XLA_PYTHON_CLIENT_PREALLOCATE=false \
-XPolicyLab/policy/Pi_05/openpi/.venv/bin/python -m manimux.servers.pi05 \
+third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python -m manimux.servers.pi05 \
   --config-list manimux/configs/lists/pi05-yam-put-bottles-eef-from-joint-ee-step30000-standalone.yaml --experiment-id put_bottles_manimux_eef_step30000
 ```
 

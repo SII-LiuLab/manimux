@@ -23,7 +23,7 @@ lingbot_vla2_root: lingbot_vla_v2
 qwen3vl_path: ${paths.checkpoints}/pretrained/qwen3_vl_4b_processor
 model_root: ${paths.checkpoints}/finetuned/ziyang/lingbot-vla2-put-bottles-b64-step30000/checkpoints/global_step_30000/hf_ckpt
 training_config_path: ${paths.checkpoints}/finetuned/ziyang/lingbot-vla2-put-bottles-b64-step30000/lingbotvla_cli.yaml
-robot_config_path: ${repo}/XPolicyLab/policy/LingBot_VLA2/robot_configs/yam_dual_packed_relative.yaml
+robot_config_path: ${repo}/third_party/XPolicyLab/policy/LingBot_VLA2/robot_configs/yam_dual_packed_relative.yaml
 norm_stats_path: ${paths.checkpoints}/finetuned/ziyang/lingbot-vla2-put-bottles-b64-step30000/norm_stats.json
 action_horizon: 50
 native_hz: 30.0

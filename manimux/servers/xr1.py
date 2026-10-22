@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-XPOLICY_ROOT = REPO_ROOT / "XPolicyLab"
+XPOLICY_ROOT = REPO_ROOT / "third_party" / "XPolicyLab"
 XR1_ROOT = XPOLICY_ROOT / "policy/Xiaomi_Robotics_1/xiaomi_robotics_1/xr1"
 DEFAULT_CONFIG = REPO_ROOT / "manimux/configs/policy/xiaomi-xr1/yam/base.yaml"
 MODEL_PYTHON = REPO_ROOT / "envs/xr1/.venv/bin/python"
@@ -118,7 +118,7 @@ def _validate(config: dict[str, Any]) -> dict[str, Any]:
 
 
 def _prepare_imports() -> None:
-    for path in (REPO_ROOT, XPOLICY_ROOT, XR1_ROOT):
+    for path in (REPO_ROOT, XPOLICY_ROOT.parent, XPOLICY_ROOT, XR1_ROOT):
         value = str(path)
         if value not in sys.path:
             sys.path.insert(0, value)

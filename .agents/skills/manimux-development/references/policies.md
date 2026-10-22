@@ -25,10 +25,10 @@ Do not create a peer backend for a task, checkpoint, embodiment or convenience l
 
 A checkpoint/task change normally selects a recipe and experiment, not another
 Python integration. When XPolicyLab is the model's owning framework, follow
-`XPolicyLab/AGENTS.md`,
-`XPolicyLab/CONTRIBUTING.md` and the reference adapter under
-`XPolicyLab/policy/demo_policy/`.
-Reuse an existing `XPolicyLab/policy/<POLICY>/` implementation when available.
+`third_party/XPolicyLab/AGENTS.md`,
+`third_party/XPolicyLab/CONTRIBUTING.md` and the reference adapter under
+`third_party/XPolicyLab/policy/demo_policy/`.
+Reuse an existing `third_party/XPolicyLab/policy/<POLICY>/` implementation when available.
 Model loading, preprocessing, normalization, sampling and training live there.
 Use the shared server and ManiMux's existing `xpolicylab_ws` client.
 Select the checkpoint's input/output transforms in its existing model implementation
@@ -56,11 +56,11 @@ handoff. Preserve reset behavior and response metadata across the wire boundary.
 
 When inspection shows that the requested integration owns a reusable runtime and
 serving contract, propose it as a peer framework and ask the user to confirm that
-scope. Keep a confirmed peer framework in an independently versioned top-level
-repository or submodule, alongside `XPolicyLab/`. Keep its ManiMux client under
+scope. Keep a confirmed peer framework in an independently versioned
+repository or submodule under `third_party/`, alongside `third_party/XPolicyLab/`. Keep its ManiMux client under
 `manimux/policies/<framework>/`, reusing the adapter and runtime interfaces.
 
-Do not copy an entire framework into `XPolicyLab/policy/<POLICY>/` merely to satisfy
+Do not copy an entire framework into `third_party/XPolicyLab/policy/<POLICY>/` merely to satisfy
 the XPolicyLab model template. Conversely, do not label a single model wrapper as a
 framework just because upstream ships a server. Record the ownership decision in the
 integration documentation: framework source, model adapter, serving process, transport,
@@ -71,7 +71,7 @@ the interface test. Verify its native lifecycle, identity/capability exchange, r
 behavior and response decoding through the public client boundary.
 
 The StarVLA peer implementation uses `policy.worker: starvla_ws` and
-`manimux/policies/starvla/`. Its independently versioned `StarVLA/` service owns
+`manimux/policies/starvla/`. Its independently versioned `third_party/StarVLA/` service owns
 loading, normalization and sampling; the client owns native MessagePack, reset and
 identity checks. See `.agents/skills/manimux-inference/references/deployment/starvla-offline.md` for explicit joint/EEF
 contracts and offline examples. AAC selection operates on grouped joint candidates

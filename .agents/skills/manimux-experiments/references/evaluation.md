@@ -1,17 +1,17 @@
 # PRM-as-a-Judge evaluation
 
-ManiMux tracks the official **PRM-as-a-Judge 1.5** evaluator as the `PRM-as-a-Judge/` submodule and
+ManiMux tracks the official **PRM-as-a-Judge 1.5** evaluator as the `third_party/PRM-as-a-Judge/` submodule and
 keeps model weights outside Git. Initialize it after cloning ManiMux with:
 
 ```bash
-git submodule update --init PRM-as-a-Judge
+git submodule update --init third_party/PRM-as-a-Judge
 ```
 
 ## Environment and inputs
 
 The current machine has a dedicated Conda environment named `prm-judge`; do not install the
 judge's vLLM/CUDA dependencies into the ManiMux robot environment. On another machine, follow
-the Dopamine installation instructions in the [upstream README](../../../../PRM-as-a-Judge/README.md)
+the Dopamine installation instructions in the [upstream README](../../../../third_party/PRM-as-a-Judge/README.md)
 and download the judge weights separately. Cloning the submodule does not download weights.
 
 The current CLI **requires `--manifest`; it does not recursively discover a video root**.
@@ -56,7 +56,7 @@ PRM_GPU_MEMORY_UTILIZATION=0.68 \
 The local judge weights are stored at
 `checkpoints/pretrained/Robo-Dopamine-GRM-2.0-8B-Preview/` (ignored by Git).
 Run the command from the ManiMux repository root. The previous location under
-`/home/ubuntu/workspace/Project/PRM-as-a-Judge/PRM/` remains a compatibility
+`/home/ubuntu/workspace/Project/third_party/PRM-as-a-Judge/PRM/` remains a compatibility
 symlink so historical evaluation paths continue to resolve.
 
 For a top-only evaluation, provide only the manifest's required `video` field.

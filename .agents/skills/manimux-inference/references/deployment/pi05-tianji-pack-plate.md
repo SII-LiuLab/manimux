@@ -63,7 +63,7 @@ From the ManiMux root:
 ```
 
 When the GPU is free, run the standalone synthetic-image forward shown in
-`XPolicyLab/policy/Pi_05/README.md`. That verifies model loading and output
+`third_party/XPolicyLab/policy/Pi_05/README.md`. That verifies model loading and output
 shapes; it does not establish camera alignment, robot safety or task success.
 
 ## Service selection
@@ -73,7 +73,7 @@ handed over, start the policy server with the same experiment and station:
 
 ```bash
 XLA_PYTHON_CLIENT_PREALLOCATE=false \
-XPolicyLab/policy/Pi_05/openpi/.venv/bin/python -m manimux.servers.pi05 \
+third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python -m manimux.servers.pi05 \
   --config-list manimux/configs/lists/pi05-tianji-pack_plate-wrist-only-step59999-standalone.yaml --experiment-id pack_plate_wrist_only_step59999_rtc \
   --local .local/tianji_pi05_pack_plate.yaml
 ```

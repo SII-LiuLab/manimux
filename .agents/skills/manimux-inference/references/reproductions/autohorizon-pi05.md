@@ -97,7 +97,7 @@ run on identical observations and noise, framework parity remains unverified and
   `return_attention=True`.
 - `openpi/models_pytorch/autohorizon_official.py` holds the pinned official soft-pointer logic.
 - `openpi/policies/policy.py` calculates `execution_steps` before applying ordinary output transforms.
-- `XPolicyLab/policy/Pi_05/model.py` exposes `get_action_autohorizon` and returns the full decoded
+- `third_party/XPolicyLab/policy/Pi_05/model.py` exposes `get_action_autohorizon` and returns the full decoded
   `50 x 14` YAM joint chunk plus method metadata.
 
 Default, RTC, AAC and PAINT continue calling the existing sampler paths and do not request attention.
@@ -154,7 +154,7 @@ Start the unchanged Pi05 server:
 
 ```bash
 cd /home/ubuntu/manimux
-XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
+third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
   manimux/servers/pi05.py \
   --config manimux/configs/policy/pi05/yam/finetune-pick-red-ball-box-step1000.yaml
 ```

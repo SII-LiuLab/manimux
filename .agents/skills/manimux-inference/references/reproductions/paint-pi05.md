@@ -67,7 +67,7 @@ left 6 joint radians + left gripper
 + right 6 joint radians + right gripper
 ```
 
-`XPolicyLab/policy/Pi_05/model.py` pads the `d` prefix rows to the model horizon only so the unchanged
+`third_party/XPolicyLab/policy/Pi_05/model.py` pads the `d` prefix rows to the model horizon only so the unchanged
 OpenPI input transform can process a full action tensor. `Policy.infer` places that tensor under the
 official `actions` transform key. The resulting normalized/padded model tensor becomes
 `paint_action_condition`; only the first `d` rows participate in Algorithm 1.
@@ -80,7 +80,7 @@ trajectory to EE space.
 
 ### XPolicy / Pi05 sampler
 
-`XPolicyLab/policy/Pi_05/openpi/src/openpi/models/pi0.py` owns:
+`third_party/XPolicyLab/policy/Pi_05/openpi/src/openpi/models/pi0.py` owns:
 
 - fresh Gaussian noise;
 - the naive forward pass;
@@ -89,12 +89,12 @@ trajectory to EE space.
 - prefix-only noise repainting;
 - the final ordinary forward pass.
 
-`XPolicyLab/policy/Pi_05/openpi/src/openpi/policies/policy.py` owns the official input/output
+`third_party/XPolicyLab/policy/Pi_05/openpi/src/openpi/policies/policy.py` owns the official input/output
 transforms and passes the normalized condition into the sampler.
 
 ### XPolicy adapter and wire
 
-`XPolicyLab/policy/Pi_05/model.py` exposes `get_action_paint` and validates `d x native_action_dim`.
+`third_party/XPolicyLab/policy/Pi_05/model.py` exposes `get_action_paint` and validates `d x native_action_dim`.
 The WebSocket server advertises `paint` only when that method exists. The request payload is:
 
 ```text
@@ -184,7 +184,7 @@ Start the same step-1000 Pi05 model server used by the ordinary ManiMux baseline
 
 ```bash
 cd /home/ubuntu/manimux
-XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
+third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
   manimux/servers/pi05.py \
   --config manimux/configs/policy/pi05/yam/finetune-pick-red-ball-box-step1000.yaml
 ```

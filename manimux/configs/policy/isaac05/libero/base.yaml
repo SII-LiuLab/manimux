@@ -13,7 +13,7 @@ gpu_id: 0
 eval_batch: false
 checkpoint_variant: isaac_05_base_libero_spatial
 checkpoint_source: PerceptronAI/Isaac-0.5
-lerobot_root: XPolicyLab/policy/Isaac_05/lerobot
+lerobot_root: third_party/XPolicyLab/policy/Isaac_05/lerobot
 model_path: ../../../checkpoints/pretrained/perceptron-ai/isaac-0.5/lerobot_policy
 device: cuda
 

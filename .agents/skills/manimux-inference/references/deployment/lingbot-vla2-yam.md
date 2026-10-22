@@ -25,7 +25,7 @@ below is a PAINT/AutoHorizon subset, not the full study entry.
 ## Overview
 
 LingBot-VLA2 has released full source and inference entry points. ManiMux now has a dedicated
-`XPolicyLab/policy/LingBot_VLA2/` adapter instead of reusing the old Qwen2.5
+`third_party/XPolicyLab/policy/LingBot_VLA2/` adapter instead of reusing the old Qwen2.5
 `LingBot_VLA`.
 
 The local `checkpoints/pretrained/lingbot-vla-v2-6b` is a foundation checkpoint,
@@ -106,11 +106,11 @@ independent safety boundaries.
 finetune server: manimux/configs/policy/lingbot-vla2/yam/finetune.yaml
 base server:     manimux/configs/policy/lingbot-vla2/yam/base.yaml
 infra:   manimux/configs/experiments/pick_red_object/lingbot-vla2/yam_lingbot_vla2_manimux.yaml
-adapter: XPolicyLab/policy/LingBot_VLA2/model.py
-sampler: XPolicyLab/policy/LingBot_VLA2/sampling.py  # PAINT / AutoHorizon
-server:  XPolicyLab/policy/LingBot_VLA2/setup_eval_policy_server.sh
-profile: XPolicyLab/policy/LingBot_VLA2/robot_configs/yam_dual_absolute.yaml
-source:  XPolicyLab/policy/LingBot_VLA2/lingbot_vla_v2/  # vendored upstream source
+adapter: third_party/XPolicyLab/policy/LingBot_VLA2/model.py
+sampler: third_party/XPolicyLab/policy/LingBot_VLA2/sampling.py  # PAINT / AutoHorizon
+server:  third_party/XPolicyLab/policy/LingBot_VLA2/setup_eval_policy_server.sh
+profile: third_party/XPolicyLab/policy/LingBot_VLA2/robot_configs/yam_dual_absolute.yaml
+source:  third_party/XPolicyLab/policy/LingBot_VLA2/lingbot_vla_v2/  # vendored upstream source
 check:   scripts/validation/check_lingbot_vla2_yam.py
 audit:   scripts/validation/lingbot_vla2_yam_audit.py
 prepare: scripts/datasets/prepare_lingbot_vla2_base_assets.py
@@ -124,7 +124,7 @@ ignored by Git and absent from a fresh clone. Deployment uses the policy recipes
 and checkpoint artifacts independently of those local training launchers.
 
 There is no second native server entry point. The standard launcher calls
-`XPolicyLab/setup_policy_server.py`, which loads `model.py` solely through `policy_name: LingBot_VLA2`.
+`third_party/XPolicyLab/setup_policy_server.py`, which loads `model.py` solely through `policy_name: LingBot_VLA2`.
 ManiMux uses it only through the shared WebSocket bridge.
 
 The shared flow bridge prepares normalized inputs and cached visual prefixes for
@@ -159,7 +159,7 @@ grippers. XPolicy preserves native output semantics; ManiMux selects the corresp
 does not silently convert relative actions into absolute ones.
 
 Official source is included directly under
-`XPolicyLab/policy/LingBot_VLA2/lingbot_vla_v2/`. Its baseline is official revision
+`third_party/XPolicyLab/policy/LingBot_VLA2/lingbot_vla_v2/`. Its baseline is official revision
 `951475ae1b1d87553e7dc47c97b53a3d695c0d13`, with YAM extensions tracked by XPolicyLab itself.
 LingBot no longer requires a nested submodule or personal fork.
 
@@ -231,7 +231,7 @@ containing:
 All four feature groups use the official real-robot configuration's `meanstd`. This gives state inputs and action outputs
 correct YAM units, but these are **not the foundation checkpoint's paired post-training stats**,
 so they are only for base-capability diagnostics. For a new dataset or formal fine-tuning, use
-`XPolicyLab/policy/LingBot_VLA2/lingbot_vla_v2/scripts/compute_norm_stats.py`
+`third_party/XPolicyLab/policy/LingBot_VLA2/lingbot_vla_v2/scripts/compute_norm_stats.py`
 to recompute statistics from the training data configuration, and store the generated `norm_stats.json` beside the checkpoint.
 
 ### Prepare base assets
@@ -260,7 +260,7 @@ Like other models, LingBot uses an isolated `uv venv`, fixed at
 `uv sync` on it. Installation is performed by the operator:
 
 ```bash
-cd /home/ubuntu/manimux/XPolicyLab/policy/LingBot_VLA2
+cd /home/ubuntu/manimux/third_party/XPolicyLab/policy/LingBot_VLA2
 bash install.sh
 ```
 
@@ -271,7 +271,7 @@ hardware:
 ```bash
 # terminal 1: XPolicy foundation base server
 cd /home/ubuntu/manimux
-bash XPolicyLab/policy/LingBot_VLA2/setup_eval_policy_server.sh \
+bash third_party/XPolicyLab/policy/LingBot_VLA2/setup_eval_policy_server.sh \
   manimux/configs/policy/lingbot-vla2/yam/base.yaml
 
 # terminal 2: no-CAN forward probe
@@ -300,7 +300,7 @@ terminals in order; do not start a second LingBot server or RTC runtime concurre
 
 ```bash
 cd /home/ubuntu/manimux
-bash XPolicyLab/policy/LingBot_VLA2/setup_eval_policy_server.sh \
+bash third_party/XPolicyLab/policy/LingBot_VLA2/setup_eval_policy_server.sh \
   manimux/configs/policy/lingbot-vla2/yam/base.yaml
 ```
 
@@ -387,7 +387,7 @@ Start the following in order only after the check reports `ready`:
 ```bash
 # terminal 1: model server
 cd /home/ubuntu/manimux
-bash XPolicyLab/policy/LingBot_VLA2/setup_eval_policy_server.sh \
+bash third_party/XPolicyLab/policy/LingBot_VLA2/setup_eval_policy_server.sh \
   manimux/configs/policy/lingbot-vla2/yam/finetune.yaml
 
 # terminal 2: cameras

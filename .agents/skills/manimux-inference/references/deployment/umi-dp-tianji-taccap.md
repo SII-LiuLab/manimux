@@ -28,7 +28,7 @@ separate Python environments; see [Python environments](../../../manimux-station
 
 ```bash
 git submodule update --init --recursive XPolicyLab
-bash XPolicyLab/policy/UMI_DP/install.sh envs/umi_dp/.venv
+bash third_party/XPolicyLab/policy/UMI_DP/install.sh envs/umi_dp/.venv
 ```
 
 These paths name environments to prepare; cloning the repository does not create them.

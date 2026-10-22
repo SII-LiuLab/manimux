@@ -88,7 +88,7 @@ This command loads the real model and uses synthetic constant RGB, without servi
 
 ```bash
 XLA_PYTHON_CLIENT_PREALLOCATE=false \
-XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
+third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
   -m XPolicyLab.policy.Pi_05.offline_pass_ball \
   --config manimux/configs/policy/pi05/tianji/pass_ball/zero-pose-step20000.yaml \
   --checkpoint /home/jw/Desktop/policy/pi05-passball-zero-pose-h32-b16-60k-20260923-192017/checkpoints/20000
@@ -107,7 +107,7 @@ Model server (isolated OpenPI environment; no hardware ownership):
 
 ```bash
 XLA_PYTHON_CLIENT_PREALLOCATE=false \
-XPolicyLab/policy/Pi_05/openpi/.venv/bin/python -m manimux.servers.pi05 \
+third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python -m manimux.servers.pi05 \
   --config-list manimux/configs/lists/pi05-tianji-pass_ball-zero-pose-step20000-standalone.yaml --experiment-id pass_ball_zero_pose_step20000 \
   --local .local/tianji_taccap.yaml \
   --checkpoint /home/jw/Desktop/policy/pi05-passball-zero-pose-h32-b16-60k-20260923-192017/checkpoints/20000
@@ -163,5 +163,5 @@ retain resolved config references and set `execute: true` only in that copy.
 - Static Python/shell checks and focused ManiMux / XPolicyLab regression tests.
 - Real step-20000 GPU forward with synthetic wrist RGB: 32 finite standard dual-arm EE actions.
 - No camera or robot service was started; no real-robot rollout or task success was measured.
-- The training submission transforms are preserved under `XPolicyLab/policy/Pi_05`.
+- The training submission transforms are preserved under `third_party/XPolicyLab/policy/Pi_05`.
   See that policy README for source provenance and unsupported training stages.
