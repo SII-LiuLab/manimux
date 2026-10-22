@@ -8,8 +8,11 @@ An open-source harness for real-world manipulation inference and experiment mana
 
 **[Website](https://sii-liulab.github.io/manimux/)** · **[Documentation](https://sii-liulab.github.io/manimux/guideline.html)** · **[Quick start](#quick-start)** · **[Demo](https://sii-liulab.github.io/manimux/#recordings)**
 
-[![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-28513A?style=flat-square)](pyproject.toml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-28513A?style=flat-square)](LICENSE)
+[![Python: 3.11 | 3.12](https://img.shields.io/badge/Python-3.11%20%7C%203.12-28513A?style=flat&labelColor=26332C&logo=python&logoColor=white)](pyproject.toml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-28513A?style=flat&labelColor=26332C)](LICENSE)
+[![Documentation: Guide](https://img.shields.io/badge/Docs-Guide-28513A?style=flat&labelColor=26332C&logo=readthedocs&logoColor=white)](https://sii-liulab.github.io/manimux/guideline.html)
+[![Contributions welcome](https://img.shields.io/badge/Contributions-welcome-28513A?style=flat&labelColor=26332C)](#contributing)
+[![GitHub stars](https://img.shields.io/github/stars/SII-LiuLab/manimux?style=flat&label=Stars&color=28513A&labelColor=26332C&logo=github&logoColor=white)](https://github.com/SII-LiuLab/manimux/stargazers)
 
 </div>
 
