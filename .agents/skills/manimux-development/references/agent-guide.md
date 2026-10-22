@@ -220,3 +220,11 @@ Fixing a legacy bug does not authorize migrating unrelated models or stopping li
   changes to the user-confirmed remote/branch before publishing a parent gitlink. Never publish
   an unreachable submodule revision or assume a developer branch.
 - Commit or push only when requested. Keep unrelated edits and submodule pointers unchanged.
+
+## Public branch changes
+
+Changes to `main` must go through a pull request; do not push directly to it.
+Keep local training variants and station-specific work on their designated branches
+until explicitly selected for public release. Build cleanup PRs from `main` so they
+do not pull in unrelated local experiments. Review references before removing scratch
+files; keep maintained runtime implementations, licenses and actively used assets.
