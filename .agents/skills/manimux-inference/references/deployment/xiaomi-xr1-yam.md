@@ -12,7 +12,7 @@ do not restore them as current experiment commands.
 | Setting | Current study |
 |---|---|
 | Checkpoint | YAM put-bottles post-training, step 30000; not the mixed-task latest300ep checkpoint |
-| Recipe | `manimux/configs/policy/xiaomi-xr1/yam/finetune-put-bottles-step30000.yaml` |
+| Recipe | `manimux/configs/policy/xiaomi-xr1/yam/{recipe}.yaml` (station-local; not published) |
 | Normalization | Checkpoint-paired `norm_stats.json` selected by that recipe |
 | Native horizon / denoising | 30 actions / 5 denoising steps |
 | Execution window | 18 source steps, explicitly selected for subsequent trials on 2026-10-20 |

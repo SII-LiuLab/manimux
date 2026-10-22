@@ -85,7 +85,7 @@ compositions through the [composition guide](../../../../guideline.html#optional
 Existing inputs for the remaining families:
 
 - XR1: `manimux/configs/experiments/xiaomi-xr1-yam-finetune-put-bottles-step30000/put_bottles/manimux_step30000.yaml`.
-  Supply `--policy-server manimux/configs/policy/xiaomi-xr1/yam/finetune-put-bottles-step30000.yaml`
+  Supply `--policy-server manimux/configs/policy/xiaomi-xr1/yam/{recipe}.yaml`
   when the base only describes the client. H=30; example K=12, d=4.
 - LingBot: `manimux/configs/examples/lingbot_vla2_yam_sampling.yaml`.
   This example binds an existing screwdriver checkpoint and disables robot

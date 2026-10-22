@@ -35,7 +35,7 @@ No camera, policy or robot service is started by configuration loading or `--che
 
 Default recipe/experiment:
 
-- `manimux/configs/policy/pi05/tianji/pass_ball/zero-pose-step20000.yaml`
+- `manimux/configs/policy/pi05/tianji/pass_ball/{recipe}.yaml`
 - `manimux/configs/experiments/pi05-tianji-pass_ball-zero-pose-step20000/pass_ball/zero_pose_step20000.yaml`
 
 The fixed held-out validation selected step 20000; this is not a robot success result.
@@ -90,7 +90,7 @@ This command loads the real model and uses synthetic constant RGB, without servi
 XLA_PYTHON_CLIENT_PREALLOCATE=false \
 third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
   -m XPolicyLab.policy.Pi_05.offline_pass_ball \
-  --config manimux/configs/policy/pi05/tianji/pass_ball/zero-pose-step20000.yaml \
+  --config manimux/configs/policy/pi05/tianji/pass_ball/{recipe}.yaml \
   --checkpoint {tianji_workspace}/policy/pi05-passball-zero-pose-h32-b16-60k-20260923-192017/checkpoints/20000
 ```
 
