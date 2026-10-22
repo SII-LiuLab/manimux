@@ -278,6 +278,9 @@ interpreter; use <code>--camera-python</code> when needed. Use <code>--output-di
 select a separate trial root. <code>up --timeout</code> is a readiness deadline per service.
 JSON results stay on stdout and progress goes to stderr. <code>--open</code> opens the default
 browser; agents can instead open the returned <code>gui_url</code> in their browser panel.</p>
+<p>Hosted policy APIs such as Dream-1 (<code>worker: dream_api</code>) have no model service:
+omit <code>--policy-python</code> and export the key named by
+<code>policy.options.api_key_env</code> in the shell that runs <code>up</code>; doctor checks it.</p>
 <p>For an existing or remote model, replace <code>--policy-python</code> with
 <code>--external-policy</code>; the runtime recipe and station binding select its WebSocket
 endpoint and expected identity. For cameras already published by another owner, use
@@ -1714,10 +1717,15 @@ this autonomous planner loop.</p>
 <code>manimux run --config</code> or <code>--config-list</code> command:</p>
 <pre><code class="language-yaml">agent:
   config: ../local/rpent-agent.yaml
-  python: /path/to/manimux/third_party/RPent/.venv/bin/python
+  # python: optional; defaults to third_party/RPent/.venv/bin/python when installed
 run:
-  execution_mode: vla
+  execution_mode: vla   # initial selection only: vla (Direct VLA) or rpent
 </code></pre>
+<p>Both choices use the experiment's own <code>policy</code>: Direct VLA runs it with the task
+prompt, RPent calls it through <code>execute_policy</code>. Change the VLA by inheriting another
+runtime recipe, e.g. <code>_base_: ../examples/dream1-yam/serial30-example.yaml</code> for hosted
+Dream-1. RPent requires plain Serial inference; a recipe with <code>chunk_policy_steps</code>
+must also set it and <code>max_chunk_policy_steps</code> to <code>null</code>.</p>
 <p><strong>Execution</strong> offers <strong>Direct VLA</strong> and <strong>RPent</strong>.
 The existing task, method, layout, Prepare Run / Prepare Experiment, Start, Pause / Hold,
 Resume, Finish and evaluation controls remain in place. The RPent status, decisions and

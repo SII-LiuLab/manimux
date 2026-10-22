@@ -11,6 +11,8 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 REPOSITORY = Path(__file__).resolve().parents[2]
+# Hosted model APIs run inside the runtime worker; there is no local model service.
+HOSTED_POLICY_WORKERS = {"dream_api"}
 
 
 def external_camera_sensors(config):
@@ -75,9 +77,8 @@ def build_plan(args):
     # Do not resolve interpreter symlinks: doing so loses the virtualenv identity.
     runtime_python = str(args.runtime_python.expanduser().absolute())
     config, config_path, station = {}, None, None
+    hosted_policy = False
     if not args.demo:
-        if args.policy_python is None and not external_policy:
-            raise ValueError("Select the model environment with --policy-python")
         config_path = args.config.expanduser().resolve()
         station = resolve_local_path(config_path, args.local)
         config = _trial_config(
@@ -85,8 +86,19 @@ def build_plan(args):
         )
         if not config["robogui"]["enabled"]:
             raise ValueError("Managed deployment requires robogui.enabled: true")
-        if config["policy"]["worker"] != "xpolicylab_ws":
-            raise ValueError("Managed startup currently supports XPolicyLab WebSocket recipes")
+        hosted_policy = config["policy"]["worker"] in HOSTED_POLICY_WORKERS
+        if hosted_policy:
+            if args.policy_python is not None or external_policy:
+                raise ValueError(
+                    "A hosted policy API has no model service; omit --policy-python "
+                    "and --external-policy"
+                )
+        elif config["policy"]["worker"] != "xpolicylab_ws":
+            raise ValueError(
+                "Managed startup supports XPolicyLab WebSocket recipes and hosted policy APIs"
+            )
+        elif args.policy_python is None and not external_policy:
+            raise ValueError("Select the model environment with --policy-python")
         if external_camera:
             external_camera_sensors(config)
         elif not config.get("camera_server", {}).get("cameras"):
@@ -132,7 +144,7 @@ def build_plan(args):
             endpoint = urlsplit(config["policy"]["options"]["server"])
             if endpoint.scheme not in {"ws", "wss"} or not endpoint.hostname:
                 raise ValueError("External policy requires a WebSocket endpoint")
-        else:
+        elif not hosted_policy:
             policy_host, policy_port = address(f"ws://{policy['host']}:{policy['port']}")
             _, client_port = address(config["policy"]["options"]["server"])
             if policy_port != client_port:
@@ -151,6 +163,8 @@ def build_plan(args):
             "robogui": gui,
             "policy": {"ownership": "external", "ports": [], "probe_python": runtime_python}
             if external_policy
+            else None
+            if hosted_policy
             else {
                 "command": [policy_python, "-m", "manimux.servers.policy", *common],
                 "ports": [[policy_host, policy_port]],
@@ -162,6 +176,8 @@ def build_plan(args):
                 "probe_python": runtime_python,
             },
         }
+        if hosted_policy:
+            del services["policy"]
         if args.output_dir:
             services["runtime"]["command"] += [
                 "--output-dir",
@@ -265,7 +281,16 @@ def doctor(plan, directory, owned=()):
     check("distinct service ports", lambda: _distinct(ports))
     if plan["mode"] != "demo":
         recipe = plan["config"].get("policy_server", {})
-        if plan["services"]["policy"].get("ownership") == "external":
+        if "policy" not in plan["services"]:
+            key = plan["config"]["policy"].get("options", {}).get("api_key_env")
+
+            def hosted_credentials():
+                if key and not os.environ.get(key):
+                    raise ValueError(f"Export {key} in the shell that runs up")
+                return "Hosted API; credentials stay in the runtime environment"
+
+            check("policy credentials", hosted_credentials)
+        elif plan["services"]["policy"].get("ownership") == "external":
             check(
                 "policy artifacts",
                 lambda: "External host owns artifacts; up/status verify HELLO identity",
@@ -280,7 +305,8 @@ def doctor(plan, directory, owned=()):
                 if isinstance(value, str) and Path(value).is_absolute():
                     check(f"artifact: {key}", lambda value=value: _exists(value))
         for name in ("camera", "policy"):
-            if plan["services"][name].get("ownership") == "external":
+            service = plan["services"].get(name)
+            if service is None or service.get("ownership") == "external":
                 continue
 
             def validate_service(name=name):

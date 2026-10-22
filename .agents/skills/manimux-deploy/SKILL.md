@@ -7,8 +7,8 @@ description: Deploy a supported ManiMux model recipe on an installed local stati
 
 Take a fresh conversation from a model/task request to RoboGUI waiting for the operator.
 Use the [managed launch guide](../../../guideline.html#managed-deployment) for commands.
-This workflow manages one runtime `--config`, XPolicyLab WebSocket serving, cameras
-and RoboGUI on Linux with tmux. Use `--external-policy` for an existing local/remote
+This workflow manages one runtime `--config`, XPolicyLab WebSocket serving or a hosted
+policy API (Dream-1), cameras and RoboGUI on Linux with tmux. Use `--external-policy` for an existing local/remote
 model endpoint and `--external-camera` for existing camera-server network readers.
 These dependencies are probed but never started, adopted or stopped; keep their existing
 service owners and network tunnels available. Config-list studies and other model
@@ -65,8 +65,11 @@ the user only starts and controls RoboGUI. Contracts are in the
      rollout joints in the group's `base_frame`. Add `path_validator` only with measured
      extrinsics and table geometry; otherwise tell the user there is no collision check.
    - agent recipe: experiment, motion, task, `planner`/`model`/`reasoning_effort`.
-   - RoboGUI experiment: `_base_` the robot's runtime recipe, `agent.config`,
-     absolute `agent.python`, `run.execution_mode: vla`, and `robot.options.execute: true`.
+   - RoboGUI experiment: `_base_` the runtime recipe of the requested VLA (its `policy`
+     is what both Direct VLA and RPent call), `agent.config`, `run.execution_mode: rpent`
+     (initial selection) and `robot.options.execute: true`. Omit `agent.python` unless the
+     planner lives outside `third_party/RPent/.venv`. Clear `chunk_policy_steps` and
+     `max_chunk_policy_steps` when the base sets a chunk cap; RPent needs plain Serial.
      Using RPent means executing on the robot: with `execute: false` motion tools never
      reach measured arrival and fail. Use `false` only for a dry run the user asks for.
 3. Verify without opening devices: resolve the experiment with `load_config`, build the
@@ -75,7 +78,9 @@ the user only starts and controls RoboGUI. Contracts are in the
    camera/policy `--check` launchers. Run `scripts.validation.rpent_offline_probe` and
    `scripts.validation.rpent_finish_probe` (synthetic robot) with the planner interpreter;
    the latter must report zero robot commands after Finish.
-4. Then `manimux up` with the RoboGUI experiment and open `gui_url`. Hand over at
+4. Then `manimux up` with the RoboGUI experiment and open `gui_url`. A hosted VLA
+   (`dream_api`) takes no `--policy-python`; its key (`policy.options.api_key_env`)
+   must be exported by the user in the shell running `up`; never write it to a file. Hand over at
    **Prepare**: the user selects Execution **RPent**, then Prepare → Start; Pause holds
    and cancels the active call; Finish ends the rollout. Do not press these yourself.
 

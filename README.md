@@ -162,6 +162,8 @@ uv run manimux attach --service runtime  # operator terminal; detach: Ctrl-B, th
 uv run manimux down                      # graceful stop, runtime first
 ```
 
+Hosted model APIs such as Dream-1 need no `--policy-python`; export their API key first.
+
 See [managed deployment](https://sii-liulab.github.io/manimux/guideline.html#managed-deployment)
 for external model/camera services, separate trial roots and Franka.
 

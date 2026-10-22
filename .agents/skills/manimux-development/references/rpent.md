@@ -9,9 +9,34 @@ No model implementation or hardware controller is copied into the agent package.
 
 ### RoboGUI execution selection
 
-An ordinary experiment can declare `agent: {config: /path/to/agent.yaml,
-python: /path/to/manimux/third_party/RPent/.venv/bin/python}`. `config` resolves beside the declaring
-YAML, including inherited bases; `python` defaults to the runtime interpreter.
+An ordinary experiment can declare `agent: {config: /path/to/agent.yaml}`. `config`
+resolves beside the declaring YAML, including inherited bases. The planner interpreter
+`python` is optional: it defaults to `third_party/RPent/.venv/bin/python` when that
+environment exists, otherwise the runtime interpreter. Set it only for another planner env.
+
+`run.execution_mode` is only the initial RoboGUI selection (`vla` = **Direct VLA**,
+`rpent` = **RPent**); the operator can switch before Prepare. Both use the same model:
+the experiment's `policy` section (and `policy_server` for a local model service).
+Direct VLA runs it continuously with `run.task_prompt`; RPent calls it through
+`execute_policy` with the planner's subtask prompt and `use_length`. To change the VLA,
+`_base_` another runtime recipe or override `policy`; there is no separate RPent model field.
+
+The experiment must satisfy the Serial bridge contract checked by
+`PolicyDispatch.validate_config`: `algorithm`/`inference_schedule: serial`,
+`action_start_mode: first_step_when_ready`, no blending, handoff skip, strategy or
+temporal ensemble, inline decoding and chunk IK. `chunk_policy_steps` implies
+`max_chunk_policy_steps`, so a base recipe with a chunk cap needs both set to `null`
+(the planner chooses rows per call). Example on top of the hosted Dream-1 YAM baseline:
+
+```yaml
+_base_: ../examples/dream1-yam/serial30-example.yaml
+agent: {config: rpent_dream1_agent.yaml}   # private recipe: motion, planner, model
+run: {execution_mode: rpent}
+inference: {chunk_policy_steps: null, max_chunk_policy_steps: null}
+```
+
+Hosted workers (`dream_api`) need no model service: launch with `manimux up` without
+`--policy-python`, after exporting the key named by `policy.options.api_key_env`.
 The shared `manimux run` / `--config-list` service then offers **Execution**:
 **Direct VLA** or **RPent**. Without an agent profile the existing VLA page is
 unchanged. Only RPent selection reveals its status, decisions and artifact path.
