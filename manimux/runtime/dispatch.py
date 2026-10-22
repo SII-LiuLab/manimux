@@ -83,6 +83,8 @@ class PolicyDispatch:
         self._reference: dict[str, np.ndarray] | None = None
         self._agent_decisions: dict[str, dict[str, Any]] = {}
         self._agent_status: dict[str, Any] = {}
+        self._agent_messages: list[dict[str, Any]] = []
+        self._agent_message_count = 0
 
     def agent_status(self) -> dict[str, Any]:
         with self._lock:
@@ -190,6 +192,22 @@ class PolicyDispatch:
     def agent_decisions(self) -> list[dict[str, Any]]:
         with self._lock:
             return deepcopy(list(self._agent_decisions.values())[-8:])
+
+    def add_agent_messages(self, messages: list[dict[str, str]]) -> None:
+        """Record planner answers, thinking and tool lines; RoboGUI shows the recent ones."""
+        with self._lock:
+            for message in messages:
+                self._agent_message_count += 1
+                entry = {**message, "text": message["text"][:16384],
+                         "sequence": self._agent_message_count, "wall_time": time.time()}
+                self._agent_messages = [*self._agent_messages[-199:], entry]
+                self._events.append(("agent_message", {**self._metadata, **entry,
+                                                      "session_id": self.session_id}))
+
+    def agent_messages(self) -> list[dict[str, Any]]:
+        # Heartbeats carry a short tail; RoboGUI accumulates by sequence.
+        with self._lock:
+            return [{**m, "text": m["text"][:600]} for m in self._agent_messages[-12:]]
 
     def submit(
         self,

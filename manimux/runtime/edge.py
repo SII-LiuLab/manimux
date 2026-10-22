@@ -864,6 +864,7 @@ class EdgeRuntime(PlanningContext):
                 }
                 if self._dispatch is not None:
                     robogui_episode_metadata["agent_decisions"] = self._dispatch.agent_decisions()
+                    robogui_episode_metadata["agent_messages"] = self._dispatch.agent_messages()
                     robogui_episode_metadata["agent_status"] = self._dispatch.agent_status()
                 self._robogui.set_state_metadata(robogui_episode_metadata)
                 if robogui_control.finish_requested and (

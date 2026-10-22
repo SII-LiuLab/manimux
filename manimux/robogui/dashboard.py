@@ -25,6 +25,7 @@ from manimux.evaluation.rubric import count_result, evaluation_parameters, stage
 from manimux.types import FloatArray, UInt8Array
 
 from .agent_decisions import decisions_markdown, merge_decisions, read_decisions
+from .agent_feed import AgentFeed
 from .camera_panel import CameraPanel
 from .camera_panel import _camera_panel_html as _camera_panel_html
 from .chunk_timeline import ChunkTimelineView
@@ -390,6 +391,7 @@ class PolicyRoboGUI:
             )
             self.agent_history_summary = self.server.gui.add_markdown("", visible=False)
             self.agent_decisions_view = self.server.gui.add_markdown("")
+        self.agent_feed = AgentFeed(self.server.gui)
         self._agent_decisions_content = ""
         self._agent_decision_rows: list[dict[str, Any]] = []
         self._agent_decisions_show_all = False
@@ -1849,6 +1851,7 @@ class PolicyRoboGUI:
         self.last_rollout_error = ""
         self.last_rollout_failure = {}
         self._update_agent_decisions([])
+        self.agent_feed.reset()
         self.agent_run_status.value = "Ready · starts with Start rollout"
         self.agent_records.value = ""
         self.agent_records.visible = False
@@ -2455,6 +2458,9 @@ class PolicyRoboGUI:
                     and "agent_decisions" in metadata):
                 self._update_agent_decisions(metadata["agent_decisions"])
                 self._update_agent_status(metadata.get("agent_status", {}))
+                if self._execution_mode == "rpent":
+                    self.agent_feed.update(metadata.get("agent_messages", []),
+                                           metadata.get("agent_status", {}))
             if (self.home_requested and metadata.get("home_ack") and metadata["home_ack"]
                     == getattr(self, "_home_request_id", "")):
                 self.home_requested = False
@@ -2501,11 +2507,13 @@ class PolicyRoboGUI:
             self.execution_select.value = label
         if changed:
             self._update_agent_decisions([])
+            self.agent_feed.reset()
             self.agent_run_status.value = "Ready · starts with Start rollout"
             self.agent_records.value = ""
             self.agent_records.visible = False
             self.agent_action.visible = False
         self.agent_decisions_folder.visible = mode == "rpent"
+        self.agent_feed.set_visible(mode == "rpent")
         if hasattr(self, "_base_research_defaults"):
             self._research_defaults = dict(self._base_research_defaults)
             self._research_defaults["condition"] = execution_condition(
@@ -2738,6 +2746,7 @@ class PolicyRoboGUI:
             self.agent_action.visible = False
             self.agent_action.value = "waiting"
             self._update_agent_decisions([])
+            self.agent_feed.reset()
             self.agent_run_status.value = "Ready · starts with Start rollout"
             self.agent_records.value = str(metadata.get("agent_run_dir", ""))
             self.agent_records.visible = bool(self.agent_records.value) and self._execution_mode == "rpent"

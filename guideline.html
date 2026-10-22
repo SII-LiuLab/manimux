@@ -1735,6 +1735,11 @@ profile keeps its existing VLA interface.</p>
 opens the current rollout's complete recorded history in chronological order, with full
 policy prompts, finish summaries and error text. This view reports recorded tool choices
 and outcomes; unavailable recordings are shown explicitly.</p>
+<p>A message bar at the bottom of RoboGUI follows the planner live: its answers, reasoning
+summaries, tool calls and errors, newest first, with the time since Start. Before the first
+reply it shows that the planner is thinking. Codex and Claude Code planners stream into it;
+the API planner shows only its tool decisions until it finishes. Messages are also recorded
+with the rollout.</p>
 <p>Prepare freezes the choice and validates the planner environment. Start launches RPent
 with the selected task and enabled tools; no separate planner command is needed. Pause cancels the
 current bounded action and waits for operator Resume. Finish stops the rollout and its

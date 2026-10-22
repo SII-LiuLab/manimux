@@ -264,8 +264,15 @@ history, including uncut policy prompts, finish summaries and errors. Selected a
 terminal events merge by decision ID; late heartbeats cannot replace a terminal
 outcome with Selected. The reader also supports an active `.partial` rollout and
 reports unavailable or malformed recordings instead of inventing missing results.
-Reconnects recover the history and new rollouts clear it. Planner reasoning text
-is not projected.
+Reconnects recover the history and new rollouts clear it.
+
+The planner's own transcript is shown in a bottom message bar while RPent is selected:
+answers, reasoning summaries, tool lines, operator steering and errors, newest first, with
+the time since Start (and "planner is thinking" before the first message).
+`agents/rpent/transcript.py` follows the backend's live `planner/*_planner.txt` (Codex and
+Claude Code write it as they run; the API planner returns its transcript only at the end,
+so only its tool decisions appear live). Each block is recorded as an `agent_message`
+event (text up to 16 KiB); heartbeats carry the latest 12, truncated for display.
 Completed motion budgets are not reported as policy rows. Toolkit close cancels
 its outstanding calls but does not finalize the rollout; RoboGUI Finish does.
 
