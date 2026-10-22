@@ -18,7 +18,7 @@ from typing import Any, Literal, cast
 import numpy as np
 import viser
 
-from manimux.agents.execution import EXECUTION_LABELS, execution_condition
+from manimux.agents.execution import execution_condition
 from manimux.evaluation import write_manual_evaluation
 from manimux.evaluation.identity import rollout_identity, start_identity
 from manimux.evaluation.rubric import count_result, evaluation_parameters, stage_option
@@ -322,11 +322,8 @@ class PolicyRoboGUI:
             self.experiment_config = self.server.gui.add_dropdown(
                 "Method / Config", ("—",), disabled=True, visible=False,
             )
-            self.execution_select = self.server.gui.add_dropdown(
-                "Execution", ("Direct VLA",), disabled=True, visible=False,
-            )
+            # An agent profile makes the experiment RPent; otherwise it runs the VLA.
             self._execution_mode = "vla"
-            self._execution_choices = ["vla"]
             self.initial_pose = self.server.gui.add_dropdown(
                 "Initial pose", ("Default pose",), disabled=True, visible=False,
             )
@@ -544,20 +541,6 @@ class PolicyRoboGUI:
                              if p["label"] == self.initial_pose.value), None)
                 if pose is not None:
                     self._request_initial_pose(pose["id"])
-
-        @self.execution_select.on_update
-        def _select_execution(event: Any) -> None:
-            if event.client is None:
-                return
-            with self.lock:
-                if self.execution_select.disabled:
-                    self.execution_select.value = EXECUTION_LABELS[self._execution_mode]
-                    return
-                mode = next(k for k, v in EXECUTION_LABELS.items()
-                            if v == self.execution_select.value)
-                self._set_execution_mode(mode)
-                self._refresh_repeat_history()
-                self._refresh_layout()
 
         @self.prepare_normal_btn.on_click
         def _prepare_run(_event: Any) -> None:
@@ -1454,7 +1437,6 @@ class PolicyRoboGUI:
             self.top_overlay.image.visible = self.experiments_available
         self.experiment_task.disabled = not can_prepare
         self.experiment_config.disabled = not can_prepare
-        self.execution_select.disabled = not can_prepare
         self.initial_pose.disabled = not can_prepare
         self.prepare_normal_btn.disabled = not can_prepare
         self.prepare_experiment_btn.disabled = not can_prepare or not self.experiments_available
@@ -1522,10 +1504,7 @@ class PolicyRoboGUI:
         self._refresh_layout()
 
     def _configure_experiment_choices(self, metadata: dict[str, Any]) -> None:
-        self._execution_choices = list(metadata.get("execution_choices", ["vla"]))
-        self.execution_select.options = tuple(EXECUTION_LABELS[k] for k in self._execution_choices)
-        self.execution_select.visible = len(self._execution_choices) > 1
-        mode = self._execution_mode if self._execution_mode in self._execution_choices else "vla"
+        mode = list(metadata.get("execution_choices", ["vla"]))[0]
         if self.launch_mode == "unknown":
             mode = str(metadata.get("execution_mode", mode))
         self._set_execution_mode(mode)
@@ -2475,9 +2454,6 @@ class PolicyRoboGUI:
     def _set_execution_mode(self, mode: str) -> None:
         changed = mode != self._execution_mode
         self._execution_mode = mode
-        label = EXECUTION_LABELS[mode]
-        if label in self.execution_select.options:
-            self.execution_select.value = label
         if changed:
             self.agent_feed.reset()
             self.agent_action.visible = False

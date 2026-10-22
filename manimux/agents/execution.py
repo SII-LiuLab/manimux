@@ -1,4 +1,4 @@
-"""GUI execution selection; no planner dependency or hardware construction."""
+"""RPent experiment parameters; no planner dependency or hardware construction."""
 
 from __future__ import annotations
 
@@ -7,8 +7,6 @@ import sys
 from pathlib import Path
 
 from manimux.config_validation import check_fields
-
-EXECUTION_LABELS = {"vla": "Direct VLA", "rpent": "RPent"}
 
 
 def default_planner_python() -> str:
@@ -39,11 +37,12 @@ def agent_parameters(options: dict) -> dict:
 
 
 def execution_choices(config: dict) -> list[str]:
-    return ["vla", "rpent"] if config.get("agent") else ["vla"]
+    # An agent profile makes this an RPent experiment; plain VLA runs use ordinary recipes.
+    return ["rpent"] if config.get("agent") else ["vla"]
 
 
 def execution_condition(condition: str, mode: str) -> str:
-    """Keep direct VLA study identity intact and count RPent trials separately."""
+    """Keep VLA-only study identity intact and count RPent trials separately."""
     if condition == "RPent" or condition.endswith(" / RPent"):
         return condition
     return f"{condition} / RPent" if mode == "rpent" and condition else (

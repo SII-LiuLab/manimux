@@ -731,7 +731,7 @@ def prepare_experiment(**options) -> dict:
         from manimux.agents.execution import agent_parameters
         values["agent"] = agent_parameters(values["agent"])
     if values["run"]["execution_mode"] is None:
-        # An agent profile opens RoboGUI on RPent; Direct VLA stays selectable.
+        # An agent profile makes this an RPent experiment.
         values["run"]["execution_mode"] = "rpent" if values.get("agent") else "vla"
     if values["run"]["execution_mode"] == "rpent" and not values.get("agent"):
         raise ValueError("RPent execution requires agent.config")

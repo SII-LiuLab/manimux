@@ -7,20 +7,26 @@ No model implementation or hardware controller is copied into the agent package.
 
 ## One entry, one toolkit, one runtime
 
-### RoboGUI execution selection
+### RPent experiments in RoboGUI
 
-An ordinary experiment can declare `agent: {config: /path/to/agent.yaml}`. `config`
-resolves beside the declaring YAML, including inherited bases. The planner interpreter
-`python` is optional: it defaults to `third_party/RPent/.venv/bin/python` when that
-environment exists, otherwise the runtime interpreter. Set it only for another planner env.
+An experiment becomes an RPent experiment by declaring `agent: {config: /path/to/agent.yaml}`.
+`config` resolves beside the declaring YAML, including inherited bases. The planner
+interpreter `python` is optional: it defaults to `third_party/RPent/.venv/bin/python` when
+that environment exists, otherwise the runtime interpreter. Set it only for another env.
 
-RoboGUI opens on **RPent** when the experiment has an agent profile and on **Direct VLA**
-otherwise; the operator can switch before Prepare. `run.execution_mode` is not a YAML
-setting: Prepare stores the selection per rollout and recorded configs keep it. Both use the same model:
-the experiment's `policy` section (and `policy_server` for a local model service).
-Direct VLA runs it continuously with `run.task_prompt`; RPent calls it through
-`execute_policy` with the planner's subtask prompt and `use_length`. To change the VLA,
-`_base_` another runtime recipe or override `policy`; there is no separate RPent model field.
+Such an experiment runs only RPent; there is no Direct VLA choice. Running the VLA on its
+own is what an ordinary recipe without `agent` does (XPolicyLab, Dream-1 and the other
+policy integrations). `run.execution_mode` is not a YAML setting; recorded configs keep the
+mode of each rollout. The planner calls the experiment's own model, its `policy` section
+(and `policy_server` for a local model service), through `execute_policy` with a subtask
+prompt and `use_length`. To change the VLA, `_base_` another runtime recipe or override
+`policy`; there is no separate RPent model field.
+
+The shared `manimux run` / `--config-list` service shows the RPent agent view (bottom
+message bar). Prepare validates the planner environment; Start launches the native
+planner with the current task. The profile's experiment/task/output/endpoint do not replace
+the experiment's: output and loopback endpoint are unique per rollout. The profile supplies
+planner/model/reasoning, memory and the calibrated motion file.
 
 The experiment must satisfy the Serial bridge contract checked by
 `PolicyDispatch.validate_config`: `algorithm`/`inference_schedule: serial`,
@@ -51,13 +57,6 @@ the instruction changes, and on `DreamSessionExpired` asks once more on the repl
 session the gateway already adopted. That retry costs one extra round trip (~3 s), so RPent
 Dream configs should allow `policy.timeout_s` and `inference.max_plan_age_s` of about 10 s;
 the arms hold while a call waits.
-The shared `manimux run` / `--config-list` service then offers **Execution**:
-**Direct VLA** or **RPent**. Without an agent profile the existing VLA page is
-unchanged. Only RPent selection reveals its status, decisions and artifact path.
-Prepare freezes the choice; Start launches the native planner with the current
-task and, when enabled, the selected experiment's VLA. The profile's experiment/task/output/endpoint
-do not replace that selection: output and loopback endpoint are unique per rollout.
-The profile supplies planner/model/reasoning, memory and the calibrated motion file.
 
 `agents/rpent/session.py` wraps the ordinary EdgeRuntime, validates the independent
 planner environment before device startup, and owns only the planner process group
@@ -71,15 +70,15 @@ as a session error. Every Prepare creates new planner artifacts and a new dispat
 session, preventing an old planner from reaching a subsequent rollout.
 
 RPent trials append ` / RPent` to the configured study condition (or use `RPent`
-when empty); Direct VLA conditions are unchanged. This keeps repeat counts and
-human evaluations separate. The episode records execution mode and agent artifact
+when empty), keeping their repeat counts and human evaluations apart from VLA-only
+recipes in the same study. The episode records execution mode and agent artifact
 directory; that directory retains effective configuration, motion profile, native
 recipe, provider evidence, tool records and planner result. Existing Serial bridge
 limits still apply; incompatible methods fail before devices connect. Do not silently
 rewrite a VLA inference algorithm to enable the option.
 
 With policy calls enabled, optional `run.warmup_before_start: true` uses **Prepare → Activate
-Warmup → Start rollout** flow for both execution choices. RPent warmup runs the
+Warmup → Start rollout** flow. RPent warmup runs the
 selected VLA configuration through the shared isolated preview, including the
 same gripper-range and calibrated path validation as policy calls. It uses the
 configured task prompt and horizon without asking the planner to choose actions.
@@ -92,8 +91,7 @@ or motion checks; cold calls can still be rejected before later requests warm up
 For an explicit debugging condition, the experiment's optional
 `agent.debug_max_plan_age_s` accepts a finite positive number of seconds. Only
 managed GUI RPent applies it to its copied runtime configuration, including the
-warmup preview. Direct VLA retains ordinary `inference.max_plan_age_s`, even when
-selected in the same variant. The provider request timeout, control freshness and
+warmup preview. The provider request timeout, control freshness and
 motion checks are unchanged. This field is included in collection fingerprints
 only when set; use a distinct debug variant instead of changing a recorded condition.
 The session manifest retains the base limit and opt-in, while the agent's
@@ -107,8 +105,7 @@ omits `execute_policy` and `observe.policy_contract`, and its prompt describes
 observation and motion without VLA instructions. Runtime status advertises the
 flag and `/execute` rejects requests independently of the tool schema. The same
 mailbox, motion planner, executor, safety checks and GUI lifecycle remain in use;
-Start still belongs to the operator. Direct VLA remains unchanged, including its
-configured warmup, even in this variant. Explicit `false` participates in condition
+Start still belongs to the operator. Explicit `false` participates in condition
 fingerprints; omission and `true` retain the baseline. Use a separate
 **RPent · Primitives only** variant.
 `configs/examples/rpent_gui_primitives.yaml` provides a disconnected example.

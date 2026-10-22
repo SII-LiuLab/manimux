@@ -9,9 +9,8 @@ These files select complete runtime configurations. Launch workflows live in the
 - RPent examples (rpent_demo.yaml, rpent_franka.yaml and rpent_yam.yaml) are selected
   by the corresponding agents/rpent*.yaml recipe. One Toolkit supplies motion and
   VLA tools. See [RPent](../../../guideline.html#agent-integrations).
-- rpent_gui_demo.yaml is a disconnected RoboGUI execution-selector example. It uses
-  the same Prepare/Start/Pause/Finish controls for Direct VLA and RPent; configure the
-  referenced agent provider first.
+- rpent_gui_demo.yaml is a disconnected RoboGUI RPent example. It uses the ordinary
+  Prepare/Start/Pause/Finish controls; configure the referenced agent provider first.
 - policy_dispatch_demo.yaml and RPent *_native.yaml files are legacy protocol
   regression fixtures; the native environment launcher is retired. The current
   user-facing synthetic example is agents/rpent.yaml.

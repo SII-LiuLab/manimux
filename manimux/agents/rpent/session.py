@@ -33,7 +33,7 @@ class ManagedRPentRuntime:
         self.launch = agent_parameters(self.config.get("agent") or {})
         if "debug_max_plan_age_s" in self.launch:
             # Explicit RPent-only debugging condition, shared by preview and
-            # execution. The caller's Direct VLA configuration stays unchanged.
+            # execution, on this runtime's copy of the experiment configuration.
             self.config["inference"]["max_plan_age_s"] = self.launch["debug_max_plan_age_s"]
         self.recipe_path = Path(self.launch["config"])
         self.recipe = load_agent_config(self.recipe_path, {})

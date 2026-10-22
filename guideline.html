@@ -1718,25 +1718,24 @@ use its Codex backend with the account already logged in on the planner host:</p
 by the model. RPent saves the native planner transcript and tool calls in the
 output directory. Direct tool calls from a chat or scripted probe do not exercise
 this autonomous planner loop.</p>
-<h3>Choose RPent in RoboGUI</h3>
-<p>Add an agent profile to an ordinary experiment, then launch it with the usual
-<code>manimux run --config</code> or <code>--config-list</code> command:</p>
+<h3>Run RPent in RoboGUI</h3>
+<p>Add an agent profile to an experiment to make it an RPent experiment, then launch it
+with the usual <code>manimux up</code>, <code>manimux run --config</code> or
+<code>--config-list</code> command:</p>
 <pre><code class="language-yaml">agent:
   config: ../local/rpent-agent.yaml
   # python: optional; defaults to third_party/RPent/.venv/bin/python when installed
 </code></pre>
-<p>RoboGUI opens on RPent when an agent profile is present; Direct VLA stays selectable
-before Prepare, and each rollout records its choice. Both use the experiment's own <code>policy</code>: Direct VLA runs it with the task
-prompt, RPent calls it through <code>execute_policy</code>. Change the VLA by inheriting another
+<p>An RPent experiment runs only RPent; running the VLA on its own is what an ordinary
+recipe without <code>agent</code> does. The planner calls the experiment's own
+<code>policy</code> through <code>execute_policy</code>. Change the VLA by inheriting another
 runtime recipe, e.g. <code>_base_: ../examples/dream1-yam/serial-slow10.yaml</code> for hosted
 Dream-1 with Smooth execution and 10 Hz rows interpolated at 100 Hz. RPent requires plain
 Serial inference without blending; a recipe with <code>chunk_policy_steps</code> must also set
 it and <code>max_chunk_policy_steps</code> to <code>null</code>.</p>
-<p><strong>Execution</strong> offers <strong>Direct VLA</strong> and <strong>RPent</strong>.
-The existing task, method, layout, Prepare Run / Prepare Experiment, Start, Pause / Hold,
-Resume, Finish and evaluation controls remain in place. The RPent status, decisions and
-agent record location appear only when RPent is selected. An experiment without an agent
-profile keeps its existing VLA interface.</p>
+<p>The existing task, method, layout, Prepare Run / Prepare Experiment, Start, Pause / Hold,
+Resume, Finish and evaluation controls remain in place, plus the agent message bar. An
+experiment without an agent profile keeps its existing VLA interface.</p>
 <p>A message bar at the bottom of RoboGUI follows the planner live: its answers, reasoning
 summaries, tool calls and errors in chronological order, with the time since Start. It
 follows new lines while scrolled to the bottom, keeps its place when you scroll up, lets
@@ -1744,18 +1743,18 @@ you select and copy text, and resizes from the grip on its top edge. Before the 
 reply it shows that the planner is thinking. Codex and Claude Code planners stream into it;
 the API planner shows only its tool decisions until it finishes. Messages are also recorded
 with the rollout.</p>
-<p>Prepare freezes the choice and validates the planner environment. Start launches RPent
+<p>Prepare validates the planner environment. Start launches RPent
 with the selected task and enabled tools; no separate planner command is needed. Pause cancels the
 current bounded action and waits for operator Resume. Finish stops the rollout and its
 planner. A planner verdict also ends the rollout through the normal robot cleanup; scored
 experiments still require a human evaluation or Skip. RPent trials use a separate
-<code> / RPent</code> condition suffix so they do not count toward Direct VLA repeats.</p>
+<code> / RPent</code> condition suffix so they do not count toward VLA-only repeats.</p>
 <p>The agent profile supplies its planner, model, reasoning level, memory and calibrated
 motion file. The current GUI experiment supplies the robot, VLA and task; managed runs
 allocate their own endpoint and output directory. The existing Serial bridge
 constraints still apply. An incompatible method is rejected before robot connection.
 <code>manimux/configs/examples/rpent_gui_demo.yaml</code> provides a disconnected synthetic
-example; configure the referenced planner provider before selecting RPent.</p>
+example; configure the referenced planner provider first.</p>
 <p>To warm the selected VLA before RPent starts, set
 <code>run.warmup_before_start: true</code> and use the existing
 <strong>Prepare → Activate Warmup → Start rollout</strong> controls. Warmup uses the
@@ -1769,8 +1768,7 @@ that later model calls will meet them.</p>
 <p>For an explicit RPent debugging condition, add
 <code>agent.debug_max_plan_age_s: 2.0</code> to the experiment. This optional finite,
 positive value changes the plan-age limit only for managed GUI RPent, including its
-warmup. Direct VLA keeps the ordinary <code>inference.max_plan_age_s</code>, even
-when selected in that same variant. Provider request timeout, control freshness and
+warmup. Provider request timeout, control freshness and
 motion checks stay unchanged. Use a distinct debug variant rather than changing an
 existing recorded condition; the setting is included in its condition fingerprint.
 The disconnected <a href="manimux/configs/examples/rpent_gui_debug.yaml">RPent debug
@@ -1782,8 +1780,7 @@ to true. RPent then offers <code>observe</code>, <code>move_to</code>,
 <code>execute_policy</code> and the observation's policy contract are absent.
 The runtime also rejects policy calls and skips its VLA worker and warmup.
 Use <strong>Prepare → Start rollout</strong>; Astra chooses the primitives through
-the existing motion, safety and GUI controls. Direct VLA retains its configured
-policy and warmup even in the same variant. Keep these records in a distinct
+the existing motion, safety and GUI controls. Keep these records in a distinct
 <strong>RPent · Primitives only</strong> variant; <code>false</code> changes its
 condition fingerprint, while omission and <code>true</code> retain the baseline.
 See the disconnected

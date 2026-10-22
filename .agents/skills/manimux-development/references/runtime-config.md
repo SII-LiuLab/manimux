@@ -603,15 +603,14 @@ or stale controls cannot enable it. Preview work creates no agent tool calls or
 formal dispatched-step/chunk counts, and all timing and motion limits still apply.
 
 An explicit `agent.debug_max_plan_age_s` overrides only managed GUI RPent's copied
-plan-age limit for both preview and execution. It must be finite and positive;
-Direct VLA uses the original inference limit even within the same variant. Provider
+plan-age limit for both preview and execution. It must be finite and positive. Provider
 request timeouts, control freshness and motion checks remain unchanged. The opt-in
 participates in the collection fingerprint; select a new debug variant for recorded
 conditions. Omission preserves existing fingerprints and runtime behavior.
 
 `agent.policy_enabled: false` selects observation and motion primitives only for
 managed RPent. This boolean defaults to true. It omits the policy worker and VLA
-warmup in that runtime, while Direct VLA keeps its original configuration. Runtime
+warmup in that runtime. Runtime
 status exposes the capability; `/execute` rejects disabled policy calls and the
 native Toolkit omits both `execute_policy` and `observe.policy_contract`. Shared
 motion, safety, control freshness and Start/Pause/Finish behavior stay unchanged.
