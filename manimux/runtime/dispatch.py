@@ -201,7 +201,10 @@ class PolicyDispatch:
                 entry = {**message, "text": message["text"][:16384],
                          "sequence": self._agent_message_count, "wall_time": time.time()}
                 self._agent_messages = [*self._agent_messages[-199:], entry]
-                self._events.append(("agent_message", {**self._metadata, **entry,
+                # Recorder.event(kind, **fields) reserves `kind` for the event type.
+                fields = {k: v for k, v in entry.items() if k != "kind"}
+                self._events.append(("agent_message", {**self._metadata, **fields,
+                                                      "message_kind": entry["kind"],
                                                       "session_id": self.session_id}))
 
     def agent_messages(self) -> list[dict[str, Any]]:
