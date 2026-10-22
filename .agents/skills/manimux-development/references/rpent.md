@@ -40,13 +40,14 @@ Policy chunks still use the main loop's timeline and executor. Rows are interpol
 `robot.control_hz`, so a 10 Hz policy (`action_dt_s: 0.1`) at 100 Hz control works, and a
 Smooth executor filters both VLA chunks and motion primitives. Smooth limits add tracking
 lag, so `settle_timeout_s` in the motion profile must cover it (the default primitive
-speeds, 0.03 rad/s and 4 mm/s, are far below the YAM Smooth limits). Example on the hosted
-Dream-1 YAM baseline (Serial + Smooth, 10 Hz rows at 100 Hz control):
+speeds, 0.03 rad/s and 4 mm/s, are far below the YAM Smooth limits). The public
+`examples/rpent_dream1_yam.yaml` is a complete example on the hosted Dream-1 YAM baseline:
 
 ```yaml
-_base_: ../examples/dream1-yam/serial-slow10.yaml
-agent: {config: rpent_dream1_agent.yaml}   # private recipe: motion, planner, model
-inference: {chunk_policy_steps: null, max_chunk_policy_steps: null}
+_base_: dream1-yam/serial30-example.yaml   # Serial 30 Hz, Direct executor
+agent: {config: ../agents/rpent_dream1_yam.yaml}
+inference: {chunk_policy_steps: null, max_chunk_policy_steps: null, max_plan_age_s: 10.0}
+policy: {timeout_s: 10.0}
 ```
 
 Hosted workers (`dream_api`) need no model service: launch with `manimux up` without

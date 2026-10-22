@@ -1729,8 +1729,8 @@ with the usual <code>manimux up</code>, <code>manimux run --config</code> or
 <p>An RPent experiment runs only RPent; running the VLA on its own is what an ordinary
 recipe without <code>agent</code> does. The planner calls the experiment's own
 <code>policy</code> through <code>execute_policy</code>. Change the VLA by inheriting another
-runtime recipe, e.g. <code>_base_: ../examples/dream1-yam/serial-slow10.yaml</code> for hosted
-Dream-1 with Smooth execution and 10 Hz rows interpolated at 100 Hz. RPent requires plain
+runtime recipe, as <code>examples/rpent_dream1_yam.yaml</code> does with
+<code>dream1-yam/serial30-example.yaml</code> for hosted Dream-1. RPent requires plain
 Serial inference without blending; a recipe with <code>chunk_policy_steps</code> must also set
 it and <code>max_chunk_policy_steps</code> to <code>null</code>.</p>
 <p>The existing task, method, layout, Prepare Run / Prepare Experiment, Start, Pause / Hold,
