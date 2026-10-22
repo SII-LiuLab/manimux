@@ -14,8 +14,9 @@ resolves beside the declaring YAML, including inherited bases. The planner inter
 `python` is optional: it defaults to `third_party/RPent/.venv/bin/python` when that
 environment exists, otherwise the runtime interpreter. Set it only for another planner env.
 
-`run.execution_mode` is only the initial RoboGUI selection (`vla` = **Direct VLA**,
-`rpent` = **RPent**); the operator can switch before Prepare. Both use the same model:
+RoboGUI opens on **RPent** when the experiment has an agent profile and on **Direct VLA**
+otherwise; the operator can switch before Prepare. `run.execution_mode` is not a YAML
+setting: Prepare stores the selection per rollout and recorded configs keep it. Both use the same model:
 the experiment's `policy` section (and `policy_server` for a local model service).
 Direct VLA runs it continuously with `run.task_prompt`; RPent calls it through
 `execute_policy` with the planner's subtask prompt and `use_length`. To change the VLA,
@@ -26,12 +27,19 @@ The experiment must satisfy the Serial bridge contract checked by
 `action_start_mode: first_step_when_ready`, no blending, handoff skip, strategy or
 temporal ensemble, inline decoding and chunk IK. `chunk_policy_steps` implies
 `max_chunk_policy_steps`, so a base recipe with a chunk cap needs both set to `null`
-(the planner chooses rows per call). Example on top of the hosted Dream-1 YAM baseline:
+(the planner chooses rows per call). Blending stays off: one request at a time, and the
+robot holds between chunks while the next inference runs.
+
+Policy chunks still use the main loop's timeline and executor. Rows are interpolated at
+`robot.control_hz`, so a 10 Hz policy (`action_dt_s: 0.1`) at 100 Hz control works, and a
+Smooth executor filters both VLA chunks and motion primitives. Smooth limits add tracking
+lag, so `settle_timeout_s` in the motion profile must cover it (the default primitive
+speeds, 0.03 rad/s and 4 mm/s, are far below the YAM Smooth limits). Example on the hosted
+Dream-1 YAM baseline (Serial + Smooth, 10 Hz rows at 100 Hz control):
 
 ```yaml
-_base_: ../examples/dream1-yam/serial30-example.yaml
+_base_: ../examples/dream1-yam/serial-slow10.yaml
 agent: {config: rpent_dream1_agent.yaml}   # private recipe: motion, planner, model
-run: {execution_mode: rpent}
 inference: {chunk_policy_steps: null, max_chunk_policy_steps: null}
 ```
 

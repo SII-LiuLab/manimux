@@ -1718,14 +1718,14 @@ this autonomous planner loop.</p>
 <pre><code class="language-yaml">agent:
   config: ../local/rpent-agent.yaml
   # python: optional; defaults to third_party/RPent/.venv/bin/python when installed
-run:
-  execution_mode: vla   # initial selection only: vla (Direct VLA) or rpent
 </code></pre>
-<p>Both choices use the experiment's own <code>policy</code>: Direct VLA runs it with the task
+<p>RoboGUI opens on RPent when an agent profile is present; Direct VLA stays selectable
+before Prepare, and each rollout records its choice. Both use the experiment's own <code>policy</code>: Direct VLA runs it with the task
 prompt, RPent calls it through <code>execute_policy</code>. Change the VLA by inheriting another
-runtime recipe, e.g. <code>_base_: ../examples/dream1-yam/serial30-example.yaml</code> for hosted
-Dream-1. RPent requires plain Serial inference; a recipe with <code>chunk_policy_steps</code>
-must also set it and <code>max_chunk_policy_steps</code> to <code>null</code>.</p>
+runtime recipe, e.g. <code>_base_: ../examples/dream1-yam/serial-slow10.yaml</code> for hosted
+Dream-1 with Smooth execution and 10 Hz rows interpolated at 100 Hz. RPent requires plain
+Serial inference without blending; a recipe with <code>chunk_policy_steps</code> must also set
+it and <code>max_chunk_policy_steps</code> to <code>null</code>.</p>
 <p><strong>Execution</strong> offers <strong>Direct VLA</strong> and <strong>RPent</strong>.
 The existing task, method, layout, Prepare Run / Prepare Experiment, Start, Pause / Hold,
 Resume, Finish and evaluation controls remain in place. The RPent status, decisions and

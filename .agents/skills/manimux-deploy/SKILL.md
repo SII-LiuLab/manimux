@@ -66,10 +66,12 @@ the user only starts and controls RoboGUI. Contracts are in the
      extrinsics and table geometry; otherwise tell the user there is no collision check.
    - agent recipe: experiment, motion, task, `planner`/`model`/`reasoning_effort`.
    - RoboGUI experiment: `_base_` the runtime recipe of the requested VLA (its `policy`
-     is what both Direct VLA and RPent call), `agent.config`, `run.execution_mode: rpent`
-     (initial selection) and `robot.options.execute: true`. Omit `agent.python` unless the
-     planner lives outside `third_party/RPent/.venv`. Clear `chunk_policy_steps` and
-     `max_chunk_policy_steps` when the base sets a chunk cap; RPent needs plain Serial.
+     is what both Direct VLA and RPent call), `agent.config` and
+     `robot.options.execute: true`. Do not write `run.execution_mode`; RoboGUI opens on
+     RPent. Omit `agent.python` unless the planner lives outside `third_party/RPent/.venv`.
+     Prefer a Serial base with the station's normal interpolation and executor (e.g. Dream-1
+     `serial-slow10`: Smooth, 10 Hz rows at 100 Hz). Clear `chunk_policy_steps` and
+     `max_chunk_policy_steps` when the base sets a chunk cap; keep blending off.
      Using RPent means executing on the robot: with `execute: false` motion tools never
      reach measured arrival and fail. Use `false` only for a dry run the user asks for.
 3. Verify without opening devices: resolve the experiment with `load_config`, build the

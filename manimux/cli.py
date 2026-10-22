@@ -631,7 +631,8 @@ def run_parameters(**options) -> dict:
         raise ValueError("unsupported run field: max_steps")
     values = merge_parameters({
         "output_dir": Path("data"),
-        "execution_mode": "vla",
+        # Per-rollout RoboGUI selection, retained in recorded configs; not a YAML setting.
+        "execution_mode": None,
         "max_control_steps": 500,
         "warmup_before_start": False,
         "control_timing": False,
@@ -648,7 +649,7 @@ def run_parameters(**options) -> dict:
     }, options, 'run', extra=('task_prompt', 'initial_pose', 'initial_pose_options', 'history_sessions', 'agent_run_dir'))
     if values.get("output_dir") is not None:
         values["output_dir"] = Path(values["output_dir"])
-    if values["execution_mode"] not in {"vla", "rpent"}:
+    if values["execution_mode"] not in {None, "vla", "rpent"}:
         raise ValueError("run.execution_mode must be vla or rpent")
     if type(values["max_control_steps"]) is not int or values["max_control_steps"] < 0:
         raise ValueError("run.max_control_steps must be a non-negative integer; 0 disables the limit")
@@ -729,6 +730,9 @@ def prepare_experiment(**options) -> dict:
     if values.get("agent") is not None:
         from manimux.agents.execution import agent_parameters
         values["agent"] = agent_parameters(values["agent"])
+    if values["run"]["execution_mode"] is None:
+        # An agent profile opens RoboGUI on RPent; Direct VLA stays selectable.
+        values["run"]["execution_mode"] = "rpent" if values.get("agent") else "vla"
     if values["run"]["execution_mode"] == "rpent" and not values.get("agent"):
         raise ValueError("RPent execution requires agent.config")
     values["robot"] = robot_parameters(**values["robot"])

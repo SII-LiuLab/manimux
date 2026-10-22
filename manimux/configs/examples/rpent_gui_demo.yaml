@@ -2,9 +2,7 @@
 _base_: rpent_demo.yaml
 agent:
   config: ../agents/rpent.yaml
-  # python: /absolute/path/to/manimux/third_party/RPent/.venv/bin/python
 run:
-  execution_mode: vla
   warmup_before_start: true
 robogui:
   enabled: true

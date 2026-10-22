@@ -2,5 +2,3 @@
 _base_: rpent_gui_demo.yaml
 agent:
   policy_enabled: false
-run:
-  execution_mode: rpent

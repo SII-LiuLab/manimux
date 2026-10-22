@@ -2,5 +2,3 @@
 _base_: rpent_gui_demo.yaml
 agent:
   debug_max_plan_age_s: 2.0
-run:
-  execution_mode: rpent
