@@ -10,7 +10,6 @@ An open-source harness for real-world manipulation inference and experiment mana
 
 [![Python: 3.11 | 3.12](https://img.shields.io/badge/Python-3.11%20%7C%203.12-5C996B?style=flat&labelColor=45534B&logo=python&logoColor=white)](pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-5C996B?style=flat&labelColor=45534B)](LICENSE)
-[![Version: 0.1.0](https://img.shields.io/badge/Version-0.1.0-5C996B?style=flat&labelColor=45534B)](pyproject.toml)
 [![Contributions welcome](https://img.shields.io/badge/Contributions-welcome-5C996B?style=flat&labelColor=45534B)](#contributing)
 [![GitHub stars](https://img.shields.io/github/stars/SII-LiuLab/manimux?style=flat&label=Stars&color=5C996B&labelColor=45534B&logo=github&logoColor=white)](https://github.com/SII-LiuLab/manimux/stargazers)
 
