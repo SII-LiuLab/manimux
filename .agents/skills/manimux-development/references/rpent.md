@@ -256,12 +256,15 @@ synthetic robot and no physical sensors:
 python -m scripts.validation.rpent_offline_probe \
   --config manimux/configs/agents/rpent.yaml \
   --output data/acceptance/rpent-unified-<new-run>
+python -m scripts.validation.rpent_finish_probe \
+  --output data/acceptance/rpent-finish-<new-run>
 python -m pytest tests/unit/test_rpent_unified.py tests/unit/test_policy_dispatch.py \
   tests/unit/test_rpent_agent.py tests/unit/test_rpent_native.py \
   tests/unit/test_franka_bridge.py
 ```
 
-Local tests remain ignored. Cover cross-tool contention/idempotency, pause, deadline,
+The finish probe injects RoboGUI Finish and planner `/finish` during in-flight motion
+and VLA calls and requires zero robot commands afterwards. Local tests remain ignored. Cover cross-tool contention/idempotency, pause, deadline,
 cancel during planning, no measured arrival, malformed-response persistence,
 out-of-range grippers, recording and ordinary non-agent runtime regressions.
 Software checks are not physical qualification. Before operator handoff, use

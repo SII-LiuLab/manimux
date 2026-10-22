@@ -1,6 +1,6 @@
 ---
 name: manimux-deploy
-description: Deploy a supported ManiMux model recipe on an installed local station, start its services and open RoboGUI for the operator. Also use for a hardware-free product demo or managed deployment status and shutdown.
+description: Deploy a supported ManiMux model recipe on an installed local station, start its services and open RoboGUI for the operator, including RPent agent execution. Also use for a hardware-free product demo or managed deployment status and shutdown.
 ---
 
 # ManiMux Deployment
@@ -48,6 +48,41 @@ Repeated up reuses only an unchanged, healthy deployment owned by this tool. Und
 external port occupancy is a blocker, not permission to kill or adopt the service.
 Inspect it and select the external-service flag when the recipe matches its contract,
 or use its existing runbook.
+
+## RPent on a real station
+
+When the user explicitly asks to use RPent, prepare and verify everything before handoff;
+the user only starts and controls RoboGUI. Contracts are in the
+[RPent reference](../manimux-development/references/rpent.md).
+
+1. Planner environment: `third_party/RPent/.venv` (the peer's own directory, like model
+   environments). Create it with `uv venv --python 3.11` and
+   `uv pip install -e ./third_party/RPent -e .` when missing; the runtime keeps its robot
+   environment (e.g. `envs/yam/.venv`).
+2. Private configs under `manimux/configs/local/`, never committed:
+   - motion profile from `configs/agents/rpent_<robot>_motion.example.yaml`. Fill each
+     group's TCP workspace from measured data, e.g. FK of the station's teleoperation or
+     rollout joints in the group's `base_frame`. Add `path_validator` only with measured
+     extrinsics and table geometry; otherwise tell the user there is no collision check.
+   - agent recipe: experiment, motion, task, `planner`/`model`/`reasoning_effort`.
+   - RoboGUI experiment: `_base_` the robot's runtime recipe, `agent.config`,
+     absolute `agent.python`, `run.execution_mode: vla`, and `robot.options.execute: true`.
+     Using RPent means executing on the robot: with `execute: false` motion tools never
+     reach measured arrival and fail. Use `false` only for a dry run the user asks for.
+3. Verify without opening devices: resolve the experiment with `load_config`, build the
+   robot offline and construct `MotionTools` from the motion profile, import
+   `manimux.agents.rpent.toolkit` with `agent.python`, run `manimux doctor` and the
+   camera/policy `--check` launchers. Run `scripts.validation.rpent_offline_probe` and
+   `scripts.validation.rpent_finish_probe` (synthetic robot) with the planner interpreter;
+   the latter must report zero robot commands after Finish.
+4. Then `manimux up` with the RoboGUI experiment and open `gui_url`. Hand over at
+   **Prepare**: the user selects Execution **RPent**, then Prepare → Start; Pause holds
+   and cancels the active call; Finish ends the rollout. Do not press these yourself.
+
+Finish (RoboGUI or planner verdict) leaves the control loop before that tick's send,
+fences the dispatch mailbox, fails the active call, rejects later planner requests and
+terminates the planner process group. Robot stop/Home/release then follow the normal
+assembly cleanup; a Finish with Home still moves the arm home.
 
 ## Observe and stop
 
