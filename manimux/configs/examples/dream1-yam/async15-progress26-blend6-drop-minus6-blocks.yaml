@@ -1,0 +1,24 @@
+# Request at source progress26, including latency-trimmed rows.
+# Continue the complete previous trajectory while the API request runs.
+_base_: async.yaml
+policy:
+  action_dt_s: 0.06666666666666667
+robot:
+  control_hz: 100.0
+inference:
+  request_trigger: progress
+  chunk_policy_steps: 26
+  blend_policy_steps: 6
+  action_start_mode: drop_infer_latency
+  handoff_skip_steps: -6
+  max_plan_age_s: 5.0
+initial_pose:
+  id: home
+executor:
+  type: direct
+  motion_limits: null
+robogui:
+  policy_label: Dream-1 API - Async + Direct 100 Hz - 15 Hz playback - source progress26 - drop minus6 - blend6
+
+run:
+  task_prompt: Stack the smaller block on the bigger one

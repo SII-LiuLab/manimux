@@ -1,0 +1,18 @@
+# Select algorithm: paint and policy.action_dt_s in the experiment.
+# policy_steps count model action points, not control ticks or denoising steps.
+# At 30 Hz, one policy step is 33.3 ms. H = chunk length; d = forecast latency steps.
+# Reject a returned plan older than 2 s from its observation timestamp at commit.
+max_plan_age_s: 2.0
+# Extra linear blending of the new chunk's first N points; 0 disables this layer.
+blend_policy_steps: 0
+# Drop expired source-prefix steps using actual observation-to-commit latency.
+action_start_mode: drop_infer_latency
+paint:
+  # Initial inference-latency forecast: 10 steps ~= 333 ms at 30 Hz, not a wait.
+  # PAINT requires an integer floor; steady warmup samples can raise the forecast.
+  initial_delay_policy_steps: 10
+  # Keep 10 latency-estimator samples in policy steps; forecast their MAX.
+  delay_buffer_size: 10
+  # Request the next chunk once source progress s reaches 16 (including trimmed steps).
+  # Also requires d <= s and s+d <= H; old actions [s:s+d] condition the new request.
+  execution_policy_steps: 16

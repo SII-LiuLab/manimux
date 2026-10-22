@@ -1,0 +1,6 @@
+# YAM smoothing choices for experiments that inherit motion limits from a control profile.
+smooth:
+  cutoff_hz: 8.0
+  position_limit_abs: 3.14
+  gripper:
+    mode: continuous

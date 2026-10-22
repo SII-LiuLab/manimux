@@ -1,0 +1,37 @@
+policy_name: OpenWAM
+protocol: ws
+host: 127.0.0.1
+port: 8500
+eval_batch: false
+compile_enabled: false
+dit_cache_enabled: true
+dit_cache_modes:
+- default
+- rtc
+bench_name: RoboDojo_real
+task_name: yam_latest_300ep
+env_cfg_type: yam_dual
+robot_action_dim_info:
+  arm_dim:
+  - 6
+  - 6
+  ee_dim:
+  - 1
+  - 1
+num_envs: 1
+action_type: ee
+observation_profile: yam_base
+ckpt_dir: /media/ubuntu/CY的三星T7/ManiMux/checkpoints/finetuned/OpenWAM/yam_latest_300ep_30k_micro4_v3
+device: cuda
+replan_steps: 32
+allow_dummy_policy: false
+default_instruction: follow the instruction
+expected_artifacts:
+  checkpoint_path: /media/ubuntu/CY的三星T7/ManiMux/checkpoints/finetuned/OpenWAM/yam_latest_300ep_30k_micro4_v3
+  checkpoint_file: checkpoint_step_60000.safetensors
+  checkpoint_sha256: e7da356b73dacbb0dddfbc07c229124d8cad5e64918200afdad51cd65ef72735
+  training_config_sha256: 6d401e18ffbd5ff29e10c7cba8db423c5773daf410ea9bbaea13b9cb3446bd31
+  norm_stats_path: /media/ubuntu/CY的三星T7/ManiMux/checkpoints/finetuned/OpenWAM/yam_latest_300ep_30k_micro4_v3/normalization_stats.npy
+  norm_stats_sha256: e9678c5a79867617d83191c974272848e5d3720cc1d65d65f8bb0906179ffa69
+  action_horizon: 32
+inference_seed: 0

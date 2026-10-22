@@ -1,0 +1,7 @@
+# ACT temporal ensembling with the common four-policy-step query interval.
+max_plan_age_s: 2.0
+blend_policy_steps: 0
+action_start_mode: drop_infer_latency
+temporal_ensemble:
+  coefficient: 0.01
+  query_interval_policy_steps: 4

@@ -1,0 +1,5 @@
+camera_mode: manual
+cameras:
+  top: gemini335
+  left: d405_left
+  right: d405_right

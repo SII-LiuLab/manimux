@@ -1,0 +1,45 @@
+# Shared six-task deployment. Per-rollout prompts come from experiment run.task.
+policy_name: Pi_05
+protocol: ws
+host: 127.0.0.1
+port: 8500
+task_name: yam_mixed_20261011_300ep
+env_cfg_type: yam_dual
+robot_action_dim_info:
+  arm_dim:
+  - 6
+  - 6
+  ee_dim:
+  - 1
+  - 1
+num_envs: 1
+action_type: joint
+eval_batch: false
+checkpoint_variant: pi05_yam_mixed300ep_step30000
+train_config_name: pi05_yam
+observation_profile: yam_native
+repo_id: yam_mixed_20261011_300ep_joint_ee_v1
+model_path: "/media/ubuntu/CY\u7684\u4E09\u661FT7/ManiMux/checkpoints/finetuned/Pi05/pi05_yam_mixed_20261011_300ep_30k/30000"
+checkpoint_source: pi05_yam_mixed_20261011_300ep_30k_step30000
+norm_stats_path: "/media/ubuntu/CY\u7684\u4E09\u661FT7/ManiMux/checkpoints/finetuned/Pi05/pi05_yam_mixed_20261011_300ep_30k/30000/assets/yam_mixed_20261011_300ep_joint_ee_v1"
+norm_stats_source: sha256_2ec859285913b78431cf7b42cca86c2259c474db4bb4e3264b5d09b60258f5cb
+use_delta_joint_actions: true
+action_horizon: 50
+num_steps: 10
+inference_seed: 0
+backend_identity:
+  fields:
+  - checkpoint_variant
+  - checkpoint_source
+  - norm_stats_path
+  - norm_stats_source
+  - train_config_name
+  - action_horizon
+  - num_steps
+  - inference_seed
+  - observation_profile
+  - action_type
+  aliases:
+    model_root: model_path
+  model:
+    policy_family: pi05

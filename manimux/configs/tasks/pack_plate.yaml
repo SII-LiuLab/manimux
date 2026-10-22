@@ -1,0 +1,17 @@
+run:
+  max_control_steps: 6000
+  task_prompt: plate
+evaluation:
+  kind: stages
+  task_id: plate
+  rubric_id: plate_binary_v1
+  label: plate
+  options:
+  - id: failure
+    label: Not completed
+    score: 0.0
+    success: false
+  - id: success
+    label: Completed
+    score: 1.0
+    success: true

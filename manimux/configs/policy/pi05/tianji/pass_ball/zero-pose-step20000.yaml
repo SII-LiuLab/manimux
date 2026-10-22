@@ -1,0 +1,33 @@
+# Artifact paths are relative to station paths.checkpoints.
+policy_name: Pi_05
+protocol: ws
+host: 127.0.0.1
+port: 8570
+bench_name: ManiMux
+task_name: pass_ball
+ckpt_name: null
+env_cfg_type: tianji_dual
+robot_action_dim_info: {arm_dim: [7, 7], ee_dim: [1, 1]}
+num_envs: 1
+seed: 42
+gpu_id: 0
+action_type: ee
+eval_batch: false
+checkpoint_variant: pi05_pass_ball_zero_pose_step20000
+checkpoint_source: pi05-passball-zero-pose-h32-b16-60k-20260923-192017
+checkpoint_num: 20000
+norm_stats_source: sha256_366317fc1523d326ca1b5eb73e05edecbd35c18f04804f1a842c281fed6e0d74
+norm_stats_sha256: 366317fc1523d326ca1b5eb73e05edecbd35c18f04804f1a842c281fed6e0d74
+train_config_name: pi05_pass_ball_hifi_umi_lora_zero_pose
+observation_profile: tianji_taccap_pi05_zero_pose
+model_state_encoding: zero_pose
+output_format: xpolicylab
+action_semantics: absolute_per_arm_base_xyz_wxyz
+action_horizon: 32
+num_steps: 10
+repo_id: pass-ball-hifi-umi-h32-zero-pose
+model_path: pi05-passball-zero-pose-h32-b16-60k-20260923-192017/checkpoints/20000
+norm_stats_path: pi05-passball-zero-pose-h32-b16-60k-20260923-192017/normalization
+
+backend_identity:
+  fields: [policy_name, task_name, checkpoint_variant, checkpoint_source, norm_stats_source, train_config_name, observation_profile, model_state_encoding, action_horizon, num_steps, action_type, output_format, action_semantics]
