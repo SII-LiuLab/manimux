@@ -66,7 +66,7 @@ flowchart LR
   <thead>
     <tr>
       <th>Embodiments</th>
-      <th>Policies &amp; Frameworks</th>
+      <th>Policy</th>
       <th>Harness</th>
       <th>Inference</th>
     </tr>
@@ -74,57 +74,53 @@ flowchart LR
   <tbody>
     <tr valign="top">
       <td>
+        <strong>Arm</strong>
         <ul>
-          <li><a href="https://sii-liulab.github.io/manimux/guideline.html#configuration">YAM</a></li>
-          <li><a href="https://sii-liulab.github.io/manimux/guideline.html#configuration">Tianji–TacCap</a></li>
-          <li><a href="manimux/embodiments/arm/franka/README.md">Franka FR3</a><br>Optional Robotiq gripper</li>
+          <li><a href="manimux/embodiments/arm/yam/README.md">YAM</a> ✅</li>
+          <li><a href="https://sii-liulab.github.io/manimux/guideline.html#configuration">Tianji</a> ✅</li>
+          <li><a href="manimux/embodiments/arm/franka/README.md">Franka FR3</a> ✅</li>
+          <li><a href="manimux/embodiments/arm/arx_x5/README.md">ARX X5</a></li>
+          <li><a href="manimux/embodiments/arm/piper/README.md">PiPER</a></li>
         </ul>
-        <strong>Experimental</strong>
+        <strong>Gripper</strong>
         <ul>
-          <li>ARX X5</li>
-          <li>PiPER</li>
+          <li><a href="manimux/embodiments/end_effector/robotiq/README.md">Robotiq</a> ✅</li>
+          <li><a href="manimux/embodiments/end_effector/taccap/README.md">TacCap</a> ✅</li>
+        </ul>
+        <strong>Sensor</strong>
+        <ul>
+          <li><a href="manimux/embodiments/sensor/realsense/README.md">RealSense</a> ✅</li>
+          <li><a href="manimux/embodiments/sensor/orbbec/README.md">Orbbec</a> ✅</li>
+          <li><a href="manimux/embodiments/sensor/taccap">TacCap Camera</a> ✅</li>
         </ul>
       </td>
       <td>
-        <strong>Policies</strong>
         <ul>
-          <li><a href="manimux/configs/examples/dream1-yam/README.md">Dream-1 API</a></li>
-          <li>Pi05 · Diffusion Policy</li>
-          <li>GR00T · LingBot-VLA2 · XR-1</li>
+          <li><a href="https://sii-liulab.github.io/manimux/guideline.html#support">XPolicyLab</a> ✅</li>
+          <li><a href="https://sii-liulab.github.io/manimux/guideline.html#support">StarVLA</a> ✅</li>
         </ul>
-        <strong>Frameworks</strong>
-        <ul>
-          <li>XPolicyLab · StarVLA</li>
-        </ul>
-        <a href="https://sii-liulab.github.io/manimux/guideline.html#support">Full support catalog →</a>
-      </td>
-      <td>
-        <a href="https://sii-liulab.github.io/manimux/guideline.html#agent-integrations"><strong>RPent / HarnessVLA</strong></a>
-        <p>Planning through a shared Toolkit:</p>
-        <ul>
-          <li>Motion tools</li>
-          <li>VLA calls</li>
-        </ul>
-        <p>Uses the ManiMux runtime and experiment lifecycle.</p>
       </td>
       <td>
         <ul>
-          <li><a href="https://sii-liulab.github.io/manimux/guideline.html#serial">Serial</a></li>
-          <li><a href="https://sii-liulab.github.io/manimux/guideline.html#async">Async chunking</a></li>
-          <li><a href="https://sii-liulab.github.io/manimux/guideline.html#rtc">RTC</a></li>
-          <li><a href="https://sii-liulab.github.io/manimux/guideline.html#act-temporal-ensemble">ACT temporal ensemble</a></li>
-          <li><a href="https://sii-liulab.github.io/manimux/guideline.html#paint">PAINT</a></li>
-          <li><a href="https://sii-liulab.github.io/manimux/guideline.html#autohorizon">AutoHorizon</a></li>
+          <li><a href="https://sii-liulab.github.io/manimux/guideline.html#agent-integrations">RPent</a> ✅</li>
         </ul>
-        <a href="https://sii-liulab.github.io/manimux/guideline.html#optional-algorithm-composition">Supported combinations →</a>
+      </td>
+      <td>
+        <ul>
+          <li><a href="https://sii-liulab.github.io/manimux/guideline.html#serial">Serial</a> ✅</li>
+          <li><a href="https://sii-liulab.github.io/manimux/guideline.html#async">Async chunking</a> ✅</li>
+          <li><a href="https://sii-liulab.github.io/manimux/guideline.html#rtc">RTC</a> ✅</li>
+          <li><a href="https://sii-liulab.github.io/manimux/guideline.html#act-temporal-ensemble">ACT temporal ensemble</a> ✅</li>
+          <li><a href="https://sii-liulab.github.io/manimux/guideline.html#paint">PAINT</a> ✅</li>
+          <li><a href="https://sii-liulab.github.io/manimux/guideline.html#autohorizon">AutoHorizon</a> ✅</li>
+        </ul>
       </td>
     </tr>
   </tbody>
 </table>
 
-Support varies by checkpoint, backend, adapter and station. These integrations do
-not imply that every combination works; experimental ARX X5 and PiPER adapters
-have not completed physical validation. See the linked guides for setup and validation scope.
+✅ Integrated. Unmarked entries are experimental. See the [support catalog](https://sii-liulab.github.io/manimux/guideline.html#support)
+and [supported combinations](https://sii-liulab.github.io/manimux/guideline.html#optional-algorithm-composition) for compatibility and validation scope.
 
 ## Quick start
 
