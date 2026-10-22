@@ -4,7 +4,7 @@ A schematic of RoboGUI, the ManiMux runtime, policy serving and a robot station
 interacting with a changing physical world. The rotating sphere and moving dots
 are illustrative, not live telemetry or a measured timing diagram.
 
-- `manimux-architecture.gif`: 1440 × 600, 120 frames, 9.6-second seamless loop.
+- `manimux-architecture.gif`: 1440 × 540, 120 frames, 9.6-second seamless loop.
 - `manimux-architecture.png`: static alternative linked from the project README.
 - Generator: [`render-readme-architecture.py`](../../scripts/media/render-readme-architecture.py).
 

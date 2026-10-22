@@ -15,18 +15,19 @@ import math
 import io
 import json
 import struct
+from functools import lru_cache
 
 import numpy as np
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 ROOT = Path(__file__).resolve().parents[2]
-W, H, SCALE = 1440, 600, 2
-INK = '#20372B'
-MUTED = '#657B6B'
-GREEN = '#5C996B'
-EDGE = '#D7E4DA'
+W, H, SCALE = 1440, 540, 2
+INK = '#143D2D'
+MUTED = '#4B7060'
+GREEN = '#23B77A'
+EDGE = '#AEDCC3'
 FONT = ROOT / 'website/assets/Manrope.ttf'
 FONTS = {}
 
@@ -112,9 +113,10 @@ class EarthMesh:
             tex=(self.texture[iy,ix]*(1-fx)+self.texture[iy,ix1]*fx)*(1-fy)
             tex+=(self.texture[iy1,ix]*(1-fx)+self.texture[iy1,ix1]*fx)*fy
             normal=w@normals[face];normal/=np.linalg.norm(normal,axis=1)[:,None]
-            shade=.40+.60*np.clip(normal@light,0,1)
+            shade=.58+.58*np.clip(normal@light,0,1)
             rim=(1-np.maximum(normal[:,2],0))**3
-            rgb=tex*shade[:,None]+rim[:,None]*np.array([15,35,55])
+            rgb=tex*shade[:,None]+rim[:,None]*np.array([20,45,65])
+            rgb=255*np.power(np.clip(rgb/255,0,1),.84)
             pixels=color[y0:y1+1,x0:x1+1]
             pixels[mask,:3]=np.clip(rgb,0,255).astype(np.uint8); pixels[mask,3]=255
             region[mask]=z[mask]
@@ -122,6 +124,17 @@ class EarthMesh:
 
 
 EARTH = None
+
+
+@lru_cache(maxsize=8)
+def card_shadow(width, height, radius):
+    margin = 28 * SCALE
+    tile = Image.new('RGBA', (width*SCALE+margin*2, height*SCALE+margin*2), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(tile)
+    draw.rounded_rectangle((margin, margin+7*SCALE, margin+width*SCALE,
+                            margin+height*SCALE+7*SCALE),
+                           radius=radius*SCALE, fill=(30, 62, 41, 29))
+    return tile.filter(ImageFilter.GaussianBlur(9*SCALE))
 
 
 def render(phase):
@@ -142,12 +155,16 @@ def render(phase):
         d.text((round(x*SCALE), round(y*SCALE)), value, font=font(size, weight),
                fill=color, anchor=anchor)
 
-    def box(bounds, fill='#FFFFFF', outline=EDGE, radius=20, width=2):
+    def box(bounds, fill='#FFFFFF', outline=EDGE, radius=20, width=2, shadow=False):
+        if shadow:
+            x0, y0, x1, y1 = bounds
+            tile = card_shadow(x1-x0, y1-y0, radius)
+            im.paste(tile, ((x0-28)*SCALE, (y0-28)*SCALE), tile)
         d.rounded_rectangle(tuple(round(v*SCALE) for v in bounds), radius=radius*SCALE,
                             fill=fill, outline=outline, width=width*SCALE)
 
     def path(points, phase_offset=0, color=GREEN, arrows=True, active=True):
-        line(points, '#C6D8CA', 2)
+        line(points, '#99CFB1', 2)
         if arrows:
             x, y = points[-1]; px, py = points[-2]
             ang = math.atan2(y-py, x-px)
@@ -160,25 +177,23 @@ def render(phase):
             for (a,b),length in zip(zip(points,points[1:]),lengths):
                 if distance<=length:
                     f=distance/length; x=a[0]+f*(b[0]-a[0]); y=a[1]+f*(b[1]-a[1])
-                    ellipse((x-7,y-7,x+7,y+7),'#E1EFE4')
+                    ellipse((x-7,y-7,x+7,y+7),'#CCF5DF')
                     ellipse((x-3.5,y-3.5,x+3.5,y+3.5),color)
                     break
                 distance-=length
 
-    box((1,1,W-2,H-2),'#F9FBF9','#E8EEE9',24,1)
-    text(46,48,'A CONTINUOUS FEEDBACK LOOP',19,650,MUTED,'lm')
-    text(46,81,'Policies meet the physical world.',21,450,MUTED,'lm')
+    box((1,1,W-2,H-2),'#F8FCF9','#DFEFE4',24,1)
 
     # Control interface, runtime, policy service and physical robot station.
-    box((45,302,305,476))
-    box((460,302,770,476),'#ECF5EE','#75A781',20,2)
-    box((460,70,770,195))
-    box((990,302,1395,476))
+    box((45,302,305,476),'#EFFBF4','#84D3A9',shadow=True)
+    box((460,302,770,476),'#DDF7E8','#28B77B',20,2,shadow=True)
+    box((460,70,770,195),'#EFF9FF','#93C9DF',shadow=True)
+    box((990,302,1395,476),'#F3FBEA','#AFD788',shadow=True)
 
     text(175,340,'RoboGUI',29,700)
     text(175,386,'Run · Record',23,500,MUTED)
     text(175,422,'Review · Evaluate',23,500,MUTED)
-    text(615,340,'ManiMux',33,750,'#28513A')
+    text(615,340,'ManiMux',33,750,'#08734C')
     text(615,388,'Adapt · Schedule',24,550)
     text(615,425,'Execute · Record',24,550)
     text(615,111,'Policy serving',28,700)
@@ -193,8 +208,8 @@ def render(phase):
     path([(530,302),(530,195)],.0)
     path([(700,195),(700,302)],.5)
     # Label surfaces ensure the connectors do not run through text.
-    box((437,235,624,263),'#F9FBF9',None,5,1)
-    box((617,235,790,263),'#F9FBF9',None,5,1)
+    box((437,235,624,263),'#F8FCF9',None,5,1)
+    box((617,235,790,263),'#F8FCF9',None,5,1)
     text(530,249,'Observations',21,550,MUTED)
     text(704,249,'Action chunks',21,550,MUTED)
     path([(770,355),(990,355)],.33)
@@ -207,19 +222,15 @@ def render(phase):
     if EARTH is None:
         EARTH = EarthMesh()
     cx, cy = 1192, 140
-    ellipse((cx-101,cy+91,cx+101,cy+103),'#EFF4F0')
+    ellipse((cx-101,cy+91,cx+101,cy+103),'#E7F2EB')
     globe = EARTH.render(phase)
     im.paste(globe, (round(cx*SCALE-globe.width/2), round(cy*SCALE-globe.height/2)), globe)
-    text(cx,264,'Interactive world',24,650,'#3C7150')
+    text(cx,264,'Interactive world',24,650,'#188558')
     path([(1045,302),(1045,140),(1090,140)],.2)
     path([(1294,140),(1340,140),(1340,302)],.65)
     text(1045,279,'Act',18,550,MUTED)
     text(1340,279,'Sense',18,550,MUTED)
 
-    # A restrained footer identifies illustration rather than live telemetry.
-    ellipse((46,535,54,543),GREEN)
-    text(67,539,'Observe. Infer. Act. Repeat.',21,550,MUTED,'lm')
-    text(1392,539,'Earth: NASA / VTAD · Illustrative flow',17,450,MUTED,'rm')
     return im.resize((W,H),Image.Resampling.LANCZOS)
 
 
