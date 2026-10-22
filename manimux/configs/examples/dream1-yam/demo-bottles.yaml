@@ -1,0 +1,11 @@
+# Show full returned trajectories with ordinary Async + Smooth.
+# Predictions start when received and therefore retain observation-to-action lag.
+_base_: async-bottles.yaml
+inference:
+  request_trigger: refill
+  chunk_policy_steps: 48
+  refill_threshold_s: 1.4
+  action_start_mode: first_step_when_ready
+  max_plan_age_s: 5.0
+robogui:
+  policy_label: Dream-1 API - Async + Smooth - full-chunk demo

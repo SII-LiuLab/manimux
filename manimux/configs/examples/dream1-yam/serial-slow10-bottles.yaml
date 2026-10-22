@@ -1,0 +1,9 @@
+# Slow playback experiment: preserve 48 returned rows, play them at 10 Hz.
+# This changes execution timing, not the checkpoint's learned sampling rate.
+_base_: serial-bottles.yaml
+policy:
+  action_dt_s: 0.1
+robot:
+  control_hz: 100.0
+robogui:
+  policy_label: Dream-1 API - Serial + Smooth - 10 Hz playback / 100 Hz control

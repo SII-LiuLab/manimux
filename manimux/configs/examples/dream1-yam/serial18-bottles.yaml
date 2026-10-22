@@ -1,0 +1,15 @@
+_base_: async18-blend3-bottles.yaml
+robot:
+  control_hz: 18.0
+inference:
+  algorithm: serial
+  inference_schedule: serial
+  action_start_mode: first_step_when_ready
+  request_trigger: algorithm
+  chunk_policy_steps: 48
+  blend_policy_steps: 0
+executor:
+  type: direct
+  motion_limits: null
+robogui:
+  policy_label: Dream-1 API - Serial + Direct 18 Hz - full 48-step chunk - no blend

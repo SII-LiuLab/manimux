@@ -1,0 +1,5 @@
+_base_: _slow10-base.yaml
+policy_server:
+  config: ../../policy/pi05/yam/put-bottles/joint-step30000.yaml
+robogui:
+  policy_label: Pi05 bottles 30k - Async + Smooth - 10 Hz playback - infer after 28 steps
