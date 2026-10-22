@@ -179,3 +179,10 @@ logs/
 /manimux/configs/policy/dream1/
 /manimux/configs/policy/pi05/yam/3task/
 /manimux/configs/policy/sapolicy/yam/caps1010_3task_isaactex/raw-100k-unscrew.yaml
+# Unused local scripts and private hosting metadata (files stay on disk).
+/scripts/media/orbbec_preview.py
+/scripts/validation/analyze_chunk_boundaries.py
+/scripts/validation/benchmark_step_chunk_ik.py
+/scripts/validation/pi05_yam_offline_infer.py
+/scripts/validation/run_policy_branch_regressions.sh
+/website/.openai/hosting.json
