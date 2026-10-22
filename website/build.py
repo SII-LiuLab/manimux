@@ -54,6 +54,10 @@ if __name__ == '__main__':
         shutil.copy2(ROOT / name, DEST / name)
     shutil.copytree(ROOT / 'assets', DEST / 'assets')
 
+    # Serve the README's original video directly, without GitHub's file-size preview limit.
+    readme_video = Path('assets/dream1-task-1440p30.mp4')
+    shutil.copy2(REPO / readme_video, DEST / readme_video)
+
     guide = re.sub(r'href="([^"]+)"', repo_link,
                    (REPO / 'guideline.html').read_text())
     (DEST / 'guideline.html').write_text(guide)
