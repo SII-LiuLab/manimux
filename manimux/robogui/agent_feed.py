@@ -29,32 +29,53 @@ _STYLE = """
     box-sizing: border-box; padding: 8px 12px 10px; border-radius: 10px;
     border: 1px solid rgba(128,138,156,.35); background: rgba(14,18,26,.9);
     box-shadow: 0 8px 28px rgba(0,0,0,.18); color: #d7deea;
-    font: 12px/1.4 ui-sans-serif, system-ui, sans-serif;
+    font: 14px/1.4 ui-sans-serif, system-ui, sans-serif;
   }
-  .manimux-agent-feed-head { color: #8f9db0; margin-bottom: 6px; }
+  .manimux-agent-feed-grip { height: 10px; margin: -6px -12px 2px; cursor: ns-resize;
+    display: flex; align-items: center; justify-content: center; }
+  .manimux-agent-feed-grip::before { content: ""; width: 42px; height: 4px; border-radius: 2px;
+    background: rgba(143,157,176,.45); }
+  .manimux-agent-feed-grip:hover::before { background: rgba(143,157,176,.85); }
+  .manimux-agent-feed-head { color: #8f9db0; margin-bottom: 6px; font-size: 13px; }
   .manimux-agent-feed-head b { color: #e6ebf3; font-weight: 600; margin-right: 4px; }
   .manimux-agent-feed-dot { display: inline-block; width: 7px; height: 7px; margin-right: 6px;
     border-radius: 50%; background: #6b7686; vertical-align: 1px; }
   .manimux-agent-feed-dot.live { background: #f08a4b; }
-  /* column-reverse keeps the scroll anchored at the newest (bottom) line on re-render. */
+  /* column-reverse keeps the scroll anchored at the newest (bottom) line on re-render.
+     The grip stores a dragged height on :root, so re-rendered content keeps it. */
   .manimux-agent-feed-list { display: flex; flex-direction: column-reverse;
-    height: 18vh; min-height: 140px; overflow-y: auto; scrollbar-width: thin; }
+    height: var(--manimux-agent-feed-height, max(18vh, 140px));
+    overflow-y: auto; scrollbar-width: thin; }
   .manimux-agent-feed-row { display: flex; gap: 8px; padding: 1px 0; }
-  .manimux-agent-feed-glyph { flex: none; width: 10px; text-align: center; color: #8f9db0; }
+  .manimux-agent-feed-glyph { flex: none; width: 12px; text-align: center; color: #8f9db0; }
   .manimux-agent-feed-text { white-space: pre-wrap; word-break: break-word; min-width: 0; }
   .kind-answer .manimux-agent-feed-text, .kind-answer .manimux-agent-feed-glyph { color: #eef2f8; }
   .kind-thinking .manimux-agent-feed-text { color: #8e9aac; font-style: italic;
     display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
   .kind-tool .manimux-agent-feed-text, .kind-tool .manimux-agent-feed-glyph {
-    color: #7fb0ff; font-family: ui-monospace, monospace; font-size: 11px; }
+    color: #7fb0ff; font-family: ui-monospace, monospace; font-size: 13px; }
   .kind-tool .manimux-agent-feed-text { display: -webkit-box; -webkit-line-clamp: 2;
     -webkit-box-orient: vertical; overflow: hidden; }
   .kind-error .manimux-agent-feed-text, .kind-error .manimux-agent-feed-glyph { color: #ff8f8f; }
   .kind-user .manimux-agent-feed-text, .kind-user .manimux-agent-feed-glyph { color: #9be3a8; }
   .kind-system .manimux-agent-feed-text, .kind-system .manimux-agent-feed-glyph {
-    color: #6b7686; font-size: 11px; }
+    color: #6b7686; font-size: 12px; }
 </style>
 """
+
+
+# Inline handler: Viser renders this HTML with innerHTML, so <script> would not run.
+# Inline handlers resolve bare names on the element first; use window explicitly.
+# Dragging the top grip up makes the bottom-anchored bar taller.
+_RESIZE = (
+    "(function(e){e.preventDefault();"
+    "var l=e.currentTarget.parentNode.querySelector('.manimux-agent-feed-list');"
+    "var y0=e.clientY,h0=l.getBoundingClientRect().height;"
+    "var w=window;function mv(v){var h=Math.max(80,Math.min(w.innerHeight*0.85,h0+y0-v.clientY));"
+    "document.documentElement.style.setProperty('--manimux-agent-feed-height',h+'px');}"
+    "function up(){w.removeEventListener('mousemove',mv);w.removeEventListener('mouseup',up);}"
+    "w.addEventListener('mousemove',mv);w.addEventListener('mouseup',up);})(event)"
+)
 
 
 def feed_html(messages: list[dict[str, Any]], *, phase: str, elapsed_s: float | None) -> str:
@@ -75,6 +96,8 @@ def feed_html(messages: list[dict[str, Any]], *, phase: str, elapsed_s: float | 
          'No planner messages yet.</span></div>'
     live = " live" if phase == "running" else ""
     return (f'{_STYLE}<div class="manimux-agent-feed-root">'
+            f'<div class="manimux-agent-feed-grip" title="Drag to resize" '
+            f'onmousedown="{_RESIZE}"></div>'
             f'<div class="manimux-agent-feed-head"><span class="manimux-agent-feed-dot{live}">'
             f'</span><b>Agent</b> RPent · {html.escape(status)} · {len(messages)} messages</div>'
             f'<div class="manimux-agent-feed-list">{rows}</div></div>')
