@@ -13,7 +13,7 @@ An open-source harness for real-world manipulation inference and experiment mana
 
 </div>
 
-[![Play the original Dream-1 demo · 1440p, 30 fps](assets/dream1-task-1440p-poster.png)](https://sii-liulab.github.io/manimux/assets/dream1-task-1440p30.mp4)
+[![Dream-1 demo · lossless autoplay · 1440p, 30 fps](assets/dream1-task-1440p30-lossless.webp)](https://sii-liulab.github.io/manimux/assets/dream1-task-1440p30.mp4)
 
 **RoboGUI** brings camera views, robot state, action chunks, and recorded trajectories
 into one workspace.
