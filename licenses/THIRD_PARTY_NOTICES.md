@@ -147,3 +147,14 @@ under the Apache License 2.0; see the `LICENSE` file in that directory.
 UMI follower gripper CAD (follower gripper assembly 0720, URDF and STL) with colors replaced by
 the bundled YAM gripper palette. Its flange mount and TCP follow the
 derivation in `SII-LiuLab/tianji-control` commit `d1def56`.
+
+## README Earth model and architecture animation
+
+`assets/architecture/earth-clouds.glb` derives from NASA's
+[Earth with Clouds 3D Model](https://science.nasa.gov/resource/earth-with-clouds-3d-model/),
+credited to NASA Visualization Technology Applications and Development (VTAD).
+The mesh and UVs are retained; the color texture is downsampled and the normal map
+removed. The README animation and static diagram render this model with custom
+lighting. NASA's [media usage guidelines](https://www.nasa.gov/nasa-brand-center/images-and-media/)
+apply to this material; it is not relicensed under MIT. No NASA endorsement is
+implied. Source hashes and reproduction instructions are in `assets/architecture/`.

@@ -39,19 +39,14 @@ ManiMux sits between policy servers and robot hardware, coordinating observation
 adaptation, scheduling, execution, and experiment records. Model frameworks own inference;
 RoboGUI provides the operator workspace.
 
-```mermaid
-flowchart LR
-    P["Policy serving<br/>Local servers · Cloud APIs"]
-    H["ManiMux<br/>Adapt · Schedule · Execute"]
-    R["Robot station<br/>Cameras · Robot state · Actuators"]
-    G["RoboGUI<br/>Run · Record · Review · Evaluate"]
-    H -->|Observations| P
-    P -->|Action chunks| H
-    H -->|Commands| R
-    R -->|Observations| H
-    G --- H
-    style H fill:#EAF2EC,stroke:#28513A,stroke-width:2px,color:#183324
-```
+![ManiMux architecture: observations and actions flow between policy serving, the runtime and a robot station interacting with a rotating world.](assets/architecture/manimux-architecture.gif)
+
+<details>
+<summary>View the static diagram</summary>
+
+![Static ManiMux architecture diagram](assets/architecture/manimux-architecture.png)
+
+</details>
 
 [Architecture and extension protocols](.agents/skills/manimux-development/references/README.md) · [Inference guide](https://sii-liulab.github.io/manimux/guideline.html#algorithms)
 
@@ -66,8 +61,7 @@ flowchart LR
   <thead>
     <tr>
       <th>Embodiments</th>
-      <th>Policy</th>
-      <th>Harness</th>
+      <th>Policy &amp; Harness &amp; API</th>
       <th>Inference</th>
     </tr>
   </thead>
@@ -95,14 +89,29 @@ flowchart LR
         </ul>
       </td>
       <td>
+        <strong>Policy</strong>
         <ul>
-          <li><a href="https://sii-liulab.github.io/manimux/guideline.html#support">XPolicyLab</a> ✅</li>
+          <li><a href="https://sii-liulab.github.io/manimux/guideline.html#support">XPolicyLab</a> ✅
+            <ul>
+              <li><a href="https://github.com/Cuzyoung/XPolicyLab/tree/ziyang/policy/Pi_05">Pi05</a></li>
+              <li><a href="https://github.com/Cuzyoung/XPolicyLab/tree/ziyang/policy/LingBot_VLA2">LingBot-VLA2</a></li>
+              <li><a href="https://github.com/Cuzyoung/XPolicyLab/tree/ziyang/policy/Xiaomi_Robotics_1">Xiaomi Robotics 1</a></li>
+              <li><a href="https://github.com/Cuzyoung/XPolicyLab/tree/ziyang/policy/OpenWAM">OpenWAM</a></li>
+              <li><a href="https://github.com/Cuzyoung/XPolicyLab/tree/ziyang/policy/FastWAM">FastWAM</a></li>
+              <li><a href="https://github.com/Cuzyoung/XPolicyLab/tree/ziyang/policy/GR00T_N17">GR00T</a></li>
+              <li><a href="https://github.com/Cuzyoung/XPolicyLab/tree/ziyang/policy/DP">Diffusion Policy</a></li>
+              <li><a href="https://github.com/Cuzyoung/XPolicyLab/tree/ziyang#readme">More models →</a></li>
+            </ul>
+          </li>
           <li><a href="https://sii-liulab.github.io/manimux/guideline.html#support">StarVLA</a> ✅</li>
         </ul>
-      </td>
-      <td>
+        <strong>Harness</strong>
         <ul>
           <li><a href="https://sii-liulab.github.io/manimux/guideline.html#agent-integrations">RPent</a> ✅</li>
+        </ul>
+        <strong>API</strong>
+        <ul>
+          <li><a href="manimux/configs/examples/dream1-yam/README.md">Dream-1</a> ✅</li>
         </ul>
       </td>
       <td>
@@ -110,16 +119,20 @@ flowchart LR
           <li><a href="https://sii-liulab.github.io/manimux/guideline.html#serial">Serial</a> ✅</li>
           <li><a href="https://sii-liulab.github.io/manimux/guideline.html#async">Async chunking</a> ✅</li>
           <li><a href="https://sii-liulab.github.io/manimux/guideline.html#rtc">RTC</a> ✅</li>
+          <li><a href="https://sii-liulab.github.io/manimux/guideline.html#train-time-rtc">Train-time RTC</a> ✅</li>
           <li><a href="https://sii-liulab.github.io/manimux/guideline.html#act-temporal-ensemble">ACT temporal ensemble</a> ✅</li>
           <li><a href="https://sii-liulab.github.io/manimux/guideline.html#paint">PAINT</a> ✅</li>
+          <li><a href="https://sii-liulab.github.io/manimux/guideline.html#aac">AAC</a> ✅</li>
           <li><a href="https://sii-liulab.github.io/manimux/guideline.html#autohorizon">AutoHorizon</a> ✅</li>
+          <li><a href="https://sii-liulab.github.io/manimux/guideline.html#bid-backward">BID (backward-only)</a> ✅</li>
         </ul>
       </td>
     </tr>
   </tbody>
 </table>
 
-✅ Integrated. Unmarked entries are experimental. See the [support catalog](https://sii-liulab.github.io/manimux/guideline.html#support)
+✅ Integrated. Models are listed under their serving framework; station support varies.
+Unmarked hardware entries are experimental. See the [support catalog](https://sii-liulab.github.io/manimux/guideline.html#support)
 and [supported combinations](https://sii-liulab.github.io/manimux/guideline.html#optional-algorithm-composition) for compatibility and validation scope.
 
 ## Quick start
