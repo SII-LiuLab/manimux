@@ -10,7 +10,7 @@ No model implementation or hardware controller is copied into the agent package.
 ### RoboGUI execution selection
 
 An ordinary experiment can declare `agent: {config: /path/to/agent.yaml,
-python: /path/to/rpent-env/bin/python}`. `config` resolves beside the declaring
+python: /path/to/manimux/third_party/RPent/.venv/bin/python}`. `config` resolves beside the declaring
 YAML, including inherited bases; `python` defaults to the runtime interpreter.
 The shared `manimux run` / `--config-list` service then offers **Execution**:
 **Direct VLA** or **RPent**. Without an agent profile the existing VLA page is

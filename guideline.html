@@ -1680,14 +1680,16 @@ motion planning, hardware execution and recording. A task can call move_to, exec
 and set_gripper consecutively without changing runtime modes.</p>
 <h3 id="rpent-install">Install and start</h3>
 <pre><code class="language-bash">git submodule update --init third_party/RPent
-uv venv --python 3.11 envs/rpent/.venv
-uv pip install --python envs/rpent/.venv/bin/python -e ./RPent -e .
+# The planner environment lives in RPent's own directory, like other peer/model environments.
+uv venv --python 3.11 third_party/RPent/.venv
+uv pip install --python third_party/RPent/.venv/bin/python -e ./third_party/RPent -e .
 
-# Runtime terminal: the default recipe is entirely synthetic.
+# Runtime terminal: the robot runtime interpreter (e.g. envs/yam/.venv/bin/python).
+# The default recipe is entirely synthetic.
 python -m manimux.agents.rpent serve --config manimux/configs/agents/rpent.yaml
 
 # Planner terminal, using the same recipe and endpoint.
-envs/rpent/.venv/bin/manimux-rpent run --config manimux/configs/agents/rpent.yaml \
+third_party/RPent/.venv/bin/manimux-rpent run --config manimux/configs/agents/rpent.yaml \
   --task 'Put the red object into the tray.' --planner api --model '&lt;provider:model&gt;' \
   --memory-root /path/to/task-memory --output-dir /path/to/new-planner-run
 </code></pre>
@@ -1712,7 +1714,7 @@ this autonomous planner loop.</p>
 <code>manimux run --config</code> or <code>--config-list</code> command:</p>
 <pre><code class="language-yaml">agent:
   config: ../local/rpent-agent.yaml
-  python: /path/to/rpent-env/bin/python
+  python: /path/to/manimux/third_party/RPent/.venv/bin/python
 run:
   execution_mode: vla
 </code></pre>

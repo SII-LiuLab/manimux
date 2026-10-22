@@ -12,6 +12,7 @@ and ignored by Git; follow the selected deployment guide to create them.
 | `envs/tianji/.venv/` | Tianji/TacCap hardware dependencies, prepared with the body runbook |
 | `envs/aloha/.venv/` | ALOHA/PiPER RoboGUI and optional ARX/PiPER SDKs; hardware validation pending |
 | Model-specific environment | XPolicyLab model inference/training, such as `third_party/XPolicyLab/policy/Pi_05/openpi/.venv/` |
+| `third_party/RPent/.venv/` | RPent planner (`manimux-rpent run`, RoboGUI `agent.python`); the runtime keeps its robot environment |
 | Existing `envs/umi_dp/`, `envs/xr1/`, etc. | Local environment conventions still referenced by some model launchers; follow their runbooks |
 
 The hardware process does not need torch/JAX to consume Pi05 predictions from a separate
