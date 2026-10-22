@@ -24,7 +24,6 @@ from manimux.evaluation.identity import rollout_identity, start_identity
 from manimux.evaluation.rubric import count_result, evaluation_parameters, stage_option
 from manimux.types import FloatArray, UInt8Array
 
-from .agent_decisions import decisions_markdown, merge_decisions, read_decisions
 from .agent_feed import AgentFeed
 from .camera_panel import CameraPanel
 from .camera_panel import _camera_panel_html as _camera_panel_html
@@ -379,24 +378,8 @@ class PolicyRoboGUI:
                 hint="Cancel preparation and return after runtime cleanup.",
             )
         self._build_recovery_gui()
-        self.agent_decisions_folder = self.server.gui.add_folder(
-            "RPent decisions", expand_by_default=True, visible=False
-        )
-        self.agent_decisions_folder.order = self.policy_control_folder.order + 0.1
-        with self.agent_decisions_folder:
-            self.agent_run_status = self.server.gui.add_text("RPent status", "Ready", disabled=True)
-            self.agent_records = self.server.gui.add_text("Agent records", "", disabled=True, visible=False)
-            self.agent_history_btn = self.server.gui.add_button(
-                "View all decisions", color="gray", visible=False,
-            )
-            self.agent_history_summary = self.server.gui.add_markdown("", visible=False)
-            self.agent_decisions_view = self.server.gui.add_markdown("")
+        # RPent's planner transcript, status and tool lines live in the bottom bar.
         self.agent_feed = AgentFeed(self.server.gui)
-        self._agent_decisions_content = ""
-        self._agent_decision_rows: list[dict[str, Any]] = []
-        self._agent_decisions_show_all = False
-        self._agent_history_episode_dir: Path | None = None
-        self._agent_history_error = ""
         self.run_folder = self.server.gui.add_folder("Run details", expand_by_default=False)
         with self.run_folder:
             self.robot_name = self.server.gui.add_text("Robot", self.robot.label, disabled=True)
@@ -508,11 +491,6 @@ class PolicyRoboGUI:
         def _warmup(_event: Any) -> None:
             with self.lock:
                 self._activate_warmup()
-
-        @self.agent_history_btn.on_click
-        def _agent_history(_event: Any) -> None:
-            with self.lock:
-                self._toggle_agent_history()
 
         @self.start_btn.on_click
         def _start(_event: Any) -> None:
@@ -1850,11 +1828,7 @@ class PolicyRoboGUI:
         self.last_failure_id = ""
         self.last_rollout_error = ""
         self.last_rollout_failure = {}
-        self._update_agent_decisions([])
         self.agent_feed.reset()
-        self.agent_run_status.value = "Ready · starts with Start rollout"
-        self.agent_records.value = ""
-        self.agent_records.visible = False
         self.agent_action.visible = False
         # A task belongs to one runtime service; reconnects must not retain it.
         # Session identity changes on method/pose switches too. Layout memory
@@ -2455,8 +2429,7 @@ class PolicyRoboGUI:
             if "control_status" in metadata:
                 self._control_status = dict(metadata["control_status"])
             if (metadata.get("episode_id") == self._episode_id
-                    and "agent_decisions" in metadata):
-                self._update_agent_decisions(metadata["agent_decisions"])
+                    and "agent_messages" in metadata):
                 self._update_agent_status(metadata.get("agent_status", {}))
                 if self._execution_mode == "rpent":
                     self.agent_feed.update(metadata.get("agent_messages", []),
@@ -2506,13 +2479,8 @@ class PolicyRoboGUI:
         if label in self.execution_select.options:
             self.execution_select.value = label
         if changed:
-            self._update_agent_decisions([])
             self.agent_feed.reset()
-            self.agent_run_status.value = "Ready · starts with Start rollout"
-            self.agent_records.value = ""
-            self.agent_records.visible = False
             self.agent_action.visible = False
-        self.agent_decisions_folder.visible = mode == "rpent"
         self.agent_feed.set_visible(mode == "rpent")
         if hasattr(self, "_base_research_defaults"):
             self._research_defaults = dict(self._base_research_defaults)
@@ -2523,94 +2491,8 @@ class PolicyRoboGUI:
     def _update_agent_status(self, status: dict[str, Any]) -> None:
         if self._execution_mode != "rpent" or not status:
             return
-        labels = {"waiting": "Ready · starts with Start rollout", "running": "Running",
-                  "paused": "Paused · waiting for Resume", "completed": "Finished",
-                  "failed": "Failed", "stopped": "Stopped"}
-        self.agent_run_status.value = labels.get(status.get("phase"), "Ready")
         if status.get("phase") == "failed" and status.get("detail"):
             self.errors.sync("RPent", str(status["detail"]))
-
-    def _update_agent_decisions(self, decisions: list[dict[str, Any]]) -> None:
-        if self._execution_mode != "rpent":
-            decisions = []
-        if decisions:
-            self._agent_decision_rows = merge_decisions(self._agent_decision_rows, decisions)
-        else:
-            self._agent_decision_rows = []
-            self._agent_decisions_show_all = False
-            self._agent_history_episode_dir = None
-            self._agent_history_error = ""
-        self._render_agent_decisions()
-
-    def _render_agent_decisions(self) -> None:
-        rows = self._agent_decision_rows
-        content = decisions_markdown(rows, show_all=self._agent_decisions_show_all) if rows else ""
-        if content != self._agent_decisions_content:
-            self._agent_decisions_content = content
-            self.agent_decisions_view.content = content
-        total = max((row.get("sequence", 0) for row in rows), default=0)
-        self.agent_history_btn.visible = self._execution_mode == "rpent" and (
-            total > 8 or self._agent_history_episode_dir is not None
-        )
-        self.agent_history_btn.label = (
-            "Show recent 8" if self._agent_decisions_show_all else f"View all decisions ({total})"
-        )
-        summary = (
-            f"All {len(rows)} decisions · oldest first" if self._agent_decisions_show_all
-            else f"Latest {min(8, len(rows))} of {total} decisions · newest first"
-        ) if rows else ""
-        self.agent_history_summary.content = self._agent_history_error or summary
-        self.agent_history_summary.visible = bool(summary or self._agent_history_error)
-        self.agent_decisions_folder.visible = self._execution_mode == "rpent"
-
-    def _read_agent_history(self, episode: Path) -> list[dict[str, Any]]:
-        episode = episode.expanduser().resolve()
-        if (not self.service_id or episode.parent != Path(self.service_id).resolve()
-                or not episode.name.startswith("rollout-")):
-            raise ValueError("Decision history must belong to the selected session")
-        rows = read_decisions(episode)
-        episode_id = episode.name.removesuffix(".partial")
-        if any((row.get("run_dir") and Path(row["run_dir"]).resolve() != episode.parent)
-               or (row.get("episode_id") and row["episode_id"] != episode_id) for row in rows):
-            raise ValueError("Decision history contains another rollout")
-        return rows
-
-    def _toggle_agent_history(self) -> None:
-        if self._execution_mode != "rpent":
-            return
-        self._agent_history_error = ""
-        if not self._agent_decisions_show_all:
-            episode = self._agent_history_episode_dir or self.current_episode_dir
-            try:
-                if episode is not None:
-                    rows = self._read_agent_history(episode)
-                    self._agent_decision_rows = merge_decisions(rows, self._agent_decision_rows)
-                elif self._agent_decision_rows and self._agent_decision_rows[0]["sequence"] != 1:
-                    raise ValueError("Earlier decisions have no published recording path yet")
-            except (OSError, ValueError) as exc:
-                self._agent_history_error = f"Could not load all decisions: {exc}"
-                self._render_agent_decisions()
-                return
-        self._agent_decisions_show_all = not self._agent_decisions_show_all
-        self._render_agent_decisions()
-
-    def _restore_agent_history(self, episode_dir: str) -> None:
-        """Recover the last completed rollout after a GUI reconnect, without controls."""
-        if self._execution_mode != "rpent" or not episode_dir or self.episode_active:
-            return
-        episode = Path(episode_dir)
-        if episode == self._agent_history_episode_dir:
-            return
-        self._agent_history_episode_dir = episode
-        try:
-            rows = self._read_agent_history(episode)
-            if rows:
-                self._agent_decision_rows = rows
-                self.agent_run_status.value = "Recorded · last rollout"
-            self._agent_history_error = ""
-        except (OSError, ValueError) as exc:
-            self._agent_history_error = f"Could not load recorded decisions: {exc}"
-        self._render_agent_decisions()
 
     def _update_event(self, message: dict[str, Any]) -> None:
         event = str(message.get("event", "unknown"))
@@ -2621,10 +2503,6 @@ class PolicyRoboGUI:
                 self._update_agent_status(metadata)
             return
         if event == "agent_decision":
-            if (self._execution_mode != "rpent" or metadata.get("run_dir") != self.service_id
-                    or metadata.get("episode_id") != self._episode_id):
-                return
-            self._update_agent_decisions([metadata])
             return
         if event in {"motion_call_submitted", "motion_call_finished",
                      "policy_call_submitted", "policy_call_finished"}:
@@ -2745,11 +2623,7 @@ class PolicyRoboGUI:
             )))
             self.agent_action.visible = False
             self.agent_action.value = "waiting"
-            self._update_agent_decisions([])
             self.agent_feed.reset()
-            self.agent_run_status.value = "Ready · starts with Start rollout"
-            self.agent_records.value = str(metadata.get("agent_run_dir", ""))
-            self.agent_records.visible = bool(self.agent_records.value) and self._execution_mode == "rpent"
             incoming_episode_id = str(metadata.get("episode_id", ""))
             incoming_service_id = str(metadata.get("run_dir", ""))
             # The previous rollout's feedback cannot time out this new episode.
@@ -2961,7 +2835,6 @@ class PolicyRoboGUI:
             if self.current_episode_dir is None or self.evaluation_complete:
                 self.episode_path.value = str(metadata.get("last_episode_dir", "")) or "ready"
                 self._configure_evaluation(metadata.get("evaluation"))
-            self._restore_agent_history(str(metadata.get("last_episode_dir", "")))
             self._update_prepare_enabled()
             self._set_stage("setup" if self.evaluation_complete else "evaluation")
             self._idle_status(last_error)

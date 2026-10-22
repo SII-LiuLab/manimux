@@ -262,19 +262,17 @@ completed_motion_steps, dispatched_control_steps and measured arrival diagnostic
 Tool steps and plan records join through dispatch_request_id and session ID.
 The Toolkit reports selected/completed/failed tool decisions through the
 session-scoped `/agent-decision` telemetry endpoint. It never changes runtime
-admission or controls. RoboGUI receives the latest eight choices in ordinary
-state heartbeats, including observe/finish, arguments, model label and outcome;
-full `agent_decision` events are retained in the episode. **View all decisions**
-reads this rollout's recorded events and displays the complete chronological tool
-history, including uncut policy prompts, finish summaries and errors. Selected and
-terminal events merge by decision ID; late heartbeats cannot replace a terminal
-outcome with Selected. The reader also supports an active `.partial` rollout and
-reports unavailable or malformed recordings instead of inventing missing results.
-Reconnects recover the history and new rollouts clear it.
+admission or controls. Full `agent_decision` events (arguments, model label and
+outcome) are retained in the episode recording; RoboGUI no longer has a separate
+decision panel.
 
-The planner's own transcript is shown in a bottom message bar while RPent is selected:
-answers, reasoning summaries, tool lines, operator steering and errors, newest first, with
-the time since Start (and "planner is thinking" before the first message).
+The planner's own transcript is RoboGUI's agent view: a bottom message bar, shown while
+RPent is selected, with answers, reasoning summaries, tool lines, operator steering and
+errors in chronological order and the time since Start ("planner is thinking" before the
+first message). Messages fill preallocated Viser slots: adding a Viser element re-creates
+its siblings' DOM, so appending would reset scrolling and text selection. The bar follows
+new lines only while scrolled to the bottom, keeps text selectable for copying, and its
+top grip resizes it.
 `agents/rpent/transcript.py` follows the backend's live `planner/*_planner.txt` (Codex and
 Claude Code write it as they run; the API planner returns its transcript only at the end,
 so only its tool decisions appear live). Each block is recorded as an `agent_message`

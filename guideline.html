@@ -1737,12 +1737,10 @@ The existing task, method, layout, Prepare Run / Prepare Experiment, Start, Paus
 Resume, Finish and evaluation controls remain in place. The RPent status, decisions and
 agent record location appear only when RPent is selected. An experiment without an agent
 profile keeps its existing VLA interface.</p>
-<p>The RPent panel shows the latest eight tool decisions. <strong>View all decisions</strong>
-opens the current rollout's complete recorded history in chronological order, with full
-policy prompts, finish summaries and error text. This view reports recorded tool choices
-and outcomes; unavailable recordings are shown explicitly.</p>
 <p>A message bar at the bottom of RoboGUI follows the planner live: its answers, reasoning
-summaries, tool calls and errors, newest first, with the time since Start. Before the first
+summaries, tool calls and errors in chronological order, with the time since Start. It
+follows new lines while scrolled to the bottom, keeps its place when you scroll up, lets
+you select and copy text, and resizes from the grip on its top edge. Before the first
 reply it shows that the planner is thinking. Codex and Claude Code planners stream into it;
 the API planner shows only its tool decisions until it finishes. Messages are also recorded
 with the rollout.</p>
@@ -1817,12 +1815,10 @@ response location. For <code>plan_too_old</code>, compare observation age with
 <p>RoboGUI shows primitive tool names on the shared action timeline without model inference
 latency. <strong>Agent action</strong> shows executing, measured arrival or failure;
 VLA completion reports its chunk budget and still requires inspection of the task result.</p>
-<p><strong>RPent decisions</strong> shows the latest eight native tool choices, newest first:
-observe, move_to, move_delta, rotate, set_gripper, execute_policy and finish. Each entry
-retains the submitted target, units, VLA prompt or chunk budget and its result. Selected
-means the planner invoked the tool; hardware execution and arrival remain separate runtime
-receipts. Decision history recovers from state heartbeats after a GUI reconnect and clears
-for a new rollout. Full decision events remain in the rollout recording.</p>
+<p>The bottom message bar shows each native tool call (observe, move_to, move_delta, rotate,
+set_gripper, execute_policy and finish) with its arguments and result as the planner
+reports it; hardware execution and arrival remain separate runtime receipts. Full decision
+events remain in the rollout recording.</p>
 <p>Motion completion checks measured TCP/gripper errors; completed VLA rows count dispatched
 references, not physical arrival or task success. Paths use bounded joint interpolation,
 not a Cartesian straight line. The current bridge supports ordinary Serial and complete
