@@ -60,6 +60,14 @@ logs/
 !/manimux/embodiments/arm/piper/assets/
 !/manimux/embodiments/arm/piper/assets/**
 
+# Public Apache-2.0 Franka FR3 geometry retains upstream LICENSE and NOTICE.
+!/manimux/embodiments/arm/franka/assets/
+!/manimux/embodiments/arm/franka/assets/**
+
+# Robotiq's frame-only tool description is part of its offline model.
+!/manimux/embodiments/end_effector/robotiq/assets/
+!/manimux/embodiments/end_effector/robotiq/assets/**
+
 # Local backup of the pre-refactor package tree; the active package is /manimux.
 /src/
 

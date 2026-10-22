@@ -60,7 +60,7 @@ class GroupLayout:
 
     @property
     def arm_key(self) -> str:
-        return f"{self.prefix}_arm_joint_state" if self.prefix else "arm_joint_state"
+        return f"{self.prefix}_arm_joint_state" if self.prefix else "joint_state"
 
     @property
     def gripper_key(self) -> str:
@@ -222,7 +222,8 @@ def _layouts_from_options(
     layouts = group_layouts(group_dims, options)
     prefixes = options.get("group_prefixes", DEFAULT_GROUP_PREFIXES)
     return tuple(
-        GroupLayout(name, prefixes[name], **layouts[name])
+        # XPolicyLab's standard single-arm schema has no side/group prefix.
+        GroupLayout(name, "" if len(layouts) == 1 else prefixes[name], **layouts[name])
         for name in options.get("group_order", tuple(group_dims))
     )
 

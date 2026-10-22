@@ -185,7 +185,7 @@ class RobotBase(ABC):
                     timing_scope(name),
                 ):
                     feedback[controller] = controller.get_states()
-            groups, timestamps = {}, []
+            groups, timestamps, grippers = {}, [], {}
             for name, arm in self.arm_components.items():
                 state = feedback[arm.controller][arm.channel]
                 if state.joints.shape != (arm.num_joints,):
@@ -200,9 +200,10 @@ class RobotBase(ABC):
                     if not 0 <= self._clock.now_ns() - tool_ns <= self._stale_ns:
                         raise RuntimeError(f"{name}: stale gripper feedback or clock mismatch")
                     groups[name] = np.r_[groups[name], tool_state.opening]
+                    grippers[name] = tool_state
                     timestamps.append(tool_ns)
             self._sequence += 1
-            return RobotState(groups, min(timestamps), self._sequence)
+            return RobotState(groups, min(timestamps), self._sequence, grippers=grippers)
 
     @timed("robot_send_command")
     def send_command(self, command: RobotCommand) -> None:

@@ -6,6 +6,7 @@ import uuid
 import numpy as np
 
 from manimux.policies.capabilities import PolicyCapabilities, metadata_mismatches
+from manimux.policies.response_log import capture_response
 from manimux.policies.starvla.codec import StarVlaCodec
 from manimux.policies.starvla.wire import pack, unpack
 
@@ -89,7 +90,10 @@ class StarVlaPolicyModel:
         request_id = uuid.uuid4().hex
         try:
             self.connection.send(pack({"type": kind, "request_id": request_id, **fields}))
-            result = unpack(self.connection.recv(timeout=self.timeout))
+            raw = self.connection.recv(timeout=self.timeout)
+            if kind == "infer":
+                capture_response(raw, stage="provider_wire")
+            result = unpack(raw)
             if result.get("request_id") != request_id:
                 raise ValueError("StarVLA response request_id mismatch")
             expected = "inference_result" if kind == "infer" else kind

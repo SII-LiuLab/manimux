@@ -10,7 +10,7 @@ main{min-width:0;padding:36px 0 50px}.breadcrumb{font-size:12px;color:var(--mute
 </style></head>
 <body><a class="skip" href="#overview">Skip to content</a>
 <header class="topbar"><button class="menu-button" id="menu" aria-label="Toggle navigation" aria-expanded="false" aria-controls="sidebar">☰</button><a class="brand" href="./" aria-label="ManiMux homepage">ManiMux</a><a class="repo" href="#overview">Guide</a><span class="current" id="current-title">Overview</span><div class="search-box"><input id="guide-search" type="search" placeholder="Search sections" aria-label="Search guide" autocomplete="off"><div id="search-results" class="search-results" hidden></div></div><a class="repo" href="https://github.com/SII-LiuLab/manimux">SII-LiuLab / ManiMux ↗</a></header>
-<div id="backdrop" class="backdrop"></div><div class="layout"><aside class="sidebar" id="sidebar"><div class="sidebar-title">ManiMux Guide</div><nav aria-label="Guide sections"><a href="#overview" data-page="overview">Overview</a><details class="nav-group" open><summary>Start here</summary><div><a href="#install" data-page="install">Install &amp; preview</a><a href="#configuration" data-page="configuration">Configure a deployment</a><a href="#launch" data-page="launch">Launch commands</a></div></details><details class="nav-group" open><summary>Inference algorithms</summary><div><a href="#shared-parameters" data-page="shared-parameters">Shared parameters</a><a href="#algorithms" data-page="algorithms">Choose an algorithm</a><a href="#serial" data-page="serial">Serial</a><a href="#async" data-page="async">Async</a><a href="#act-temporal-ensemble" data-page="act-temporal-ensemble">ACT temporal ensemble</a><a href="#rtc" data-page="rtc">RTC</a><a href="#train-time-rtc" data-page="train-time-rtc">Train-time RTC</a><a href="#paint" data-page="paint">PAINT</a><a href="#aac" data-page="aac">AAC</a><a href="#autohorizon" data-page="autohorizon">AutoHorizon</a><a href="#bid-backward" data-page="bid-backward">BID backward-only</a><a href="#optional-algorithm-composition" data-page="optional-algorithm-composition">Supported combinations</a><a href="#support" data-page="support">Model support &amp; presets</a></div></details><details class="nav-group" open><summary>Experiments</summary><div><a href="#experiment-lists" data-page="experiment-lists">Task &amp; method switching</a><a href="#experiments" data-page="experiments">Rules, templates &amp; scoring</a><a href="#records" data-page="records">Records &amp; replay</a><a href="#reports" data-page="reports">Evaluation reports</a></div></details><details class="nav-group" open><summary>Development</summary><div><a href="#agent-references" data-page="agent-references">Work with your agent</a><a href="#troubleshooting" data-page="troubleshooting">Troubleshooting</a></div></details></nav><div class="sidebar-tools"><button id="print">Print entire guide / PDF</button></div></aside>
+<div id="backdrop" class="backdrop"></div><div class="layout"><aside class="sidebar" id="sidebar"><div class="sidebar-title">ManiMux Guide</div><nav aria-label="Guide sections"><a href="#overview" data-page="overview">Overview</a><details class="nav-group" open><summary>Start here</summary><div><a href="#install" data-page="install">Install &amp; preview</a><a href="#configuration" data-page="configuration">Configure a deployment</a><a href="#launch" data-page="launch">Launch commands</a></div></details><details class="nav-group" open><summary>Inference algorithms</summary><div><a href="#shared-parameters" data-page="shared-parameters">Shared parameters</a><a href="#algorithms" data-page="algorithms">Choose an algorithm</a><a href="#serial" data-page="serial">Serial</a><a href="#async" data-page="async">Async</a><a href="#act-temporal-ensemble" data-page="act-temporal-ensemble">ACT temporal ensemble</a><a href="#rtc" data-page="rtc">RTC</a><a href="#train-time-rtc" data-page="train-time-rtc">Train-time RTC</a><a href="#paint" data-page="paint">PAINT</a><a href="#aac" data-page="aac">AAC</a><a href="#autohorizon" data-page="autohorizon">AutoHorizon</a><a href="#bid-backward" data-page="bid-backward">BID backward-only</a><a href="#optional-algorithm-composition" data-page="optional-algorithm-composition">Supported combinations</a><a href="#support" data-page="support">Model support &amp; presets</a></div></details><details class="nav-group" open><summary>Agent integrations</summary><div><a href="#agent-integrations" data-page="agent-integrations">RPent / HarnessVLA</a></div></details><details class="nav-group" open><summary>Experiments</summary><div><a href="#experiment-lists" data-page="experiment-lists">Task &amp; method switching</a><a href="#experiments" data-page="experiments">Rules, templates &amp; scoring</a><a href="#records" data-page="records">Records &amp; replay</a><a href="#reports" data-page="reports">Evaluation reports</a></div></details><details class="nav-group" open><summary>Development</summary><div><a href="#agent-references" data-page="agent-references">Work with your agent</a><a href="#troubleshooting" data-page="troubleshooting">Troubleshooting</a></div></details></nav><div class="sidebar-tools"><button id="print">Print entire guide / PDF</button></div></aside>
 <main id="content"><div class="breadcrumb" id="breadcrumb">ManiMux Guide / Overview</div><section aria-labelledby="overview" class="guide-page overview" data-page-id="overview" data-title="Overview">
 <div class="kicker">Documentation / Real-robot research</div>
 <h1 id="overview">ManiMux</h1>
@@ -27,7 +27,7 @@ main{min-width:0;padding:36px 0 50px}.breadcrumb{font-size:12px;color:var(--mute
 </div></div>
 <h3 id="workflow">One workflow, interchangeable components</h3>
 <p>Observation → Policy → Adapter / Timeline → Executor → Robot</p>
-<p>Model frameworks own inference. ManiMux handles scheduling, execution, recording and RoboGUI operation.</p>
+<p>Robot agents own planning and tools; model frameworks own inference. ManiMux handles scheduling, execution, recording and RoboGUI operation.</p>
 </section>
 <section aria-labelledby="install" class="guide-page" data-page-id="install" data-title="Install &amp; preview" hidden=""><h2 id="install">Install</h2>
 <p>Run commands from the repository root. Python 3.11/3.12 are supported.</p>
@@ -133,6 +133,82 @@ interfaces, camera serials, endpoints and checkpoint roots. Preserve component n
 <p><code>config:</code> paths resolve relative to the containing YAML; mappings merge and lists replace.
 Experiment <code>run.output_dir</code> is relative to the launch directory. Station-local paths resolve
 relative to the station file. Formal studies use collection <code>recording.root</code>; station output overrides are rejected.</p>
+<h3 id="franka-deployment">Franka FR3: ordinary policy deployment</h3>
+<p>The Franka arm is an independent embodiment. A model worker supplies actions to
+the normal adapter, runtime and executor; the driver uses Franky for joint control.
+RPent, RLinf and Ray are not required. An agent bridge is an optional caller, not
+a hardware dependency. The unified RPent motion and VLA integration is described below.</p>
+<p>Select <a href="manimux/configs/examples/franka_joint_policy.yaml">franka_joint_policy.yaml</a>
+and copy <a href="manimux/configs/local/franka_example.yaml">franka_example.yaml</a> to a private
+station file. Bind the robot IP, gripper serial device, measured travel endpoints and
+policy endpoint. The assembly has one <code>arm</code> group: seven joint radians followed by
+normalized gripper opening (0 closed, 1 open). Select <code>franka_fr3.yaml</code> for a bare
+seven-coordinate arm. Verify the model variant and flange-to-TCP transform; the Robotiq
+example's 0.174 m offset is a controller EE-frame example, not a universal finger TCP.</p>
+<pre><code class="language-bash"># Linux robot environment; choose SDK wheels matching controller firmware.
+python -m pip install -e '.[franka,robotiq,xpolicylab]'
+# Install a compatible Franky build exposing JointReferenceHandle and
+# JointImpedanceTrackingMotion; see the linked component's tested SDK build.
+python -m manimux run \
+  --config manimux/configs/examples/franka_joint_policy.yaml \
+  --local /path/to/private/franka-station.yaml
+</code></pre>
+<p>The example is a recipe, not a bundled policy: supply the selected model's cameras,
+action interval, horizon, absolute joint action contract and matching backend identity.
+The separate model server uses its own environment. Keep <code>robot.options.execute: false</code>
+for feedback-only validation, which uses pylibfranka and performs no actuator writes.
+Enable execution only for a prepared deployment with FCI active, the arm Idle and the
+gripper activated. Executing connect applies the configured Franky collision thresholds;
+it does not home, unlock or clear faults. Arm component YAML owns native dynamics.
+Native impedance tracking keeps one controller active. Each accepted target is submitted
+unchanged, including the first. Host guards for reference steps, measured-to-target distance
+and measured speed default to <code>null</code>; bounded tests can explicitly configure
+a positive scalar or seven per-joint values. The example uses the shared smooth executor
+with braking tracking, command speed 0.15 rad/s and acceleration 0.5 rad/s²,
+including deceleration during inference gaps. Complete policy chunks
+remain scheduled; rate shaping changes dispatched references. Native collision protection, model joint bounds,
+feedback freshness and fault checks remain active. Optional host checks do not guarantee
+physical acceleration or jerk.
+Submission is not measured arrival.</p>
+<p>For the verified Linux x86_64 / Python 3.12 station, install the firmware-specific SDK
+with <code>pip install -e '.[franka,robotiq]' -r scripts/setup/franka-linux-cp312.txt</code>.
+This pins the tested wheel by SHA-256; the ordinary PyPI Franky 1.1.3 package lacks the
+required tracking API. Other firmware/platform combinations require a verified SDK build.</p>
+<p>The driver restores the calling thread's scheduling policy after SDK connection and
+control startup. Franky's native control thread inherits the SDK's real-time priority;
+ordinary Python work such as camera reads and recording keeps its original priority.</p>
+<p>Home, automatic startup moves and idle recovery are unsupported. RoboGUI disables Return Home
+and offers <strong>Finish rollout</strong>; shared shutdown stops and closes the owned
+sessions before finalizing recordings. Stop ends owned
+arm motion and clears the gripper's go-to request while retaining activation. See the
+<a href="manimux/embodiments/arm/franka/README.md">Franka lifecycle contract</a> and
+<a href="manimux/embodiments/end_effector/robotiq/README.md">Robotiq contract</a> for
+feedback freshness, explicit fault handling and SDK requirements.</p>
+<p>RoboGUI retains the selected task prompt during action playback, including when no
+policy display label is configured. Native <code>cartesian_reflex</code> and
+<code>joint_reflex</code> errors appear as <strong>Robot collision protection triggered</strong>,
+with the original exception chain available. Inspect contact and current controller state
+before another Prepare; an available Prepare button does not certify hardware readiness.</p>
+<p>The camera endpoint uses the existing latest-bundle PUB protocol on localhost 5556.
+Run vendor SDKs in their compatible environments; a station with a Python 3.10 ZED SDK
+can publish RGB to the Python 3.12 robot environment without importing that SDK there.
+Independent camera processes prevent SDK calls from delaying the transport process.
+Publish immutable images with their original source timestamps; repeated reads retain
+those timestamps. The subscriber keeps only the latest bundle and waits for all selected
+cameras during startup. Optional <code>camera_meta</code> identifies timestamp provenance:
+publication age is not exposure-to-action latency. The 0.5 s freshness limit remains active.</p>
+<h3 id="rpent-franka">RPent motion and VLA tools</h3>
+<p>Select <a href="manimux/configs/agents/rpent_franka.yaml">rpent_franka.yaml</a> for both
+runtime and planner. Its experiment selects a Pi05 checkpoint recipe and the
+shared joint-action adapter.
+The same Toolkit can preposition, call the VLA, and move again in one rollout.
+See <a href="#agent-integrations">RPent setup</a> for the shared entry point.</p>
+<p>Copy <a href="manimux/configs/agents/rpent_franka_motion.example.yaml">the motion template</a>
+to the private local directory and supply measured base-frame workspace bounds.
+Motion completion checks measured TCP/gripper feedback; closing contact is reported
+separately from task success. Pose tools retain the commanded gripper target.
+The example defaults to execute=false. The retired native state19/delta7 VLA bridge
+is not used; a model must match the selected ManiMux policy adapter.</p>
 <h3 id="command-limits">Command limits and receive-only validation</h3>
 <p>PiPER's configured station <code>joint_limits</code> (radians) and normalized gripper
 range [0, 1] are shared automatically with the runtime. If
@@ -174,10 +250,11 @@ and execution to you. The <a href="https://github.com/SII-LiuLab/manimux/tree/ma
 resolves existing recipes and station bindings. Missing physical camera mappings or an
 ambiguous checkpoint still require your input. This is a new conversation on a configured
 station; SDK installation, weights and calibration are separate setup work.</p>
-<p>The managed path supports <strong>Linux + tmux, one runtime config, local XPolicyLab
-WebSocket serving and a camera-server recipe</strong>. It reuses existing service entry
-points and isolated Python environments. Config-list studies, remote model hosts and other
-serving frameworks continue to use the manual launch commands below.</p>
+<p>The managed path supports <strong>Linux + tmux, one runtime config, XPolicyLab
+WebSocket serving and camera-server streams</strong>. It reuses existing service entry
+points and isolated Python environments. Services may be launched locally or explicitly
+selected as external dependencies. Config-list studies and other serving frameworks
+continue to use the manual launch commands below.</p>
 <pre><code class="language-bash"># Read-only checks; no devices opened and no model weights loaded.
 uv run manimux doctor \
   --config manimux/configs/experiments/pi05-latest300ep-step30000/coin/serial32.yaml \
@@ -201,6 +278,34 @@ interpreter; use <code>--camera-python</code> when needed. Use <code>--output-di
 select a separate trial root. <code>up --timeout</code> is a readiness deadline per service.
 JSON results stay on stdout and progress goes to stderr. <code>--open</code> opens the default
 browser; agents can instead open the returned <code>gui_url</code> in their browser panel.</p>
+<p>For an existing or remote model, replace <code>--policy-python</code> with
+<code>--external-policy</code>; the runtime recipe and station binding select its WebSocket
+endpoint and expected identity. For cameras already published by another owner, use
+<code>--external-camera</code> and camera-server network sensors with capture timestamps and
+a positive <code>max_frame_age_sec</code>. A local camera-server recipe is then unnecessary.
+Doctor checks configuration; up/status receive camera frames and a model HELLO without
+requesting inference. External services and any SSH tunnels retain their existing owners,
+and down leaves them running. For a configured Franka experiment:</p>
+<pre><code class="language-bash">python -m manimux up \
+  --config /path/to/franka-experiment.yaml \
+  --local /path/to/private/franka-station.yaml \
+  --runtime-python /path/to/franka-env/bin/python \
+  --external-policy --external-camera --open --json
+</code></pre>
+<p>The Franka preset uses the same Prepare, warmup, rollout, Finish and recording flow.
+Its default recipe remains receive-only; select execution in the private runtime override
+after qualification. Home availability comes from the robot capability contract.</p>
+<p>Keep one Franka FCI owner at a time. Read diagnostics from the active runtime:
+opening a second SDK connection can disconnect the first, even in receive-only mode.
+ManiMux rejects a second local connection to the same configured address before
+opening its SDK. Finish the owning session before a standalone diagnostic; coordinate
+raw SDK clients and clients on other hosts separately.</p>
+<p>RoboGUI uses the official detailed FR3 v2.1 visual meshes. The reference assembly
+selects the articulated Robotiq 2F-85 display with
+<code>components.gripper.options.visual_model: 2f_85</code> in the robot assembly YAML.
+Use <code>frames</code> when the installed tool has no matching visual model. Display
+selection preserves the assembly's measured mounting/TCP and normalized gripper
+command contract; the nominal finger animation does not measure object contact.</p>
 <p>Private state, resolved plans and logs live under <code>.local/deployment</code> by default.
 Use the same <code>--deployment-dir</code> for all commands when overriding it. Repeated up
 reuses an unchanged healthy deployment owned by this tool. Changed configurations, partial
@@ -219,7 +324,8 @@ editing running service code. Preserve the state directory until its services ha
 cleanup. If it remains alive, dependencies and the operator terminal stay available;
 the command reports <code>shutdown_blocked</code>. Attach to the terminal and inspect
 RoboGUI. There is no force-kill or automatic RELEASE. Repeated down waits without sending
-another interrupt. When runtime has exited, policy, camera and RoboGUI stop in order.</p>
+another interrupt. When runtime has exited, owned policy, camera and RoboGUI services
+stop in order; external dependencies remain available.</p>
 <h3 id="deployment-demo-video">Rehearse and record the deployment demo</h3>
 <pre><code class="language-bash"># Synthetic preview: no camera, policy service, runtime or robot connection.
 uv run manimux up --demo --robot yam --gui-port 18086 \
@@ -405,21 +511,13 @@ Other providers need an explicit observation/action adapter; arbitrary JSON
 responses are not robot commands.</p>
 <p>Install the optional client with <code>pip install -e '.[dream]'</code>.
 Set <code>DREAM_API_KEY</code> in the runtime environment, never in configuration
-files. The recipe
-<code>manimux/configs/examples/dream1-yam/async.yaml</code> selects Dream-1 beta,
-one current frame per camera (overhead and both wrists), Async single-inflight,
-and the standard YAM Smooth executor. Inference sends these images, state and
-task text to Dream Labs; the SDK's additional episode recording is disabled.</p>
-<p>For a full-trajectory demo, select
-<code>manimux/configs/examples/dream1-yam/demo.yaml</code>. It uses ordinary
-single-inflight Async with refill, 48 rows and the same Smooth executor.
-<code>first_step_when_ready</code> starts each prediction at receipt instead of
-discarding elapsed rows. This exposes trajectory shape but retains observation
-lag; it does not establish latency-compensated control. Use the same executor
-and playback-clock mode when comparing policies. The <code>async.yaml</code>
-variant retains strict observation-time alignment.</p>
-<pre><code>python -m manimux inspect --config manimux/configs/examples/dream1-yam/async.yaml
-python -m scripts.validation.dream_api_probe --calls 3 --output /tmp/dream-api-probe.json</code></pre>
+files. Dream-1 beta uses one current frame per camera (overhead and both wrists).
+Inference sends these images, state and task text to Dream Labs; the SDK's additional
+episode recording is disabled. A public <a href="https://github.com/SII-LiuLab/manimux/blob/main/manimux/configs/examples/dream1-yam/serial30-example.yaml">30 Hz serial example</a> is included; see the README for startup commands. Tuned station-specific trial configurations are not distributed. Custom configurations use
+<code>policy.worker: dream_api</code>, the Dream YAM adapter and explicit playback,
+scheduling and execution parameters.</p>
+<pre><code>python -m manimux inspect --config /path/to/your/dream.yaml
+python -m scripts.validation.dream_api_probe --config /path/to/your/dream-smooth.yaml --calls 3 --output /tmp/dream-api-probe.json</code></pre>
 <p>The probe uses synthetic observations and opens no robot or cameras.
 For operator-controlled deployment, use the same config with the camera server
 and <code>manimux run --config ...</code>; no <code>policy_server</code> is needed.
@@ -1480,8 +1578,12 @@ Once any rollout record exists, including a partial rollout, condition checks ap
 <p><code>inspect --config-list … --index</code> refreshes the derived <code>recordings-index-v2.json</code> inside the config list's recording directory. It inventories real session directories without following aliases. It is a snapshot, not the score authority; labels are read from recordings. The earlier <code>recordings-index.json</code> and migration/deletion receipts remain historical records. Index generation never rewrites raw episode files.</p>
 <h3 id="delete-recordings">Delete recordings and retest</h3>
 <p>At the bottom of RoboGUI, expand <strong>Experiment records</strong> to browse the
-selected Task/Method output as sessions, rollouts and files. Filter by layout or session,
-select completed rollouts, then choose <strong>Delete selected…</strong>. The confirmation
+selected Task/Method output. The list groups rollouts under session times, with each
+result beneath its rollout name. Expand a rollout row to reveal its full path and files.
+Use <strong>Filter records</strong> to narrow multiple layouts or sessions. Expand
+<strong>Manage records</strong>, select completed rollouts, then choose
+<strong>Delete selected…</strong>. <strong>Storage details</strong> holds the output path
+and archive information. The confirmation
 shows the exact paths and asks for a reason. Deletion moves the entire rollout, including
 its evaluation, videos and trajectories, into <code>_archive/deleted</code>; it releases
 the scored repeat slots and refreshes progress. <strong>Undo last deletion</strong> restores
@@ -1561,6 +1663,172 @@ envs/yam/.venv/bin/python -m manimux run \
 </tbody></table>
 <p id="experiment-list-records">Current recorded conditions remain the authority. Configuration inspection does not validate model outputs or physical execution. Validate the first trials' actual switch timing before collecting a full cohort.</p>
 </section>
+<section aria-labelledby="agent-integrations" class="guide-page" data-page-id="agent-integrations" data-title="RPent / HarnessVLA" hidden=""><h2 id="agent-integrations">RPent / HarnessVLA</h2>
+<p><strong>One recipe and one Toolkit for motion and VLA calls.</strong> RPent owns planning,
+memory and tool selection. ManiMux owns the configured model worker, action adapter,
+motion planning, hardware execution and recording. A task can call move_to, execute_policy
+and set_gripper consecutively without changing runtime modes.</p>
+<h3 id="rpent-install">Install and start</h3>
+<pre><code class="language-bash">git submodule update --init RPent
+uv venv --python 3.11 envs/rpent/.venv
+uv pip install --python envs/rpent/.venv/bin/python -e ./RPent -e .
+
+# Runtime terminal: the default recipe is entirely synthetic.
+python -m manimux.agents.rpent serve --config manimux/configs/agents/rpent.yaml
+
+# Planner terminal, using the same recipe and endpoint.
+envs/rpent/.venv/bin/manimux-rpent run --config manimux/configs/agents/rpent.yaml \
+  --task 'Put the red object into the tray.' --planner api --model '&lt;provider:model&gt;' \
+  --memory-root /path/to/task-memory --output-dir /path/to/new-planner-run
+</code></pre>
+<p>serve and run are runtime/client roles, not alternative execution paths. Configure
+the selected planner's credentials separately. The agent recipe references an ordinary
+runtime experiment and a motion profile; those paths resolve beside the agent YAML.
+The runtime uses its existing camera/model services and private station configuration.
+Basic CLI help does not import the RPent SDK. Trained models stay in their own environments.</p>
+<p>To let RPent's native Astra planner choose observations, motion and VLA calls,
+use its Codex backend with the account already logged in on the planner host:</p>
+<pre><code class="language-bash">manimux-rpent run --config /path/to/station-agent.yaml \
+  --planner codex --model gpt-6-astra --reasoning-effort high \
+  --output-dir /path/to/new-astra-run
+</code></pre>
+<p>The same fields can be saved as <code>planner</code>, <code>model</code> and
+<code>reasoning_effort</code> in the agent YAML. Select a reasoning level supported
+by the model. RPent saves the native planner transcript and tool calls in the
+output directory. Direct tool calls from a chat or scripted probe do not exercise
+this autonomous planner loop.</p>
+<h3>Choose RPent in RoboGUI</h3>
+<p>Add an agent profile to an ordinary experiment, then launch it with the usual
+<code>manimux run --config</code> or <code>--config-list</code> command:</p>
+<pre><code class="language-yaml">agent:
+  config: ../local/rpent-agent.yaml
+  python: /path/to/rpent-env/bin/python
+run:
+  execution_mode: vla
+</code></pre>
+<p><strong>Execution</strong> offers <strong>Direct VLA</strong> and <strong>RPent</strong>.
+The existing task, method, layout, Prepare Run / Prepare Experiment, Start, Pause / Hold,
+Resume, Finish and evaluation controls remain in place. The RPent status, decisions and
+agent record location appear only when RPent is selected. An experiment without an agent
+profile keeps its existing VLA interface.</p>
+<p>The RPent panel shows the latest eight tool decisions. <strong>View all decisions</strong>
+opens the current rollout's complete recorded history in chronological order, with full
+policy prompts, finish summaries and error text. This view reports recorded tool choices
+and outcomes; unavailable recordings are shown explicitly.</p>
+<p>Prepare freezes the choice and validates the planner environment. Start launches RPent
+with the selected task and enabled tools; no separate planner command is needed. Pause cancels the
+current bounded action and waits for operator Resume. Finish stops the rollout and its
+planner. A planner verdict also ends the rollout through the normal robot cleanup; scored
+experiments still require a human evaluation or Skip. RPent trials use a separate
+<code> / RPent</code> condition suffix so they do not count toward Direct VLA repeats.</p>
+<p>The agent profile supplies its planner, model, reasoning level, memory and calibrated
+motion file. The current GUI experiment supplies the robot, VLA and task; managed runs
+allocate their own endpoint and output directory. The existing Serial bridge
+constraints still apply. An incompatible method is rejected before robot connection.
+<code>manimux/configs/examples/rpent_gui_demo.yaml</code> provides a disconnected synthetic
+example; configure the referenced planner provider before selecting RPent.</p>
+<p>To warm the selected VLA before RPent starts, set
+<code>run.warmup_before_start: true</code> and use the existing
+<strong>Prepare → Activate Warmup → Start rollout</strong> controls. Warmup uses the
+selected configuration and task prompt, with the same gripper and calibrated path
+checks as RPent policy calls. Predictions are previewed without sending them to
+actuators or counting them as formal execution; the runtime keeps its measured-position
+hold. Start drains warmup and waits for backend reset acknowledgement and a fresh
+observation before native Astra begins deciding. A reset failure keeps the planner
+blocked. Warmup does not relax deadlines or plan-age limits, and does not guarantee
+that later model calls will meet them.</p>
+<p>For an explicit RPent debugging condition, add
+<code>agent.debug_max_plan_age_s: 2.0</code> to the experiment. This optional finite,
+positive value changes the plan-age limit only for managed GUI RPent, including its
+warmup. Direct VLA keeps the ordinary <code>inference.max_plan_age_s</code>, even
+when selected in that same variant. Provider request timeout, control freshness and
+motion checks stay unchanged. Use a distinct debug variant rather than changing an
+existing recorded condition; the setting is included in its condition fingerprint.
+The disconnected <a href="manimux/configs/examples/rpent_gui_debug.yaml">RPent debug
+example</a> shows this opt-in.</p>
+<p>To test RPent using only observation and motion primitives, set
+<code>agent.policy_enabled: false</code> in the experiment. This boolean defaults
+to true. RPent then offers <code>observe</code>, <code>move_to</code>,
+<code>move_delta</code>, <code>rotate</code>, <code>set_gripper</code> and finish;
+<code>execute_policy</code> and the observation's policy contract are absent.
+The runtime also rejects policy calls and skips its VLA worker and warmup.
+Use <strong>Prepare → Start rollout</strong>; Astra chooses the primitives through
+the existing motion, safety and GUI controls. Direct VLA retains its configured
+policy and warmup even in the same variant. Keep these records in a distinct
+<strong>RPent · Primitives only</strong> variant; <code>false</code> changes its
+condition fingerprint, while omission and <code>true</code> retain the baseline.
+See the disconnected
+<a href="manimux/configs/examples/rpent_gui_primitives.yaml">primitives example</a>.
+For separate <code>manimux-rpent serve</code> / <code>run</code> commands, put
+<code>policy_enabled: false</code> in their shared agent recipe.</p>
+<h3 id="policy-dispatch">Tools in one rollout</h3>
+<table><thead><tr><th>Tool</th><th>Meaning</th></tr></thead><tbody>
+<tr><td>observe</td><td>Measured joint state, RGB views and configured group/frame conventions.</td></tr>
+<tr><td>move_to</td><td>XYZ metres in the selected group base frame, optional unit wxyz orientation.</td></tr>
+<tr><td>move_delta / rotate</td><td>Measured TCP translation / XYZ Euler increments about base axes, in metres / radians.</td></tr>
+<tr><td>set_gripper</td><td>Normalized opening, 0 closed and 1 open.</td></tr>
+<tr><td>execute_policy</td><td>When enabled: subtask prompt, chunk count and retained rows per chunk; use the configured ManiMux VLA.</td></tr>
+</tbody></table>
+<p>When policy calls are enabled, <code>execute_policy.use_length</code> ranges from 1 to the selected policy horizon.
+The native tool schema and <code>observe.policy_contract</code> expose that bound;
+oversized requests are rejected before dispatch rather than clipped.</p>
+<p>Motion and policy calls share one bounded mailbox, timeline, executor, pause and Finish.
+Only one state-changing call runs at a time. Identical request retries return saved receipts;
+changed arguments or overlapping calls are rejected. A timeout or cancellation waits for
+an acknowledged hold. Planning is drained before another call is admitted. RoboGUI Start
+and Pause remain authoritative. Backend history is shared between calls and resets per rollout.</p>
+<p>Primitive planning and execution use the tool call timeout. The inference setting
+<code>max_plan_age_s</code> applies to VLA predictions. The Franka primitive example
+uses RPent's 5 mm position and 0.04 rad orientation completion tolerances.</p>
+<p>A rejected VLA response reports the actual admission reason, timing and saved
+response location. For <code>plan_too_old</code>, compare observation age with
+<code>max_plan_age_s</code>; increasing the inference timeout does not extend that limit.</p>
+<p>RoboGUI shows primitive tool names on the shared action timeline without model inference
+latency. <strong>Agent action</strong> shows executing, measured arrival or failure;
+VLA completion reports its chunk budget and still requires inspection of the task result.</p>
+<p><strong>RPent decisions</strong> shows the latest eight native tool choices, newest first:
+observe, move_to, move_delta, rotate, set_gripper, execute_policy and finish. Each entry
+retains the submitted target, units, VLA prompt or chunk budget and its result. Selected
+means the planner invoked the tool; hardware execution and arrival remain separate runtime
+receipts. Decision history recovers from state heartbeats after a GUI reconnect and clears
+for a new rollout. Full decision events remain in the rollout recording.</p>
+<p>Motion completion checks measured TCP/gripper errors; completed VLA rows count dispatched
+references, not physical arrival or task success. Paths use bounded joint interpolation,
+not a Cartesian straight line. The current bridge supports ordinary Serial and complete
+joint chunks with optional pre-Start warmup; blending, specialized sampling and temporal
+ensemble remain unsupported.</p>
+<h3>Physical station recipes</h3>
+<p>Use <a href="manimux/configs/agents/rpent_franka.yaml">Franka</a> or
+<a href="manimux/configs/agents/rpent_yam.yaml">YAM</a>, and fill the corresponding
+motion template with measured workspace bounds. YAM also requires calibrated base/camera
+transforms and the configured table/collision checks. Missing values fail before connection.
+Both runtime examples default to execute=false. This setting alone does not make device
+connection a hardware-free qualification. Use a disconnected sink for software acceptance.</p>
+<pre><code class="language-bash">manimux-rpent serve --config manimux/configs/agents/rpent_franka.yaml \
+  --local /path/to/private/station.yaml --motion /path/to/private/motion.yaml
+manimux-rpent run --config manimux/configs/agents/rpent_franka.yaml \
+  --model '&lt;provider:model&gt;' --output-dir /path/to/new-agent-run
+</code></pre>
+<p>Keep the endpoint on loopback or use an SSH tunnel. Other bind addresses require
+MANIMUX_DISPATCH_TOKEN on server and client. YAM's mandatory measured Home/release gate
+and Franka's existing stop/close semantics remain assembly-owned.</p>
+<h3 id="rpent-validation">Verification and records</h3>
+<pre><code class="language-bash">python -m scripts.validation.rpent_offline_probe \
+  --config manimux/configs/agents/rpent.yaml \
+  --output data/acceptance/rpent-unified-new-run
+</code></pre>
+<p>This runs RPent's actual Toolkit through preposition, synthetic VLA calls, gripper
+and subsequent motion, retaining standard rollout/replay records. It uses no hardware
+or autonomous LLM and is not physical task evidence. The unified runtime saves provider
+responses before action validation; XPolicyLab/StarVLA also capture malformed wire replies.
+Rejections identify their saved evidence. Qualify the chosen real provider and representative
+observations through a disconnected command sink before operator handoff.</p>
+<p>The former manimux-dispatch console entry and native environment launcher are retired.
+Use execute_policy instead of native pi05_act/vla_grasp, select the matching model recipe,
+and migrate native arm aliases/coordinates to the configured groups and base frames.
+The <a href=".agents/skills/manimux-development/references/rpent.md">integration contract</a>
+describes ownership, acceptance and migration details.</p>
+</section>
 <section aria-labelledby="experiments" class="guide-page" data-page-id="experiments" data-title="Rules, templates &amp; scoring" hidden=""><h2 id="experiments">Experiments</h2>
 <h3 id="agree-on-the-rule-before-collection">Agree on the rule before collection</h3>
 <table>
@@ -1630,7 +1898,11 @@ evaluation:
 <p><strong>Prepare Run / Prepare Experiment.</strong> Both buttons are available before a rollout.
 Prepare Run needs no layout or scoring. For Prepare Experiment, select Layout once;
 its reference is attached automatically and scoring is offered after Finish.
-The <strong>Images</strong> panel is expanded by default. Historical replay has a separate command below.
+Before Start, <strong>Back to setup</strong> cancels preparation and returns to mode and
+task selection after normal runtime cleanup. Cancelled preparations remain recorded but
+skip scoring and do not consume a repeat. After Start, use Finish and save or skip evaluation.
+The <strong>Images</strong> diagnostics panel is collapsed by default; camera previews
+remain visible beside the scene. Historical replay has a separate command below.
 Task, policy and executor are read-only. Keep experiment name, condition and model parameters in YAML.
 The Top gallery matches <code>run.task_prompt</code> ignoring case, punctuation and spaces versus underscores;
 store images in <code>data/evaluation_layouts/&lt;task&gt;/&lt;layout&gt;.png</code>.</p>

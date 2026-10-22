@@ -259,7 +259,10 @@ class RuntimeSessionService:
             self._recovery = recovery if recovery.available else None
 
     def _ready_metadata(self) -> dict[str, object]:
+        from manimux.agents.execution import execution_choices
         return {
+            "execution_choices": execution_choices(self._config),
+            "execution_mode": self._config["run"].get("execution_mode", "vla"),
             "run_dir": str(self._run_dir.resolve()),
             "history_sessions": self._config["run"].get("history_sessions", []),
             "experiment_choices": self._experiment_list.metadata() if self._experiment_list else [],
@@ -481,6 +484,13 @@ class RuntimeSessionService:
                         "This is a --config trial; use --config-list for scored experiments"
                     )
                 rollout_config = deepcopy(self._config)
+                from manimux.agents.execution import execution_choices, execution_condition
+                execution_mode = request.get(
+                    "execution_mode", rollout_config["run"].get("execution_mode", "vla")
+                )
+                if execution_mode not in execution_choices(rollout_config):
+                    raise ValueError("Selected execution mode is not configured for this experiment")
+                rollout_config["run"]["execution_mode"] = execution_mode
                 task_command = str(request.get("task_command", "")).strip()
                 if (self._experiment_list is not None and task_command
                         and task_command != rollout_config["run"]["task_prompt"]):
@@ -497,6 +507,9 @@ class RuntimeSessionService:
                     repeat_id=request.get("repeat_id"),
                     reference_layout=deepcopy(request.get("reference_layout")),
                 )
+                rollout_config["run"]["condition"] = execution_condition(
+                    self._config["run"].get("condition", ""), execution_mode
+                ) if execution_mode == "rpent" else request.get("condition", "")
                 from manimux.runtime.lifecycle import OperationStatus
                 progress = OperationStatus(
                     enabled=True, robot=self._config["robogui"]["robot"],

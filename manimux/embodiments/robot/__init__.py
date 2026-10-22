@@ -32,6 +32,7 @@ def _yam(config, clock):
 
 
 _BUILTINS = {
+    "franka": "manimux.embodiments.robot.franka:build_robot",
     "tianji_taccap": _tianji_taccap,
     "yam": _yam,
 }

@@ -1,0 +1,23 @@
+# Copy to ../local/rpent_yam_motion.yaml. No installation geometry is guessed.
+max_waypoints: 2000
+settle_timeout_s: 5.0
+groups:
+  left_arm:
+    workspace_min_m: null
+    workspace_max_m: null
+    gripper_coordinate: gripper
+    gripper_convention: zero_closed_one_open
+  right_arm:
+    workspace_min_m: null
+    workspace_max_m: null
+    gripper_coordinate: gripper
+    gripper_convention: zero_closed_one_open
+path_validator:
+  factory: manimux.integrations.rpent.geometry:build_path_validator
+  options:
+    extrinsics_path: extrinsics.json
+    planning_timeout_s: 1.0
+    path_joint_delta: 0.02
+    table_z: null
+    table_clearance_m: 0.03
+    collision_guard: {enabled: true, clearance_m: 0.01}

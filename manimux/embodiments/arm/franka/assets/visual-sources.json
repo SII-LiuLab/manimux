@@ -1,0 +1,152 @@
+{
+  "upstream": "https://github.com/frankarobotics/franka_description",
+  "revision": "7aeeddc449edf8d62b594f9e36a81da53e7796f9",
+  "format_conversion": "Collada scenes exported as binary glTF with trimesh; retained nodes, units, materials and triangle counts; no decimation",
+  "trimesh_version": "5.1.1",
+  "assets": {
+    "meshes/visual/link0.glb": {
+      "source_url": "https://raw.githubusercontent.com/frankarobotics/franka_description/7aeeddc449edf8d62b594f9e36a81da53e7796f9/meshes/robots/fr3v2_1/visual/link0.dae",
+      "source_sha256": "2942c6609deb1412eacaebdaef5674b8a370caeb13d39bc34dc7d4604b5dc1c0",
+      "output_sha256": "85680be47c88f369637be34f64fe0190726987984f79ec78d414f1fc0d9f9110",
+      "triangles": 73716,
+      "bounds_m": [
+        [
+          -0.15407210509635227,
+          -0.09456233664479008,
+          -2.1997501470466397e-09
+        ],
+        [
+          0.0719974857195016,
+          0.09456233664479008,
+          0.14000000664964318
+        ]
+      ]
+    },
+    "meshes/visual/link1.glb": {
+      "source_url": "https://raw.githubusercontent.com/frankarobotics/franka_description/7aeeddc449edf8d62b594f9e36a81da53e7796f9/meshes/robots/fr3v2_1/visual/link1.dae",
+      "source_sha256": "0017ad393987fe989aae6cd8a86f501ee928801d81084dd9c7435aa7ada5fed8",
+      "output_sha256": "abab49d0e7a5efd3fa8209a9e4f1b256cf6567615f5b6cb78cf08e27a14e82ef",
+      "triangles": 9514,
+      "bounds_m": [
+        [
+          -0.05500016282965259,
+          -0.13000000617466867,
+          -0.19200000911951065
+        ],
+        [
+          0.05500016282965259,
+          0.05500000261235982,
+          0.05499999116826748
+        ]
+      ]
+    },
+    "meshes/visual/link2.glb": {
+      "source_url": "https://raw.githubusercontent.com/frankarobotics/franka_description/7aeeddc449edf8d62b594f9e36a81da53e7796f9/meshes/robots/fr3v2_1/visual/link2.dae",
+      "source_sha256": "69075fd922c83532ecd1b566dba5a6da22253378b32cc98dc83ab6f16092c2bd",
+      "output_sha256": "1392aecbe55f937085e33fe8bb59e01d046a8debd16faf189ed41e5382325910",
+      "triangles": 10146,
+      "bounds_m": [
+        [
+          -0.05500016282965259,
+          -0.19200000911951065,
+          -0.05500000261235982
+        ],
+        [
+          0.05500016282965259,
+          0.05499999116826748,
+          0.13000000617466867
+        ]
+      ]
+    },
+    "meshes/visual/link3.glb": {
+      "source_url": "https://raw.githubusercontent.com/frankarobotics/franka_description/7aeeddc449edf8d62b594f9e36a81da53e7796f9/meshes/robots/fr3v2_1/visual/link3.dae",
+      "source_sha256": "f60d3f5bbe778355ed3572ae934c3cf646d997e5c3677ec963257a095d94cc66",
+      "output_sha256": "ea445c8e3ff3d26df78c4e481351207bb7c28286f20489583edd863fb038e19b",
+      "triangles": 9904,
+      "bounds_m": [
+        [
+          -0.05500000261235982,
+          -0.05500000261235982,
+          -0.12300000584218651
+        ],
+        [
+          0.13750290570095913,
+          0.113000005367212,
+          0.05495153306660061
+        ]
+      ]
+    },
+    "meshes/visual/link4.glb": {
+      "source_url": "https://raw.githubusercontent.com/frankarobotics/franka_description/7aeeddc449edf8d62b594f9e36a81da53e7796f9/meshes/robots/fr3v2_1/visual/link4.dae",
+      "source_sha256": "cde9c576ddd543e2abbf18f9e70cdf2a3407640cf4a52ba503ccdde6a8f5aeab",
+      "output_sha256": "b9a37a1edb65f7f281c5cd3fa35d350ea7758a81ecd42d88af910ad920da1c4b",
+      "triangles": 10464,
+      "bounds_m": [
+        [
+          -0.13750301251248764,
+          -0.05504829286733903,
+          -0.05500000261235982
+        ],
+        [
+          0.0549999110596211,
+          0.12290320407977617,
+          0.113000005367212
+        ]
+      ]
+    },
+    "meshes/visual/link5.glb": {
+      "source_url": "https://raw.githubusercontent.com/frankarobotics/franka_description/7aeeddc449edf8d62b594f9e36a81da53e7796f9/meshes/robots/fr3v2_1/visual/link5.dae",
+      "source_sha256": "73ca429bff20d4f1e500837b6602ba4cba5d99b0896108c462c3404d12342c6c",
+      "output_sha256": "35343ac141866b6a8f2364ba230f1985225bd52b1cb43a77661546b5a48596c1",
+      "triangles": 12198,
+      "bounds_m": [
+        [
+          -0.055000082721006205,
+          -0.05500000261235982,
+          -0.2600968141117477
+        ],
+        [
+          0.055000082721006205,
+          0.1298253082903944,
+          0.04780332410891486
+        ]
+      ]
+    },
+    "meshes/visual/link6.glb": {
+      "source_url": "https://raw.githubusercontent.com/frankarobotics/franka_description/7aeeddc449edf8d62b594f9e36a81da53e7796f9/meshes/robots/fr3v2_1/visual/link6.dae",
+      "source_sha256": "f362b51dd85a03efb2e0e4d542c535ef52975019d22ca20d79255a676fd3d1fb",
+      "output_sha256": "443c81956b3592e74021ee8814425e2f7541724ca7818e49a31ca53204506eee",
+      "triangles": 78072,
+      "bounds_m": [
+        [
+          -0.04789588392776434,
+          -0.04954676291242688,
+          -0.04535108400220533
+        ],
+        [
+          0.13335001243730105,
+          0.08153884512044574,
+          0.05541297412855695
+        ]
+      ]
+    },
+    "meshes/visual/link7.glb": {
+      "source_url": "https://raw.githubusercontent.com/frankarobotics/franka_description/7aeeddc449edf8d62b594f9e36a81da53e7796f9/meshes/robots/fr3v2_1/visual/link7.dae",
+      "source_sha256": "bbbf2024a9501df643273b7696dc4da8e007bbfef51299586e82e67e7e54eefd",
+      "output_sha256": "5d0fd72e257d482d5ea8bacc72bfbd68930586bece9aff70f5fcd2b101849890",
+      "triangles": 42990,
+      "bounds_m": [
+        [
+          -0.04400000208988786,
+          -0.04400000208988786,
+          0.050350000865617695
+        ],
+        [
+          0.08127991108715094,
+          0.08128090290848711,
+          0.10700000508222729
+        ]
+      ]
+    }
+  }
+}

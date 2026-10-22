@@ -11,6 +11,7 @@ from typing import Any
 
 from manimux.policies import build_policy_model
 from manimux.policies.capabilities import PolicyCapabilities
+from manimux.policies.response_log import ResponseLog, capture_response
 from manimux.types import InferenceRequest, InferenceResponse
 
 
@@ -129,12 +130,15 @@ def _worker_main(
                 )
                 _put_latest(response_queue, response, multi_inflight=multi_inflight)
                 continue
+            journal = ResponseLog(config, request)
             try:
                 if multi_inflight:
                     if not model.submit(request):
                         pending_request = request
                     continue
-                action = model.infer(request)
+                with journal:
+                    action = model.infer(request)
+                    capture_response(action, stage="model_output")
                 finished_ns = time.monotonic_ns()
                 response = InferenceResponse(
                     session_id=session_id,
@@ -155,7 +159,8 @@ def _worker_main(
                     raw_action=None,
                     observation_time_ns=request.observation_time_ns,
                     deadline_ns=request.deadline_ns,
-                    error=f"model_error:{type(exc).__name__}:{exc}",
+                    error=f"model_error:{type(exc).__name__}:{exc}"
+                    + (f"; response_artifacts={journal.path}" if journal.path is not None else ""),
                 )
             _put_latest(response_queue, response, multi_inflight=multi_inflight)
     finally:

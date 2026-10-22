@@ -14,6 +14,7 @@ from manimux.runtime.inference import INFERENCE_ALGORITHMS, build_inference_stra
 from manimux.types import ACTION_START_MODES
 
 if TYPE_CHECKING:
+    from manimux.agents.rpent.session import ManagedRPentRuntime
     from manimux.runtime.edge import EdgeRuntime, RunResult
 
 
@@ -32,7 +33,10 @@ def build_runtime(
     run_dir: Path,
     *,
     launch_mode: str = "run",
-) -> EdgeRuntime:
+) -> EdgeRuntime | ManagedRPentRuntime:
+    if config["run"].get("execution_mode", "vla") == "rpent":
+        from manimux.agents.rpent.session import ManagedRPentRuntime
+        return ManagedRPentRuntime(config, run_dir, launch_mode=launch_mode)
     from manimux.runtime.edge import EdgeRuntime
 
     strategy = build_inference_strategy(config)

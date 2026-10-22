@@ -23,6 +23,7 @@ def merge_parameters(defaults: dict, options: Mapping, section: str, *, extra=()
 
 
 EXPERIMENT_FIELDS = {
+    "agent",
     "run",
     "robot",
     "policy",

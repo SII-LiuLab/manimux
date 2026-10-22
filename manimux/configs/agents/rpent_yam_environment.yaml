@@ -1,0 +1,12 @@
+# Legacy protocol fixture only. Deploy with agents/rpent_yam.yaml.
+experiment: ../examples/rpent_yam_native.yaml
+task_name: tabletop_cleanup_a
+seed: 0
+max_episode_steps: 1000
+max_batch_actions: 2000
+operator_receipt_path: ../local/rpent-yam-receipt.json
+camera_map: {top: d405_front, left: d405_left, right: d405_right}
+max_frame_age_s: 0.5
+max_camera_state_skew_s: 0.1
+# Supply --geometry <private YAML> with calibrated extrinsics and table geometry.
+# See the RPent migration reference. No guessed physical transforms are shipped.

@@ -13,6 +13,33 @@ elements were removed; joint origins, axes and limits were preserved.
 This reference encodes the hosted model's proprioceptive inputs only. It does
 not replace the configured physical robot geometry or establish calibration.
 
+## Franka FR3 v2.1 model assets
+
+`manimux/embodiments/arm/franka/assets/` contains a reduced URDF, eight collision
+meshes and eight detailed visual scenes derived from `frankarobotics/franka_description`, revision
+`7aeeddc449edf8d62b594f9e36a81da53e7796f9`, under Apache-2.0. The upstream license
+and copyright notice are retained as `assets/LICENSE` and `assets/NOTICE`.
+Collision meshes are unchanged. Visual scenes are converted from Collada to binary
+glTF with their node transforms, materials and triangle counts retained; source and
+output hashes are recorded in `visual-sources.json`. The URDF preserves joint
+transforms, limits and mesh origins, and omits inertials, ROS plugins and accessories.
+These resources support nominal FK/IK and display, not collision checking or a
+claim of calibrated physical geometry. Franky and pylibfranka are separate optional
+dependencies; no native control SDK is vendored here.
+
+## Robotiq 2F-85 visual assets
+
+`manimux/embodiments/end_effector/robotiq/assets/2f_85/` contains model resources
+from `robotiq/ros`, revision `c39cd970a3f950c8be206d0e4340c7b69e018d7a`.
+The upstream BSD-3-Clause notices are retained as `LICENSE` (Copyright 2022,
+PickNik Robotics) and `LICENSE.robotiq` (Copyright 2026, Robotiq).
+Visual scenes are converted from Collada to binary glTF without mesh decimation;
+collision meshes are unchanged. The standalone URDF preserves joint origins,
+axes, limits and mimic relationships, and removes the external mounting joint,
+inertials, simulator surface parameters and ROS control declarations. `sources.json`
+records the upstream paths and content hashes. The linkage is a nominal display,
+not a measurement of fingertip contact or a physical calibration.
+
 ## XPolicyLab
 
 `XPolicyLab/` is a Git submodule tracking the `Cuzyoung/XPolicyLab` fork of

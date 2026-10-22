@@ -16,6 +16,9 @@ Humans and agents use the same protocol references below.
 | A peer framework such as RLinf | Independent framework + `manimux/policies/<framework>/` | [PolicyModel client](policies.md#a-backend-framework-client) |
 | A different action representation | `manimux/policy_adapter/` | [Action semantics](policies.md#observation-and-action-adapter) |
 | A chunk scheduling algorithm | `manimux/runtime/<algorithm>/` | [InferenceStrategy](runtime-config.md#inference-algorithm-versus-executor) |
+| A robot agent such as RPent / HarnessVLA | Independent framework + `manimux/agents/<framework>/` | [Agent bridge](rpent.md) |
+| Agent motion tools and policy calls | `runtime/motion.py`, `runtime/dispatch.py`, `manimux/agents/rpent/` | [Unified agent contract](rpent.md#ownership-and-action-contracts) |
+| External policy-call transport | `manimux/dispatch/`, `runtime/dispatch.py` | [Call contract](rpent.md#receipts-and-evidence) |
 | A command generator | `manimux/runtime/executors/` | [Executor](runtime-config.md#inference-algorithm-versus-executor) |
 | Robot display, replay or experiment UI | `manimux/robogui/`, `manimux/recording/` | [RoboGUI and records](runtime-config.md#robogui-replay-and-recording) |
 

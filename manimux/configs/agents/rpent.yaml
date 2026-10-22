@@ -1,0 +1,15 @@
+# One recipe for `manimux-rpent serve` and `manimux-rpent run`.
+# This default is entirely synthetic; use a station recipe for physical deployment.
+# Relative paths resolve from this file; CLI overrides resolve from the working directory.
+agent: rpent
+experiment: ../examples/rpent_demo.yaml
+motion: rp_motion_demo.yaml
+endpoint: http://127.0.0.1:8088
+task: Put the red object into the tray.
+planner: api
+# Select an authenticated provider/model with --model, or use RPent's planner default.
+model: null
+max_turns: 30
+memory_root: ../../../data/agent-memory
+# Use --output-dir for each new run; existing directories are never overwritten.
+output_dir: ../../../data/rpent-run

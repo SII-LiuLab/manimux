@@ -31,6 +31,11 @@ Python integration. When XPolicyLab is the model's owning framework, follow
 Reuse an existing `XPolicyLab/policy/<POLICY>/` implementation when available.
 Model loading, preprocessing, normalization, sampling and training live there.
 Use the shared server and ManiMux's existing `xpolicylab_ws` client.
+Select the checkpoint's input/output transforms in its existing model implementation
+and reuse the matching ManiMux action adapter. A checkpoint's image keys or gripper
+convention do not justify a new ManiMux adapter. Loaded
+backend capabilities own sampling support; artifact inspection must not infer
+RTC/PAINT support from a checkpoint name or joint/pose representation.
 
 Do not put torch/JAX, model weights or another model server into ManiMux. A launcher
 that loads deployment config is different from a second inference implementation.
@@ -99,20 +104,15 @@ server or GPU is required. Other API providers need their own explicit
 `PolicyModel` transport and observation/action contract; this is not a generic
 JSON-to-robot passthrough.
 
-The first supported deployment is
-`manimux/configs/examples/dream1-yam/async.yaml`: Dream-1 beta, YAM native
-joint output, current single RGB frame from each of three cameras, ordinary
-single-inflight Async and the existing Smooth executor. Keys are read from
-`DREAM_API_KEY`, never YAML. SDK episode recording is disabled. Endpoint
-selection follows the SDK's `DREAM_GATEWAY_URL` / `DREAM_API_URL` credentials.
-Camera images, task text and robot state are sent to the provider by inference.
-
-The adjacent `demo.yaml` selects ordinary Async refill with 48 rows,
-`refill_threshold_s: 1.4`, `first_step_when_ready` and a 5-second maximum plan
-age, keeping the same Smooth executor. It shows the full returned trajectory
-without pretending its observation is fresh at receipt. Compare policies with
-the same playback-clock and executor settings; keep the strict `async.yaml`
-variant for observation-aligned admission checks.
+Dream-1 beta supports YAM native joint output and one current RGB frame from each
+of three cameras. The public baseline is
+`manimux/configs/examples/dream1-yam/serial30-example.yaml` (30 Hz serial, full 48
+rows, Direct). Tuned station-specific trial configurations are not distributed. Keys are read from
+`DREAM_API_KEY`, never YAML. SDK episode recording is disabled. Endpoint selection
+follows the SDK's `DREAM_GATEWAY_URL` / `DREAM_API_URL` settings. Inference sends
+camera images, task text and robot state to the provider. Compare policies with the
+same playback clock and executor; full-trajectory playback at receipt retains
+observation lag and is not latency compensation.
 
 `DreamYamJointAdapter` computes input hand poses using the pinned provider
 training-reference URDF, whose axes/geometry differ from the local grasp site.
@@ -184,6 +184,12 @@ versus per-step hold behavior. SAPolicy's bounded IK must not be replaced as a
 side effect of a different model's integration.
 
 ### Observation state and IK seeds
+
+The XPolicyLab transport uses its standard single-arm keys `joint_state` and
+`ee_joint_state` when one group is selected. Dual-arm layouts retain side-prefixed
+keys such as `left_arm_joint_state`. The robot group's name is not a wire prefix
+for the standard single-arm schema. Checkpoint-specific gripper conventions and
+observation-relative action decoding belong to the selected model's transforms.
 
 `ActionContext.observation_state` is the real state captured with the request.
 `ActionContext.ik_seed` is the independently selected embodiment-conversion starting

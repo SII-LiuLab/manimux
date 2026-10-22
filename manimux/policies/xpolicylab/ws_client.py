@@ -346,7 +346,12 @@ class XPolicyLabWsClient:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise XPolicyLabTimeoutError(f"{message_type} timed out after {timeout_s:.3f}s")
-            reply = unpack_frame(conn.recv(timeout=remaining))
+            raw = conn.recv(timeout=remaining)
+            if message_type == INFER:
+                from manimux.policies.response_log import capture_response
+
+                capture_response(raw, stage="provider_wire")
+            reply = unpack_frame(raw)
             self._pending_requests.discard(reply.get("message_id"))
             # Heartbeat acks and replies to an earlier request we already gave
             # up on share the socket; drain them instead of mismatching.

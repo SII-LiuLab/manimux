@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import math
 import os
 import shutil
 import socket
@@ -10,6 +11,23 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 REPOSITORY = Path(__file__).resolve().parents[2]
+
+
+def external_camera_sensors(config):
+    """Only network readers may be constructed by an external camera probe."""
+    sensors = config.get("sensors", [])
+    allowed = {
+        "camera_server",
+        "manimux.embodiments.sensor.camera_server:build_sensor",
+        "manimux.embodiments.sensor.camera_server.timestamped:build_sensor",
+    }
+    if not sensors or any(s["driver"] not in allowed for s in sensors):
+        raise ValueError("--external-camera requires camera-server network sensors")
+    for sensor in sensors:
+        age = sensor.get("options", {}).get("max_frame_age_sec", 0.5)
+        if age is None or not math.isfinite(float(age)) or float(age) <= 0:
+            raise ValueError("External camera health requires a positive max_frame_age_sec")
+    return sensors
 
 
 def environment():
@@ -35,15 +53,30 @@ def build_plan(args):
 
     if not 1 <= args.gui_port <= 65535:
         raise ValueError("--gui-port must be between 1 and 65535")
-    if args.demo and any((args.local, args.policy_python, args.camera_python, args.output_dir)):
+    external_policy = getattr(args, "external_policy", False)
+    external_camera = getattr(args, "external_camera", False)
+    if args.demo and any(
+        (
+            args.local,
+            args.policy_python,
+            args.camera_python,
+            args.output_dir,
+            external_policy,
+            external_camera,
+        )
+    ):
         raise ValueError("--demo does not accept station, camera, policy or recording options")
+    if external_policy and args.policy_python is not None:
+        raise ValueError("--external-policy cannot be combined with --policy-python")
+    if external_camera and args.camera_python is not None:
+        raise ValueError("--external-camera cannot be combined with --camera-python")
     if not args.demo and args.robot:
         raise ValueError("--robot is for --demo; a real deployment reads its runtime recipe")
     # Do not resolve interpreter symlinks: doing so loses the virtualenv identity.
     runtime_python = str(args.runtime_python.expanduser().absolute())
     config, config_path, station = {}, None, None
     if not args.demo:
-        if args.policy_python is None:
+        if args.policy_python is None and not external_policy:
             raise ValueError("Select the model environment with --policy-python")
         config_path = args.config.expanduser().resolve()
         station = resolve_local_path(config_path, args.local)
@@ -54,7 +87,9 @@ def build_plan(args):
             raise ValueError("Managed deployment requires robogui.enabled: true")
         if config["policy"]["worker"] != "xpolicylab_ws":
             raise ValueError("Managed startup currently supports XPolicyLab WebSocket recipes")
-        if not config.get("camera_server", {}).get("cameras"):
+        if external_camera:
+            external_camera_sensors(config)
+        elif not config.get("camera_server", {}).get("cameras"):
             raise ValueError("Managed startup requires a camera_server recipe")
     robot = (args.robot or "yam") if args.demo else config["robogui"]["robot"]
     load_robogui_config(None, robot=robot)
@@ -86,17 +121,26 @@ def build_plan(args):
     if not args.demo:
         common = ["--config", str(config_path), "--local", str(station)]
         camera_python = str((args.camera_python or args.runtime_python).expanduser().absolute())
-        policy_python = str(args.policy_python.expanduser().absolute())
-        camera = config["camera_server"]
-        policy = config["policy_server"]
+        policy_python = (
+            str(args.policy_python.expanduser().absolute()) if args.policy_python else None
+        )
+        camera = config.get("camera_server", {})
+        policy = config.get("policy_server", {})
         if policy.get("protocol", "ws") != "ws":
             raise ValueError("policy_server.protocol must be ws")
-        policy_host, policy_port = address(f"ws://{policy['host']}:{policy['port']}")
-        _, client_port = address(config["policy"]["options"]["server"])
-        if policy_port != client_port:
-            raise ValueError("Policy client/server ports do not match")
+        if external_policy:
+            endpoint = urlsplit(config["policy"]["options"]["server"])
+            if endpoint.scheme not in {"ws", "wss"} or not endpoint.hostname:
+                raise ValueError("External policy requires a WebSocket endpoint")
+        else:
+            policy_host, policy_port = address(f"ws://{policy['host']}:{policy['port']}")
+            _, client_port = address(config["policy"]["options"]["server"])
+            if policy_port != client_port:
+                raise ValueError("Policy client/server ports do not match")
         services = {
-            "camera": {
+            "camera": {"ownership": "external", "ports": [], "probe_python": runtime_python}
+            if external_camera
+            else {
                 "command": [camera_python, "-m", "manimux.servers.camera.server", *common],
                 "ports": [
                     address(camera.get("rep_endpoint", "tcp://127.0.0.1:5555")),
@@ -105,7 +149,9 @@ def build_plan(args):
                 "probe_python": runtime_python,
             },
             "robogui": gui,
-            "policy": {
+            "policy": {"ownership": "external", "ports": [], "probe_python": runtime_python}
+            if external_policy
+            else {
                 "command": [policy_python, "-m", "manimux.servers.policy", *common],
                 "ports": [[policy_host, policy_port]],
                 "probe_python": runtime_python,
@@ -173,7 +219,8 @@ def doctor(plan, directory, owned=()):
     check("configuration sources", lambda: verify_sources(plan))
     interpreters = set()
     for name, service in plan["services"].items():
-        interpreter = service["command"][0]
+        external = service.get("ownership") == "external"
+        interpreter = service["probe_python"] if external else service["command"][0]
         if interpreter not in interpreters:
 
             def inspect_python(interpreter=interpreter):
@@ -196,6 +243,9 @@ def doctor(plan, directory, owned=()):
 
             check(f"interpreter: {interpreter}", inspect_python)
             interpreters.add(interpreter)
+        if external:
+            check(f"{name} ownership", lambda: "External dependency; no process or port ownership")
+            continue
         if name in owned:
             continue
         for host, port in service["ports"]:
@@ -214,8 +264,13 @@ def doctor(plan, directory, owned=()):
     ports = [port for s in plan["services"].values() for _, port in s["ports"]]
     check("distinct service ports", lambda: _distinct(ports))
     if plan["mode"] != "demo":
-        recipe = plan["config"]["policy_server"]
-        if recipe.get("policy_name") == "Pi_05":
+        recipe = plan["config"].get("policy_server", {})
+        if plan["services"]["policy"].get("ownership") == "external":
+            check(
+                "policy artifacts",
+                lambda: "External host owns artifacts; up/status verify HELLO identity",
+            )
+        elif recipe.get("policy_name") == "Pi_05":
             from manimux.servers.pi05 import _validate_paths
 
             check("Pi05 checkpoint and normalization", lambda: _validate_paths(recipe))
@@ -225,6 +280,8 @@ def doctor(plan, directory, owned=()):
                 if isinstance(value, str) and Path(value).is_absolute():
                     check(f"artifact: {key}", lambda value=value: _exists(value))
         for name in ("camera", "policy"):
+            if plan["services"][name].get("ownership") == "external":
+                continue
 
             def validate_service(name=name):
                 result = subprocess.run(

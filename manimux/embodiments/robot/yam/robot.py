@@ -25,6 +25,7 @@ class YamRobot(RobotBase):
     """
 
     # Every runtime exit parks a healthy YAM; policy/config/UI cannot bypass it.
+    home_before_close = True
 
     def __init__(
         self,

@@ -1,0 +1,49 @@
+# Ordinary ManiMux policy execution, with no RPent dependency.
+# Select a trained server that returns absolute seven-joint + scalar gripper targets.
+run:
+  task_prompt: Franka joint policy deployment
+  output_dir: ./data/franka
+  max_control_steps: 3000
+robot:
+  type: franka
+  config: ../embodiment/robot/franka_fr3_robotiq.yaml
+  control_hz: 30.0
+  options:
+    execute: false
+    move_to_start_on_connect: false
+    home_on_close: false
+sensors: []
+policy:
+  worker: xpolicylab_ws
+  service: policy
+  action_dt_s: 0.03333333333333333
+  horizon_policy_steps: 30
+  adapter:
+    type: manimux.policy_adapter.joint:JointAdapter
+    camera_map: {}
+  options:
+    action_format: joint
+    request_timeout_s: 10.0
+  expected_backend:
+    server: xpolicylab_policy_server
+inference:
+  algorithm: serial
+  action_start_mode: first_step_when_ready
+  blend_policy_steps: 0
+executor:
+  type: smooth
+  motion_limits: null
+  smooth:
+    tracking_mode: braking
+    max_velocity: 0.15
+    max_acceleration: 0.5
+    position_limit_abs: 5.0
+    gripper:
+      mode: continuous
+      max_velocity: 1.0
+      max_acceleration: 4.0
+robogui:
+  enabled: false
+  robot: franka_fr3_robotiq
+recording:
+  enabled: true

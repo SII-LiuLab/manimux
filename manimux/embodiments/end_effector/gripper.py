@@ -18,15 +18,24 @@ class GripperState:
     timestamp is seconds in the station Clock's monotonic domain. Drivers must
     state whether it marks acquisition or host receipt. Cached states retain
     their original timestamp; unavailable/invalid feedback raises an exception.
+    Optional target_opening is the device's echoed target, not measured travel.
+    contact identifies a device-reported stop during opening/closing; None means
+    no confirmed contact. Neither field establishes object identity or retention.
     """
 
     opening: float
     timestamp: float
+    target_opening: float | None = None
+    contact: str | None = None
 
     def __post_init__(self) -> None:
         _opening(self.opening)
         if not math.isfinite(self.timestamp):
             raise ValueError("timestamp must be finite")
+        if self.target_opening is not None:
+            _opening(self.target_opening)
+        if self.contact not in (None, "opening", "closing"):
+            raise ValueError("contact must be opening, closing or unavailable")
 
 
 @dataclass(frozen=True, slots=True)

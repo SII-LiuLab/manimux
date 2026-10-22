@@ -99,6 +99,15 @@ algorithm or serving framework are different extension types:
 
 Do not add model implementations or framework runtimes inside the ManiMux Python package.
 
+Robot agents such as RPent / HarnessVLA are a separate integration category. Keep the
+upstream agent framework in a pinned peer submodule and its ManiMux tools/launcher in
+`manimux/agents/<framework>/`. Agent recipes live in `manimux/configs/agents/`; the
+existing experiment still selects the policy, robot and action contract. Agents use
+one Toolkit and shared runtime for motion tools and VLA calls, with
+no direct hardware ownership. The selected ManiMux worker/adapter owns all VLA
+calls; motion tools reuse shared kinematics and the same execution lifecycle. See the
+[RPent integration](rpent.md) for the reference implementation and acceptance matrix.
+
 For models owned by XPolicyLab:
 
 - Read [XPolicyLab/AGENTS.md](../../../../XPolicyLab/AGENTS.md),

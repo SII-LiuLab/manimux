@@ -8,3 +8,6 @@
 [submodule "StarVLA"]
 	path = StarVLA
 	url = https://github.com/GuHaomingcs/starVLA.git
+[submodule "RPent"]
+	path = RPent
+	url = https://github.com/RLinf/RPent.git

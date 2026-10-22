@@ -222,10 +222,11 @@ def _spawn(name, plan, state, directory):
 
 def _probe(name, plan, state):
     service = state["services"][name]
-    if not alive(service):
+    external = service.get("ownership") == "external"
+    if not external and not alive(service):
         return {"ok": False, "state": "exited", "detail": f"Process exited; see {service['log']}"}
     try:
-        if not owns_ports(service, plan["services"][name]["ports"]):
+        if not external and not owns_ports(service, plan["services"][name]["ports"]):
             return {
                 "ok": False,
                 "state": "starting",
@@ -280,7 +281,11 @@ def _snapshot(directory, state, plan):
         services[name] = {
             **service,
             **_probe(name, plan, state),
-            "attach_command": attach_command(service),
+            **(
+                {}
+                if service.get("ownership") == "external"
+                else {"attach_command": attach_command(service)}
+            ),
         }
     ok = (
         state["phase"] == "ready"
@@ -301,7 +306,8 @@ def _snapshot(directory, state, plan):
     if phase == "stopped" and not any(alive(s) for s in services.values()):
         ok = True
         for service in services.values():
-            service.update(state="stopped", detail="Owned process has exited")
+            if service.get("ownership") != "external":
+                service.update(state="stopped", detail="Owned process has exited")
     result = {
         "ok": ok,
         "state": phase,
@@ -370,8 +376,18 @@ def up(plan, directory, timeout, *, open_browser=False):
         try:
             for name in plan["services"]:
                 verify_sources(plan)
-                print(f"Starting {name}…", file=sys.stderr, flush=True)
-                service = _spawn(name, plan, state, directory)
+                external = plan["services"][name].get("ownership") == "external"
+                print(
+                    f"{'Checking external' if external else 'Starting'} {name}…",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                if external:
+                    service = {"ownership": "external"}
+                    state["services"][name] = service
+                    atomic_json(directory / "state.json", state)
+                else:
+                    service = _spawn(name, plan, state, directory)
                 deadline = time.monotonic() + timeout
                 while True:
                     health = _probe(name, plan, state)
@@ -380,9 +396,10 @@ def up(plan, directory, timeout, *, open_browser=False):
                     if health["ok"]:
                         print(f"{name}: {health['state']}", file=sys.stderr, flush=True)
                         break
-                    if not alive(service) or time.monotonic() >= deadline:
+                    if (not external and not alive(service)) or time.monotonic() >= deadline:
                         raise RuntimeError(
-                            f"{name} failed: {health['detail']}; log: {service['log']}"
+                            f"{name} failed: {health['detail']}; "
+                            f"log: {service.get('log', 'external service owner')}"
                         )
                     time.sleep(0.3)
             state["phase"] = "ready"
@@ -409,6 +426,8 @@ def _stop(state, directory, timeout):
     order = [n for n in ("runtime", "policy", "camera", "robogui") if n in state["services"]]
     for name in order:
         service = state["services"][name]
+        if service.get("ownership") == "external":
+            continue
         if alive(service):
             if not service.get("stop_requested"):
                 signal_owned(service)
@@ -442,7 +461,9 @@ def down(directory, timeout):
         result = _snapshot(directory, state, read_json(Path(state["run_dir"]) / "plan.json"))
         result.update(
             ok=ok,
-            next_action="Services stopped" if ok else "Attach to the blocked service terminal",
+            next_action="Owned services stopped; external dependencies retained"
+            if ok
+            else "Attach to the blocked service terminal",
         )
         return result
 
@@ -450,6 +471,8 @@ def down(directory, timeout):
 def attach(directory, name):
     state = read_json(directory / "state.json") or {}
     service = state.get("services", {}).get(name)
+    if service and service.get("ownership") == "external":
+        raise RuntimeError(f"{name} is external; attach through its existing service owner")
     if not service or not alive(service):
         raise RuntimeError(f"No live owned {name} terminal")
     return subprocess.call(

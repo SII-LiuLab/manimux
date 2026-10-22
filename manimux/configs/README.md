@@ -14,6 +14,8 @@ manimux/configs/
 │   ├── _base_.yaml                           # shared choices, only when needed
 │   └── <task>/<variant>.yaml                 # specific model/task/algorithm settings
 ├── embodiment/{robot,sensor,initial_poses}/  # hardware, control profiles, named poses
+├── agents/                                  # shared agent recipes and motion profiles
+├── examples/                                # standalone development examples
 ├── policy/                                  # model artifacts, serving and action contracts
 ├── inference/                               # algorithm base settings
 ├── executor/                                # execution settings
@@ -25,6 +27,7 @@ manimux/configs/
 | --- | --- |
 | Model instruction | Task `run.task_prompt` |
 | Per-rollout control-step limit | Task `run.max_control_steps`; inherited by all models and methods |
+| Agent planner, motion tools and runtime selection | `agents/<framework>.yaml` references one experiment and motion profile; experiments own policy and robot selection |
 | Available layouts and reference requirement | Task `run.experiment_template` |
 | Success criteria and partial scores | Task inline `evaluation`; no separate scoring file |
 | Task starting pose | Task `initial_pose`, referencing a named embodiment preset; variants can override it |
@@ -60,6 +63,7 @@ and recordings remain private.
 ## Further reading
 
 - [Configuration, config lists and storage](../../guideline.html#experiment-lists): complete setup and composition examples.
+- [Agent integration](../../guideline.html#agent-integrations): RPent recipes, path resolution and matching runtime configuration.
 - [Tasks and scoring](../../guideline.html#experiments): explicit score options for every task, plus the trial workflow.
 - [Launch commands](../../guideline.html#latest300ep-launch): matching camera, model, RoboGUI and runtime services.
 - [Switching and reload rules](../../guideline.html#experiment-switch-boundaries): compatible entries and service restart boundaries.

@@ -631,6 +631,7 @@ def run_parameters(**options) -> dict:
         raise ValueError("unsupported run field: max_steps")
     values = merge_parameters({
         "output_dir": Path("data"),
+        "execution_mode": "vla",
         "max_control_steps": 500,
         "warmup_before_start": False,
         "control_timing": False,
@@ -644,9 +645,11 @@ def run_parameters(**options) -> dict:
         "layout_id": "",
         "repeat_id": None,
         "reference_layout": None,
-    }, options, 'run', extra=('task_prompt', 'initial_pose', 'initial_pose_options', 'history_sessions'))
+    }, options, 'run', extra=('task_prompt', 'initial_pose', 'initial_pose_options', 'history_sessions', 'agent_run_dir'))
     if values.get("output_dir") is not None:
         values["output_dir"] = Path(values["output_dir"])
+    if values["execution_mode"] not in {"vla", "rpent"}:
+        raise ValueError("run.execution_mode must be vla or rpent")
     if type(values["max_control_steps"]) is not int or values["max_control_steps"] < 0:
         raise ValueError("run.max_control_steps must be a non-negative integer; 0 disables the limit")
     if not isinstance(values["warmup_before_start"], bool):
@@ -723,6 +726,11 @@ def prepare_experiment(**options) -> dict:
         raise ValueError("execution supports only the ik section")
     execution["ik"] = ik_parameters(**(execution.get("ik") or {}))
     values["run"] = run_parameters(**values["run"])
+    if values.get("agent") is not None:
+        from manimux.agents.execution import agent_parameters
+        values["agent"] = agent_parameters(values["agent"])
+    if values["run"]["execution_mode"] == "rpent" and not values.get("agent"):
+        raise ValueError("RPent execution requires agent.config")
     values["robot"] = robot_parameters(**values["robot"])
     values["policy"] = policy_parameters(**values["policy"])
     values["executor"] = executor_parameters(**values["executor"])

@@ -7,9 +7,12 @@ description: Deploy a supported ManiMux model recipe on an installed local stati
 
 Take a fresh conversation from a model/task request to RoboGUI waiting for the operator.
 Use the [managed launch guide](../../../guideline.html#managed-deployment) for commands.
-This workflow manages one runtime `--config`, local XPolicyLab WebSocket serving, cameras
-and RoboGUI on Linux with tmux. Config-list studies and remote or other model backends
-retain their existing runbooks; do not silently convert them.
+This workflow manages one runtime `--config`, XPolicyLab WebSocket serving, cameras
+and RoboGUI on Linux with tmux. Use `--external-policy` for an existing local/remote
+model endpoint and `--external-camera` for existing camera-server network readers.
+These dependencies are probed but never started, adopted or stopped; keep their existing
+service owners and network tunnels available. Config-list studies and other model
+frameworks retain their existing runbooks; do not silently convert them.
 
 ## Resolve and launch
 
@@ -31,7 +34,7 @@ retain their existing runbooks; do not silently convert them.
    Do not use real-robot Prepare to obtain this verification. Report missing evidence
    explicitly; the operator starts physical execution through RoboGUI after qualification.
 3. For an authorized deployment, run `manimux up` with the same arguments. It starts
-   camera, RoboGUI, policy and an interactive runtime, waits for service probes, and
+   owned services, probes external dependencies and starts the interactive runtime, then
    returns `gui_url`, logs, process identities and `attach_command`. Progress is on stderr;
    `--json` keeps stdout machine-readable. Do not add `--once` or press Prepare/Start.
 4. Open `gui_url` using the host's browser-panel tool when available (in Codex,
@@ -41,9 +44,10 @@ retain their existing runbooks; do not silently convert them.
    Warmup and Start also remain with the operator unless explicitly authorized.
 
 Use `--deployment-dir` consistently when choosing a non-default private state directory.
-Repeated up reuses only an unchanged, healthy deployment owned by this tool. External
-port occupancy is a blocker, not permission to kill or adopt the service. Inspect it and
-use the existing runbook or arrange a deliberate handover with the operator.
+Repeated up reuses only an unchanged, healthy deployment owned by this tool. Undeclared
+external port occupancy is a blocker, not permission to kill or adopt the service.
+Inspect it and select the external-service flag when the recipe matches its contract,
+or use its existing runbook.
 
 ## Observe and stop
 

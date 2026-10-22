@@ -1,0 +1,6 @@
+# RPent chooses motion primitives; Direct VLA retains the base configuration.
+_base_: rpent_gui_demo.yaml
+agent:
+  policy_enabled: false
+run:
+  execution_mode: rpent

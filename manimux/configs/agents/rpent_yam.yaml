@@ -1,0 +1,10 @@
+agent: rpent
+experiment: ../examples/rpent_yam.yaml
+motion: ../local/rpent_yam_motion.yaml
+endpoint: http://127.0.0.1:8088
+task: Put the bottles into the bin.
+planner: api
+model: null
+max_turns: 30
+memory_root: ../../../data/agent-memory
+output_dir: ../../../data/rpent-yam-agent

@@ -1,0 +1,169 @@
+<?xml version='1.0' encoding='utf-8'?>
+<robot name="robotiq_2f_85">
+  <!--Derived from robotiq/ros c39cd970a3f950c8be206d0e4340c7b69e018d7a. Retained visual/collision geometry, joint origins, axes, limits and mimic relationships. Parent mount, inertials and ROS control definitions omitted.-->
+  <link name="robotiq_85_base_link">
+    <visual>
+      <geometry>
+        <mesh filename="meshes/visual/2f_85/robotiq_base.glb" />
+      </geometry>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="meshes/collision/2f_85/robotiq_base.stl" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="robotiq_85_left_knuckle_link">
+    <visual>
+      <geometry>
+        <mesh filename="meshes/visual/2f_85/left_knuckle.glb" />
+      </geometry>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="meshes/collision/2f_85/left_knuckle.stl" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="robotiq_85_right_knuckle_link">
+    <visual>
+      <geometry>
+        <mesh filename="meshes/visual/2f_85/right_knuckle.glb" />
+      </geometry>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="meshes/collision/2f_85/right_knuckle.stl" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="robotiq_85_left_finger_link">
+    <visual>
+      <geometry>
+        <mesh filename="meshes/visual/2f_85/left_finger.glb" />
+      </geometry>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="meshes/collision/2f_85/left_finger.stl" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="robotiq_85_right_finger_link">
+    <visual>
+      <geometry>
+        <mesh filename="meshes/visual/2f_85/right_finger.glb" />
+      </geometry>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="meshes/collision/2f_85/right_finger.stl" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="robotiq_85_left_inner_knuckle_link">
+    <visual>
+      <geometry>
+        <mesh filename="meshes/visual/2f_85/left_inner_knuckle.glb" />
+      </geometry>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="meshes/collision/2f_85/left_inner_knuckle.stl" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="robotiq_85_right_inner_knuckle_link">
+    <visual>
+      <geometry>
+        <mesh filename="meshes/visual/2f_85/right_inner_knuckle.glb" />
+      </geometry>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="meshes/collision/2f_85/right_inner_knuckle.stl" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="robotiq_85_left_finger_tip_link">
+    <visual>
+      <geometry>
+        <mesh filename="meshes/visual/2f_85/left_finger_tip.glb" />
+      </geometry>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="meshes/collision/2f_85/left_finger_tip.stl" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="robotiq_85_right_finger_tip_link">
+    <visual>
+      <geometry>
+        <mesh filename="meshes/visual/2f_85/right_finger_tip.glb" />
+      </geometry>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="meshes/collision/2f_85/right_finger_tip.stl" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="robotiq_85_left_knuckle_joint" type="revolute">
+    <parent link="robotiq_85_base_link" />
+    <child link="robotiq_85_left_knuckle_link" />
+    <axis xyz="0 -1 0" />
+    <origin xyz="0.03060114 0.0 0.05490452" rpy="0 0 0" />
+    <limit lower="0.0" upper="0.8" velocity="0.5" effort="50" />
+  </joint>
+  <joint name="robotiq_85_right_knuckle_joint" type="revolute">
+    <parent link="robotiq_85_base_link" />
+    <child link="robotiq_85_right_knuckle_link" />
+    <axis xyz="0 -1 0" />
+    <origin xyz="-0.03060114 0.0 0.05490452" rpy="0 0 0" />
+    <limit lower="-0.8" upper="0.0" velocity="0.5" effort="50" />
+    <mimic joint="robotiq_85_left_knuckle_joint" multiplier="-1" />
+  </joint>
+  <joint name="robotiq_85_left_finger_joint" type="fixed">
+    <parent link="robotiq_85_left_knuckle_link" />
+    <child link="robotiq_85_left_finger_link" />
+    <origin xyz="0.03152616 0.0 -0.00376347" rpy="0 0 0" />
+  </joint>
+  <joint name="robotiq_85_right_finger_joint" type="fixed">
+    <parent link="robotiq_85_right_knuckle_link" />
+    <child link="robotiq_85_right_finger_link" />
+    <origin xyz="-0.03152616 0.0 -0.00376347" rpy="0 0 0" />
+  </joint>
+  <joint name="robotiq_85_left_inner_knuckle_joint" type="revolute">
+    <parent link="robotiq_85_base_link" />
+    <child link="robotiq_85_left_inner_knuckle_link" />
+    <axis xyz="0 -1 0" />
+    <origin xyz="0.0127 0.0 0.06142" rpy="0 0 0" />
+    <mimic joint="robotiq_85_left_knuckle_joint" />
+    <limit lower="0.0" upper="0.8" velocity="0.5" effort="50" />
+  </joint>
+  <joint name="robotiq_85_right_inner_knuckle_joint" type="revolute">
+    <parent link="robotiq_85_base_link" />
+    <child link="robotiq_85_right_inner_knuckle_link" />
+    <axis xyz="0 -1 0" />
+    <origin xyz="-0.0127 0.0 0.06142" rpy="0 0 0" />
+    <mimic joint="robotiq_85_left_knuckle_joint" multiplier="-1" />
+    <limit lower="-0.8" upper="0.0" velocity="0.5" effort="50" />
+  </joint>
+  <joint name="robotiq_85_left_finger_tip_joint" type="revolute">
+    <parent link="robotiq_85_left_finger_link" />
+    <child link="robotiq_85_left_finger_tip_link" />
+    <axis xyz="0 -1 0" />
+    <origin xyz="0.00563134 0.0 0.04718515" rpy="0 0 0" />
+    <mimic joint="robotiq_85_left_knuckle_joint" multiplier="-1" />
+    <limit lower="-0.8" upper="0.0" velocity="0.5" effort="50" />
+  </joint>
+  <joint name="robotiq_85_right_finger_tip_joint" type="revolute">
+    <parent link="robotiq_85_right_finger_link" />
+    <child link="robotiq_85_right_finger_tip_link" />
+    <axis xyz="0 -1 0" />
+    <origin xyz="-0.00563134 0.0 0.04718515" rpy="0 0 0" />
+    <mimic joint="robotiq_85_left_knuckle_joint" />
+    <limit lower="0.0" upper="0.8" velocity="0.5" effort="50" />
+  </joint>
+</robot>

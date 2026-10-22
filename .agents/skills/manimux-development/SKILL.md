@@ -19,6 +19,7 @@ caller before changing behavior. Read only the relevant reference:
 | --- | --- |
 | Robot, arm, gripper, camera, SDK or kinematics | [Components](references/components.md) |
 | Model framework, transport, action adapter or normalization | [Policies](references/policies.md) |
+| Robot agent, planner or tool bridge | [RPent / HarnessVLA](references/rpent.md) |
 | Scheduling, timelines, recording, executor or RoboGUI | [Runtime](references/runtime-config.md) |
 | Sampler capabilities or model/algorithm combinations | [Inference](../manimux-inference/SKILL.md) |
 | Extension entry points and contributing | [Integration map](references/README.md) |
@@ -46,6 +47,9 @@ Matching method names alone is insufficient. Fail explicitly for unsupported mod
   Do not introduce model-specific warmup shortcuts or synthetic condition branches.
   Test dry-run isolation, real scheduling/IK, failures and the Start reset fence;
   see [the inference contract](../manimux-inference/SKILL.md#warmup-must-use-the-selected-configuration).
+- Robot-agent motion and VLA tools must share one entry, runtime ownership and
+  lifecycle. Select VLA workers/adapters through the ordinary experiment; do not
+  expose separate native-agent and policy-only execution modes. See [RPent](references/rpent.md).
 - Keep deployment constants in YAML. New capability needs an explicit protocol when
   it cannot fit the existing one; do not hide extra tool coordinates or weaken IK to
   imitate a supported interface.

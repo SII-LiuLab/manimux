@@ -74,6 +74,7 @@ def list_recordings(root: Path) -> list[dict]:
                 label = json.loads(label_path.read_text()) if label_path.exists() else {}
                 row.update(
                     status=label.get("task_result") or (
+                        "Preparation cancelled" if meta.get("preparation_cancelled") else
                         "Unscored" if meta.get("experiment_mode") else "Unscored run"
                     ),
                     score=label.get("score"),

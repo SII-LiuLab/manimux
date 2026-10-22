@@ -1,0 +1,25 @@
+# Legacy protocol fixture only. Deploy with agents/rpent_franka.yaml.
+embodiment: franka
+experiment: ../examples/rpent_franka_native.yaml
+task_language: Franka local primitive execution
+camera_map: {main: wrist}
+max_frame_age_s: 0.5
+max_episode_steps: 3000
+max_batch_actions: 2000
+max_translation_m: 0.03
+max_rotation_rad: 0.2
+linear_speed_m_s: 0.004
+angular_speed_rad_s: 0.04
+joint_speed_rad_s: 0.03
+minimum_motion_s: 1.0
+settle_timeout_s: 5.0
+position_tolerance_m: 0.002
+rotation_tolerance_rad: 0.02
+gripper_tolerance: 0.03
+# Native RLinf's wrapped 19-state observation is not this bridge's joint8 state.
+# Enable only for a matching trained model: manimux_joint8_base_delta7_v1.
+vla_state_contract: null
+translation_action_scale_m: 0.005
+rotation_action_scale_rad: 0.025
+# Supply --geometry <private YAML> with workspace_min_m and workspace_max_m.
+# These base-frame TCP bounds are not a full collision model.

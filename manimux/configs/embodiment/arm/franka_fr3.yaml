@@ -1,0 +1,14 @@
+type: arm
+implementation: manimux.embodiments.arm.franka:FrankaArm
+action_layout: {arm_dofs: 7, gripper_dofs: 0}
+options: {}
+# Native tracking gains; optional host guards are explicit station/test settings.
+hardware:
+  max_reference_step_rad: null
+  measured_velocity_limit_rad_s: null
+  joint_stiffness: [600, 600, 600, 600, 250, 150, 50]
+  joint_damping: [50, 50, 50, 50, 30, 25, 15]
+  max_delta_tau: 1.0
+  max_target_delta_rad: null
+  torque_threshold: 20.0
+  force_threshold: 30.0

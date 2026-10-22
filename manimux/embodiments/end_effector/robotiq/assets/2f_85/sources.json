@@ -1,0 +1,218 @@
+{
+  "upstream": "https://github.com/robotiq/ros",
+  "revision": "c39cd970a3f950c8be206d0e4340c7b69e018d7a",
+  "urdf_source_sha256": "bfa97d612cf0df29079ab1d0bdcb5f6a8d14fc1563230eb2758008d8a12dc36b",
+  "format_conversion": "Collada scenes exported as binary glTF with trimesh; retained nodes, units, materials and triangle counts; no decimation",
+  "trimesh_version": "5.1.1",
+  "assets": {
+    "meshes/visual/2f_85/robotiq_base.glb": {
+      "source_url": "https://raw.githubusercontent.com/robotiq/ros/c39cd970a3f950c8be206d0e4340c7b69e018d7a/grippers/robotiq_description/meshes/visual/2f_85/robotiq_base.dae",
+      "source_sha256": "761a79d586a48d367d60f146ca77ef7d2821ad790f7b1b1c93b061ac59799267",
+      "output_sha256": "9f66898595a5fcc60649fb3e392083956f798cc2d9392b5196148f4e9f906ef3",
+      "triangles": 29278,
+      "bounds_m": [
+        [
+          -0.04244333133101463,
+          -0.037499960511922836,
+          -0.0033394088968634605
+        ],
+        [
+          0.04244296997785568,
+          0.037499960511922836,
+          0.0899999663233757
+        ]
+      ]
+    },
+    "meshes/collision/2f_85/robotiq_base.stl": {
+      "source_url": "https://raw.githubusercontent.com/robotiq/ros/c39cd970a3f950c8be206d0e4340c7b69e018d7a/grippers/robotiq_description/meshes/collision/2f_85/robotiq_base.stl",
+      "source_sha256": "ede5cd7d7846c051b88645f33d6bbb5ed9b36bbef404a19a46557639bfab7060",
+      "output_sha256": "ede5cd7d7846c051b88645f33d6bbb5ed9b36bbef404a19a46557639bfab7060"
+    },
+    "meshes/visual/2f_85/left_knuckle.glb": {
+      "source_url": "https://raw.githubusercontent.com/robotiq/ros/c39cd970a3f950c8be206d0e4340c7b69e018d7a/grippers/robotiq_description/meshes/visual/2f_85/left_knuckle.dae",
+      "source_sha256": "1b82214363d9548f3562be70e25cd23217a304c72ccd37bc1551cf1a3a64029d",
+      "output_sha256": "85bc76d51b734a7248b499e682318a1d1fef699b2f6b81aef6f3556de231543b",
+      "triangles": 1216,
+      "bounds_m": [
+        [
+          -0.007599948905408382,
+          -0.008049963973462582,
+          -0.009716272354125977
+        ],
+        [
+          0.03752480819821358,
+          0.008449970744550228,
+          0.010250980034470558
+        ]
+      ]
+    },
+    "meshes/collision/2f_85/left_knuckle.stl": {
+      "source_url": "https://raw.githubusercontent.com/robotiq/ros/c39cd970a3f950c8be206d0e4340c7b69e018d7a/grippers/robotiq_description/meshes/collision/2f_85/left_knuckle.stl",
+      "source_sha256": "b7ec787f57a7db5b2b14e64ffbedaac28739e38f14aac8afa8b575bac941feb7",
+      "output_sha256": "b7ec787f57a7db5b2b14e64ffbedaac28739e38f14aac8afa8b575bac941feb7"
+    },
+    "meshes/visual/2f_85/right_knuckle.glb": {
+      "source_url": "https://raw.githubusercontent.com/robotiq/ros/c39cd970a3f950c8be206d0e4340c7b69e018d7a/grippers/robotiq_description/meshes/visual/2f_85/right_knuckle.dae",
+      "source_sha256": "532b6f6f8794883ff34995701036ca392461f26127757f92003db127693bc57c",
+      "output_sha256": "64e9f0a7d534ceecfcff6dc6f09018a9856f97bd0eb7a1ec340b147019c142bb",
+      "triangles": 1216,
+      "bounds_m": [
+        [
+          -0.03752480819821358,
+          -0.008049963973462582,
+          -0.009716272354125977
+        ],
+        [
+          0.007599948905408382,
+          0.008449970744550228,
+          0.010250980034470558
+        ]
+      ]
+    },
+    "meshes/collision/2f_85/right_knuckle.stl": {
+      "source_url": "https://raw.githubusercontent.com/robotiq/ros/c39cd970a3f950c8be206d0e4340c7b69e018d7a/grippers/robotiq_description/meshes/collision/2f_85/right_knuckle.stl",
+      "source_sha256": "d151fb38f59748f1e6e627312e2ede96f2c98ba267bf722091665b20c78e7a8d",
+      "output_sha256": "d151fb38f59748f1e6e627312e2ede96f2c98ba267bf722091665b20c78e7a8d"
+    },
+    "meshes/visual/2f_85/left_finger.glb": {
+      "source_url": "https://raw.githubusercontent.com/robotiq/ros/c39cd970a3f950c8be206d0e4340c7b69e018d7a/grippers/robotiq_description/meshes/visual/2f_85/left_finger.dae",
+      "source_sha256": "5fb9e5659c735e48eb55269da431cf61b3b7a6745922c1932a7adefb1db86dc3",
+      "output_sha256": "1d15e30dc9a2da2b411beddff04ce07cf89b630cb71e86303f701f74dfacc31a",
+      "triangles": 2930,
+      "bounds_m": [
+        [
+          -0.014497930184006691,
+          -0.014399940147995949,
+          -0.0062627787701785564
+        ],
+        [
+          0.014080280438065529,
+          0.012799969874322414,
+          0.05315165966749191
+        ]
+      ]
+    },
+    "meshes/collision/2f_85/left_finger.stl": {
+      "source_url": "https://raw.githubusercontent.com/robotiq/ros/c39cd970a3f950c8be206d0e4340c7b69e018d7a/grippers/robotiq_description/meshes/collision/2f_85/left_finger.stl",
+      "source_sha256": "f39a50be121122fc1c53c588a762ad1da8a0f64d39bc6f299cbe9b0597e7257b",
+      "output_sha256": "f39a50be121122fc1c53c588a762ad1da8a0f64d39bc6f299cbe9b0597e7257b"
+    },
+    "meshes/visual/2f_85/right_finger.glb": {
+      "source_url": "https://raw.githubusercontent.com/robotiq/ros/c39cd970a3f950c8be206d0e4340c7b69e018d7a/grippers/robotiq_description/meshes/visual/2f_85/right_finger.dae",
+      "source_sha256": "3b2245b5537eb596d7f8a4c64b12e3aedea46e365fc589019184d3b4200e664f",
+      "output_sha256": "4e19ebccf12f3e29118bba8b210538c69ea2187714c6b8c0a05d152414a096de",
+      "triangles": 2930,
+      "bounds_m": [
+        [
+          -0.014080280438065529,
+          -0.01359998993575573,
+          -0.0062627787701785564
+        ],
+        [
+          0.014497930184006691,
+          0.01359998993575573,
+          0.05315165966749191
+        ]
+      ]
+    },
+    "meshes/collision/2f_85/right_finger.stl": {
+      "source_url": "https://raw.githubusercontent.com/robotiq/ros/c39cd970a3f950c8be206d0e4340c7b69e018d7a/grippers/robotiq_description/meshes/collision/2f_85/right_finger.stl",
+      "source_sha256": "1d018fa2f0b50aca5941778d78810b211b1abfc8637c7953451d76d4833ba6f8",
+      "output_sha256": "1d018fa2f0b50aca5941778d78810b211b1abfc8637c7953451d76d4833ba6f8"
+    },
+    "meshes/visual/2f_85/left_inner_knuckle.glb": {
+      "source_url": "https://raw.githubusercontent.com/robotiq/ros/c39cd970a3f950c8be206d0e4340c7b69e018d7a/grippers/robotiq_description/meshes/visual/2f_85/left_inner_knuckle.dae",
+      "source_sha256": "2df009ef28868c90a4904370f5f4995c74ec84e0b8ca1371044e0ea669edcd71",
+      "output_sha256": "dfe01e851a4d824836af7cdb68b544ad387d631a94be82ba42c63f1b05529f47",
+      "triangles": 1778,
+      "bounds_m": [
+        [
+          -0.005999683868139982,
+          -0.01734994910657406,
+          -0.005967735778540373
+        ],
+        [
+          0.04315720871090889,
+          0.0176499392837286,
+          0.049418091773986816
+        ]
+      ]
+    },
+    "meshes/collision/2f_85/left_inner_knuckle.stl": {
+      "source_url": "https://raw.githubusercontent.com/robotiq/ros/c39cd970a3f950c8be206d0e4340c7b69e018d7a/grippers/robotiq_description/meshes/collision/2f_85/left_inner_knuckle.stl",
+      "source_sha256": "f250a3fea49be4d1bb2383d9980172c59fc44031193ef2293ca540f756f6c1e6",
+      "output_sha256": "f250a3fea49be4d1bb2383d9980172c59fc44031193ef2293ca540f756f6c1e6"
+    },
+    "meshes/visual/2f_85/right_inner_knuckle.glb": {
+      "source_url": "https://raw.githubusercontent.com/robotiq/ros/c39cd970a3f950c8be206d0e4340c7b69e018d7a/grippers/robotiq_description/meshes/visual/2f_85/right_inner_knuckle.dae",
+      "source_sha256": "4cc6de99e177773ba755805b58b67537c3af24b2fd8f3a1bf4bbced87d6240a5",
+      "output_sha256": "798e118bbe22d809962d31447f84d5e4f4e2692f8bef6c1ae57aa2c0a18262ee",
+      "triangles": 1778,
+      "bounds_m": [
+        [
+          -0.04315720871090889,
+          -0.017449969425797462,
+          -0.005967735778540373
+        ],
+        [
+          0.005999683868139982,
+          0.017549989745020866,
+          0.049418091773986816
+        ]
+      ]
+    },
+    "meshes/collision/2f_85/right_inner_knuckle.stl": {
+      "source_url": "https://raw.githubusercontent.com/robotiq/ros/c39cd970a3f950c8be206d0e4340c7b69e018d7a/grippers/robotiq_description/meshes/collision/2f_85/right_inner_knuckle.stl",
+      "source_sha256": "c936d951ede875b91c180bd41d45b22ae23f8a39d9c3e09e29066453a8e863ef",
+      "output_sha256": "c936d951ede875b91c180bd41d45b22ae23f8a39d9c3e09e29066453a8e863ef"
+    },
+    "meshes/visual/2f_85/left_finger_tip.glb": {
+      "source_url": "https://raw.githubusercontent.com/robotiq/ros/c39cd970a3f950c8be206d0e4340c7b69e018d7a/grippers/robotiq_description/meshes/visual/2f_85/left_finger_tip.dae",
+      "source_sha256": "785ec7a83b4fc6357c211a39bb117833b1cfd4e9bccbef2efc7f35aeb2fdb92e",
+      "output_sha256": "facabdcb648a564a0b416113d714c67550cb81ae140044ee40761f16afe263cd",
+      "triangles": 2618,
+      "bounds_m": [
+        [
+          -0.02525860071182251,
+          -0.014299980364739895,
+          -0.005999981891363859
+        ],
+        [
+          0.005977152846753597,
+          0.012699959799647331,
+          0.05101542919874191
+        ]
+      ]
+    },
+    "meshes/collision/2f_85/left_finger_tip.stl": {
+      "source_url": "https://raw.githubusercontent.com/robotiq/ros/c39cd970a3f950c8be206d0e4340c7b69e018d7a/grippers/robotiq_description/meshes/collision/2f_85/left_finger_tip.stl",
+      "source_sha256": "9d90031cd99106a8be63609f8ff78580638d91cc4167bf66c09198329f2e65cf",
+      "output_sha256": "9d90031cd99106a8be63609f8ff78580638d91cc4167bf66c09198329f2e65cf"
+    },
+    "meshes/visual/2f_85/right_finger_tip.glb": {
+      "source_url": "https://raw.githubusercontent.com/robotiq/ros/c39cd970a3f950c8be206d0e4340c7b69e018d7a/grippers/robotiq_description/meshes/visual/2f_85/right_finger_tip.dae",
+      "source_sha256": "568371d25ddbcee8e432c0610bdcc7afcd1393d48d973eed92168e353eb4edf5",
+      "output_sha256": "71a976cca36bcef968ddee048cb38498f3ffbe788bdcc5202864dff1e4b7ca5d",
+      "triangles": 2618,
+      "bounds_m": [
+        [
+          -0.005977152846753597,
+          -0.013449960388243198,
+          -0.005999981891363859
+        ],
+        [
+          0.02525860071182251,
+          0.013549979776144028,
+          0.05101542919874191
+        ]
+      ]
+    },
+    "meshes/collision/2f_85/right_finger_tip.stl": {
+      "source_url": "https://raw.githubusercontent.com/robotiq/ros/c39cd970a3f950c8be206d0e4340c7b69e018d7a/grippers/robotiq_description/meshes/collision/2f_85/right_finger_tip.stl",
+      "source_sha256": "126f1559f2f7dca62449a6ca926c609fbdaa93ca66df805ff7c069bb206e3d10",
+      "output_sha256": "126f1559f2f7dca62449a6ca926c609fbdaa93ca66df805ff7c069bb206e3d10"
+    }
+  },
+  "urdf_source_url": "https://raw.githubusercontent.com/robotiq/ros/c39cd970a3f950c8be206d0e4340c7b69e018d7a/grippers/robotiq_description/urdf/robotiq_2f_85_macro.urdf.xacro",
+  "derived_urdf": "Extract direct link/joint elements with empty prefix; omit external parent mounting joint, inertials, surface simulator parameters, and ROS control; retain joint origins/axes/limits/mimic and visual/collision origins."
+}

@@ -2,6 +2,7 @@
 
 import json
 import sys
+import time
 import urllib.request
 from pathlib import Path
 
@@ -16,6 +17,35 @@ def probe(name, plan):
         return {"ok": True, "state": "http_responding", "detail": "Browser rendering not checked"}
     config = plan["config"]
     if name == "camera":
+        if plan["services"][name].get("ownership") == "external":
+            from manimux.clock import SystemClock
+            from manimux.embodiments.sensor import build_sensor
+
+            from .plan import external_camera_sensors
+
+            sensors = []
+            try:
+                for spec in external_camera_sensors(config):
+                    sensor = build_sensor(spec, SystemClock())
+                    sensors.append(sensor)
+                    sensor.start()
+                deadline = time.monotonic() + 2.0
+                while True:
+                    readings = [sensor.read() for sensor in sensors]
+                    if all(readings):
+                        return {
+                            "ok": True,
+                            "state": "fresh_frames",
+                            "detail": ", ".join(name for frames in readings for name in frames),
+                        }
+                    if time.monotonic() >= deadline:
+                        raise RuntimeError(
+                            "External camera streams did not provide all selected frames"
+                        )
+                    time.sleep(0.02)
+            finally:
+                for sensor in reversed(sensors):
+                    sensor.close()
         from manimux.embodiments.sensor.camera_server.client import CameraClient
 
         from .plan import address

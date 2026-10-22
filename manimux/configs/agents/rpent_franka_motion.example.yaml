@@ -1,0 +1,20 @@
+# Copy to ../local/rpent_franka_motion.yaml and enter measured base-frame bounds.
+max_waypoints: 2000
+settle_timeout_s: 5.0
+# Match the upstream Franka primitive completion defaults.
+position_tolerance_m: 0.005
+rotation_tolerance_rad: 0.04
+gripper_tolerance: 0.03
+limits:
+  joint_speed_rad_s: 0.03
+  linear_speed_m_s: 0.004
+  angular_speed_rad_s: 0.04
+  minimum_motion_s: 1.0
+  max_translation_m: 0.03
+  max_rotation_rad: 0.2
+groups:
+  arm:
+    workspace_min_m: null
+    workspace_max_m: null
+    gripper_coordinate: gripper
+    gripper_convention: zero_closed_one_open

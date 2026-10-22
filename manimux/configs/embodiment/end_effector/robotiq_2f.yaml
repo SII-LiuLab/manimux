@@ -1,0 +1,7 @@
+type: end_effector
+implementation: manimux.embodiments.end_effector.robotiq:RobotiqGripper
+action_layout: {arm_dofs: 0, gripper_dofs: 1}
+# The assembly supplies its measured tool transform; station supplies serial
+# port and measured raw_open/raw_closed register calibration.
+options: {}
+hardware: {speed: 0.2, force: 0.2}

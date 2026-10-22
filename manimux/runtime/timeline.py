@@ -52,6 +52,7 @@ class _ActivePlan:
     unblended_groups: GroupTrajectory | None = None
     observation_time_ns: int | None = None
     hold_last_step: bool = False
+    retain_terminal_target: bool = False
 
     command_blend: _CommandBlend | None = None
     action_space: str = "joint_position"
@@ -71,6 +72,8 @@ class _ActivePlan:
 
 
 def _sample_plan(plan: _ActivePlan, time_ns: int) -> GroupVector | None:
+    if plan.retain_terminal_target and time_ns >= plan.end_time_ns:
+        return {name: values[-1].copy() for name, values in plan.groups.items()}
     blend = plan.command_blend
     if blend is not None and blend.start_ns <= time_ns < blend.end_ns:
         duration = (blend.end_ns - blend.start_ns) / 1e9
@@ -211,11 +214,12 @@ class ActionTimeline:
         chunk: ActionChunk,
         *,
         now_ns: int,
-        max_plan_age_ns: int,
+        max_plan_age_ns: int | None,
         current_command: GroupVector,
         blend_steps: int,
         handoff_skip_steps: int = 0,
         command_velocity: GroupVector | None = None,
+        retain_terminal_target: bool = False,
     ) -> CommitResult:
         """Validate, time-align, trim, and activate a new action chunk."""
         if type(handoff_skip_steps) is not int:
@@ -226,7 +230,7 @@ class ActionTimeline:
             return CommitResult(False, "joint_handoff_on_pose_timeline")
         if chunk.request_seq <= self._accepted_request_seq:
             return CommitResult(False, "stale_request_seq")
-        if now_ns - chunk.observation_time_ns > max_plan_age_ns:
+        if max_plan_age_ns is not None and now_ns - chunk.observation_time_ns > max_plan_age_ns:
             return CommitResult(False, "plan_too_old")
         if self._hold_last_step and chunk.source_offset_steps:
             return CommitResult(False, "serial_requires_untrimmed_chunk")
@@ -238,6 +242,11 @@ class ActionTimeline:
             if chunk.groups[name].shape[1] != dim or current_command[name].shape != (dim,):
                 return CommitResult(False, f"dimension_mismatch:{name}")
         runtime = chunk.runtime_trajectory
+        if retain_terminal_target and (
+            chunk.action_space != "joint_position" or runtime is not None
+            or chunk.hold_from_step or chunk.handoff is not None
+        ):
+            return CommitResult(False, "terminal_target_requires_complete_joint_path")
         if runtime is not None:
             if set(runtime.groups) != set(self._group_dims):
                 return CommitResult(False, "runtime_group_mismatch")
@@ -321,6 +330,7 @@ class ActionTimeline:
             unblended_groups=unblended_groups,
             observation_time_ns=chunk.observation_time_ns,
             hold_last_step=self._hold_last_step,
+            retain_terminal_target=retain_terminal_target,
             action_space=self.action_space,
         )
 

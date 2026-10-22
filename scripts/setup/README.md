@@ -1,5 +1,9 @@
 # Offline SDK installation checks
 
+`franka-linux-cp312.txt` pins the tested FR3 Franky/libfranka SDK artifact and
+pylibfranka version. It is specific to Linux x86_64 / CPython 3.12; the component
+README and public user guide describe the firmware and control contract.
+
 `check_can_arm_sdks.py` verifies the official PiPER and X5 bindings used by the
 ManiMux controllers. Install the selected SDK following the
 [installation guide](../../.agents/skills/manimux-station-setup/references/robot-sdks.md), then run from the repository root:

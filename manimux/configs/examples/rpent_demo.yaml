@@ -1,0 +1,6 @@
+# Disconnected robot, synthetic kinematics and synthetic model; no physical evidence.
+_base_: policy_dispatch_demo.yaml
+robot:
+  type: manimux.dispatch.demo:build_robot
+policy:
+  worker: manimux.dispatch.demo:build_tool_policy

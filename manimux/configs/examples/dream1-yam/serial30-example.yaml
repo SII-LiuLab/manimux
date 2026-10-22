@@ -1,0 +1,84 @@
+# Public baseline, not a tuned experiment configuration.
+run:
+  task_prompt: Put the bottles into the basket.
+  max_control_steps: 6000
+  warmup_before_start: true
+  sensor_reading:
+    mode: background
+    poll_hz: 100.0
+    max_frame_age_s: 0.5
+robot:
+  type: yam
+  config: ../../embodiment/robot/yam_dual.yaml
+  control_hz: 30.0
+  options:
+    execute: true
+    move_to_start_on_connect: true
+    home_duration_s: 2.0
+    home_on_close: true
+initial_pose:
+  config: ../../embodiment/initial_poses/yam.yaml
+  id: home
+sensors:
+- name: yam_cameras
+  driver: camera_server
+  service: camera
+  options:
+    request_timeout_ms: 500
+    max_frame_age_sec: 0.5
+    camera_names:
+    - d405_left
+    - d405_front
+    - d405_right
+camera_server:
+  config: ../../embodiment/sensor/cameras/realsense_3_views.yaml
+policy:
+  worker: dream_api
+  service: dream_api
+  action_dt_s: 0.03333333333333333
+  horizon_policy_steps: 48
+  timeout_s: 5.0
+  startup_timeout_s: 30.0
+  expected_backend:
+    server: dream_api
+    model:
+      checkpoint: dreamlabs/dream-1-beta
+      embodiment: yam
+  options:
+    checkpoint: dreamlabs/dream-1-beta
+    api_key_env: DREAM_API_KEY
+    request_timeout_s: 5.0
+    obs_window: 1
+    image_size:
+    - 320
+    - 176
+    jpeg_quality: 85
+    response_log_dir: data/diagnostics/dream-api
+  adapter:
+    type: manimux.policy_adapter.dream_yam:DreamYamJointAdapter
+    group_prefixes:
+      left_arm: left
+      right_arm: right
+    camera_map:
+      overhead: d405_front
+      wrist_l: d405_left
+      wrist_r: d405_right
+inference:
+  algorithm: serial
+  inference_schedule: serial
+  request_trigger: algorithm
+  chunk_policy_steps: 48
+  action_start_mode: first_step_when_ready
+  max_plan_age_s: 5.0
+  blend_policy_steps: 0
+  handoff_skip_steps: 0
+executor:
+  type: direct
+  motion_limits: null
+robogui:
+  enabled: true
+  robot: yam
+  policy_label: Dream-1 beta - Serial 30 Hz - full 48-step chunk
+recording:
+  enabled: true
+  video_fps: 30.0

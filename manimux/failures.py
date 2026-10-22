@@ -53,7 +53,7 @@ def describe_failure(error, *, context=None):
                   "Check the model service terminal and the configured endpoint."),
         "camera": ("Camera / sensor failed", "Fresh sensor data could not be obtained.",
                    "Check the named camera, camera service, USB connection and power."),
-        "robot": ("Robot / CAN failed", "Robot communication or control failed.",
+        "robot": ("Robot control failed", "Robot communication or control failed.",
                   "Check the named interface and controller feedback before preparing again."),
         "action": ("Action decoding / IK failed", "Model actions could not be converted to executable commands.",
                    "Check the action format, coordinate convention and IK error details."),
@@ -76,6 +76,19 @@ def describe_failure(error, *, context=None):
             reason = "The camera service or camera did not respond in time."
         if "frame didn't arrive" in lower or "frame is stale" in lower:
             reason = "The camera did not deliver a fresh frame."
+    elif source == "robot" and "franka fci connection already owned" in lower:
+        title = "Robot connection already in use"
+        reason = "Another local session owns this Franka FCI connection."
+        action = "Use feedback from the active runtime. Finish its session before opening another connection; read-only SDK diagnostics also require exclusive access."
+    elif source == "robot" and "libfranka" in lower and "server closed connection" in lower:
+        title = "Robot connection closed"
+        reason = "The Franka controller closed the FCI connection."
+        action = "Check for another FCI client and inspect the controller/network. Read feedback through the active runtime; do not open a parallel SDK connection."
+    elif source == "robot" and any(flag in lower for flag in ("cartesian_reflex", "joint_reflex")):
+        title = "Robot collision protection triggered"
+        flags = [flag for flag in ("cartesian_reflex", "joint_reflex") if flag in lower]
+        reason = f"The controller interrupted motion with {', '.join(flags)}."
+        action = "Inspect contact and controller feedback before preparing again. Use the controller's documented recovery if a fault remains active."
     elif source == "robot" and ("no such device" in lower or "errno 19" in lower):
         title = "Robot interface missing"
         reason = "The configured robot interface does not exist in the operating system."

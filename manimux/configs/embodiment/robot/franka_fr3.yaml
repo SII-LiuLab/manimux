@@ -1,0 +1,7 @@
+name: franka_fr3
+components:
+  arm:
+    config: ../arm/franka_fr3.yaml
+groups:
+  arm: {arm: arm, end_effector: null}
+hardware: {stale_timeout_s: 0.2}

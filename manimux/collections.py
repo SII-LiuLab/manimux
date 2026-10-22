@@ -74,6 +74,12 @@ def fingerprint(config: dict) -> str:
     }
     # Keep the scientific identity stable across the prompt field rename.
     fields["run"]["task"] = prompt
+    debug_age = (config.get("agent") or {}).get("debug_max_plan_age_s")
+    if debug_age is not None:
+        # Preserve every historical fingerprint when this opt-in is absent.
+        fields["agent"] = {"debug_max_plan_age_s": float(debug_age)}
+    if (config.get("agent") or {}).get("policy_enabled") is False:
+        fields.setdefault("agent", {})["policy_enabled"] = False
     # Normalization of legacy, pre-defaulted manifests is done by their loader.
     return hashlib.sha256(json.dumps(fields, sort_keys=True, default=str).encode()).hexdigest()
 

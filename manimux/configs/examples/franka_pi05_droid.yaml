@@ -1,0 +1,33 @@
+# Read-only deployment by default; calibrate the tool and supervise before actuation.
+_base_: franka_joint_policy.yaml
+run:
+  task_prompt: Pick up the yellow block and place it in the pink bowl.
+  sensor_reading:
+    mode: background
+    poll_hz: 100.0
+    max_frame_age_s: 0.5
+    startup_timeout_s: 5.0
+    shutdown_timeout_s: 2.0
+sensors:
+- name: franka_cameras
+  driver: manimux.embodiments.sensor.camera_server.timestamped:build_sensor
+  service: camera
+  options:
+    camera_names: [wrist, external1]
+    max_frame_age_sec: 0.5
+policy:
+  action_dt_s: 0.06666666666666667
+  horizon_policy_steps: 15
+  adapter:
+    camera_map: {exterior: external1, wrist: wrist}
+  options:
+    request_timeout_s: 2.0
+  expected_backend: null  # Derived from the selected recipe after station binding.
+policy_server:
+  config: ../policy/pi05/droid/jointpos.yaml
+inference:
+  chunk_policy_steps: 15
+robogui:
+  enabled: true
+recording:
+  video_fps: 15.0

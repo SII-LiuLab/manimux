@@ -1,0 +1,47 @@
+# The model recipe owns checkpoint identity and action semantics.
+run:
+  task_prompt: Put the bottles into the bin.
+  max_control_steps: 12000
+  warmup_before_start: false
+robot:
+  type: yam
+  config: ../embodiment/robot/yam_dual.yaml
+  control_hz: 30.0
+  options:
+    execute: false
+    move_to_start_on_connect: false
+    home_on_close: false
+sensors:
+- name: yam_cameras
+  driver: camera_server
+  service: camera
+  options:
+    camera_names: [d405_front, d405_left, d405_right]
+    max_frame_age_sec: 0.5
+policy:
+  worker: xpolicylab_ws
+  service: policy
+  action_dt_s: 0.03333333333333333
+  horizon_policy_steps: 50
+  timeout_s: 10.0
+  adapter:
+    type: manimux.policy_adapter.joint:JointAdapter
+    camera_map: {cam_head: d405_front, cam_left_wrist: d405_left, cam_right_wrist: d405_right}
+  options:
+    action_format: joint
+    request_timeout_s: 10.0
+policy_server:
+  config: ../policy/pi05/yam/put-bottles/joint-step30000.yaml
+camera_server:
+  config: ../embodiment/sensor/cameras/realsense_3_views.yaml
+inference:
+  algorithm: serial
+  action_start_mode: first_step_when_ready
+  blend_policy_steps: 0
+executor:
+  type: direct
+robogui:
+  enabled: true
+  robot: yam
+recording:
+  enabled: true

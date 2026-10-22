@@ -128,6 +128,8 @@ class RuntimeControlClient:
                 **(dict(self._request_ids) if self._home or self._finish else {}),
                 **(deepcopy(self._episode_control)
                    if reason in {"running", "robogui_pause"} else {}),
+                **({"start_identity": deepcopy(self._episode_control.get("start_identity"))}
+                   if reason == "finish" else {}),
                 "diagnostics": {
                     "reason": reason, "transport_status": self._transport_status,
                     "control_age_ms": None if age is None else age * 1000,

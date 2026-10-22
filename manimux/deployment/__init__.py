@@ -44,7 +44,19 @@ def add_commands(subparsers):
             parser.add_argument(
                 "--camera-python", type=Path, help="Defaults to runtime interpreter"
             )
-            parser.add_argument("--policy-python", type=Path, help="Required for real deployments")
+            parser.add_argument(
+                "--policy-python", type=Path, help="Required for an owned model service"
+            )
+            parser.add_argument(
+                "--external-policy",
+                action="store_true",
+                help="Connect to the configured policy service; never start or stop its process",
+            )
+            parser.add_argument(
+                "--external-camera",
+                action="store_true",
+                help="Use configured network camera sensors; never start or stop their servers",
+            )
             parser.add_argument("--robot", help="RoboGUI preset for --demo (default: yam)")
             parser.add_argument("--gui-port", type=int, default=8086)
             parser.add_argument("--output-dir", type=Path, help="Separate trial recordings")

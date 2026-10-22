@@ -44,11 +44,26 @@ a new service seeds it from YAML. Finish before changing instructions. Formal
 `--config-list` studies retain configured prompts and evaluation controls; demo sessions
 hide layout/scoring controls, including **Edit last evaluation**.
 
+Policy plans retain the frozen task prompt even when the optional policy display label
+is empty. Publishing an unlabeled policy must not clear the running task instruction.
+Each episode also starts its own first-feedback timeout. An old rollout timestamp must
+not mark the next Prepare unavailable or close its warmup preview; episode events do
+not count as fresh robot feedback, and a missing first state still expires.
+
 The idle session acknowledges admission with `rollout_prepare_accepted` and repeats
 `prepare_ack` in idle heartbeats. The GUI clears transmission only on matching
 acknowledgment, episode start, failure or a new service boundary. The session ignores
 repeated admission of the same ID; a lost reply must neither strand Preparing nor
 create another rollout. Resource cleanup finishes before the session advertises idle.
+
+After Prepare and before first Start, **Back to setup** requests the existing Finish
+cleanup. Setup remains locked until the owning runtime has stopped, completed required
+Home/release checks and finalized its recording. A GUI Finish with no acknowledged Start
+is recorded as `preparation_cancelled`, with the prepared identity retained and
+`experiment_mode=false`; it skips evaluation and consumes no repeat. Start is remembered
+independently of RPent's idle hold while planning. Once Start is acknowledged, Finish
+retains the normal evaluation flow, even if no policy action was dispatched. Reconnects
+restore the frozen Start selection so Resume cannot lose its identity.
 
 Finish and active-rollout Home also carry retained request IDs. Reading GUI controls
 does not consume them. The runtime control mailbox deduplicates Home by run directory,
@@ -82,6 +97,9 @@ details; idle status keeps the category. Missing legacy metadata uses conservati
 message classification, and unrecognized failures remain unknown. Never infer DFU,
 motor damage or physical readiness from a generic connection error. Camera server
 startup/read exceptions include the exact camera name, including before runtime connects.
+Robot errors use a transport-neutral title. Explicit native `cartesian_reflex` or
+`joint_reflex` errors remain visible through nested cleanup exceptions; classification
+does not clear faults or authorize another Prepare.
 
 `runtime/lifecycle.py` publishes `runtime_shutdown` during blocking cleanup. A dedicated
 thread owns its ZMQ publisher; it never reads or commands hardware. Phases are stopping,
@@ -104,6 +122,7 @@ Exit capabilities currently differ by embodiment and must not be conflated:
 | YAM | Mandatory `home_before_close`, health-checked Home and measured release gate, independent of model/algorithm. |
 | Tianji-TacCap | Has Home, but controller `stop()` disables control; has not opted into YAM's mandatory-Home contract. Audit ordering before enabling it. |
 | CAN arm assembly (Piper/ARX) | Home is not implemented; `home_on_close=True` is rejected. Do not advertise automatic Home. |
+| Franka FR3 / Robotiq | Home and idle recovery are unsupported. Finish stops the owned tracking session and gripper request, then closes connections; receive-only mode performs no actuator writes. |
 
 Changing one shared path requires a strategy regression matrix and an embodiment
 capability audit. The same interface name does not establish equivalent hardware behavior.
@@ -114,7 +133,28 @@ immutable; matching explicit history inputs contribute to live GUI repeat counti
 The derived inventory is refreshed during operation and by `inspect --index`; labels
 remain authoritative. See [the protocol](../../../../guideline.html#experiment-lists).
 
+## Native external actions
+
+`ExternalActionSource` supplies bounded joint rows to `EdgeRuntime` without a policy
+worker. The runtime retains the executor, shared `_send_command` validation,
+recording and GUI lifecycle. This mode is exclusive with policy dispatch and
+uses direct serial execution; every row advances only after successful submission.
+Stop is latched until a control-thread hold acknowledgement. The
+[legacy native protocol fixture](rpent-native.md) owns environment requests, calibrated path
+planning and logical episode receipts without writing hardware.
+
+Startup and cleanup do not assume a policy worker exists. Shutdown closes agent
+admission before potentially blocking Home/release operations, then uses the shared
+resource cleanup before finalizing recordings. External events and cleanup errors
+remain in aborted recordings. `max_control_steps: 0` disables the tick budget;
+Finish, faults and external shutdown still terminate the runtime.
+
 ## Inference algorithm versus executor
+
+External planners can submit bounded serial policy calls to one rollout through
+`manimux-rpent serve`. Its shared mailbox accepts motion and policy calls, holds between calls and receives feedback
+after command dispatch, reusing the existing client, adapter and executor. See
+[unified RPent tools](rpent.md) for the protocol and lifecycle.
 
 Current experiment entries explicitly select `executor.type: direct` for every
 inference method. New experiment configs follow that selection; Smooth/MPC remain
@@ -244,6 +284,14 @@ the existing in-flight flag covers both inference and decoding. A decoded chunk
 must retain source offset zero. `ActionTimeline` limits dense runtime rows to the
 selected source prefix before shifting execution to commit time. The next request
 waits for that execution window to finish; physical measured arrival is separate.
+The configured `max_plan_age_s` still limits observation-to-commit age, including
+provider latency; `first_step_when_ready` does not reset that safety clock.
+`plan_too_old` events and agent receipts retain the measured age, configured limit,
+inference duration and request-scoped response artifact directory. Provider success
+and runtime admission are separate outcomes. Deadline, session and action-space
+rejections also preserve their actual cause in agent receipts instead of a generic
+`policy_response_rejected` message. Do not extend the age limit merely because a
+provider response arrives within its separate transport timeout.
 
 Read `manimux/runtime/executors/base.py`: an executor implements `reset(state)`,
 `horizon_steps` and `step(now_ns, state, reference) -> RobotCommand`. It consumes
@@ -524,6 +572,14 @@ The [research workflow](../../../../guideline.html#experiments) describes curren
 
 ### Prepared layout and explicit warmup
 
+Camera diagnostics and record management use progressive disclosure: Images is
+collapsed by default while scene previews remain visible. Experiment records shows
+counts and readable session/rollout results; filters, bulk mutations and storage
+details are collapsed. Each rollout row separates its name from result metadata;
+expand the row for its full path and file listing. Camera and recording content
+share an inset from their folder borders rather than using edge-to-edge text.
+These display changes do not change recording ownership or deletion confirmation.
+
 Prepare snapshots the study rules and trial fields. Until first Start, RoboGUI permits
 layout/reference changes. Start sends only `layout_id` and `reference_layout` with the
 active episode ID and run directory. The runtime revalidates them against the prepared
@@ -536,6 +592,31 @@ With `run.warmup_before_start: true`, a GUI-controlled rollout starts in `idle` 
 waits for the in-flight request, then acknowledged backend reset; only a fresh subsequent
 observation enters formal execution. Warmup timings remain separate from formal metrics.
 The control mailbox suppresses activation/selection on stale transport snapshots.
+
+RPent with policy calls enabled uses this same optional activation flow. Its preview retains the selected
+VLA prompt, horizon and runtime settings and reuses policy-call gripper and
+calibrated path validation. The original operator pause state drives warmup;
+RPent's idle hold must not hide Start. Dispatch remains disabled throughout
+warming, draining and reset, so the managed native planner starts only after
+reset acknowledgement and the next fresh observation. Reset failure, cancellation
+or stale controls cannot enable it. Preview work creates no agent tool calls or
+formal dispatched-step/chunk counts, and all timing and motion limits still apply.
+
+An explicit `agent.debug_max_plan_age_s` overrides only managed GUI RPent's copied
+plan-age limit for both preview and execution. It must be finite and positive;
+Direct VLA uses the original inference limit even within the same variant. Provider
+request timeouts, control freshness and motion checks remain unchanged. The opt-in
+participates in the collection fingerprint; select a new debug variant for recorded
+conditions. Omission preserves existing fingerprints and runtime behavior.
+
+`agent.policy_enabled: false` selects observation and motion primitives only for
+managed RPent. This boolean defaults to true. It omits the policy worker and VLA
+warmup in that runtime, while Direct VLA keeps its original configuration. Runtime
+status exposes the capability; `/execute` rejects disabled policy calls and the
+native Toolkit omits both `execute_policy` and `observe.policy_contract`. Shared
+motion, safety, control freshness and Start/Pause/Finish behavior stay unchanged.
+Use a distinct recorded variant; `false` is fingerprinted, while omission and
+`true` retain the baseline fingerprint.
 
 Warmup never submits another request in the tick that decodes a response: inline
 IK can block, so the next request must use state/cameras acquired on the next tick.

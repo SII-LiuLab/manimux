@@ -6,6 +6,7 @@ import math
 import threading
 import time
 from collections.abc import Sequence
+from copy import deepcopy
 
 from manimux.clock import Clock
 from manimux.embodiments.sensor.base import SensorBase
@@ -76,7 +77,9 @@ class SensorReader:
                 sensor.read()
             return
         self._thread = threading.Thread(
-            target=self._run, name="manimux-sensor-reader", daemon=True,
+            target=self._run,
+            name="manimux-sensor-reader",
+            daemon=True,
         )
         self._thread.start()
         if not self._ready.wait(self._options["startup_timeout_s"]):
@@ -134,7 +137,12 @@ class SensorReader:
                         image = frame.data.copy()
                         image.setflags(write=False)
                         snapshot[name] = SensorFrame(
-                            name, image, frame.capture_monotonic_ns, frame.sequence,
+                            name,
+                            image,
+                            frame.capture_monotonic_ns,
+                            frame.sequence,
+                            depth=None if frame.depth is None else frame.depth.copy(),
+                            camera_meta=deepcopy(frame.camera_meta),
                         )
                 if snapshot:
                     with self._lock:

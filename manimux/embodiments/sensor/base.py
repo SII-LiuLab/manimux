@@ -20,6 +20,10 @@ class SensorBase(ABC):
         """Return one RGB frame or a named bundle, retaining capture timestamps and sequences."""
         raise NotImplementedError
 
+    def read_rgbd(self) -> SensorFrame:
+        """Return aligned metric depth and RGB from one capture, when supported."""
+        raise NotImplementedError("sensor does not support aligned RGB-D snapshots")
+
     @abstractmethod
     def close(self) -> None:
         """Release resources, including after partial startup; permit retries."""

@@ -1,0 +1,11 @@
+# Copy to a private station directory and fill in measured installation geometry.
+# extrinsics.json uses the RLinf solve_handeye producer format.
+extrinsics_path: extrinsics.json
+planning_timeout_s: 1.0
+path_joint_delta: 0.02
+# Required: measured tabletop height in the left-base frame (metres), or table_surface.
+table_z: null
+table_clearance_m: 0.03
+collision_guard:
+  enabled: true
+  clearance_m: 0.01

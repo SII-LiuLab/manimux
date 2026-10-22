@@ -145,7 +145,7 @@ def smooth_preview(config, chunk, state):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", default="manimux/configs/examples/dream1-yam/demo.yaml")
+    parser.add_argument("--config", required=True, help="Local Dream API + Smooth configuration")
     parser.add_argument("--calls", type=int, default=3)
     parser.add_argument(
         "--recorded-observation", type=Path,

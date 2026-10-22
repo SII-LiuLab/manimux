@@ -22,6 +22,7 @@ class ChunkLane:
     frozen_steps: int = 0
     superseded_steps: int = 0
     inference_ms: float | None = None
+    tool: str | None = None
     timeline_latency_ms: float | None = None
     decode_stage_ms: float | None = None
     state: str = "empty"
@@ -458,7 +459,10 @@ class ChunkTimelineView:
             handoff_skipped_steps=handoff_skipped,
             overlap_steps=overlap,
             frozen_steps=frozen,
-            inference_ms=float(message.get("inference_ms", 0.0)),
+            inference_ms=(None if metadata.get("runtime") == "agent_motion"
+                          else float(message.get("inference_ms", 0.0))),
+            tool=(str(metadata.get("tool", "primitive"))
+                  if metadata.get("runtime") == "agent_motion" else None),
             timeline_latency_ms=optional_ms("timeline_latency_ms"),
             decode_stage_ms=optional_ms("decode_stage_ms"),
             state="active",
@@ -532,6 +536,8 @@ class ChunkTimelineView:
             return "sampling"
         if lane.state == "rejected":
             return "rejected"
+        if lane.tool:
+            return f"Primitive · {lane.tool}"
         if lane.timeline_latency_ms is not None:
             return f"E2E {lane.timeline_latency_ms:.0f} ms"
         if lane.inference_ms is not None:

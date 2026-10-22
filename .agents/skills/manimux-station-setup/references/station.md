@@ -23,6 +23,7 @@ environment with the selected hardware dependencies installed.
 | Tianji–TacCap | [tianji_taccap_example.yaml](../../../../manimux/configs/local/tianji_taccap_example.yaml) | [UMI-DP runbook](../../manimux-inference/references/deployment/umi-dp-tianji-taccap.md) · [Xiaomi XR-1 runbook](../../manimux-inference/references/deployment/xiaomi-xr1-tianji-taccap.md) |
 | Standard PiPER adapter | [piper_example.yaml](../../../../manimux/configs/local/piper_example.yaml) | [SDK adapters and validation scope](can-arms.md) |
 | X5 (2023) adapter | [arx_x5_example.yaml](../../../../manimux/configs/local/arx_x5_example.yaml) | [SDK adapters and feedback limits](can-arms.md) |
+| Franka FR3 with Robotiq | [franka_example.yaml](../../../../manimux/configs/local/franka_example.yaml) | [Franka component](../../../../manimux/embodiments/arm/franka/README.md), [Robotiq](../../../../manimux/embodiments/end_effector/robotiq/README.md) |
 
 Hardware and model environments are separate; see [Python environments](environments.md).
 A clone does not install private SDKs, create CAN interfaces or download checkpoints.

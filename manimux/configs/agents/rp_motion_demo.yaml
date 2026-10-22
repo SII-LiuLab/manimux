@@ -1,0 +1,17 @@
+# Synthetic bounds for the disconnected demonstration only.
+max_waypoints: 2000
+settle_timeout_s: 2.0
+limits:
+  minimum_motion_s: 0.1
+  joint_speed_rad_s: 0.5
+  linear_speed_m_s: 0.1
+  angular_speed_rad_s: 0.5
+  max_translation_m: 0.1
+  max_rotation_rad: 0.3
+groups:
+  left_arm: &synthetic_group
+    workspace_min_m: [-2, -2, -2]
+    workspace_max_m: [2, 2, 2]
+    gripper_coordinate: gripper
+    gripper_convention: zero_closed_one_open
+  right_arm: *synthetic_group

@@ -56,13 +56,14 @@ Drag and both Release variants use the same declared arm selections; single-arm
 assemblies expose only their configured arm. A stale selection is rejected before
 ending a rollout or starting recovery. Return Home operates on all configured groups,
 independently of the hand-guiding selection.
-Finish leaves homing to the experiment's `home_on_close` unless idle
-recovery includes `home`, in which case Finish does not home. In-rollout Return Home
-still calls runtime `robot.home()`, and requires the episode's `home_available` only
-when idle recovery includes `home`. Do not invent a `supports_home` field that nobody reads.
-Switching from a rollout to hand-guiding always finishes without homing, including
-assemblies that do not declare idle Home. Finish is labelled **Finish rollout** because
-the GUI cannot infer the experiment's `home_on_close` from recovery capabilities.
+The runtime publishes `home_available` from the implemented assembly Home operation;
+inheriting the base rejecting method does not provide Home. Native external-action
+owners do not expose in-rollout Home. RoboGUI disables Return Home when unavailable
+and labels Finish as **Finish rollout** instead of **Finish & Home**. Ordinary runtime
+shutdown homes connected assemblies with an implemented Home before closing resources.
+The retired `home_on_close` option cannot override this policy. An external owner
+retains any assembly-required `home_before_close` behavior, including YAM's measured
+release gate. Franka has no Home implementation and stops/closes without homing.
 
 For a focused review, trace configuration -> factory -> controller/assembly ->
 runtime caller. Record the required behavior, actual SDK mapping, discrepancy and
@@ -158,6 +159,10 @@ The runtime uses `connect()`, `get_state() -> RobotState`,
 coordinate order must agree between state, command and offline model. The current
 execution path sends joint-position targets; an EEF policy must be converted by
 its action adapter before reaching this boundary.
+On normal rollout completion, the runtime stops physical control before flushing
+and finalizing the recording. A failed stop leaves an aborted partial episode;
+the cleanup block still retries stop/close. Finalization must not keep control
+active solely while saving data or publish success before stop succeeds.
 
 Robot YAML in `manimux/configs/embodiment/robot/` names `components`, their YAML
 references, mount relationships and `groups`. Component YAML declares coordinate
@@ -224,11 +229,52 @@ Frames contain RGB uint8 HxWx3 data, capture timestamp and sequence. Preserve th
 image and capture metadata together across repeated reads. Distinguish device
 capture, host receipt and runtime read time; inspect the existing camera-server
 driver/timestamp conversion before claiming all paths preserve acquisition time.
+The timestamped PUB sensor keeps only the latest bundle, tolerates incomplete camera
+startup until its deadline, and then requires every selected camera. Optional PUB
+`camera_meta` is retained in each `SensorFrame`; station bridges must identify whether
+timestamps describe exposure, host receipt or publication. Independent SDK processes
+can publish through this existing protocol when their Python environments differ.
+Validate frame age after receiving/deserializing the bundle. Bracket wall-clock
+reads with monotonic samples when estimating/checking clock offset; thread
+preemption must not turn a fresh frame into a future frame or mimic a clock jump.
+Cached source timestamps remain unchanged, and actual stale/backward frames and
+wall-clock jumps still fail explicitly.
 Verify RGB ordering, cache behavior, selected source names and lifecycle with a
-fake device. Depth/tactile channels need a declared representation, not a silent
-reinterpretation of the RGB frame.
+fake device. Optional RGB-D frames carry aligned metric `depth` plus `camera_meta` alongside
+that capture's RGB/time/sequence. `SensorBase.read_rgbd()` rejects unsupported
+sensors; the shared camera REQ `rgbd` command carries these extra fields while
+`obs`/PUB stay RGB-compatible. RealSense requires aligned depth and `flip: false`.
+Other channels still need a declared representation, not an RGB reinterpretation.
 
 ## Concrete implementation starting points
+
+The [Franka component](../../../../manimux/embodiments/arm/franka/README.md)
+implements a standalone seven-joint FCI controller and offline FR3 model.
+`robot/franka` assembles it through `RobotBase`, optionally with the independent
+[Robotiq component](../../../../manimux/embodiments/end_effector/robotiq/README.md).
+The normal policy/adapter/executor path does not import RPent or RLinf. Franky owns
+native persistent joint impedance tracking; the optional agent integration remains an upper
+layer. Read-only Franka sessions use pylibfranka because Franky's constructor sets
+collision thresholds. Home, startup motion and idle recovery are not implemented.
+Both SDK paths acquire a local per-address FCI lease before connection. A second
+ManiMux client is rejected before SDK construction, including receive-only probes.
+Stop keeps the lease; close releases it only after successful shutdown. Diagnostics
+must use the active owner's feedback. Raw SDK clients, address aliases and other
+hosts require separate operator coordination; the local lease cannot exclude them.
+Use the component runbooks for units, ownership, feedback and stop semantics.
+Franka contains the SDK's calling-thread priority changes: connect restores the
+caller's scheduling policy, while native control startup inherits the SDK's
+real-time policy before the caller is restored. Keep general runtime work at its
+original priority; do not lower the native control thread's real-time priority.
+Accepted joint references are submitted unchanged, including startup. Host guards
+for reference steps, measured-to-target distance and measured speed default to null;
+bounded tests can explicitly configure a scalar or seven per-joint limits. Rate shaping
+belongs to the shared executor. Native collision protection, model bounds, feedback
+freshness and fault propagation remain active. There is no promised physical
+acceleration/jerk bound from host checks. The selected Franky build must expose native
+JointReferenceHandle and JointImpedanceTrackingMotion before any executing connect.
+The Linux x86_64 / CPython 3.12 SDK profile is hash-pinned in
+`scripts/setup/franka-linux-cp312.txt`; the package extra installs the read-only SDK.
 
 | Component | Read first | Selecting configuration | Focused check |
 | --- | --- | --- | --- |
