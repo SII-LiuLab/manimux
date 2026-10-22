@@ -67,8 +67,8 @@ flowchart LR
     <tr>
       <th>Embodiments</th>
       <th>Policies &amp; Frameworks</th>
+      <th>Harness</th>
       <th>Inference</th>
-      <th>Agent Integration</th>
     </tr>
   </thead>
   <tbody>
@@ -99,6 +99,15 @@ flowchart LR
         <a href="https://sii-liulab.github.io/manimux/guideline.html#support">Full support catalog →</a>
       </td>
       <td>
+        <a href="https://sii-liulab.github.io/manimux/guideline.html#agent-integrations"><strong>RPent / HarnessVLA</strong></a>
+        <p>Planning through a shared Toolkit:</p>
+        <ul>
+          <li>Motion tools</li>
+          <li>VLA calls</li>
+        </ul>
+        <p>Uses the ManiMux runtime and experiment lifecycle.</p>
+      </td>
+      <td>
         <ul>
           <li><a href="https://sii-liulab.github.io/manimux/guideline.html#serial">Serial</a></li>
           <li><a href="https://sii-liulab.github.io/manimux/guideline.html#async">Async chunking</a></li>
@@ -108,15 +117,6 @@ flowchart LR
           <li><a href="https://sii-liulab.github.io/manimux/guideline.html#autohorizon">AutoHorizon</a></li>
         </ul>
         <a href="https://sii-liulab.github.io/manimux/guideline.html#optional-algorithm-composition">Supported combinations →</a>
-      </td>
-      <td>
-        <a href="https://sii-liulab.github.io/manimux/guideline.html#agent-integrations"><strong>RPent / HarnessVLA</strong></a>
-        <p>Planning through a shared Toolkit:</p>
-        <ul>
-          <li>Motion tools</li>
-          <li>VLA calls</li>
-        </ul>
-        <p>Uses the ManiMux runtime and experiment lifecycle.</p>
       </td>
     </tr>
   </tbody>
