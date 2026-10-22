@@ -149,29 +149,51 @@ uv run manimux-robogui --robot yam --demo --host 127.0.0.1 --port 8086
 Open **http://127.0.0.1:8086**. The preview uses synthetic data and does not connect
 to a robot. Model environments and checkpoints are needed only for real deployment.
 
-On a configured station, one command starts camera, model, RoboGUI and runtime, then
-waits for manual Prepare in RoboGUI. It holds the terminal; **Ctrl-C** stops every service,
-runtime first:
+### Run on a robot: one command for all services
+
+A deployment is four services: the **camera server**, the **model server** (none for hosted
+APIs such as Dream-1), **RoboGUI** and the **runtime** that drives the robot. `manimux up`
+starts all of them at once, each in its own tmux session, and holds the terminal.
+**Ctrl-C stops all of them at once**, runtime first, so the robot is cleaned up before the
+cameras and model go away.
 
 ```bash
 uv run manimux doctor --config <experiment.yaml> \
   --runtime-python envs/yam/.venv/bin/python --policy-python <model-env>/bin/python  # read-only
 uv run manimux up --config <experiment.yaml> \
   --runtime-python envs/yam/.venv/bin/python --policy-python <model-env>/bin/python --open
+# ... operate in RoboGUI (Prepare, Start, Finish) ...
+# Ctrl-C  -> stops runtime, model, cameras and RoboGUI
 ```
 
-From another terminal, or after `up --detach`:
+- Hosted model APIs such as Dream-1 have no model server: omit `--policy-python` and export
+  their API key in this terminal first.
+- If runtime cleanup blocks (for example while waiting for hardware recovery), the terminal
+  says so and keeps everything alive. Use RoboGUI recovery, or support all arms and payloads
+  and press Ctrl-C again to force-kill every service.
+- Lost the `up` terminal? Rerun the same `up` command; it attaches to the running services,
+  and Ctrl-C stops them.
+- From another terminal: `uv run manimux status` (service health) and
+  `uv run manimux attach --service runtime` (runtime terminal; detach with Ctrl-B, then D).
+
+### Start the services by hand
+
+The same four services, one terminal each, started in this order. Stop them with Ctrl-C in
+each terminal, runtime first.
 
 ```bash
-uv run manimux status                    # process and service health
-uv run manimux attach --service runtime  # operator terminal; detach: Ctrl-B, then D
-uv run manimux down                      # graceful stop, runtime first
+# 1. Camera server
+envs/yam/.venv/bin/python -m manimux.servers.camera.server \
+  --config <experiment.yaml> --local manimux/configs/local/station.yaml
+# 2. Model server (XPolicyLab recipes; skip for hosted APIs such as Dream-1)
+<model-env>/bin/python -m manimux.servers.policy \
+  --config <experiment.yaml> --local manimux/configs/local/station.yaml
+# 3. RoboGUI
+envs/yam/.venv/bin/python -m manimux.robogui.dashboard --robot yam --host 127.0.0.1 --port 8086
+# 4. Runtime: connects robot, cameras and model, then waits for Prepare in RoboGUI
+envs/yam/.venv/bin/python -m manimux run \
+  --config <experiment.yaml> --local manimux/configs/local/station.yaml
 ```
-
-If runtime cleanup blocks (for example while waiting for hardware recovery), a second
-Ctrl-C force-kills the services; support all arms and payloads first.
-
-Hosted model APIs such as Dream-1 need no `--policy-python`; export their API key first.
 
 See [managed deployment](https://sii-liulab.github.io/manimux/guideline.html#managed-deployment)
 for external model/camera services, separate trial roots and Franka.

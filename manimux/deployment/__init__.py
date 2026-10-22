@@ -15,14 +15,13 @@ def positive_seconds(value):
 
 
 def add_commands(subparsers):
-    for name in ("doctor", "up", "status", "down", "attach"):
+    for name in ("doctor", "up", "status", "attach"):
         parser = subparsers.add_parser(
             name,
             help={
                 "doctor": "Check a local deployment without opening devices",
-                "up": "Start managed services and wait for manual Prepare",
+                "up": "Start managed services and hold the terminal; Ctrl-C stops them",
                 "status": "Inspect managed processes and service health",
-                "down": "Gracefully stop owned services, runtime first",
                 "attach": "Attach to an owned service's operator terminal",
             }[name],
         )
@@ -70,18 +69,6 @@ def add_commands(subparsers):
             parser.add_argument(
                 "--open", action="store_true", help="Open RoboGUI in the default browser"
             )
-            parser.add_argument(
-                "--detach",
-                action="store_true",
-                help="Return after startup instead of holding the terminal until Ctrl-C",
-            )
-        if name == "down":
-            parser.add_argument(
-                "--timeout",
-                type=positive_seconds,
-                default=30.0,
-                help="Wait per service; never force-kill on timeout",
-            )
         if name == "attach":
             parser.add_argument(
                 "--service", choices=("runtime", "camera", "policy", "robogui"), default="runtime"
@@ -98,13 +85,12 @@ def main(args):
             result = doctor(build_plan(args), directory)
         elif args.command == "up":
             result = processes.up(build_plan(args), directory, args.timeout, open_browser=args.open)
-            if result.get("ok") and not args.detach:
+            # Any live owned service stays attached to this terminal, so Ctrl-C can stop it.
+            if processes.services_alive(directory):
                 _report(result, args)
                 result = processes.hold(directory, timeout=30.0)
         elif args.command == "status":
             result = processes.status(directory)
-        elif args.command == "down":
-            result = processes.down(directory, args.timeout)
         else:
             return processes.attach(directory, args.service)
     except (Exception, KeyboardInterrupt) as exc:

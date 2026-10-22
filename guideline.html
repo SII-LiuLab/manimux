@@ -263,27 +263,28 @@ uv run manimux doctor \
   --policy-python third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python --json
 
 # Start camera, RoboGUI, model and interactive runtime. Wait for manual Prepare.
-# Holds the terminal until Ctrl-C; add --detach to return after startup.
+# Holds the terminal; Ctrl-C stops every service, runtime first.
 uv run manimux up \
   --config manimux/configs/experiments/pi05-latest300ep-step30000/coin/serial32.yaml \
   --local manimux/configs/local/station.yaml \
   --runtime-python envs/yam/.venv/bin/python \
   --policy-python third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python --open --json
 
+# From another terminal.
 uv run manimux status --json
 uv run manimux attach --service runtime  # detach: Ctrl-B, then D
-uv run manimux down --timeout 30 --json
 </code></pre>
 <p>Substitute your recipe and installed interpreters. Camera defaults to the runtime
 interpreter; use <code>--camera-python</code> when needed. Use <code>--output-dir</code> to
 select a separate trial root. <code>up --timeout</code> is a readiness deadline per service.
 JSON results stay on stdout and progress goes to stderr. <code>--open</code> opens the default
 browser; agents can instead open the returned <code>gui_url</code> in their browser panel.</p>
-<p><code>up</code> stays in the foreground. Ctrl-C runs the same ordered shutdown as
-<code>down</code> (runtime first). If runtime cleanup blocks, for example while waiting for
-hardware recovery, the terminal says so and keeps every service alive; use RoboGUI recovery,
-or support all arms and payloads and press Ctrl-C again to force-kill the services. Agents
-and scripts pass <code>--detach</code> and use <code>status</code>/<code>down</code>.</p>
+<p><code>up</code> stays in the foreground; there is no separate stop command. Ctrl-C (or
+SIGINT to the <code>up</code> process) stops services in order, runtime first. If runtime
+cleanup blocks, for example while waiting for hardware recovery, the terminal says so and
+keeps every service alive; use RoboGUI recovery, or support all arms and payloads and press
+Ctrl-C again to force-kill the services. If the <code>up</code> terminal was lost, rerun the
+same <code>up</code> command: it attaches to the running deployment, and Ctrl-C stops it.</p>
 <p>Hosted policy APIs such as Dream-1 (<code>worker: dream_api</code>) have no model service:
 omit <code>--policy-python</code> and export the key named by
 <code>policy.options.api_key_env</code> in the shell that runs <code>up</code>; doctor checks it.</p>
@@ -294,7 +295,7 @@ endpoint and expected identity. For cameras already published by another owner, 
 a positive <code>max_frame_age_sec</code>. A local camera-server recipe is then unnecessary.
 Doctor checks configuration; up/status receive camera frames and a model HELLO without
 requesting inference. External services and any SSH tunnels retain their existing owners,
-and down leaves them running. For a configured Franka experiment:</p>
+and Ctrl-C leaves them running. For a configured Franka experiment:</p>
 <pre><code class="language-bash">python -m manimux up \
   --config /path/to/franka-experiment.yaml \
   --local /path/to/private/franka-station.yaml \
@@ -329,18 +330,17 @@ editing running service code. Preserve the state directory until its services ha
 <tr><td>Waiting for Prepare</td><td>The runtime session is reporting; robot connection and motion remain operator actions.</td></tr>
 <tr><td>Operator control</td><td>Prepare was requested. Inspect RoboGUI for preparation, execution, failure and cleanup details.</td></tr>
 </tbody></table>
-<p><strong>Shutdown:</strong> down signals the owned runtime first and waits for its existing
-cleanup. If it remains alive, dependencies and the operator terminal stay available;
-the command reports <code>shutdown_blocked</code>. Attach to the terminal and inspect
-RoboGUI. There is no force-kill or automatic RELEASE. Repeated down waits without sending
-another interrupt. When runtime has exited, owned policy, camera and RoboGUI services
-stop in order; external dependencies remain available.</p>
+<p><strong>Shutdown:</strong> Ctrl-C in the <code>up</code> terminal signals the owned runtime
+first and waits for its existing cleanup. If it remains alive, dependencies and the operator
+terminal stay available and the terminal reports the blocked cleanup; inspect RoboGUI.
+There is no automatic RELEASE. Only a second Ctrl-C, after the operator supports all arms
+and payloads, force-kills the services. When runtime has exited, owned policy, camera and
+RoboGUI services stop in order; external dependencies remain available.</p>
 <h3 id="deployment-demo-video">Rehearse and record the deployment demo</h3>
 <pre><code class="language-bash"># Synthetic preview: no camera, policy service, runtime or robot connection.
+# Holds the terminal; Ctrl-C stops it.
 uv run manimux up --demo --robot yam --gui-port 18086 \
-  --deployment-dir .local/demo --open --json --detach
-uv run manimux status --deployment-dir .local/demo --json
-uv run manimux down --deployment-dir .local/demo --json
+  --deployment-dir .local/demo --open
 
 # Terminal footage (requires VHS); run from the repository root.
 mkdir -p recordings

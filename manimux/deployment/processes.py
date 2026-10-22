@@ -347,13 +347,18 @@ def up(plan, directory, timeout, *, open_browser=False):
         previous = read_json(directory / "state.json")
         if previous and any(alive(s) for s in previous["services"].values()):
             if previous["fingerprint"] != plan["fingerprint"]:
+                config = (read_json(Path(previous["run_dir"]) / "plan.json") or {}).get(
+                    "config_path"
+                )
                 raise RuntimeError(
-                    "This directory owns a different deployment. Inspect status and down first."
+                    "This directory owns a different deployment that is still running"
+                    f"{f' ({config})' if config else ''}. Press Ctrl-C in its terminal, or "
+                    "rerun up with that config and press Ctrl-C to stop it."
                 )
             result = _snapshot(directory, previous, plan)
             if not result["ok"]:
                 result["error"] = (
-                    "Existing deployment is incomplete or unhealthy; inspect logs before down/up"
+                    "Existing deployment is incomplete or unhealthy; inspect logs, then Ctrl-C"
                 )
             elif open_browser:
                 result["browser_opened"] = webbrowser.open(plan["gui_url"])
@@ -452,7 +457,7 @@ def _stop(state, directory, timeout):
     return True
 
 
-def down(directory, timeout):
+def stop_services(directory, timeout):
     with locked(directory):
         state = read_json(directory / "state.json")
         if not state:
@@ -494,6 +499,12 @@ def force_down(directory):
         return result
 
 
+def services_alive(directory):
+    state = read_json(directory / "state.json") or {}
+    return any(s.get("ownership") != "external" and alive(s)
+               for s in state.get("services", {}).values())
+
+
 def hold(directory, timeout):
     """Keep `up` in the foreground until Ctrl-C, then stop services runtime first.
 
@@ -517,7 +528,7 @@ def hold(directory, timeout):
         pass
     try:
         print("\nStopping services (runtime first)…", file=sys.stderr, flush=True)
-        result = down(directory, timeout)
+        result = stop_services(directory, timeout)
         while not result["ok"]:
             print(
                 "Runtime cleanup is blocked (e.g. waiting for hardware recovery). Use RoboGUI "
@@ -526,7 +537,7 @@ def hold(directory, timeout):
                 file=sys.stderr, flush=True,
             )
             time.sleep(5.0)
-            result = down(directory, timeout)
+            result = stop_services(directory, timeout)
         return result
     except KeyboardInterrupt:
         print("\nForce-killing services…", file=sys.stderr, flush=True)

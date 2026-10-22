@@ -18,11 +18,8 @@ Type "uv run manimux up --demo --gui-port 18088 --deployment-dir .local/video-de
 Enter
 Wait /ManiMux · demo_ready/
 Sleep 3s
-Type "uv run manimux status --deployment-dir .local/video-demo"
-Enter
-Wait /Synthetic preview only/
+Wait /Ctrl-C stops them/
 Sleep 3s
-Type "uv run manimux down --deployment-dir .local/video-demo"
-Enter
+Ctrl+C
 Wait /ManiMux · stopped/
 Sleep 2s

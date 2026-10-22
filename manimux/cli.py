@@ -561,7 +561,7 @@ def main(argv: list[str] | None = None) -> int:
     signal.signal(signal.SIGTERM, _handle_termination)
     parser = build_parser()
     args = parser.parse_args(argv)
-    if args.command in {"doctor", "up", "status", "down", "attach"}:
+    if args.command in {"doctor", "up", "status", "attach"}:
         from manimux.deployment import main as deployment_main
         return deployment_main(args)
     if args.command == "run":
