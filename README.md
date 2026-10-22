@@ -20,8 +20,6 @@ An open-source harness for real-world manipulation inference and experiment mana
 **RoboGUI** brings camera views, robot state, action chunks, and recorded trajectories
 into one workspace.
 
-[Watch the original video · 1440p, 30 fps](https://sii-liulab.github.io/manimux/assets/dream1-task-1440p30.mp4) · [Experiment workflow](https://sii-liulab.github.io/manimux/guideline.html#experiments)
-
 <a id="what-you-can-do"></a>
 
 ## Why ManiMux
