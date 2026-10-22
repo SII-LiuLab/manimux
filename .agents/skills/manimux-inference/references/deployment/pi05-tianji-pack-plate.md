@@ -9,7 +9,7 @@ recipe; both checked-in experiments have `execute: false`.
 - Recipe: `manimux/configs/policy/pi05/tianji/pack_plate/wrist-only-step59999.yaml`
 - Experiment: `manimux/configs/experiments/pi05-tianji-pack_plate-wrist-only-step59999/pack_plate/wrist_only_step59999.yaml`
 - RTC experiment: `manimux/configs/experiments/pi05-tianji-pack_plate-wrist-only-step59999/pack_plate/wrist_only_step59999_rtc.yaml`
-- Checkpoint: `/home/jw/Desktop/policy/pi05-pack-plate-wrist-only-final-59999/checkpoint-59999`
+- Checkpoint: `{tianji_workspace}/policy/pi05-pack-plate-wrist-only-final-59999/checkpoint-59999`
 - Normalization: that checkpoint's `assets/pack-plate-taccap-h32-zero-pose/norm_stats.json`
 - Dataset task prompt: `plate` (from `pack-plate/meta/tasks.parquet`)
 - Input: left and right wrist RGB, zero TCP pose slots, live normalized gripper openings

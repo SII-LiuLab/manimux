@@ -1,0 +1,73 @@
+# Public baseline, not a tuned experiment configuration.
+# Pi05 (put-bottles, joint positions) served locally by XPolicyLab on YAM.
+run:
+  task_prompt: Put the bottles into the bin.
+  max_control_steps: 6000
+  warmup_before_start: true
+  sensor_reading:
+    mode: background
+    poll_hz: 100.0
+    max_frame_age_s: 0.5
+robot:
+  type: yam
+  config: ../../embodiment/robot/yam_dual.yaml
+  control_hz: 30.0
+  options:
+    execute: true
+    move_to_start_on_connect: true
+    home_duration_s: 2.0
+    home_on_close: true
+initial_pose:
+  config: ../../embodiment/initial_poses/yam.yaml
+  id: home
+sensors:
+- name: yam_cameras
+  driver: camera_server
+  service: camera
+  options:
+    request_timeout_ms: 500
+    max_frame_age_sec: 0.5
+    camera_names:
+    - d405_left
+    - d405_front
+    - d405_right
+camera_server:
+  config: ../../embodiment/sensor/cameras/realsense_3_views.yaml
+policy:
+  worker: xpolicylab_ws
+  service: policy
+  action_dt_s: 0.03333333333333333
+  horizon_policy_steps: 50
+  timeout_s: 10.0
+  startup_timeout_s: 30.0
+  adapter:
+    type: manimux.policy_adapter.joint:JointAdapter
+    camera_map:
+      cam_head: d405_front
+      cam_left_wrist: d405_left
+      cam_right_wrist: d405_right
+  options:
+    action_format: joint
+    request_timeout_s: 10.0
+# The recipe selects the checkpoint below the station's paths.checkpoints root.
+policy_server:
+  config: ../../policy/pi05/yam/put-bottles/joint-step30000.yaml
+inference:
+  algorithm: serial
+  inference_schedule: serial
+  request_trigger: algorithm
+  chunk_policy_steps: 50
+  action_start_mode: first_step_when_ready
+  max_plan_age_s: 5.0
+  blend_policy_steps: 0
+  handoff_skip_steps: 0
+executor:
+  type: direct
+  motion_limits: null
+robogui:
+  enabled: true
+  robot: yam
+  policy_label: Pi05 put-bottles - Serial 30 Hz - full 50-step chunk
+recording:
+  enabled: true
+  video_fps: 30.0

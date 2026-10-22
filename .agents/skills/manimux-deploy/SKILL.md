@@ -68,9 +68,9 @@ the user only starts and controls RoboGUI. Contracts are in the
      extrinsics and table geometry; otherwise tell the user there is no collision check.
    - agent recipe: experiment, motion, task, `planner`/`model`/`reasoning_effort`.
    - RoboGUI experiment: `_base_` the public RPent example for the requested VLA
-     (`examples/rpent_dream1_yam.yaml`, `examples/rpent_pi05_yam.yaml`) or another runtime
-     recipe plus `agent.config` (its `policy` is what the planner calls), and set
-     `robot.options.execute: true`. With an
+     (`examples/rpent_dream1_yam.yaml`, `examples/rpent_pi05_yam.yaml`, each inheriting its
+     direct example) or another runtime recipe plus `agent.config` (its `policy` is what
+     the planner calls), and set `robot.options.execute: true`. With an
      agent profile the experiment runs only RPent; do not write `run.execution_mode`. Omit `agent.python` unless the planner lives outside `third_party/RPent/.venv`.
      Prefer a Serial base with the station's normal interpolation and executor (e.g. Dream-1
      `serial-slow10`: Smooth, 10 Hz rows at 100 Hz). Clear `chunk_policy_steps` and

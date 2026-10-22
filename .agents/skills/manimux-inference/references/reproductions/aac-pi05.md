@@ -139,7 +139,7 @@ Pi05 server config.
 Offline tests only:
 
 ```bash
-cd /home/ubuntu/manimux
+cd {repo}
 third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python -m pytest -q \
   third_party/XPolicyLab/policy/Pi_05/openpi/src/openpi/models/pi0_test.py \
   third_party/XPolicyLab/policy/Pi_05/openpi/src/openpi/policies/policy_test.py
@@ -167,7 +167,7 @@ After the hardware-free warm-up above and the normal camera, CAN, achieved-state
 emergency-stop checks, only the operator runs:
 
 ```bash
-cd /home/ubuntu/manimux
+cd {repo}
 envs/yam/.venv/bin/manimux run --once \
   --config manimux/configs/experiments/pick_red_object/pi05/yam_pi05_aac_step1000.yaml
 ```

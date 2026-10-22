@@ -12,7 +12,7 @@
     "started_unix": 1792290601.8110068,
     "duration_s": 0.34404873847961426,
     "returncode": 0,
-    "stdout": "ManiMux · preflight\n  OK operator terminals: tmux available; terminal access retained during blocked shutdown\n  OK process ownership: Kernel process handles available; no signal sent\n  OK configuration: Resolved without constructing devices or loading weights\n  OK configuration sources: passed\n  OK interpreter: /home/ubuntu/manimux/.venv/bin/python: /home/ubuntu/manimux/.venv/bin/python\n/home/ubuntu/manimux/manimux/__init__.py\n  OK robogui port 127.0.0.1:18088: available\n  OK distinct service ports: No overlapping ports\ngui_url: http://127.0.0.1:18088\nnext_action: up starts services; robot connectivity and inference remain unverified\ndeployment_dir: /home/ubuntu/manimux/.local/video-demo-v1\n",
+    "stdout": "ManiMux · preflight\n  OK operator terminals: tmux available; terminal access retained during blocked shutdown\n  OK process ownership: Kernel process handles available; no signal sent\n  OK configuration: Resolved without constructing devices or loading weights\n  OK configuration sources: passed\n  OK interpreter: {repo}/.venv/bin/python: {repo}/.venv/bin/python\n{repo}/manimux/__init__.py\n  OK robogui port 127.0.0.1:18088: available\n  OK distinct service ports: No overlapping ports\ngui_url: http://127.0.0.1:18088\nnext_action: up starts services; robot connectivity and inference remain unverified\ndeployment_dir: {repo}/.local/video-demo-v1\n",
     "stderr": ""
   },
   {
@@ -28,7 +28,7 @@
     "started_unix": 1792290602.1552818,
     "duration_s": 1.0437777042388916,
     "returncode": 0,
-    "stdout": "ManiMux · demo_ready\n  robogui: http_responding — Browser rendering not checked\ngui_url: http://127.0.0.1:18088\nnext_action: Synthetic preview only; no robot connected\ndeployment_dir: /home/ubuntu/manimux/.local/video-demo-v1\n",
+    "stdout": "ManiMux · demo_ready\n  robogui: http_responding — Browser rendering not checked\ngui_url: http://127.0.0.1:18088\nnext_action: Synthetic preview only; no robot connected\ndeployment_dir: {repo}/.local/video-demo-v1\n",
     "stderr": "Starting robogui…\nrobogui: http_responding\n"
   },
   {
@@ -41,7 +41,7 @@
     "started_unix": 1792290603.199206,
     "duration_s": 0.08263421058654785,
     "returncode": 0,
-    "stdout": "ManiMux · demo_ready\n  robogui: http_responding — Browser rendering not checked\ngui_url: http://127.0.0.1:18088\nnext_action: Synthetic preview only; no robot connected\ndeployment_dir: /home/ubuntu/manimux/.local/video-demo-v1\n",
+    "stdout": "ManiMux · demo_ready\n  robogui: http_responding — Browser rendering not checked\ngui_url: http://127.0.0.1:18088\nnext_action: Synthetic preview only; no robot connected\ndeployment_dir: {repo}/.local/video-demo-v1\n",
     "stderr": ""
   }
 ]

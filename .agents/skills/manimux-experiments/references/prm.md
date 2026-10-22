@@ -46,7 +46,7 @@ paths/IDs that must be replaced by actual verified inputs:
 
 Resolve `MM_PRM_PY`, `MM_MANIFEST`, `MM_CHECK_DIR`, and `MM_RUN_DIR` first; use new
 output directories. A local interpreter candidate is
-`/home/ubuntu/miniconda3/envs/prm-judge/bin/python`; a local weight candidate is
+`{prm_judge_env}/bin/python`; a local weight candidate is
 `checkpoints/pretrained/Robo-Dopamine-GRM-2.0-8B-Preview`. Verify these locally;
 their presence does not establish GPU readiness or a particular model hash.
 

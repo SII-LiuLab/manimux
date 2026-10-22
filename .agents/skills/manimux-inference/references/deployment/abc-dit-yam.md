@@ -11,7 +11,7 @@ observation mapping, scheduling, execution, and recording. For installation and 
 | Parameter | Setting |
 | --- | --- |
 | Checkpoint | `checkpoints/pretrained/abc/abc_dit_xl_200k_model.pt` (official multitask pretraining for 200k steps, no local fine-tuning) |
-| SHA-256 | `79754ece…2ba175ddce41d018c9f51ba7`; identical to `~/sa/checkpoints/sapolicy/abc_dit_xl_200k_model.pt` |
+| SHA-256 | `79754ece…2ba175ddce41d018c9f51ba7`; identical to `{sapolicy_workspace}/checkpoints/sapolicy/abc_dit_xl_200k_model.pt` |
 | Normalization | XDOF `norm_stats` embedded in the checkpoint (state / actions z-score) |
 | Input | Three RGB views: `top` ← `d405_front`, `left` ← `d405_left`, `right` ← `d405_right`; 14D joint state |
 | Images | 640×480 → aspect-preserving bicubic resize with antialiasing to 224×168, 28 zero rows padded above and below, then ImageNet normalization |

@@ -38,7 +38,7 @@ at `0.9`.
 
 ```bash
 PRM_GPU_MEMORY_UTILIZATION=0.68 \
-/home/ubuntu/miniconda3/envs/prm-judge/bin/python \
+{prm_judge_env}/bin/python \
   scripts/evaluation/prm_as_a_judge.py eval \
   --manifest /path/to/manifest.jsonl \
   --output-root data/prm/results \
@@ -56,7 +56,7 @@ PRM_GPU_MEMORY_UTILIZATION=0.68 \
 The local judge weights are stored at
 `checkpoints/pretrained/Robo-Dopamine-GRM-2.0-8B-Preview/` (ignored by Git).
 Run the command from the ManiMux repository root. The previous location under
-`/home/ubuntu/workspace/Project/third_party/PRM-as-a-Judge/PRM/` remains a compatibility
+`{workspace}/Project/third_party/PRM-as-a-Judge/PRM/` remains a compatibility
 symlink so historical evaluation paths continue to resolve.
 
 For a top-only evaluation, provide only the manifest's required `video` field.

@@ -1607,29 +1607,29 @@ rollout IDs so retests receive new IDs. Keep deletion receipts and exclude
 <p>Use <code>manimux/configs/lists/pi05-latest300ep-step30000.yaml</code>. It contains five tasks × six methods; moving-cube entries use the shared raised starting pose. Pi05 fixed windows use 32/50, Direct and blend=0; RTC beta=10. AutoHorizon remains adaptive. Async uses <code>request_trigger: progress</code> and retains the full model horizon. Async/RTC/PAINT source progress includes latency-trimmed rows; this is not a guarantee of 32 physical commands.</p>
 <p>For this comparison, LingBot uses 32/50 source steps and OpenWAM uses 20/32. Subsequent Xiaomi Robotics-1 trials use an explicitly selected 18/30 window (2026-10-20), replacing the previous rounded 19/30 window under separate recording identities. These are study choices, not universal defaults for new users. Xiaomi's chunk-IK and step-IK config lists both include Serial, Async, RTC and PAINT. FastWAM has no bound YAM config list.</p>
 <p>For Xiaomi/YAM, <code>policy.adapter.gripper_output: clip</code> explicitly declares the adapter's gripper handling: reconstruct absolute opening from the observation and predicted delta, then clip to <code>[0, 1]</code> for both chunk and step IK. Non-finite inputs and reconstructed openings fail. Chunk metadata records <code>gripper_clip_max_abs</code>. Raw observations, predicted deltas, pose targets and IK constraints remain unchanged. Current local experiment variants use <code>_grip_clip</code> to separate earlier tolerance-based recordings.</p>
-<pre><code class="language-bash">cd /home/ubuntu/manimux
+<pre><code class="language-bash">cd {repo}
 envs/yam/.venv/bin/python -m manimux inspect \
   --config-list manimux/configs/lists/pi05-latest300ep-step30000.yaml --index
 envs/yam/.venv/bin/python scripts/experiments/check_step_ratio.py \
   --config-list manimux/configs/lists/pi05-latest300ep-step30000.yaml</code></pre>
 <p>Start each long-running command in its own terminal after checking existing services:</p>
 <pre><code class="language-bash"># Camera service
-cd /home/ubuntu/manimux
+cd {repo}
 envs/yam/.venv/bin/python -m manimux.servers.camera.server \
   --config-list manimux/configs/lists/pi05-latest300ep-step30000.yaml
 
 # RoboGUI
-cd /home/ubuntu/manimux
+cd {repo}
 envs/yam/.venv/bin/python -m manimux.robogui.dashboard \
   --robot yam --host 127.0.0.1 --port 8086
 
 # Pi05 model service
-cd /home/ubuntu/manimux
+cd {repo}
 third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python -m manimux.servers.policy \
   --config-list manimux/configs/lists/pi05-latest300ep-step30000.yaml
 
 # Runtime: Task / Method / Layout selection
-cd /home/ubuntu/manimux
+cd {repo}
 envs/yam/.venv/bin/python -m manimux run \
   --config-list manimux/configs/lists/pi05-latest300ep-step30000.yaml</code></pre>
 <p>Open <a href="http://127.0.0.1:8086">RoboGUI</a>. Choose Task → Method → Layout → Prepare Run / Prepare Experiment → Activate Warmup → Start → Finish → save/skip evaluation. Prepare may move to the configured initial pose. The moving-cube task defaults to the measured Raised ready preset across the current Pi05, Xiaomi, LingBot and OpenWAM config lists. Other tasks retain their configured starts. Earlier Home-start Pi05 moving-cube variants remain available for historical reproduction but are excluded from the active list. Changed starts use distinct recorded variant IDs; existing recordings are not rewritten. General tasks may inherit an <code>initial_pose: {config: …, id: …}</code> from their task YAML; overrides belong to deliberate variants.</p>
@@ -1644,7 +1644,7 @@ envs/yam/.venv/bin/python -m manimux run \
 <p>OpenWAM cached Serial/Async uses the original compiled DiT cache recipe. The RTC-cache config list uses eager execution and the declared cache modes. Specialized sampling and compilation support remain model-specific; retain these flags and measured latency when comparing methods.</p>
 <h3 id="single-config-trial">Try one existing configuration</h3>
 <p>No study YAML is required. Reuse a concrete variant, or let the agent write one runtime configuration from your robot, model and task requirements. Layouts, repetition budgets and a scoring rubric are optional for trials. Keep the same config and station across services; use the model's installed environment for policy serving.</p>
-<pre><code class="language-bash">cd /home/ubuntu/manimux
+<pre><code class="language-bash">cd {repo}
 # Validate only; opens no hardware and creates no recording directories.
 envs/yam/.venv/bin/python -m manimux inspect \
   --config manimux/configs/experiments/pi05-latest300ep-step30000/coin/rtc32_beta10.yaml
@@ -1822,7 +1822,11 @@ not a Cartesian straight line. The current bridge supports ordinary Serial and c
 joint chunks with optional pre-Start warmup; blending, specialized sampling and temporal
 ensemble remain unsupported.</p>
 <h3>Physical station recipes</h3>
-<p>YAM examples run RPent with either VLA through the usual <code>manimux up</code>:</p>
+<p>Each YAM example pairs a direct VLA run with its RPent version, which inherits it and
+adds the agent profile: <code>dream1-yam/serial30-example.yaml</code> →
+<code>rpent_dream1_yam.yaml</code>, and <code>pi05-xpolicylab-yam/serial30-example.yaml</code>
+→ <code>rpent_pi05_yam.yaml</code>. Start the RPent versions with the usual
+<code>manimux up</code>:</p>
 <pre><code class="language-bash"># Hosted Dream-1: no model service.
 export DREAM_API_KEY=...
 manimux up --config manimux/configs/examples/rpent_dream1_yam.yaml \
@@ -2720,7 +2724,7 @@ The failed attempt is excluded from successful tick data.</p>
 </tbody></table></details><p>The raw recording has no human-label file after Skip. An absent label is unreviewed, not failure and not success. Warmup generates event/latency evidence, but its predicted chunks are display-only and do not populate the formal recorded plan/tick/video streams. Detailed loop-stage timing is absent when control_timing is disabled.</p></div>
 <p>Check the actual episode path in RoboGUI; station configuration can override the output root.
 Open a finalized episode in a separate, read-only replay process:</p>
-<pre><code class="language-bash">cd /home/ubuntu/manimux
+<pre><code class="language-bash">cd {repo}
 envs/yam/.venv/bin/python -m manimux.robogui.replay \
   --robot yam --episode /path/to/session-xxx/rollout-001 \
   --source state --host 127.0.0.1 --port 8087

@@ -86,7 +86,7 @@ does not issue a runtime or hardware command. Saving writes only the human evalu
 Replay is separate from the live dashboard. Select a finalized episode directory:
 
 ```bash
-cd /home/ubuntu/manimux
+cd {repo}
 envs/yam/.venv/bin/python -m manimux.robogui.replay \
   --robot yam --episode /path/to/session-xxx/rollout-001 \
   --source state --host 127.0.0.1 --port 8087

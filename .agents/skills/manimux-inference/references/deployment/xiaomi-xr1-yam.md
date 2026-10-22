@@ -76,24 +76,24 @@ The shared [user guide](../../../../../guideline.html) owns the launch workflow.
 For an RTC-only run, use one terminal per command:
 
 ```bash
-cd /home/ubuntu/manimux
+cd {repo}
 envs/xr1/.venv/bin/python -m manimux.servers.policy \
   --config-list manimux/configs/lists/xiaomi-xr1-bottles30k-rtc-beta10-step-ik-all-tasks.yaml
 ```
 
 ```bash
-cd /home/ubuntu/manimux
+cd {repo}
 envs/yam/.venv/bin/python -m manimux.servers.camera.server \
   --config-list manimux/configs/lists/xiaomi-xr1-bottles30k-rtc-beta10-step-ik-all-tasks.yaml
 ```
 
 ```bash
-cd /home/ubuntu/manimux
+cd {repo}
 .venv/bin/manimux-robogui --robot yam --host 0.0.0.0 --port 8086
 ```
 
 ```bash
-cd /home/ubuntu/manimux
+cd {repo}
 envs/yam/.venv/bin/python -m manimux run \
   --config-list manimux/configs/lists/xiaomi-xr1-bottles30k-rtc-beta10-step-ik-all-tasks.yaml
 ```

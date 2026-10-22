@@ -169,8 +169,10 @@ never clipped or silently replaced.
 
 The public examples (experiment in `configs/examples/`, recipe in `configs/agents/`):
 
-- `rpent_dream1_yam`: YAM with hosted Dream-1 (Serial 30 Hz, no model service).
-- `rpent_pi05_yam`: YAM with a local Pi05 put-bottles model service (XPolicyLab).
+- `rpent_dream1_yam`: YAM with hosted Dream-1 (Serial 30 Hz, no model service); it
+  inherits the direct example `dream1-yam/serial30-example.yaml`.
+- `rpent_pi05_yam`: YAM with Pi05 put-bottles served by XPolicyLab; it inherits the
+  direct example `pi05-xpolicylab-yam/serial30-example.yaml`.
 - `rpent_franka` (recipe only): Franka FR3 with Pi05 DROID joint positions.
 - `rpent_demo` / `agents/rpent.yaml`: entirely synthetic robot, geometry and policy, plus
   the RoboGUI variants `rpent_gui_demo`, `rpent_gui_debug` and `rpent_gui_primitives`.

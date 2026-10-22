@@ -2,8 +2,9 @@
 #   export DREAM_API_KEY=...
 #   manimux up --config manimux/configs/examples/rpent_dream1_yam.yaml \
 #     --runtime-python envs/yam/.venv/bin/python
-# The Codex planner chooses observation, motion primitives and Dream-1 calls; RoboGUI
-# shows its transcript in the bottom bar. For your station, create local/<name>.yaml with
+# Same station, model and timing as dream1-yam/serial30-example.yaml; the Codex planner
+# chooses observation, motion primitives and Dream-1 calls, and RoboGUI shows its
+# transcript in the bottom bar. For your station, create local/<name>.yaml with
 # `_base_: ../examples/rpent_dream1_yam.yaml` and `robot: {options: {execute: true}}`
 # after the offline and Finish checks.
 _base_: dream1-yam/serial30-example.yaml

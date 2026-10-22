@@ -1,6 +1,6 @@
 # XPolicyLab ABC_DiT server: official ABC-DiT XL 200k multi-task pretrain (https://abc.bot),
 # zero-shot on our YAM station. Launch with manimux/servers/abc_dit.py.
-# Same file (sha256 below) as ~/sa/checkpoints/sapolicy/abc_dit_xl_200k_model.pt.
+# Same file (sha256 below) as {sapolicy_workspace}/checkpoints/sapolicy/abc_dit_xl_200k_model.pt.
 policy_name: ABC_DiT
 protocol: ws
 host: 127.0.0.1

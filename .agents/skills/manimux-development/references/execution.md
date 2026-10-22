@@ -144,7 +144,7 @@ sphere projection, accepted high-residual solution, semantic idle-arm detection,
 or change to model weights. The relative model actions are each decoded against
 the same observation pose, not cumulatively integrated within the chunk.
 
-Validation artifacts: `/home/ubuntu/sa/diagnostics/independent_ik_20260909/`.
+Validation artifacts: `{sapolicy_workspace}/diagnostics/independent_ik_20260909/`.
 Recorded rollout-002 replay: 72 chunks, process decode P95 730.2 → 16.5 ms,
 maximum 742.6 → 17.9 ms; left arm held in 0 chunks, right arm in 32. Replay
 used recorded joint seeds and the first source gripper target as seed aperture;
@@ -165,11 +165,11 @@ The final candidate is clipped to those bounds and revalidated against the same
 4 mm / 5 degree tolerances. The extra attempts share the existing decode deadline;
 successful earlier attempts return unchanged. Diagnostics identify this fallback
 as `recovery_method: seed_box`. Recorded last-bottle regression evidence is in
-`/home/ubuntu/sa/diagnostics/last_bottle_ik_20260910/`.
+`{sapolicy_workspace}/diagnostics/last_bottle_ik_20260910/`.
 It changes the allowed orientation error; it does not establish collision-free motion.
 Unacceptable candidates still produce a per-arm braking hold.
 
-Offline replay artifacts are in `/home/ubuntu/sa/diagnostics/right_recovery_20260910/`.
+Offline replay artifacts are in `{sapolicy_workspace}/diagnostics/right_recovery_20260910/`.
 For the latest 83 recorded chunks, right-arm holds decreased from 42 to 5; none of
 those five started at the first decoded row. For the previous 105 chunks, holds
 decreased from 63 to 2, including one rejected by the recovery joint-change bound.
@@ -207,14 +207,14 @@ bypasses further release latches for that arm until Pause/Home/reset. Timeout
 alone does not force the gripper open or mark placement complete. Grasp latches
 and the other arm's release latches keep their own state. This closes the same
 unbounded-wait failure mode as the grasp timeout below. Tests and recorded-feedback
-replay are under `/home/ubuntu/sa/diagnostics/release_timeout_20260910/`.
+replay are under `{sapolicy_workspace}/diagnostics/release_timeout_20260910/`.
 
 Model execution remains capped at 25 original source rows per chunk. Finishing a
 release can extend the time spent at a captured waypoint; it does not execute the
 discarded source rows. Arm limits remain 0.6 rad/s and 1.5 rad/s², and gripper limits
 remain 1/s and 12/s². This is not a bin detector or proof of successful placement.
 
-Validation: `/home/ubuntu/sa/diagnostics/latched_release_20260910/`. Replaying the
+Validation: `{sapolicy_workspace}/diagnostics/latched_release_20260910/`. Replaying the
 failed episode with recorded feedback reproduces the old commands exactly. Using
 the recorded references with an ideal delayed follower after the first captured
 release, the new executor reaches full opening without exceeding arm limits.
@@ -246,7 +246,7 @@ and release events retain the normal 0.6 rad/s cap. Acceleration remains 1.5
 rad/s², so entering the slower mode decelerates continuously; gripper shaping
 keeps its independent limits. Profiles omitting this option retain normal speed.
 Recorded and ideal-follower evidence is under
-`/home/ubuntu/sa/diagnostics/grasp_precision_20260910/`; it does not establish
+`{sapolicy_workspace}/diagnostics/grasp_precision_20260910/`; it does not establish
 object localization accuracy or successful collision-free grasping.
 
 Completion requires the close command to reach its endpoint, continued pose
@@ -267,11 +267,11 @@ bypasses further grasp latches for that arm until Pause/Home/reset. The other
 arm's grasp guard and both arms' release guards remain active. This prevents a
 persistent tracking error from locking the executor to an old grasp waypoint.
 Regression evidence is under
-`/home/ubuntu/sa/diagnostics/grasp_timeout_20260910/`; recorded-feedback replay
+`{sapolicy_workspace}/diagnostics/grasp_timeout_20260910/`; recorded-feedback replay
 does not establish physical grasp success after recovery.
 
 The 25-row source prefix and arm/gripper limits are unchanged. Offline evidence
-is under `/home/ubuntu/sa/diagnostics/grasp_guard_20260910/`: exact reproduction of
+is under `{sapolicy_workspace}/diagnostics/grasp_guard_20260910/`: exact reproduction of
 the failed rollout with this feature disabled, then a delayed ideal follower with
 nonzero aperture at simulated contact. Physical grasp alignment is not established
 by that replay.

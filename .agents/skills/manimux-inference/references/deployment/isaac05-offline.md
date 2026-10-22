@@ -36,7 +36,7 @@ only `default` sampling and does not claim RTC support.
 The complete repository is approximately `143 GB`. `hf download` supports resuming:
 
 ```bash
-cd /home/ubuntu/manimux
+cd {repo}
 mkdir -p checkpoints/pretrained/perceptron-ai/isaac-0.5
 hf download PerceptronAI/Isaac-0.5 \
   --local-dir checkpoints/pretrained/perceptron-ai/isaac-0.5

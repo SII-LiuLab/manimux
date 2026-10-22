@@ -18,7 +18,7 @@ The entry points are:
 - Private station: `.local/tianji_pi05_pack_plate_inter_hand_relative.yaml`.
 
 The local station is already configured on this installation. It supplies device
-bindings, the checkpoint storage root `/home/jw/Desktop/policy`, and separate
+bindings, the checkpoint storage root `{tianji_workspace}/policy`, and separate
 model endpoints: `8572` for best and `8573` for final. The experiments reference
 this station explicitly and do not fall back to the shared station. On another
 installation, provide its replacement with `--local`.
@@ -136,7 +136,7 @@ PYTHONPATH="$PWD/manimux/embodiments/end_effector/taccap/sdk/TacCap-Gripper/pyth
 
 This installation uses the project's already-built TacCap 0.4.2 SDK. The explicit
 `PYTHONPATH` above replaces inherited SDK paths for this process. The failed
-runtime had inherited `/home/jw/Desktop/project/TacCap-Gripper/python`, loading
+runtime had inherited `{tianji_workspace}/project/TacCap-Gripper/python`, loading
 the external 0.1.9 native extension, whose `Motor` has no `get_model()` method.
 The root `.venv` does not have an independently installed TacCap package, so
 simply unsetting `PYTHONPATH` is insufficient here. The model-server command does
@@ -197,5 +197,5 @@ XLA_PYTHON_CLIENT_PREALLOCATE=false \
 third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
   -m XPolicyLab.policy.Pi_05.offline_pack_plate \
   --config manimux/configs/policy/pi05/tianji/pack_plate/inter-hand-relative-step20000.yaml \
-  --checkpoint /home/jw/Desktop/policy/pi05-pack-plate-inter-hand-relative-tracker-fixed-best-20000-final-59999/checkpoints/20000
+  --checkpoint {tianji_workspace}/policy/pi05-pack-plate-inter-hand-relative-tracker-fixed-best-20000-final-59999/checkpoints/20000
 ```

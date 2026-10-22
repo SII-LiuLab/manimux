@@ -100,7 +100,7 @@ formal seam qualification; image captions are candidate diagnostics only.
 With the local indexes under `data/evaluation_tasks/<task>/`, output is:
 
 ```text
-/home/ubuntu/manimux/data/analysis/<task>/
+{repo}/data/analysis/<task>/
   latest.json
   reports/<UTC-timestamp>-<unique-id>/
     index.html

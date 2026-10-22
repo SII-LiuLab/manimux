@@ -164,9 +164,9 @@ manimux/policies/xpolicylab/norm_stats/yam_60ep_ee_increment.json
 Generation command:
 
 ```bash
-cd /home/ubuntu/manimux
+cd {repo}
 envs/yam/.venv/bin/python scripts/datasets/compute_yam_aac_ee_stats.py \
-  --episodes /home/ubuntu/yam-abc-reproduce/data/episodes \
+  --episodes {yam_abc_reproduce}/data/episodes \
   --out manimux/policies/xpolicylab/norm_stats/yam_60ep_ee_increment.json
 ```
 
@@ -312,7 +312,7 @@ inference:
 Commands:
 
 ```bash
-cd /home/ubuntu/manimux
+cd {repo}
 envs/yam/.venv/bin/python -m pytest -q \
   tests/unit/test_aac.py tests/unit/test_xpolicylab_plugins.py
 ```
@@ -351,7 +351,7 @@ git diff --check
 Operator starts the existing GR00T server using the GR00T environment, then runs:
 
 ```bash
-cd /home/ubuntu/manimux
+cd {repo}
 envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
   --config manimux/configs/experiments/pick_box/yam_groot_aac.yaml
 ```
@@ -371,7 +371,7 @@ Only the operator runs hardware after the normal GR00T/YAM camera, achieved-stat
 checks in `.agents/skills/manimux-inference/references/deployment/gr00t-yam.md`:
 
 ```bash
-cd /home/ubuntu/manimux
+cd {repo}
 envs/yam/.venv/bin/manimux run --once --config manimux/configs/experiments/pick_box/yam_groot_aac.yaml
 ```
 

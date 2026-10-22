@@ -35,7 +35,7 @@ continue to return 14 joint/gripper dimensions with their existing capabilities.
 
 ## Startup
 
-From `/home/ubuntu/manimux`, use separate terminals. Finish the old rollout and
+From `{repo}`, use separate terminals. Finish the old rollout and
 exit its runtime before starting a new robot owner. Matching camera and RoboGUI
 services can be reused.
 

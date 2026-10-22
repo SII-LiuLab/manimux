@@ -46,7 +46,7 @@ Keep device addresses and serials in the existing private Tianji station file, f
 `manimux/configs/local/README.md`. Do not infer left/right from enumeration order.
 The default station is `manimux/configs/local/station.yaml`; `--local` selects another.
 
-To bind the checked-in artifact paths, use `paths.checkpoints: /home/jw/Desktop/policy`
+To bind the checked-in artifact paths, use `paths.checkpoints: {tianji_workspace}/policy`
 in the private station. These recipes select their own run and checkpoint beneath that
 root. Check existing YAM artifact bindings before changing a shared storage-root setting.
 Alternatively this profile accepts `paths.checkpoint` as the explicit step directory and
@@ -75,7 +75,7 @@ loads no model or hardware:
 ```bash
 .venv/bin/python -m manimux.servers.pi05 \
   --config-list manimux/configs/lists/pi05-tianji-pass_ball-zero-pose-step20000-standalone.yaml --experiment-id pass_ball_zero_pose_step20000 \
-  --checkpoint /home/jw/Desktop/policy/pi05-passball-zero-pose-h32-b16-60k-20260923-192017/checkpoints/20000 \
+  --checkpoint {tianji_workspace}/policy/pi05-passball-zero-pose-h32-b16-60k-20260923-192017/checkpoints/20000 \
   --check
 ```
 
@@ -91,7 +91,7 @@ XLA_PYTHON_CLIENT_PREALLOCATE=false \
 third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
   -m XPolicyLab.policy.Pi_05.offline_pass_ball \
   --config manimux/configs/policy/pi05/tianji/pass_ball/zero-pose-step20000.yaml \
-  --checkpoint /home/jw/Desktop/policy/pi05-passball-zero-pose-h32-b16-60k-20260923-192017/checkpoints/20000
+  --checkpoint {tianji_workspace}/policy/pi05-passball-zero-pose-h32-b16-60k-20260923-192017/checkpoints/20000
 ```
 
 For step 59999, replace both the recipe and checkpoint step. A synthetic forward checks
@@ -110,7 +110,7 @@ XLA_PYTHON_CLIENT_PREALLOCATE=false \
 third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python -m manimux.servers.pi05 \
   --config-list manimux/configs/lists/pi05-tianji-pass_ball-zero-pose-step20000-standalone.yaml --experiment-id pass_ball_zero_pose_step20000 \
   --local .local/tianji_taccap.yaml \
-  --checkpoint /home/jw/Desktop/policy/pi05-passball-zero-pose-h32-b16-60k-20260923-192017/checkpoints/20000
+  --checkpoint {tianji_workspace}/policy/pi05-passball-zero-pose-h32-b16-60k-20260923-192017/checkpoints/20000
 ```
 
 The local Python environments are managed by uv; no `conda run` is required.

@@ -153,7 +153,7 @@ stats. The infra config selects only `inference.algorithm: autohorizon` and disa
 Start the unchanged Pi05 server:
 
 ```bash
-cd /home/ubuntu/manimux
+cd {repo}
 third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
   manimux/servers/pi05.py \
   --config manimux/configs/policy/pi05/yam/finetune-pick-red-ball-box-step1000.yaml
@@ -162,7 +162,7 @@ third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
 Before any robot process, run the forward probe:
 
 ```bash
-cd /home/ubuntu/manimux
+cd {repo}
 envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
   --config manimux/configs/experiments/pick_red_object/pi05/yam_pi05_autohorizon_step1000.yaml
 ```
@@ -200,7 +200,7 @@ Only after reviewing the forward output and completing the normal YAM physical p
 run:
 
 ```bash
-cd /home/ubuntu/manimux
+cd {repo}
 envs/yam/.venv/bin/manimux run --once \
   --config manimux/configs/experiments/pick_red_object/pi05/yam_pi05_autohorizon_step1000.yaml
 ```

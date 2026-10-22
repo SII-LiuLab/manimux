@@ -129,7 +129,7 @@ PolicyWorker forwards these capabilities to ManiMux, and missing RTC fails befor
 ## Offline self-tests
 
 ```bash
-PYTHONPATH=/home/ubuntu/manimux:/home/ubuntu/manimux/XPolicyLab \
+PYTHONPATH={repo}:{repo}/XPolicyLab \
   envs/yam/.venv/bin/python -m pytest \
   third_party/XPolicyLab/tests/unit/test_ws_infer_sampling.py \
   tests/unit/test_xpolicylab_plugins.py

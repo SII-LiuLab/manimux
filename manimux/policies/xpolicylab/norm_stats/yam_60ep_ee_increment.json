@@ -73,7 +73,7 @@
     }
   },
   "source": {
-    "episodes_root": "/home/ubuntu/yam-abc-reproduce/data/episodes",
+    "episodes_root": "{yam_abc_reproduce}/data/episodes",
     "episode_count": 60,
     "translation_frame": "yam_arm_base",
     "rotation_convention": "R_target @ R_previous.T then rotation_vector",

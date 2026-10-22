@@ -183,7 +183,7 @@ at 30 Hz would consume about nine policy steps, violating `2d <= H` for `H=16`.
 Start the same step-1000 Pi05 model server used by the ordinary ManiMux baseline:
 
 ```bash
-cd /home/ubuntu/manimux
+cd {repo}
 third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
   manimux/servers/pi05.py \
   --config manimux/configs/policy/pi05/yam/finetune-pick-red-ball-box-step1000.yaml
@@ -192,7 +192,7 @@ third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
 After every server restart, warm the PAINT-specific JAX shape without camera, CAN or robot commands:
 
 ```bash
-cd /home/ubuntu/manimux
+cd {repo}
 envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
   --config manimux/configs/experiments/pick_red_object/pi05/yam_pi05_paint_step1000.yaml
 ```
@@ -201,7 +201,7 @@ Record at least three warmed `round_trip_ms` values. Then complete the normal ca
 achieved-state, start-pose and emergency-stop checks. Only the operator starts the real robot runtime:
 
 ```bash
-cd /home/ubuntu/manimux
+cd {repo}
 envs/yam/.venv/bin/manimux run --once \
   --config manimux/configs/experiments/pick_red_object/pi05/yam_pi05_paint_step1000.yaml
 ```

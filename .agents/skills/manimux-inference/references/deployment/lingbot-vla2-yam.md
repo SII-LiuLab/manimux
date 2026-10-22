@@ -188,7 +188,7 @@ values.
 These commands check files and YAML/JSON contracts only; they neither import the official Torch model nor start a service:
 
 ```bash
-cd /home/ubuntu/manimux
+cd {repo}
 envs/yam/.venv/bin/python scripts/validation/check_lingbot_vla2_yam.py
 ```
 
@@ -240,7 +240,7 @@ These commands do not copy the 6B weights. They create relative symlinks in the 
 the loader-required `lingbotvla_cli.yaml` from the pinned official `real_robot.yaml`:
 
 ```bash
-cd /home/ubuntu/manimux
+cd {repo}
 envs/yam/.venv/bin/python scripts/datasets/prepare_lingbot_vla2_base_assets.py
 
 envs/yam/.venv/bin/python scripts/validation/check_lingbot_vla2_yam.py \
@@ -260,7 +260,7 @@ Like other models, LingBot uses an isolated `uv venv`, fixed at
 `uv sync` on it. Installation is performed by the operator:
 
 ```bash
-cd /home/ubuntu/manimux/third_party/XPolicyLab/policy/LingBot_VLA2
+cd {repo}/third_party/XPolicyLab/policy/LingBot_VLA2
 bash install.sh
 ```
 
@@ -270,7 +270,7 @@ hardware:
 
 ```bash
 # terminal 1: XPolicy foundation base server
-cd /home/ubuntu/manimux
+cd {repo}
 bash third_party/XPolicyLab/policy/LingBot_VLA2/setup_eval_policy_server.sh \
   manimux/configs/policy/lingbot-vla2/yam/base.yaml
 
@@ -299,7 +299,7 @@ terminals in order; do not start a second LingBot server or RTC runtime concurre
 ### Terminal 1: LingBot model service
 
 ```bash
-cd /home/ubuntu/manimux
+cd {repo}
 bash third_party/XPolicyLab/policy/LingBot_VLA2/setup_eval_policy_server.sh \
   manimux/configs/policy/lingbot-vla2/yam/base.yaml
 ```
@@ -308,7 +308,7 @@ After `Model initialized ...`, wait for the service to listen on `127.0.0.1:8501
 run the no-CAN probe in another terminal:
 
 ```bash
-cd /home/ubuntu/manimux
+cd {repo}
 envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
   --config manimux/configs/experiments/pick_red_object/lingbot-vla2/yam_lingbot_vla2_manimux.yaml
 ```
@@ -318,7 +318,7 @@ envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
 Do not start a duplicate if a camera service already uses `5555`:
 
 ```bash
-cd /home/ubuntu/manimux
+cd {repo}
 envs/yam/.venv/bin/manimux-camera-server --camera-config manimux/configs/embodiment/sensor/cameras/realsense_3_views.yaml
 ```
 
@@ -329,7 +329,7 @@ Confirm all three RealSense cameras are open and both `REP bound` and `PUB bound
 ### Terminal 3: RoboGUI
 
 ```bash
-cd /home/ubuntu/manimux
+cd {repo}
 .venv/bin/manimux-robogui --robot yam --host 0.0.0.0 --port 8086
 ```
 
@@ -349,7 +349,7 @@ done
 Run only when both report `ERROR-ACTIVE`:
 
 ```bash
-cd /home/ubuntu/manimux
+cd {repo}
 envs/yam/.venv/bin/manimux run --once \
   --config manimux/configs/experiments/pick_red_object/lingbot-vla2/yam_lingbot_vla2_manimux.yaml
 ```
@@ -386,7 +386,7 @@ Start the following in order only after the check reports `ready`:
 
 ```bash
 # terminal 1: model server
-cd /home/ubuntu/manimux
+cd {repo}
 bash third_party/XPolicyLab/policy/LingBot_VLA2/setup_eval_policy_server.sh \
   manimux/configs/policy/lingbot-vla2/yam/finetune.yaml
 

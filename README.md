@@ -204,7 +204,8 @@ for external model/camera services, separate trial roots and Franka.
 | --- | --- |
 | Deploy a model on a real robot | [Station setup](https://sii-liulab.github.io/manimux/guideline.html#configuration) → [Deployment recipes](https://sii-liulab.github.io/manimux/guideline.html#support) |
 | Run Dream-1 through its cloud API | [Dream-1 on YAM](manimux/configs/examples/dream1-yam/README.md) |
-| Let an agent plan with a VLA (RPent) | [RPent examples: Dream-1 or Pi05 on YAM](https://sii-liulab.github.io/manimux/guideline.html#agent-integrations) |
+| Run Pi05 through XPolicyLab | [Pi05 on YAM](manimux/configs/examples/pi05-xpolicylab-yam/README.md) |
+| Let an agent plan with a VLA (RPent) | [RPent examples: Dream-1 or Pi05 on YAM](manimux/configs/examples/README.md) |
 | Compare methods and evaluate runs | [Experiment workflow](https://sii-liulab.github.io/manimux/guideline.html#experiments) · [Records & replay](https://sii-liulab.github.io/manimux/guideline.html#records) |
 
 <a id="contributing"></a>

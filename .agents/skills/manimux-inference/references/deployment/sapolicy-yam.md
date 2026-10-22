@@ -97,7 +97,7 @@ without fine-tuning on this station's data.
 | `source/` | SpatialAlignVLA rollsweep0917 source snapshot with an inference-time RTC patch; ordinary sampling is bitwise identical to the original |
 
 ```bash
-rsync -aL --info=progress2 <source-host>:~/manimux/checkpoints/finetuned/sapolicy/tcp_rot20/ \
+rsync -aL --info=progress2 <source-host>:{repo}/checkpoints/finetuned/sapolicy/tcp_rot20/ \
   checkpoints/finetuned/sapolicy/tcp_rot20/
 ```
 
