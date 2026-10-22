@@ -45,6 +45,12 @@ inference: {chunk_policy_steps: null, max_chunk_policy_steps: null}
 
 Hosted workers (`dream_api`) need no model service: launch with `manimux up` without
 `--policy-python`, after exporting the key named by `policy.options.api_key_env`.
+The Dream gateway evicts sessions that sit idle, which happens while the planner thinks
+between calls. The Dream client therefore starts a new episode (`reset_episode()`) whenever
+the instruction changes, and on `DreamSessionExpired` asks once more on the replacement
+session the gateway already adopted. That retry costs one extra round trip (~3 s), so RPent
+Dream configs should allow `policy.timeout_s` and `inference.max_plan_age_s` of about 10 s;
+the arms hold while a call waits.
 The shared `manimux run` / `--config-list` service then offers **Execution**:
 **Direct VLA** or **RPent**. Without an agent profile the existing VLA page is
 unchanged. Only RPent selection reveals its status, decisions and artifact path.

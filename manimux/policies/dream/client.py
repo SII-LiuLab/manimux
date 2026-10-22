@@ -48,6 +48,7 @@ class DreamPolicyModel:
         self.client = None
         self.session_id = None
         self._metadata = {}
+        self._instruction = None
 
     def reset(self, session_id):
         if not isinstance(session_id, str) or not session_id:
@@ -99,17 +100,30 @@ class DreamPolicyModel:
             ) from None
         self.client = client
         self.session_id = session_id
+        self._instruction = None
 
     def infer(self, request):
         if self.client is None or request.session_id != self.session_id:
             raise ValueError("Dream request does not belong to the active session")
+        from dream import DreamSessionExpired
+
         frames, observation = self.codec.encode(request)
         key = os.environ.get(self.key_env, "")
         try:
+            if self._instruction is not None and request.instruction != self._instruction:
+                # A new instruction (an RPent subtask) is a new Dream episode. It also drops a
+                # session the gateway may have evicted while the agent was planning.
+                self.client.reset_episode()
+            self._instruction = request.instruction
             self.client.set_observation(
                 frames, observation, timestamp=request.observation_time_ns / 1e9
             )
-            raw = self.client.get_action()
+            try:
+                raw = self.client.get_action()
+            except DreamSessionExpired:
+                # The gateway replaced an idle session and already adopted the new one, but
+                # returned no action; ask once on it, as the SDK documents.
+                raw = self.client.get_action()
         except Exception as exc:
             # No unbounded retry: pool warming, billing, auth and timeouts return
             # to the runtime as failures; do not consume another observation's deadline.
