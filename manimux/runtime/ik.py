@@ -23,7 +23,9 @@ def ik_parameters(**options):
     if values["backend"] not in {"analytic", "diff"}:
         raise ValueError("execution.ik.backend must be analytic or diff")
     if values["backend"] == "diff" and values["mode"] != "step":
-        raise ValueError("execution.ik.backend=diff requires mode=step; chunk IK belongs to the adapter")
+        raise ValueError(
+            "execution.ik.backend=diff requires mode=step; chunk IK belongs to the adapter"
+        )
     if values["diff_ik"] is not None and values["backend"] != "diff":
         raise ValueError("execution.ik.diff_ik requires backend=diff")
     budget = values["budget_ms"]
@@ -121,10 +123,41 @@ class StepIKResolver:
             self.diff = TianjiStepDifferentialIK(
                 self.models, step_diff_config(motion_limits, diff_ik), control_dt_ns / 1e9
             )
+            arm = motion_limits["arm"]
+            dt = control_dt_ns / 1e9
+            effective_cap = arm["max_velocity"] * min(1.0, (arm.get("max_step_dt_s") or dt) / dt)
+            if any(s.config.max_velocity_rad_s > effective_cap for s in self.diff.solvers.values()):
+                raise ValueError(
+                    "step diffIK velocity exceeds executor's effective max_step_dt_s cap"
+                )
 
-    def reset(self):
+    @property
+    def acceleration_limited(self):
+        return self.diff is not None and all(s.amax is not None for s in self.diff.solvers.values())
+
+    def braking_groups(self, seed, velocities):
+        return {
+            name: np.r_[
+                solver.brake(seed[name][:7], velocities[name][:7], self.diff.dt_s), seed[name][7],
+            ]
+            for name, solver in self.diff.solvers.items()
+        }
+
+    def validate_command(self, seed, command, velocities):
+        for name, solver in self.diff.solvers.items():
+            reason = solver.command_violation(
+                seed[name][:7], command[name][:7], velocities[name][:7], self.diff.dt_s,
+            )
+            if reason is not None:
+                raise ValueError(f"final step diffIK command rejected: {name}:{reason}")
+
+    def reset(self, *, reanchor=False):
         if self.diff is not None:
             self.diff.reset()
+            if reanchor:
+                for solver in self.diff.solvers.values():
+                    if getattr(solver.config, "elbow_guard_deg", None) is not None:
+                        solver.clear_elbow_branch()
 
     def poses_from_joints(self, groups):
         return {
@@ -134,9 +167,12 @@ class StepIKResolver:
     def warmup(self, groups):
         # Initialize solvers before Start, without sending robot commands.
         if self.diff is not None:
-            self.reset()
+            self.reset(reanchor=True)
             for name, q in groups.items():
-                self.diff.solve(name, self.models[name].fk(q), q, q[-1])
+                solver = self.diff.solvers[name]
+                if getattr(solver.config, "elbow_guard_deg", None) is not None:
+                    solver.ensure_elbow_branch(q[:7])
+                self.diff.solve(name, self.models[name].fk(q), q, q[-1], np.zeros(7))
             return
         for name, q in groups.items():
             model = self.models[name]
@@ -154,7 +190,7 @@ class StepIKResolver:
                     deadline_ns=time.monotonic_ns() + max(self.budget_ns, 5_000_000_000),
                 )
 
-    def resolve(self, reference, seed, *, deadline_ns=None):
+    def resolve(self, reference, seed, *, deadline_ns=None, command_velocity=None):
         if reference.action_space != POSE_SPACE or set(reference.groups) != set(seed):
             raise ValueError("step IK requires a complete pose reference matching seed groups")
         started = time.monotonic_ns()
@@ -169,10 +205,14 @@ class StepIKResolver:
             model = self.models[name]
             target = rows[0]
             if self.diff is not None:
-                result = self.diff.solve(name, pose_matrix(target[:7]), seed[name], target[7])
+                result = self.diff.solve(
+                    name, pose_matrix(target[:7]), seed[name], target[7],
+                    None if command_velocity is None else command_velocity[name][:7],
+                )
                 diagnostics[name] = {
                     "pos_err_mm": result.pos_err_mm, "rot_err_deg": result.rot_err_deg,
                     "lag_exceeded": result.lag_exceeded, "max_step_deg": result.max_step_deg,
+                    **({"failure_detail": result.detail} if not result.ok else {}),
                 }
                 if not result.ok:
                     failure = f"{name}:{result.reason}"

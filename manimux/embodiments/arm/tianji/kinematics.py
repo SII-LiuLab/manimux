@@ -148,6 +148,14 @@ class TianjiArmKinematics:
     def num_arm_joints(self) -> int:
         return NUM_ARM_JOINTS
 
+    @property
+    def elbow_extension_rad(self) -> float:
+        """J4 at maximum shoulder-to-wrist reach for the verified M6-40 geometry."""
+        if tuple(self._dh) != DH_TABLE_M6_40:
+            raise ValueError("elbow branch protection requires the M6-40 DH geometry")
+        return float(-np.arctan2(self._dh[3][1], self._dh[2][2])
+                     - np.arctan2(self._dh[4][1], self._dh[4][2]))
+
     # ---------- forward ----------
 
     def flange(self, joints: FloatArray) -> FloatArray:

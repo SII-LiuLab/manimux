@@ -38,6 +38,20 @@ class DirectExecutor:
             name: np.zeros_like(value) for name, value in state.groups.items()
         }
 
+    def command_velocity(self, last_command: GroupVector) -> GroupVector:
+        """Return nominal-tick velocity for the caller's last dispatched command.
+
+        Lifecycle reset establishes a stationary anchor. A different anchor must
+        be reset explicitly; guessing zero here would defeat acceleration bounds.
+        """
+        if self._previous is None:
+            self.reset(RobotState(copy_group_vector(last_command), 0, 0))
+        if set(last_command) != set(self._previous) or any(
+            not np.array_equal(last_command[name], self._previous[name]) for name in last_command
+        ):
+            raise ValueError("executor command history does not match last dispatched command")
+        return copy_group_vector(self._previous_velocity)
+
     def step(
         self,
         now_ns: int,

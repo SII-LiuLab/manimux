@@ -119,18 +119,13 @@ class UmiDpTianjiAdapter(PolicyAdapter):
             if self.ik_backend == "diff":
                 from manimux.embodiments.arm.tianji.kinematics import TianjiArmKinematics
                 from manimux.kinematics.tianji_diff import (
-                    DifferentialIKConfig,
+                    resolve_diff_ik_config,
                     TianjiDifferentialIK,
                 )
 
                 if not isinstance(arm_solver, TianjiArmKinematics):
                     raise ValueError("UMI differential IK requires Tianji kinematics")
-                arm_motion = None if motion_limits is None else motion_limits.get("arm")
-                if arm_motion is None or arm_motion.get("max_velocity") is None:
-                    raise ValueError("UMI differential IK requires resolved arm motion limits")
-                tuning = dict(policy["adapter"].get("diff_ik", {}))
-                tuning["max_velocity_rad_s"] = arm_motion["max_velocity"]
-                config = DifferentialIKConfig.model_validate(tuning)
+                config = resolve_diff_ik_config(motion_limits, policy["adapter"].get("diff_ik"))
                 self.diff_solvers[side] = TianjiDifferentialIK(arm_solver, config)
         self.waypoint_handoff = WaypointHandoff.from_options(
             policy["adapter"], source_dt_ns=self.dt_ns, runtime_dt_ns=self._runtime_dt_ns()

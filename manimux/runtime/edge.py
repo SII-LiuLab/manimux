@@ -651,7 +651,7 @@ class EdgeRuntime:
                     self._safety.reset(state)
                     self._timeline = self._build_timeline()
                     self._executor.reset(state)
-                    self._execution.reset()
+                    self._execution.reset(reanchor=True)
                     self._strategy.reset()
                     self._scheduler.reset()
                     previous_command = copy_group_vector(state.groups)
@@ -743,7 +743,7 @@ class EdgeRuntime:
                     self._robogui.set_state_metadata(robogui_episode_metadata)
                     # Preserve the existing paused hold; model output never reaches it.
                     self._executor.reset(state)
-                    self._execution.reset()
+                    self._execution.reset(reanchor=True)
                     command = self._hold_command(self._clock.now_ns(), state.groups)
                     self._safety.reset(state)
                     with stage("safety_command"):
@@ -1345,7 +1345,9 @@ class EdgeRuntime:
                     reference, command = execution.reference, execution.command
                     scheduled = {name: values[0].copy() for name, values in reference.groups.items()}
                     if execution.ik_status is not None and not execution.ik_status["success"]:
-                        recorder.event("step_ik_hold", step=steps, **execution.ik_status)
+                        kind = ("step_ik_brake" if execution.ik_status.get("fallback") == "brake"
+                                else "step_ik_hold")
+                        recorder.event(kind, step=steps, **execution.ik_status)
                     elif execution.ik_status is not None and execution.ik_status.get("diff_ik"):
                         recorder.event(
                             "step_diff_ik", step=steps, monotonic_ns=now_ns,
@@ -1364,15 +1366,25 @@ class EdgeRuntime:
                         )
                 elif self._state == RuntimeState.RUNNING:
                     self._execution.reset()
-                    # Every strategy holds the last sent command during a timeline gap.
-                    # Reset executor velocity history to the held command, so a new
-                    # chunk does not resume with velocity left over before the wait.
+                    # Acceleration-aware step IK brakes inside its safe polytope.
+                    # Other paths retain their existing gap/hold semantics.
                     held_state = RobotState(
                         groups=copy_group_vector(last_command),
                         monotonic_ns=now_ns,
                         sequence=state.sequence,
                     )
-                    if isinstance(self._executor, SmoothExecutor):
+                    if self._execution.acceleration_limited:
+                        execution = self._execution.brake(
+                            now_ns, state, last_command=last_command,
+                            plan_id=self._timeline.active_plan_id,
+                        )
+                        command = execution.command
+                        scheduled = {
+                            name: values[0].copy()
+                            for name, values in execution.reference.groups.items()
+                        }
+                        recorder.event("step_ik_brake", step=steps, **execution.ik_status)
+                    elif isinstance(self._executor, SmoothExecutor):
                         with stage("executor_hold"):
                             command = self._executor.hold(now_ns, held_state)
                         command.plan_id = self._timeline.active_plan_id
@@ -1381,7 +1393,7 @@ class EdgeRuntime:
                         command = self._hold_command(now_ns, last_command)
                 else:
                     # Pause holds measured state and clears execution history.
-                    self._execution.reset()
+                    self._execution.reset(reanchor=True)
                     self._executor.reset(state)
                     command = self._hold_command(now_ns, state.groups)
                     self._safety.reset(

@@ -65,10 +65,13 @@ policy:
       lag_policy: report
 ```
 
-The serialized adapter config contains solver tuning only. At runtime the adapter
-receives `executor.motion_limits` directly and gives the differential solver the
-resolved `motion_limits.arm.max_velocity`. This keeps one copy of the arm speed
-limit; the checkpoint binder and history strategy no longer copy or compare it.
+At runtime, chunk adapters and step IK use `resolve_diff_ik_config` with
+`executor.motion_limits`. By default the QP inherits `motion_limits.arm.max_velocity`.
+An explicit `diff_ik.max_velocity_rad_s` selects a tighter solver cap; it must be
+finite, positive and no greater than the executor arm limit. Chunk tuning lives
+under `policy.adapter.diff_ik`; step tuning lives under `execution.ik.diff_ik`.
+Omitting the field preserves existing shared-rate behavior. The checkpoint binder
+and history strategy do not copy it.
 A finite executor `max_step_dt_s` is still required by the Tianji control profile,
 but it remains an executor command-budget setting rather than a solver field.
 
@@ -76,25 +79,115 @@ The QP uses independent per-joint velocity constraints regardless of the shared
 executor's `per_joint`/`isotropic` mode; this matches the reference differential
 solver. Executor shaping and the command guard still apply afterwards.
 They may further alter the predicted joint trajectory.
+As of 2026-10-20, the pack-plate `checkpoint_comparison_20261019` catalog explicitly
+uses pi/2 rad/s for both QP paths, pi rad/s for the executor and runtime command
+velocity guard, and no command acceleration bound. Native joint policies bypass IK.
+Installing this independent-cap capability requires restarting the serving runtime
+once; subsequent changes to these YAML values can use idle Reload config.
 
 Null joint-margin settings inherit this arm's configured kinematic margin
 (5 degrees by default); the diff solver cannot lower that margin. The right
 arm's J6 override remains ±58 degrees before the margin. The J6/J7 interference
 constraint is mandatory and is not configurable. Positive `j67_margin_deg` can
 override the QP buffer.
+The pack-plate `checkpoint_comparison_20261019` study explicitly overrides each
+arm's command/IK margin to 3 degrees as of 2026-10-20; its controller and executor
+command boxes align with that margin. Null QP wrist margins also inherit 3 degrees.
+Measured joint bounds are separately inset 0.5 degrees from the base range in both
+the driver and runtime; they do not change IK constraints. Shared component defaults
+remain at 5 degrees.
 Optional `nullspace_weights` must contain seven finite nonnegative weights;
 `nullspace_activation_deg: null` selects the original global quadratic cost.
 Weights, regularization, activation, lag and margin settings are strictly validated.
 
+## Acceleration-aware step execution (2026-10-23)
+
+Step tuning additionally accepts `max_acceleration_rad_s2`; omission inherits the
+executor arm acceleration cap. A finite executor acceleration cap cannot be paired
+with null or a larger QP cap. This is a step-only field: chunk solvers do not have
+executed command velocity history and reject it. With both acceleration caps null,
+the existing step velocity-QP behavior is retained.
+
+The step solver receives the last dispatched arm position and the direct executor's
+nominal-tick command velocity explicitly. OSQP warm-start velocity is not this
+history. In addition to velocity, the QP enforces per-joint acceleration and the
+convex joint/wrist stopping envelope `q + T*v in P`, where
+`T = max(dt, vmax/amax)` and `P` includes joint margins and all four buffered J6/J7
+halfplanes. Because `q + dt*v + T*(1-dt/T)*v = q + T*v`, the backup velocity
+`(1-dt/T)*v` preserves feasibility and changes velocity by at most `amax*dt`.
+The nominal period is fixed; this is a command-space certificate, not a physical
+tracking, jerk or wall-clock timing guarantee. It restricts speed near boundaries
+without adding a fixed delay to the target stream.
+
+The QP retains the original objective, lambda and nullspace settings. Numerical
+reserves tighten position/wrist bounds by 0.001 degrees and rates by at most
+0.001 degrees/s; OSQP uses `eps_abs=eps_rel=1e-7`, up to 4000 iterations.
+Final acceptance checks the configured velocity, acceleration, current/next position,
+**buffered** wrist region and stopping envelope with float64-roundoff tolerance only.
+There is no independent joint clipping of an acceleration-aware QP solution.
+
+The direct executor still applies its own motion limits. Configure these above the
+QP limits so ordinary QP commands pass unchanged; the pipeline validates the final
+executor output before dispatch. An unsafe modification raises and stops the runtime.
+The effective executor velocity after `max_step_dt_s` must also cover the QP cap.
+On either-arm failure, excessive lag under `abort`, or deadline rejection, both arms
+use the certified backup and retain command velocity history. Timeline gaps use the
+same backup, stopping outright once that fits the acceleration bound. Diagnostics use
+`step_ik_brake`, `fallback: brake`, the original failure reason and solver details.
+A state without a valid backup fails explicitly rather than clipping or inventing a
+zero-velocity history. Lifecycle pause/Home/emergency handling remains separate and
+reanchors only through the existing runtime reset path.
+
+The 1022 pack-plate catalog's twelve Step variants select QP caps pi/2 rad/s and
+80 rad/s^2, with outer executor caps pi rad/s and 160 rad/s^2. Other 1022 execution
+variants retain their 80 rad/s^2 executor cap. Restart runtime for this implementation;
+subsequent YAML edits may use idle Reload config. Offline checks:
+
+```bash
+.venv/bin/python -m pytest tests/unit/test_step_diff_constraints.py
+bash manimux/configs/experiments/pack_plate/pi05/checkpoint_comparison_20261022/launch.sh check
+```
+
 ## Algorithm and failure behavior
 
-Each step solves the original velocity QP:
+### Optional step elbow branch protection (2026-10-23)
+
+`execution.ik.diff_ik.elbow_guard_deg: 1.0` preserves the initial elbow side,
+keeping J4 at least one degree away from full extension. It is disabled by
+default, requires finite step acceleration limits, and is rejected by chunk
+configuration. All twelve 1022 Step variants enable it. For the verified M6-40
+DH geometry, full extension is J4 = -6.869643733 degrees, not zero. The arm's
+`elbow_extension_rad` property rejects other DH geometries rather than applying
+an unverified constant.
+
+The first execution seed selects the side; subsequent model targets cannot change
+it. The virtual J4 bound participates in the same QP stopping envelope, braking
+backup and final-command validation as the physical limits. It does not alter
+the physical-limit nullspace objective, lambda or global velocity/acceleration caps.
+QP failure/reset and running timeline gaps preserve branch identity. Pause/Home
+reset uses `reanchor=True`; the next execution anchor selects a new side. Warmup
+also validates the anchor without dispatching commands. A starting J4 inside the
+guard plus the 0.001-degree numerical reserve raises with a Home/reposition
+instruction. There is no automatic projection, escape motion or branch switch.
+Tasks requiring an intentional elbow-side transition need a separate transition;
+ordinary pose tracking is not allowed to cross extension while the guard is active.
+
+Frozen-target validation covers 28 1022 episodes (119,431 control ticks): eight
+original acc=80 episodes and twenty earlier episodes standardized to acc=80.
+The prototype removes all three previously observed large tracking regressions,
+with no position/wrist violations or terminal failures. This is command-FK
+tracking evidence, not measured hardware tracking or physical task success.
+Tests cover both elbow sides, interior motion, startup rejection, QP reset,
+lifecycle reanchor and braking. The one-degree guard reduces geometric maximum
+wrist radius by about 0.023 mm; this is not a bound on arbitrary TCP tracking error.
+
+Each step uses the original velocity objective with global wrist constraints:
 
 ```text
 minimize  ||J qdot - desired_twist||²_W + lam ||qdot||²
           + mu * dt * gradient(joint_limit_cost) · qdot
 subject to joint-velocity and margin-adjusted position boxes,
-           the linearized J6/J7 interference inequality.
+           all four measured J6/J7 interference halfplanes at q + dt*qdot.
 ```
 
 External poses/joints use metres/radians. Internally the QP retains mm/degrees
@@ -107,7 +200,37 @@ The solver uses the duration supplied by its caller and clips numerical OSQP
 overshoot to the velocity box. It rejects empty boxes before `OSQP.update` so OSQP cannot silently
 reuse a stale problem. Unsolved statuses and nonfinite solutions fail; solved
 steps are checked again for position margin and J6/J7 interference. Fixed sparse
-patterns and within-chunk primal warm starts preserve the upstream QP procedure.
+patterns and within-chunk primal warm starts retain the upstream update procedure.
+
+As of 2026-10-20, the position-margin post-check allows only float64 roundoff:
+16 machine epsilons times the largest absolute raw joint bound (about
+6e-13 degrees for Tianji). This does not change the QP box or solver tolerances.
+The wrist QP now includes all four halfplanes derived from `BD67_REAL`, rather
+than only the starting quadrant. For the current table they are equivalent to
+`1.025*abs(q6_next) + abs(q7_next) <= 110.5 - j67_margin_deg`.
+This prevents a large step from escaping through an unrepresented quadrant.
+Unsupported curved/nonconvex tables fail explicitly during construction.
+OSQP still solves to its existing tolerances; clipping its velocity to the
+independent joint box is not a projection onto the wrist polytope. The final
+`j67_ok` guard checks the raw measured boundary, not the configured QP buffer.
+Consequently, the buffer is not an exact post-solve guarantee.
+
+Staged offline validation on 2026-10-20 used all 115 original pack-plate and
+37 original bottle UMI episodes at native 30 Hz, with position/wrist margins
+fixed at 6/5 degrees and no velocity or acceleration bounds. The frozen baseline
+reproduced previous acceptance and float32 joint velocities for every episode.
+Numerical-only rejection rates changed from 9.97% to 9.31% (plate) and
+40.17% to 41.28% (bottle). Adding all wrist planes reduced rejection to zero
+in both tasks, but speed P95 increased from 10.66 to 16.76 rad/s and from
+40.62 to 61.52 rad/s respectively. Full-frame position-error P95 fell from
+624.41 to 146.98 mm and from 911.63 to 573.18 mm. Precise pose coverage
+(both arms accepted and within 5 mm / 5 degrees geodesic error) changed from
+71.44% to 70.66% and 34.95% to 35.98%. No accepted raw wrist-boundary violations
+occurred; the largest wrist-buffer shortfall was 0.301 degrees. These results
+establish rejection/constraint improvements, not smoother motion or physical
+task success. No damping, objective weights, margin settings or live services
+were changed. Historical upstream parity results below predate these intentional
+constraint and numerical-acceptance changes.
 
 Differential IK is a rate controller: an unreachable target can produce a valid
 small joint step with a large residual. The mandatory positive `max_lag_mm`

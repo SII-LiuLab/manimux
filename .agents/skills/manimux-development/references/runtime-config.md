@@ -509,13 +509,15 @@ interpolation and blending use linear xyz/gripper and shortest-arc quaternion
 SLERP. Record `absolute_tcp_pose` plan chunks; scheduled/command rows remain joints.
 RoboGUI draws pose-plan positions directly, without FK on pose rows.
 
-The execution stages are built once and IK is warmed before the control loop. IK starts from
-the current control tick's measured joint state and solves only the current target.
+The execution stages are built once and IK is warmed before the control loop. Analytic IK
+starts from measured joints; differential IK starts from the last dispatched command.
+Both solve only the current target.
 The pipeline receives the last sent command separately for failure holds and
 optional target limiting; the IK solver does not choose fallback commands. A shared budget
-covers all arms. If any arm fails, is nonfinite, or returns late, hold all groups
-at the last command and reset executor velocity history. `step_ik_hold` records
-failures; `run.control_timing: true` records the `step_ik` stage. YAM checks a
+covers all arms. If any arm fails, is nonfinite, or returns late, analytic IK and
+unconstrained-acceleration diffIK hold all groups and reset executor velocity history.
+Acceleration-aware step diffIK instead brakes both arms while retaining velocity history;
+see the constraint contract below. `step_ik_hold` / `step_ik_brake` record these paths; `run.control_timing: true` records the `step_ik` stage. YAM checks a
 cooperative deadline between native solver iterations. Other native solvers are
 checked after return; a long native call cannot be preempted. This is a soft
 budget, not a hard real-time guarantee or proof of physical tracking.
@@ -529,17 +531,28 @@ Keep adapter `ik_backend` omitted or `analytic` for pose-only decoding; executio
 backend selection is independent of the adapter's chunk solver.
 
 For step + diffIK, set `execution.ik.backend: diff` and optional
-`execution.ik.diff_ik` tuning using `DifferentialIKConfig` fields, except
-`max_velocity_rad_s`: the rate bound comes only from
-`executor.motion_limits.arm.max_velocity`. It requires composed Tianji kinematics
-with seven arm joints and one tool coordinate. One QP update uses the measured
-joints and nominal control period, with the composed tool offset removed once.
-`lag_policy: report` permits bounded progress with residual error; `abort` (the
-solver default) rejects excessive lag. This is rate control, not exact pose IK.
-QP state resets after rejection, pause, Home, timeline gaps and episode warmup.
-Successful updates record `step_diff_ik` events (including lag after optional
-pose limiting); failures retain atomic `step_ik_hold`. The direct executor and
-command safety checks still apply. No trajectory time stretching is introduced.
+`execution.ik.diff_ik` tuning. `max_velocity_rad_s` inherits the executor arm cap
+unless explicitly tightened. Step-only `max_acceleration_rad_s2` similarly inherits
+the executor acceleration cap and cannot exceed it. With acceleration enabled, the
+QP jointly constrains velocity change, joint positions and all four wrist planes,
+including a conservative stopping envelope. Both position and velocity history come
+from the final command path, never a speculative or rejected QP result.
+
+It requires composed Tianji kinematics with seven arm joints and one tool coordinate.
+One QP update uses the nominal control period with the tool offset removed once.
+`lag_policy: report` permits bounded progress with residual error; `abort` rejects
+excessive lag. Rejection/deadline and timeline gaps use certified deceleration when
+acceleration-aware, with `step_ik_brake` events and `fallback: brake`; they do not
+reset moving command velocity. The executor remains active with equal or higher
+limits, and its final output is checked against the QP's constraints before dispatch.
+A command history mismatch or unsafe final output fails explicitly.
+QP warm state resets after rejection, pause, Home, timeline gaps and episode warmup.
+Lifecycle pause/Home and emergency stops retain their separate reset behavior.
+Successful updates record `step_diff_ik` events and lag after optional pose limiting.
+This is command rate control, not exact pose IK or measured tracking assurance;
+no trajectory time stretching is introduced. See
+[Tianji step constraints](tianji-diff-ik.md#acceleration-aware-step-execution-2026-10-23)
+for the certificate, units and numerical acceptance rules.
 Ordinary joint adapters need no IK mode and reject `step`.
 
 Serial/async support all pose-producing IK adapter families. RTC/PAINT require an
@@ -592,6 +605,14 @@ execution:
 
 `runtime/execution.py:ExecutionPipeline.step` is the active-tick execution entry.
 It does not receive model responses, accept chunks, change Timeline timestamps,
+Step DiffIK may additionally set `execution.ik.diff_ik.elbow_guard_deg: 1.0`
+(default null). It requires the step acceleration constraint and preserves the
+initial M6-40 elbow branch in the QP stopping region. Solver reset and timeline
+gaps retain the branch; only lifecycle `ExecutionPipeline.reset(reanchor=True)`
+or warmup selects a new anchor. A seed inside the guard is rejected before
+tracking. See [the DiffIK contract](tianji-diff-ik.md#optional-step-elbow-branch-protection-2026-10-23).
+
+
 perform safety validation, or send hardware commands. The control loop retains
 those orchestration/lifecycle duties and records returned execution diagnostics.
 

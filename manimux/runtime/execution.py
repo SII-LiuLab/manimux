@@ -45,17 +45,41 @@ class ExecutionPipeline:
         if self.resolver is not None:
             self.resolver.warmup(measured)
 
-    def reset(self):
-        """Drop solver warm state on pause, timeline gaps and episode boundaries."""
+    def reset(self, *, reanchor=False):
+        """Drop QP state; only a stationary lifecycle reanchor clears elbow identity."""
         if self.resolver is not None:
-            self.resolver.reset()
+            self.resolver.reset(reanchor=reanchor)
 
     def reference_from_joints(self, groups):
         """Convert the Timeline handoff anchor into its configured reference space."""
         return self.resolver.poses_from_joints(groups) if self.resolver is not None else groups
 
+    @property
+    def acceleration_limited(self):
+        return self.resolver is not None and self.resolver.acceleration_limited
+
+    def brake(self, now_ns, state, *, last_command, plan_id, reason="timeline_gap"):
+        """Ordinary missing/failed-target fallback; hardware emergency stops are separate."""
+        if not self.acceleration_limited:
+            raise ValueError("certified braking requires acceleration-limited step diffIK")
+        velocities = self.executor.command_velocity(last_command)
+        groups = self.resolver.braking_groups(last_command, velocities)
+        reference = ActionHorizon(
+            now_ns, round(self.resolver.diff.dt_s * 1e9), plan_id,
+            {name: q[None, :] for name, q in groups.items()},
+        )
+        with stage("executor_step"):
+            command = self.executor.step(now_ns, state, reference)
+        self.resolver.validate_command(last_command, command.groups, velocities)
+        return ExecutionResult(reference, command, {
+            "backend": "diff", "success": False, "reason": reason, "fallback": "brake",
+        })
+
     def step(self, now_ns, state, reference, *, last_command):
         ik_status = None
+        velocities = (
+            self.executor.command_velocity(last_command) if self.acceleration_limited else None
+        )
         if self.resolver is not None:
             # Preserve one shared budget for pose limiting and both arm solves.
             with stage("step_ik"):
@@ -69,13 +93,20 @@ class ExecutionPipeline:
                 # last dispatched command, including executor shaping, so servo
                 # lag does not discard progress. Analytic IK uses measured seeds.
                 seed = last_command if self.resolver.backend == "diff" else state.groups
-                resolved = self.resolver.resolve(target, seed, deadline_ns=deadline)
+                resolved = self.resolver.resolve(
+                    target, seed, deadline_ns=deadline, command_velocity=velocities,
+                )
                 ik_status = {
                     **self.resolver.last_result,
                     "elapsed_ms": (time.monotonic_ns() - started) / 1e6,
                     "pose_speed_limited": limited_groups,
                 }
             if resolved is None:
+                if self.acceleration_limited:
+                    result = self.brake(now_ns, state, last_command=last_command,
+                                        plan_id=reference.plan_id, reason=ik_status["reason"])
+                    result.ik_status = {**ik_status, "fallback": "brake"}
+                    return result
                 # Atomic hold belongs to execution, not to the mathematical IK solver.
                 held = copy_group_vector(last_command)
                 with stage("executor_step"):
@@ -94,4 +125,8 @@ class ExecutionPipeline:
             raise ValueError("joint executor requires a joint_position reference")
         with stage("executor_step"):
             command = self.executor.step(now_ns, state, reference)
+        if self.acceleration_limited:
+            # The higher executor limits remain active. Verify their final output
+            # before safety/dispatch, rather than assuming they never intervene.
+            self.resolver.validate_command(last_command, command.groups, velocities)
         return ExecutionResult(reference, command, ik_status)

@@ -129,21 +129,11 @@ class _Pi05TianjiEEAdapter(PolicyAdapter):
         if self.ik_backend == "diff":
             from manimux.embodiments.arm.tianji.kinematics import TianjiArmKinematics
             from manimux.kinematics.tianji_diff import (
-                DifferentialIKConfig,
+                resolve_diff_ik_config,
                 TianjiDifferentialIK,
             )
 
-            arm_motion = None if motion_limits is None else motion_limits.get("arm")
-            if arm_motion is None or arm_motion.get("max_velocity") is None:
-                raise ValueError("Tianji differential IK requires resolved arm motion limits")
-            tuning = dict(options.get("diff_ik", {}))
-            # The QP rate bound is the shared executor profile, never a second constant.
-            if "max_velocity_rad_s" in tuning:
-                raise ValueError(
-                    "policy.adapter.diff_ik.max_velocity_rad_s comes from the motion limits"
-                )
-            tuning["max_velocity_rad_s"] = arm_motion["max_velocity"]
-            config = DifferentialIKConfig.model_validate(tuning)
+            config = resolve_diff_ik_config(motion_limits, options.get("diff_ik"))
             for name, model in self.kinematics.models.items():
                 arm = getattr(model, "arm", None)
                 if not isinstance(arm, TianjiArmKinematics):
