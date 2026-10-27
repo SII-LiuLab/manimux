@@ -1,7 +1,7 @@
 [submodule "XPolicyLab"]
 	path = third_party/XPolicyLab
-	url = https://github.com/Cuzyoung/XPolicyLab.git
-	branch = main
+	url = https://github.com/Robertdreamer/XPolicyLab.git
+	branch = hgt
 [submodule "PRM-as-a-Judge"]
 	path = third_party/PRM-as-a-Judge
 	url = https://github.com/YuyangLiu2003/PRM-as-a-Judge.git
