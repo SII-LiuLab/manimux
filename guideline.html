@@ -10,7 +10,7 @@ main{min-width:0;padding:36px 0 50px}.breadcrumb{font-size:12px;color:var(--mute
 </style></head>
 <body><a class="skip" href="#overview">Skip to content</a>
 <header class="topbar"><button class="menu-button" id="menu" aria-label="Toggle navigation" aria-expanded="false" aria-controls="sidebar">☰</button><a class="brand" href="./" aria-label="ManiMux homepage">ManiMux</a><a class="repo" href="#overview">Guide</a><span class="current" id="current-title">Overview</span><div class="search-box"><input id="guide-search" type="search" placeholder="Search sections" aria-label="Search guide" autocomplete="off"><div id="search-results" class="search-results" hidden></div></div><a class="repo" href="https://github.com/SII-LiuLab/manimux">SII-LiuLab / ManiMux ↗</a></header>
-<div id="backdrop" class="backdrop"></div><div class="layout"><aside class="sidebar" id="sidebar"><div class="sidebar-title">ManiMux Guide</div><nav aria-label="Guide sections"><a href="#overview" data-page="overview">Overview</a><details class="nav-group" open><summary>Start here</summary><div><a href="#install" data-page="install">Install &amp; preview</a><a href="#configuration" data-page="configuration">Configure a deployment</a><a href="#launch" data-page="launch">Launch commands</a></div></details><details class="nav-group" open><summary>Inference algorithms</summary><div><a href="#shared-parameters" data-page="shared-parameters">Shared parameters</a><a href="#algorithms" data-page="algorithms">Choose an algorithm</a><a href="#serial" data-page="serial">Serial</a><a href="#async" data-page="async">Async</a><a href="#act-temporal-ensemble" data-page="act-temporal-ensemble">ACT temporal ensemble</a><a href="#rtc" data-page="rtc">RTC</a><a href="#train-time-rtc" data-page="train-time-rtc">Train-time RTC</a><a href="#paint" data-page="paint">PAINT</a><a href="#aac" data-page="aac">AAC</a><a href="#autohorizon" data-page="autohorizon">AutoHorizon</a><a href="#bid-backward" data-page="bid-backward">BID backward-only</a><a href="#optional-algorithm-composition" data-page="optional-algorithm-composition">Supported combinations</a><a href="#support" data-page="support">Model support &amp; presets</a></div></details><details class="nav-group" open><summary>Agent integrations</summary><div><a href="#agent-integrations" data-page="agent-integrations">RPent / HarnessVLA</a></div></details><details class="nav-group" open><summary>Experiments</summary><div><a href="#experiment-lists" data-page="experiment-lists">Task &amp; method switching</a><a href="#experiments" data-page="experiments">Rules, templates &amp; scoring</a><a href="#records" data-page="records">Records &amp; replay</a><a href="#reports" data-page="reports">Evaluation reports</a></div></details><details class="nav-group" open><summary>Development</summary><div><a href="#agent-references" data-page="agent-references">Work with your agent</a><a href="#troubleshooting" data-page="troubleshooting">Troubleshooting</a></div></details></nav><div class="sidebar-tools"><button id="print">Print entire guide / PDF</button></div></aside>
+<div id="backdrop" class="backdrop"></div><div class="layout"><aside class="sidebar" id="sidebar"><div class="sidebar-title">ManiMux Guide</div><nav aria-label="Guide sections"><a href="#overview" data-page="overview">Overview</a><details class="nav-group" open><summary>Start here</summary><div><a href="#install" data-page="install">Install &amp; preview</a><a href="#configuration" data-page="configuration">Configure a deployment</a><a href="#launch" data-page="launch">Launch commands</a></div></details><details class="nav-group" open><summary>Inference algorithms</summary><div><a href="#shared-parameters" data-page="shared-parameters">Shared parameters</a><a href="#algorithms" data-page="algorithms">Choose an algorithm</a><a href="#serial" data-page="serial">Serial</a><a href="#async" data-page="async">Async</a><a href="#act-temporal-ensemble" data-page="act-temporal-ensemble">ACT temporal ensemble</a><a href="#rtc" data-page="rtc">RTC</a><a href="#train-time-rtc" data-page="train-time-rtc">Train-time RTC</a><a href="#paint" data-page="paint">PAINT</a><a href="#aac" data-page="aac">AAC</a><a href="#autohorizon" data-page="autohorizon">AutoHorizon</a><a href="#chunktrust" data-page="chunktrust">ChunkTrust AHS</a><a href="#bid-backward" data-page="bid-backward">BID backward-only</a><a href="#optional-algorithm-composition" data-page="optional-algorithm-composition">Supported combinations</a><a href="#support" data-page="support">Model support &amp; presets</a></div></details><details class="nav-group" open><summary>Agent integrations</summary><div><a href="#agent-integrations" data-page="agent-integrations">RPent / HarnessVLA</a></div></details><details class="nav-group" open><summary>Experiments</summary><div><a href="#experiment-lists" data-page="experiment-lists">Task &amp; method switching</a><a href="#experiments" data-page="experiments">Rules, templates &amp; scoring</a><a href="#records" data-page="records">Records &amp; replay</a><a href="#reports" data-page="reports">Evaluation reports</a></div></details><details class="nav-group" open><summary>Development</summary><div><a href="#agent-references" data-page="agent-references">Work with your agent</a><a href="#troubleshooting" data-page="troubleshooting">Troubleshooting</a></div></details></nav><div class="sidebar-tools"><button id="print">Print entire guide / PDF</button></div></aside>
 <main id="content"><div class="breadcrumb" id="breadcrumb">ManiMux Guide / Overview</div><section aria-labelledby="overview" class="guide-page overview" data-page-id="overview" data-title="Overview">
 <div class="kicker">Documentation / Real-robot research</div>
 <h1 id="overview">ManiMux</h1>
@@ -1135,6 +1135,74 @@ at the recipe's top level and launch through the ManiMux wrapper; direct
 <code>third_party/XPolicyLab/setup_policy_server.py</code> does not apply these overrides.
 See the <a href="skills/manimux-inference/references/inference-matrix.md">model recipe and sampling matrix</a>
 for backend constraints.</p>
+</section>
+<section aria-labelledby="chunktrust" class="guide-page" data-page-id="chunktrust" data-title="ChunkTrust AHS" hidden=""><h2 id="chunktrust">ChunkTrust AHS</h2>
+<p>This opt-in strategy selects an execution prefix using the external ChunkTrust
+PI-family selector. Its first integration targets Pi05 JAX, one observation,
+14 native joint coordinates, serial scheduling and the Direct executor. The
+existing Serial recipe and backend defaults are unchanged. RTC, temporal
+ensembling, non-joint action mappings and other model families are outside this integration.</p>
+<p>The companion <a href="https://github.com/Cuzyoung/XPolicyLab/pull/4">XPolicyLab
+trace PR</a> is required. The paired recipe checks the loaded server's JAX identity
+and raw-velocity trace contract. The existing pinned backend does not provide this
+contract, so the new configuration refuses that server. No submodule revision is
+changed by installing the optional runtime package.</p>
+<pre><code class="language-bash">uv sync --frozen --extra xpolicylab
+uv pip install --python .venv/bin/python -r scripts/setup/chunktrust.txt
+PYTHONPATH=. .venv/bin/python scripts/validation/chunktrust_offline_probe.py \
+  --output /tmp/manimux-chunktrust-probe
+</code></pre>
+<p>The install file fixes the ChunkTrust source commit. Run the probe with the
+installed environment directly. Reinstall the optional dependency if a later
+exact environment sync removes it. The probe uses synthetic observations and
+substituted transports/devices without sockets, model loading or motor drivers.
+It reports software contracts and saves replay inputs. It does not qualify real
+weights, inference latency or robot motion.</p>
+<p>The station recipe is
+<code>manimux/configs/experiments/example-yam-pi05/put_bottles/chunktrust.yaml</code>.
+It inherits the existing checkpoint, normalization, camera mapping, H=50,
+30 Hz policy/control rate and Direct execution. It is a real station recipe,
+not the disconnected probe: <code>robot.options.execute: false</code> alone does
+not prevent device connections. Use the normal single-config deployment workflow
+only after provider and station validation.</p>
+<pre><code class="language-yaml">inference:
+  algorithm: serial
+  strategy: manimux.runtime.chunktrust:build_strategy
+  inference_schedule: serial
+  request_trigger: algorithm
+  action_start_mode: first_step_when_ready
+  chunk_policy_steps: null
+  max_chunk_policy_steps: null
+  blend_policy_steps: 0
+  handoff_skip_steps: 0
+  chunktrust:
+    candidates: [10, 20, 30, 40, 50]
+    temperature: 0.8
+    seed: 0
+</code></pre>
+<p>Only <code>candidates</code>, <code>temperature</code> and <code>seed</code> are
+strategy options. Horizon and dimension come from the paired deployment. Other
+selector settings retain the pinned package defaults and are included in plan
+diagnostics. K may be an integer between candidate values. The full prediction is
+decoded before prefix selection, and serial execution retains the final row for
+one policy interval.</p>
+<p>Raw normalized velocities are sliced to the declared valid model dimensions.
+Actions and history use canonical physical joint targets. Selector state changes
+become formal only when the plan is accepted. History advances from successfully
+submitted commands, once per policy interval, rather than copying an entire
+accepted prefix. Missing rows are not fabricated. Controller submission is not
+proof of CAN transmission or measured arrival.</p>
+<p>Warmup runs the same selector on a private timeline and private history for at
+least two requests. Start resets it behind the existing backend-reset fence.
+Pause/Home clear pending selections and episode memory. Gap holds and
+validation-only commands do not enter submitted-command history. The recipe saves
+request-scoped raw responses, including malformed replies, under
+<code>data/diagnostics/chunktrust-pi05</code>.</p>
+<p>Before physical deployment, separately check the real checkpoint with trace off
+and on, verify raw velocities, measure transfer/inference overhead and run the
+complete provider-to-command path with dispatch disconnected. See the
+<a href="skills/manimux-inference/references/chunktrust.md">integration contract</a>
+for ownership and remaining validation gates.</p>
 </section>
 <section aria-labelledby="bid-backward" class="guide-page" data-page-id="bid-backward" data-title="BID backward-only" hidden=""><h2 id="bid-backward">BID backward-only</h2>
 <pre><code class="language-yaml">inference:

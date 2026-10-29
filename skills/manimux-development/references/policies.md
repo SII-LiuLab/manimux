@@ -92,7 +92,10 @@ default is currently `native`. Migrated joint/pose adapters therefore need the
 matching explicit experiment option. Wire field names belong in the client/codec;
 do not import an XPolicyLab codec into a new backend-independent action adapter.
 Retain action semantics and sampler metadata such as AAC/PAINT/AutoHorizon
-fields. Translation must not silently renormalize or reinterpret the action.
+fields. Optional `denoise_trace` payloads must survive both blocking and streaming
+XPolicyLab clients. Their raw model-space velocities are independent of physical
+action decoding and must not be renormalized with the actions. Translation must
+not silently renormalize or reinterpret the action.
 
 ## Observation and action adapter
 

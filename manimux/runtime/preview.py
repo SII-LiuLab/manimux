@@ -3,6 +3,7 @@
 from manimux.runtime.decode_forecast import DecodeForecast
 from manimux.runtime.execution import ExecutionPipeline
 from manimux.runtime.executors import SmoothExecutor
+from manimux.runtime.feedback import notify_command_feedback
 from manimux.runtime.ik import step_ik_enabled
 from manimux.runtime.inference import RequestState, StrategyChunkSelector, prepare_strategy_chunk
 from manimux.runtime.planning import PlanningContext
@@ -179,6 +180,12 @@ class PreviewPlanner(PlanningContext):
                 command = RobotCommand(held.groups, started, self._timeline.active_plan_id)
         # Same validation as dispatch, with independent command-rate history.
         self.safety.validate_command(command)
+        notify_command_feedback(
+            self._strategy,
+            command=command,
+            reference_plan_id=None if reference is None else reference.plan_id,
+            source="preview",
+        )
         self.previous_command, self.last_command = (
             self.last_command,
             copy_group_vector(command.groups),

@@ -263,6 +263,7 @@ class XPolicyLabWsClient:
         if (
             sampling.get("mode") in {"aac", "paint", "autohorizon"}
             or "action_semantics" in payload
+            or "denoise_trace" in payload
         ):
             return dict(payload)
         return payload["actions"]

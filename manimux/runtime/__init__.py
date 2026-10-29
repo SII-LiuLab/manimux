@@ -166,7 +166,7 @@ def inference_parameters(*, executor: dict, **options) -> dict:
         "aac": {},
         "bid": {},
         "paint": {},
-    }, options, 'inference', extra=('history',))
+    }, options, 'inference', extra=('history', 'chunktrust'))
     if values.get("rtc") is not None:
         values["rtc"] = rtc_parameters(**values["rtc"])
     values["train_time_rtc"] = train_time_rtc_parameters(**values["train_time_rtc"])

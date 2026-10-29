@@ -1,0 +1,4 @@
+# Optional runtime dependency. Install after syncing ManiMux's locked environment.
+# https://github.com/hf618/ChunkTrust/pull/2
+# Historical model/backend environments keep their own NumPy pins.
+chunktrust @ git+https://github.com/hf618/ChunkTrust.git@6dacd61688e6579ee82a11fe60ef3810f06cd034

@@ -34,6 +34,7 @@ from manimux.runtime.diagnostics import build_plan_boundary_payload
 from manimux.runtime.dispatch import DispatchStrategy, DispatchWarmupStrategy, PolicyDispatch
 from manimux.runtime.execution import ExecutionPipeline
 from manimux.runtime.executors import DirectExecutor, Executor, MPCExecutor, SmoothExecutor
+from manimux.runtime.feedback import notify_command_feedback
 from manimux.runtime.ik import step_ik_enabled, validate_ik_config
 from manimux.runtime.inference import (
     DefaultChunkStrategy,
@@ -380,6 +381,7 @@ class EdgeRuntime(PlanningContext):
 
     def _send_command(
         self, command: RobotCommand, state: RobotState, recorder: EpisodeRecorder, *, step: int,
+        reference_plan_id: str | None = None,
     ) -> None:
         """Validate and dispatch; retain a failed attempt outside successful tick data."""
         failure_stage = "safety_validation"
@@ -423,6 +425,16 @@ class EdgeRuntime(PlanningContext):
                 logger.exception("failed to record rejected command")
             logger.exception("command_rejected stage=%s plan=%s", failure_stage, command.plan_id)
             raise
+        notify_command_feedback(
+            self._strategy,
+            command=command,
+            reference_plan_id=reference_plan_id,
+            source=(
+                "submitted"
+                if self._config["robot"]["options"].get("execute") is True
+                else "validated_only"
+            ),
+        )
 
     def run(self) -> RunResult:  # noqa: C901 - the safety-critical loop stays linear
         started_wall = time.perf_counter()
@@ -1688,7 +1700,14 @@ class EdgeRuntime(PlanningContext):
                             for name, values in command.groups.items()
                         },
                     )
-                self._send_command(command, state, recorder, step=steps)
+                self._send_command(
+                    command, state, recorder, step=steps,
+                    reference_plan_id=(
+                        reference.plan_id
+                        if self._state == RuntimeState.RUNNING and reference is not None
+                        else None
+                    ),
+                )
                 if self._dispatch is not None:
                     self._dispatch.command_sent(
                         now_ns=command.monotonic_ns,

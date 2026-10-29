@@ -403,7 +403,9 @@ class XPolicyLabWsPolicyModel:
                 if not isinstance(payload, dict) or "actions" not in payload:
                     raise ValueError("infer reply has no actions")
                 result = (
-                    payload if {"action_semantics", "autohorizon", "paint"}.intersection(payload)
+                    payload if {
+                        "action_semantics", "autohorizon", "paint", "denoise_trace",
+                    }.intersection(payload)
                     else payload["actions"]
                 )
                 if isinstance(num_samples, InferenceRequest):

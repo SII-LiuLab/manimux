@@ -224,6 +224,21 @@ same scheduler as their delegate. Streaming/continuous custom strategies remain
 unsupported until their lifecycle and action-reference handling are validated.
 See [scheduling and action clocks](../../manimux-inference/references/inference.md) for the config matrix.
 
+Strategies may implement `on_command_feedback(CommandFeedback)`. The shared
+`runtime/feedback.py` helper calls it after successful runtime submission or after
+preview command validation, passing a copied `RobotCommand`, an active
+`reference_plan_id` (or `None` for Pause/gap holds), and `source`:
+`submitted`, `preview`, or `validated_only`. Existing strategies without the hook
+are unchanged. Submission means the controller call returned, not that a CAN
+command was sent or measured motion completed. Callback failures propagate through
+the caller's existing failure path. Strategies must isolate preview state and must
+not treat validation-only feedback as physical execution.
+
+The optional ChunkTrust strategy uses this feedback for one target per accepted
+plan's policy interval. Its pending selector state commits at plan acceptance,
+while command history advances later. It reuses serial scheduling and Timeline's
+existing terminal-row interval. See the [ChunkTrust contract](../../manimux-inference/references/chunktrust.md).
+
 The optional `StrategyActionDecoder` protocol declares `decode_action(raw, context, *, adapter)` and decodes
 candidate predictions using the existing adapter. `decode_strategy_action` uses it
 for inline execution and warmup; other strategies retain the original single decode.
