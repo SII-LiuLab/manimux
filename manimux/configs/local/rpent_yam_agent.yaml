@@ -1,0 +1,12 @@
+# Local RPent recipe: YAM dual + RealSense 3 views + Pi05 put-bottles, Codex Astra planner.
+agent: rpent
+experiment: ../examples/rpent_pi05_yam.yaml
+motion: rpent_yam_motion.yaml
+endpoint: http://127.0.0.1:8088
+task: Put the bottles into the bin.
+planner: codex
+model: gpt-6-astra
+reasoning_effort: high
+max_turns: 30
+memory_root: ../../../data/agent-memory/rpent-yam
+output_dir: ../../../data/rpent-yam-agent

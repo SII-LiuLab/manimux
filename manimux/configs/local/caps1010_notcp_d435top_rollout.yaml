@@ -1,0 +1,8 @@
+_base_: caps1010_notcp_rollout.yaml
+run:
+  # 100 s at 100 Hz, matching the other D435-top runs.
+  max_control_steps: 10000
+camera_server:
+  config: cameras_d435top.yaml
+experiment:
+  variant: caps1010_3task_notcp_raw_160k_async45_v08_a20_d435top

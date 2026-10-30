@@ -1,0 +1,26 @@
+_base_: ../experiments/sapolicy-custom/put_bottles/caps1010_3task_async48_z22.yaml
+run:
+  task_prompt: put the plastic bottles in the bin
+  experiment_template: null
+  max_control_steps: 20000
+experiment:
+  task: put_bottles
+  variant: unfrz1003_bottles_raw_50k_async45_v08_a20
+evaluation: null
+policy:
+  expected_backend:
+    model:
+      checkpoint_source: sha256:01025dd6ef762bf22aedbce7cbe8af7c3f80415e8989c954a5be1668df008315
+policy_server:
+  config: /home/ubuntu/manimux/manimux/configs/local/unfrz1003_bottles_policy.yaml
+robogui:
+  policy_label: SAPolicy unfrz1003 bottles | RAW 50k | no JT, no Isaac | async exec45
+    | arm 0.8 rad/s, 2.0 rad/s2
+inference:
+  algorithm: async
+  chunk_policy_steps: 45
+  max_chunk_policy_steps: null
+executor:
+  smooth:
+    max_velocity: 0.8
+    max_acceleration: 2.0

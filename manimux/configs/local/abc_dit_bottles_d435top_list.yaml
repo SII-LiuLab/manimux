@@ -1,0 +1,12 @@
+id: abc_dit-yam-put-bottles-pretrained-200k-d435top
+recording:
+  root: ../../../data/experiments
+experiments:
+- id: put_bottles_rtc_200k_mount22_plastic_d435top
+  config: abc_dit_bottles_d435top_rtc_200k_mount22_plastic.yaml
+  trials:
+    repeats: 3
+- id: put_bottles_rtc_200k_mount22_d435top
+  config: abc_dit_bottles_d435top_rtc_200k_mount22.yaml
+  trials:
+    repeats: 3

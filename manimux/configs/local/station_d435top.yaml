@@ -1,0 +1,36 @@
+# Private YAM station bindings for this machine.
+robot:
+  components:
+    left_yam: {channel: can_left}
+    right_yam: {channel: can_right}
+    left_camera: {camera_serial: "260322276964"}
+    front_camera: {camera_serial: "246422073601"}  # D435I replaces the top D405 (260322276687)
+    right_camera: {camera_serial: "260322274672"}
+    gemini305: {camera_serial: "CV278640000Z"}
+    gemini335: {camera_serial: "CP0N763000LK"}
+services:
+  camera:
+    endpoint: tcp://127.0.0.1:5555
+    request_endpoint: tcp://127.0.0.1:5555
+    bind_endpoint: tcp://0.0.0.0:5556
+    bind_request_endpoint: tcp://0.0.0.0:5555
+  policy:
+    endpoint: ws://127.0.0.1:8500
+  policy_secondary:
+    endpoint: ws://127.0.0.1:8501
+  policy_sapolicy:
+    endpoint: ws://127.0.0.1:8510
+  policy_abc_dit:
+    endpoint: ws://127.0.0.1:8530
+  policy_molmoact:
+    endpoint: http://127.0.0.1:8202
+  policy_abc:
+    endpoint: http://127.0.0.1:8300
+  external_camera:
+    endpoint: tcp://127.0.0.1:5575
+    request_endpoint: tcp://127.0.0.1:5575
+    bind_endpoint: tcp://0.0.0.0:5576
+    bind_request_endpoint: tcp://0.0.0.0:5575
+paths:
+  checkpoints: /home/ubuntu/manimux/checkpoints
+  sapolicy_workspace: /home/ubuntu/sa

@@ -1,0 +1,64 @@
+# Local: realsense_3_views with the top stream on a D435I.
+# Stream names identify images; component names select station device bindings.
+# All public capture options are listed below. See README.md for units and defaults.
+service: camera
+cameras:
+  d405_left:
+    config: ../embodiment/sensor/realsense.yaml
+    component: left_camera
+    options:
+      # Capture settings; device serials belong in the station file.
+      width: 640
+      height: 480
+      fps: 30
+      enable_depth: false
+      align_depth: false
+      flip: false
+      # Explicit manual overrides. null leaves the device setting unchanged.
+      exposure_us: 10000
+      white_balance: 4000
+      # Acquisition settings; normally keep these unchanged.
+      warmup_frames: 15
+      max_frame_age_sec: 0.30
+      read_timeout_ms: 1200
+      background: true
+  d405_front:
+    # Stream name kept for the policy contract; bound to the D435I. The sensor applies manual exposure/WB to
+    # query_sensors()[0], which on a D435I is the stereo module, so the color sensor stays on auto.
+    config: ../embodiment/sensor/realsense.yaml
+    component: front_camera
+    options:
+      # Capture settings; device serials belong in the station file.
+      width: 640
+      height: 480
+      fps: 30
+      enable_depth: false
+      align_depth: false
+      flip: false
+      # Explicit manual overrides. null leaves the device setting unchanged.
+      exposure_us: null
+      white_balance: null
+      # Acquisition settings; normally keep these unchanged.
+      warmup_frames: 15
+      max_frame_age_sec: 0.30
+      read_timeout_ms: 1200
+      background: true
+  d405_right:
+    config: ../embodiment/sensor/realsense.yaml
+    component: right_camera
+    options:
+      # Capture settings; device serials belong in the station file.
+      width: 640
+      height: 480
+      fps: 30
+      enable_depth: false
+      align_depth: false
+      flip: false
+      # Explicit manual overrides. null leaves the device setting unchanged.
+      exposure_us: 10000
+      white_balance: 4000
+      # Acquisition settings; normally keep these unchanged.
+      warmup_frames: 15
+      max_frame_age_sec: 0.30
+      read_timeout_ms: 1200
+      background: true

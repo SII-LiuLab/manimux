@@ -1,0 +1,35 @@
+# Local Poke control-point trial. Left FK and IK use tcp_site.
+# tcp_site is the YAM flange centre (Poke's control point); the right arm keeps grasp_site.
+name: yam
+initial_poses: ../embodiment/initial_poses/yam.yaml
+hardware:
+  stale_timeout_s: 0.2
+components:
+  left_yam:
+    config: ../embodiment/arm/yam.yaml
+    options:
+      ee_site: tcp_site
+  right_yam:
+    config: ../embodiment/arm/yam.yaml
+  left_camera:
+    config: ../embodiment/sensor/realsense.yaml
+    parent: left_yam
+    mount: null
+  front_camera:
+    config: ../embodiment/sensor/realsense.yaml
+    mount: null
+  right_camera:
+    config: ../embodiment/sensor/realsense.yaml
+    parent: right_yam
+    mount: null
+groups:
+  left_arm:
+    arm: left_yam
+    end_effector: null
+  right_arm:
+    arm: right_yam
+    end_effector: null
+action_contract:
+  group_prefixes:
+    left_arm: left
+    right_arm: right

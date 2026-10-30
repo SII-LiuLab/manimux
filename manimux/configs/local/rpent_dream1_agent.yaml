@@ -1,0 +1,12 @@
+# Local RPent recipe: YAM dual + RealSense 3 views + hosted Dream-1, Codex Astra planner.
+agent: rpent
+experiment: ../examples/dream1-yam/serial-slow10.yaml
+motion: rpent_yam_motion.yaml
+endpoint: http://127.0.0.1:8088
+task: Put the bottles into the basket.
+planner: codex
+model: gpt-6-astra
+reasoning_effort: high
+max_turns: 30
+memory_root: ../../../data/agent-memory/rpent-dream1-yam
+output_dir: ../../../data/rpent-dream1-yam-agent

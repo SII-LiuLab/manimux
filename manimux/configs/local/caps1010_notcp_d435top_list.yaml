@@ -1,0 +1,8 @@
+id: sapolicy-caps1010-notcp-d435top
+recording:
+  root: ../../../data/experiments
+experiments:
+- id: put_bottles_caps1010_notcp_async45_d435top
+  config: caps1010_notcp_d435top_rollout.yaml
+  trials:
+    repeats: 3

@@ -1,0 +1,12 @@
+id: pi05-abc-bottles-realsim-step20000-d435top
+recording:
+  root: ../../../data/experiments
+experiments:
+- id: put_bottles_pi05_abc_realsim_step20000_serial48_mount22_d435top
+  config: pi05_bottles_d435top_serial48_mount22.yaml
+  trials:
+    repeats: 3
+- id: put_bottles_pi05_abc_realsim_step20000_async48_mount22_d435top
+  config: pi05_bottles_d435top_async48_mount22.yaml
+  trials:
+    repeats: 3

@@ -1,0 +1,15 @@
+_base_:
+  - ../experiments/xiaomi-xr1-latest300ep-step30000/coin/bottles30k_alltasks_rtc_ratio64_step_ik_beta10.yaml
+  - ../experiments/xiaomi-xr1-latest300ep-step30000-rtc-mask-padding/_mask_.yaml
+execution:
+  ik:
+    mode: chunk
+    budget_ms: null
+    pose_speed_limit: null
+experiment:
+  variant: latest300ep_rtc_chunk_ik_mask_padding_table_ready_demo
+initial_pose:
+  config: ../embodiment/initial_poses/yam.yaml
+  id: table_ready
+robogui:
+  policy_label: Xiaomi latest300 30k - RTC beta10 - masked guidance - coin demo

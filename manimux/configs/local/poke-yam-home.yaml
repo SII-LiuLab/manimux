@@ -1,0 +1,10 @@
+# Poke Home for the left YAM: tcp_site fingers down at [0.28, 0, 0.31] m in the arm base
+# frame (fingertip ~17.5 cm above the base plane). The task-frame calibration in
+# poke-blocks-serial-direct.yaml maps exactly this pose to Poke's Home. Right arm: raised_ready.
+poses:
+  poke_home:
+    label: Poke Home (left fingers down)
+    duration_s: 6.0
+    joints:
+      left_arm: [-0.0, 1.6118, 1.541, -1.5001, -0.0, -0.0, 1.0]
+      right_arm: [0.0165941863126573, 1.3540474555580992, 1.816395819028001, -1.4520866712443716, -0.15850308995193707, 0.22755016403448458, 0.9981134813524888]

@@ -1,0 +1,17 @@
+# RPent motion profile for the local YAM dual-arm station (arm_base frame, grasp_site TCP).
+# Workspace = 0.5/99.5 percentile of FK over 205 complete ~/teleop_data episodes
+# (pick_the_moving_cube, put_the_coin_into_the_bin{,2}, stack_blocks_medium), padded ~1 cm.
+# No path_validator: this station has no extrinsics.json / measured table_z yet.
+max_waypoints: 2000
+settle_timeout_s: 5.0
+groups:
+  left_arm:
+    workspace_min_m: [0.05, -0.34, 0.0]
+    workspace_max_m: [0.45, 0.19, 0.60]
+    gripper_coordinate: gripper
+    gripper_convention: zero_closed_one_open
+  right_arm:
+    workspace_min_m: [0.05, -0.11, 0.0]
+    workspace_max_m: [0.45, 0.41, 0.60]
+    gripper_coordinate: gripper
+    gripper_convention: zero_closed_one_open

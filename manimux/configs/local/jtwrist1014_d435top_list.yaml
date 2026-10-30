@@ -1,0 +1,8 @@
+id: sapolicy-jtwrist1014-d435top
+recording:
+  root: ../../../data/experiments
+experiments:
+- id: put_bottles_jtwrist1014_async45_d435top
+  config: jtwrist1014_d435top_rollout.yaml
+  trials:
+    repeats: 3

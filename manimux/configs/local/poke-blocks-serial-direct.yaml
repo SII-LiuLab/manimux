@@ -1,0 +1,40 @@
+# Poke on the left YAM: stack blocks, Serial + Direct, starting from Poke Home.
+_base_: ../examples/poke-yam/serial-example.yaml
+run:
+  task_prompt: Stack the smaller block on the bigger one
+initial_pose:
+  config: poke-yam-home.yaml
+  id: poke_home
+robot:
+  config: yam-dual-left-tcp-site.yaml
+  options:
+    execute: true
+    move_to_start_on_connect: true
+sensors:
+  - name: yam_cameras
+    driver: camera_server
+    service: camera
+    options:
+      request_timeout_ms: 500
+      max_frame_age_sec: 0.5
+      # Poke receives only adapter.camera; the other views are for RoboGUI and recording.
+      camera_names: [d405_left, d405_front, d405_right]
+policy:
+  adapter:
+    controlled_group: left_arm
+    camera: d405_left
+    # Task frame (xyz + wxyz), RoboAPI Home/plane convention: +Z = base +Z (arm mounted flat
+    # on the table), +X = base +Y (left in the d405_left image at Home), Home = poke_home.
+    model_from_base: [-0.130002475, -0.180559866, 0.179801155, -0.707106781, 0.0, 0.0, 0.707106781]
+    # Control point: tcp_site = YAM flange centre, which is Poke's control point; no offset.
+    flange_from_tcp: [0, 0, 0, 1, 0, 0, 0]
+    # Home tool orientation -> Poke Home quaternion [0, 1, 0, 0] (xyzw).
+    flange_from_model_tool: [0.0, 0.0, 0.0, 0.707109016, 3.4455e-05, -3.6255e-05, -0.707104544]
+execution:
+  ik:
+    mode: chunk
+    failure_policy: hold_last_valid
+executor:
+  type: direct
+robogui:
+  policy_label: Poke-Aurora - left arm - blocks - Serial + Direct

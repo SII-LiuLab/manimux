@@ -1,0 +1,15 @@
+robot:
+  group_dims:
+    left_arm: 7
+    right_arm: 7
+  options: {}
+  type: yam
+command_safety: null
+motion_limits:
+  arm:
+    max_velocity: 0.8
+    max_acceleration: 2.0
+  gripper:
+    max_velocity: null
+    max_acceleration: null
+    max_closing_velocity: null

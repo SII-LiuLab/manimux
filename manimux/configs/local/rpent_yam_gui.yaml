@@ -1,0 +1,7 @@
+# RoboGUI experiment: Execution offers Direct VLA / RPent on the local YAM station.
+_base_: ../examples/rpent_pi05_yam.yaml
+agent:
+  config: rpent_yam_agent.yaml
+robot:
+  options:
+    execute: true  # RPent executes on the arms; false only for a requested dry run

@@ -1,0 +1,26 @@
+_base_: ../experiments/sapolicy-custom/put_bottles/caps1010_3task_async48_z22.yaml
+run:
+  task_prompt: put the plastic bottles in the bin
+  experiment_template: null
+  max_control_steps: 20000
+experiment:
+  task: put_bottles
+  variant: wristcur_isaac_last_raw_25k_async45_v08_a20
+evaluation: null
+policy:
+  expected_backend:
+    model:
+      checkpoint_source: sha256:e17cb88b7bb8ae800177deb5c922c25c9a58a75653e21c3d00264212e0309cc2
+policy_server:
+  config: /home/ubuntu/manimux/manimux/configs/local/wristcur_isaac_policy.yaml
+robogui:
+  policy_label: SAPolicy wristcur + Isaac | last RAW 25k | bottles | async exec45
+    | arm 0.8 rad/s, 2.0 rad/s2
+inference:
+  algorithm: async
+  chunk_policy_steps: 45
+  max_chunk_policy_steps: null
+executor:
+  smooth:
+    max_velocity: 0.8
+    max_acceleration: 2.0

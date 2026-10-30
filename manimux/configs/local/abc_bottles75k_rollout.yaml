@@ -1,0 +1,13 @@
+_base_: ../experiments/abc_dit-yam-put-bottles-pretrained-200k/put_bottles/rtc_200k_mount22.yaml
+run:
+  task_prompt: throw plastic bottles in bin
+  experiment_template: null
+evaluation: null
+experiment:
+  task: put_bottles
+  variant: abc_official_bottles75k_rtc200k_settings
+policy_server:
+  config: abc_bottles75k_policy.yaml
+robogui:
+  policy_label: 'ABC-DiT official bottles 75k | 200k settings: RTC prefix4 lead7 exec20
+    | fast | mount +2.2 cm'

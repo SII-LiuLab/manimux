@@ -1,0 +1,43 @@
+policy_name: ABC_DiT
+protocol: ws
+host: 127.0.0.1
+port: 8530
+task_name: throw_plastic_bottles_in_bin
+env_cfg_type: yam_dual
+robot_action_dim_info:
+  arm_dim:
+  - 6
+  - 6
+  ee_dim:
+  - 1
+  - 1
+num_envs: 1
+action_type: joint
+eval_batch: false
+model_path: /media/ubuntu/CY的三星T7/ManiMux/checkpoints/finetuned/ABC-DiT/bottles_75k/bottles_75k.pt
+checkpoint_source: sha256:c1da365f220ca8482b1dcd35675cdb77c5d1fd1a7e07025d0835e1f3c4556e26
+norm_stats_path: null
+prompt: null
+camera_map:
+  top: cam_head
+  left: cam_left_wrist
+  right: cam_right_wrist
+action_horizon: 30
+num_steps: 10
+rtc_prefix_length: 4
+inference_seed: 0
+device: cuda:0
+fast_inference: true
+allow_tf32: false
+backend_identity:
+  fields:
+  - policy_name
+  - task_name
+  - checkpoint_source
+  - action_horizon
+  - num_steps
+  - rtc_prefix_length
+  - inference_seed
+  model:
+    policy_family: abc_dit
+    action_semantics: absolute_joint_position

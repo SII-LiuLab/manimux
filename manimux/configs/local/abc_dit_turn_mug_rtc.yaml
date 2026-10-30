@@ -1,0 +1,8 @@
+_base_: ../experiments/abc_dit-yam-put-bottles-pretrained-200k/put_bottles/rtc_200k_mount22.yaml
+run:
+  task_prompt: turn the mug right side up
+  experiment_template: null
+experiment:
+  task: turn_mug_right_side_up
+  variant: rtc_200k_mount22
+evaluation: null

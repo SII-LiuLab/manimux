@@ -1,0 +1,8 @@
+id: sapolicy-wristcur-noisaac-d435top
+recording:
+  root: ../../../data/experiments
+experiments:
+- id: put_bottles_wristcur_noisaac_async45_d435top
+  config: wristcur_noisaac_d435top_rollout.yaml
+  trials:
+    repeats: 3

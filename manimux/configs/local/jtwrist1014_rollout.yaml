@@ -1,0 +1,26 @@
+_base_: ../experiments/sapolicy-custom/put_bottles/caps1010_3task_async48_z22.yaml
+run:
+  task_prompt: put the plastic bottles in the bin
+  experiment_template: null
+  max_control_steps: 20000
+experiment:
+  task: put_bottles
+  variant: jtwrist1014_hightcp_futtcp_own16_final_raw_async45_v08_a20
+evaluation: null
+policy:
+  expected_backend:
+    model:
+      checkpoint_source: sha256:d6e67674657a83f9c9735359191704b7242dcb628695d8f71a7014843a5f6f18
+policy_server:
+  config: /home/ubuntu/manimux/manimux/configs/local/jtwrist1014_policy.yaml
+robogui:
+  policy_label: SAPolicy bottles jtwrist1014 hightcp futtcp own16 | final RAW | async exec45 |
+    arm 0.8 rad/s, 2.0 rad/s2
+inference:
+  algorithm: async
+  chunk_policy_steps: 45
+  max_chunk_policy_steps: null
+executor:
+  smooth:
+    max_velocity: 0.8
+    max_acceleration: 2.0

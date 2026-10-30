@@ -1,0 +1,21 @@
+# RPent experiment on hosted Dream-1.
+# Base: Serial (one request at a time), 10 Hz rows interpolated at 100 Hz; Direct executor.
+_base_: ../examples/dream1-yam/serial-slow10.yaml
+agent:
+  config: rpent_dream1_agent.yaml
+run:
+  max_control_steps: 0  # no step limit (base: 6000); Finish ends the rollout
+robogui:
+  policy_label: Dream-1 beta - Serial + Direct - 10 Hz / 100 Hz - RPent
+# Direct instead of the base Smooth executor (as dream1-yam/async-slow10.yaml does).
+executor:
+  type: direct
+# RPent sets rows per call (execute_policy.use_length); a configured chunk cap is rejected.
+inference:
+  chunk_policy_steps: null
+  max_chunk_policy_steps: null
+  # RPent holds the arms while a call waits, so a slower reply (an expired Dream session
+  # costs one extra ~3 s round trip) is still valid.
+  max_plan_age_s: 10.0
+policy:
+  timeout_s: 10.0

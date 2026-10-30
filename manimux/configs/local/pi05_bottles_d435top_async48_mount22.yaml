@@ -1,0 +1,8 @@
+_base_: ../experiments/pi05-yam-put-bottles-abc-realsim-step20000/put_bottles/async48_mount22.yaml
+run:
+  # 100 s at 100 Hz (base 6000 = 60 s).
+  max_control_steps: 10000
+camera_server:
+  config: cameras_d435top.yaml
+experiment:
+  variant: async48_mount22_d435top
