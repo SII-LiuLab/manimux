@@ -5,10 +5,35 @@ description: Deploy a supported ManiMux model recipe on an installed local stati
 
 # ManiMux Deployment
 
+## Robot authorization — required for every task
+
+Without explicit user permission, do not start or restart a robot, connect its
+controller, enable actuators, or cause robot motion. This includes Prepare, Warmup
+on connected hardware, Start, Home, gripper calibration, replay and recovery/release.
+Invoking this skill or requesting integration, configuration, testing, evaluation or
+video capture does not grant that permission. Reuse explicit authorization already
+given for the same robot and operation; do not ask for it repeatedly.
+
+Complete configuration, code and disconnected validation first. If permission is
+missing, show the concrete robot, resolved configuration and intended operations,
+then ask before the first hardware-affecting action. Configuration review is not
+robot-start authorization. Leave physical controls with the operator by default.
+`execute: false`, “dry run” and “warmup” are not evidence of isolation: constructors,
+connect and cleanup can move hardware. Use disconnected models/fake devices offline.
+A separately authorized GUI/model/camera service launch may proceed only after
+verifying it will not connect or actuate the robot. Preserve existing service and
+hardware ownership; do not stop, restart or release an active robot to test a change.
+
+All models/backends must follow the [shared integration contract](../manimux-development/references/policies.md#mandatory-shared-contract-for-every-model-and-backend).
+Reuse resolved embodiment/tool geometry and station calibration before asking for
+missing physical facts. Do not introduce a backend-specific `native` action path
+for convenience. Only a demonstrated inability to conform justifies requesting an
+explicit user-approved exception; legacy implementations are not new templates.
+
 Take a fresh conversation from a model/task request to RoboGUI waiting for the operator.
 Use the [managed launch guide](../../../guideline.html#managed-deployment) for commands.
 This workflow manages one runtime `--config`, XPolicyLab WebSocket serving or a hosted
-policy API (Dream-1), cameras and RoboGUI on Linux with tmux. Use `--external-policy` for an existing local/remote
+policy API, cameras and RoboGUI on Linux with tmux. Use `--external-policy` for an existing local/remote
 model endpoint and `--external-camera` for existing camera-server network readers.
 These dependencies are probed but never started, adopted or stopped; keep their existing
 service owners and network tunnels available. Config-list studies and other model
@@ -75,8 +100,10 @@ the user only starts and controls RoboGUI. Contracts are in the
      Prefer a Serial base with the station's normal interpolation and executor (e.g. Dream-1
      `serial-slow10`: Smooth, 10 Hz rows at 100 Hz). Clear `chunk_policy_steps` and
      `max_chunk_policy_steps` when the base sets a chunk cap; keep blending off.
-     Using RPent means executing on the robot: with `execute: false` motion tools never
-     reach measured arrival and fail. Use `false` only for a dry run the user asks for.
+     Physical motion tools require a real execution configuration and measured arrival;
+     `execute: false` is not a substitute for an offline fake-device test. Preparing an
+     execution recipe or choosing RPent does not authorize connecting or starting the
+     robot. Keep all offline probes disconnected and hand physical startup to the operator.
 3. Verify without opening devices: resolve the experiment with `load_config`, build the
    robot offline and construct `MotionTools` from the motion profile, import
    `manimux.agents.rpent.toolkit` with `agent.python`, run `manimux doctor` and the

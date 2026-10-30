@@ -585,6 +585,12 @@ waits for the in-flight request, then acknowledged backend reset; only a fresh s
 observation enters formal execution. Warmup timings remain separate from formal metrics.
 The control mailbox suppresses activation/selection on stale transport snapshots.
 
+Physical position hold latches the measured pose after Prepare, on entry to Pause
+(including control-loss and agent holds), and after Home. Waiting and Warmup keep
+that target fixed; they never update it from each tick's measured position. Resume
+clears the latch so the next Pause captures a fresh pose. This is position control,
+not manual drag, and does not change controller gains or gravity compensation.
+
 RPent with policy calls enabled uses this same optional activation flow. Its preview retains the selected
 VLA prompt, horizon and runtime settings and reuses policy-call gripper and
 calibrated path validation. The original operator pause state drives warmup;

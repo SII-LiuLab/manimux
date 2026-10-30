@@ -191,6 +191,17 @@ requirements must remain explicit through supported solver configuration/API;
 never drop bounds, tolerances or failure behavior to fit a common signature.
 RoboGUI display placement is not a calibrated arm-base transform.
 
+Adapters must obtain this geometry from the resolved assembly/model, not require the
+user to duplicate it as per-model calibration. If an integrated kinematics model
+exposes TCP FK/IK but not a needed flange/tool relationship, first inspect its source
+geometry and add reusable model access when available. The absence of that accessor
+does not mean the physical station needs remeasurement. Do not assume every current
+model already implements `FlangeKinematicsBase`. Installation-dependent calibration
+must have its own verified station source; an unavailable measurement remains unknown.
+Follow the shared [information ownership workflow](policies.md#resolve-geometry-and-station-facts-before-asking-the-user)
+and test with nonidentity geometry to demonstrate that the selected model's values
+reach the adapter without hardcoded defaults or hardware connections.
+
 YAM IK settings belong in the arm component's `options`, shared by model adapters.
 `pos_threshold` defaults to `0.0001` metres. An explicit YAML `null` disables only
 final position-residual acceptance in chunk and step IK. Optimization still pursues

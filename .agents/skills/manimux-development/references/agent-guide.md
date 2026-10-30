@@ -12,6 +12,10 @@ Skills route agents to these same maintained protocol guides.
 
 ## Engineering discussion rule
 
+- Explain specialized terms on first use with their concrete inputs, outputs, owning
+  layer and an example when useful. Do not use terse labels such as “native passthrough”
+  as a substitute for explaining what is preserved, converted and validated. Give
+  enough detail for the user to assess the design and its implementation status.
 - Do not begin a response to a challenge with an automatic apology or concession.
   A question or counterexample is a request to examine the design, not an instruction
   to abandon it. Inspect evidence and state your own project-level judgment first.
@@ -26,6 +30,23 @@ Skills route agents to these same maintained protocol guides.
   configuration migration, service restarts or hardware motion.
 
 ## Documentation ownership
+
+Skills are reusable instructions for agents working with a user's own models and
+station. Put shared requirements and inspection/validation steps before examples.
+Do not turn one user's checkpoint, arm, calibration, window size or experiment into
+a default rule. Keep model-specific facts in references, identified as examples or
+documented constraints. All models/backends obey the
+[shared protocol and exception gate](policies.md#mandatory-shared-contract-for-every-model-and-backend):
+conform first; only a demonstrated inability to conform justifies requesting explicit
+user approval for a native exception. Existing exceptions do not authorize new ones.
+
+Every skill entry point must explicitly prohibit starting/connecting or actuating a
+robot without user permission, including skills that usually only render or evaluate
+saved data. Preserve that direct rule when adding, splitting or distributing a skill;
+a reference link or a claim that a command is a dry run is insufficient. Honor already
+granted authorization for its exact scope. Prepare a concrete, disconnected-validated
+result before requesting any missing hardware authorization. A configuration review
+and a protocol-exception approval each remain separate from robot-start permission.
 
 Root `README.md` explains project purpose, architecture and entry points. Directory
 READMEs locate that directory's files and ownership boundaries; they are not duplicate

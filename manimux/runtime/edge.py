@@ -681,6 +681,10 @@ class EdgeRuntime(PlanningContext):
             preparation.update("Preparing action execution")
             self._execution.warmup(initial_state.groups)
             last_command = copy_group_vector(initial_state.groups)
+            # Position hold is latched, not a measured-position follower. Seed
+            # it after Prepare so waiting/Warmup cannot ratchet external motion
+            # or gravity-compensation error into a new target every tick.
+            hold_target = copy_group_vector(initial_state.groups)
             self._state = RuntimeState.RUNNING
             robogui_episode_metadata = {
                 "episode_active": True,
@@ -878,6 +882,7 @@ class EdgeRuntime(PlanningContext):
                     self._scheduler.reset()
                     previous_command = copy_group_vector(state.groups)
                     last_command = copy_group_vector(state.groups)
+                    hold_target = copy_group_vector(state.groups)
                     discard_responses_through = max(discard_responses_through, request_seq)
                     pending_observation_states.clear()
                     self._state = RuntimeState.PAUSED
@@ -891,6 +896,23 @@ class EdgeRuntime(PlanningContext):
                     next_tick_ns = self._clock.now_ns()
                     timing.end()
                     continue
+                holding = robogui_control.paused or (warmup is not None and not warmup.complete)
+                if holding:
+                    if hold_target is None:
+                        # Capture once on entry to Pause (including control-loss
+                        # and agent holds), without pulling back to an old plan.
+                        hold_target = copy_group_vector(state.groups)
+                        recorder.event(
+                            "position_hold_latched", step=steps,
+                            targets={name: values.tolist() for name, values in hold_target.items()},
+                        )
+                    hold_state = RobotState(
+                        copy_group_vector(hold_target), state.monotonic_ns, state.sequence,
+                    )
+                else:
+                    # The next Pause must latch its own position, not reuse the
+                    # Prepare or previous Pause target.
+                    hold_target = None
                 if warmup is not None and not warmup.complete:
                     self._state = RuntimeState.PAUSED
                     before = warmup.metadata()
@@ -952,10 +974,10 @@ class EdgeRuntime(PlanningContext):
                         recorder.update_metadata(warmup=status)
                     robogui_episode_metadata["warmup"] = status
                     self._robogui.set_state_metadata(robogui_episode_metadata)
-                    # Preserve the existing paused hold; model output never reaches it.
-                    self._executor.reset(state)
-                    command = self._hold_command(self._clock.now_ns(), state.groups)
-                    self._safety.reset(state)
+                    # Preview output never replaces the latched physical hold.
+                    self._executor.reset(hold_state)
+                    command = self._hold_command(self._clock.now_ns(), hold_target)
+                    self._safety.reset(hold_state)
                     self._send_command(command, state, recorder, step=steps)
                     previous_command = copy_group_vector(last_command)
                     last_command = copy_group_vector(command.groups)
@@ -1661,9 +1683,10 @@ class EdgeRuntime(PlanningContext):
                         self._executor.reset(held_state)
                         command = self._hold_command(now_ns, last_command)
                 else:
-                    # Pause holds measured state and clears execution history.
-                    self._executor.reset(state)
-                    command = self._hold_command(now_ns, state.groups)
+                    # Hold the entry pose until Resume/Home; external motion
+                    # must not continuously redefine the position target.
+                    self._executor.reset(hold_state)
+                    command = self._hold_command(now_ns, hold_target)
                     self._safety.reset(
                         RobotState(
                             copy_group_vector(command.groups),

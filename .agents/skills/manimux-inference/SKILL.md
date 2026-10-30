@@ -5,6 +5,31 @@ description: Select, configure or verify ManiMux inference algorithms and model-
 
 # ManiMux Inference
 
+## Robot authorization — required for every task
+
+Without explicit user permission, do not start or restart a robot, connect its
+controller, enable actuators, or cause robot motion. This includes Prepare, Warmup
+on connected hardware, Start, Home, gripper calibration, replay and recovery/release.
+Invoking this skill or requesting integration, configuration, testing, evaluation or
+video capture does not grant that permission. Reuse explicit authorization already
+given for the same robot and operation; do not ask for it repeatedly.
+
+Complete configuration, code and disconnected validation first. If permission is
+missing, show the concrete robot, resolved configuration and intended operations,
+then ask before the first hardware-affecting action. Configuration review is not
+robot-start authorization. Leave physical controls with the operator by default.
+`execute: false`, “dry run” and “warmup” are not evidence of isolation: constructors,
+connect and cleanup can move hardware. Use disconnected models/fake devices offline.
+A separately authorized GUI/model/camera service launch may proceed only after
+verifying it will not connect or actuate the robot. Preserve existing service and
+hardware ownership; do not stop, restart or release an active robot to test a change.
+
+All models/backends must follow the [shared integration contract](../manimux-development/references/policies.md#mandatory-shared-contract-for-every-model-and-backend).
+Reuse resolved embodiment/tool geometry and station calibration before asking for
+missing physical facts. Do not introduce a backend-specific `native` action path
+for convenience. Only a demonstrated inability to conform justifies requesting an
+explicit user-approved exception; legacy implementations are not new templates.
+
 Read [development](../manimux-development/SKILL.md) before implementation and the
 [model matrix](references/inference-matrix.md) for the selected deployment. Trace the
 experiment through `read_experiment`, its model recipe, adapter and loaded backend.
@@ -67,14 +92,15 @@ EE motion for scoring. Return full chunks plus execution metadata so fixed-horiz
 adapters decode before runtime cropping. Do not score relative rows as absolute joints.
 DP's observation history and `n_obs_steps - 1` output offset remain model contracts.
 
-## Withdrawn model combinations
+## Respect measured compatibility
 
-LingBot-VLA2 RTC was withdrawn on 2026-10-18 after real-checkpoint latency and
-recording audits. Do not generate RTC variants or recommend historical LingBot
-RTC lists. PAINT/AutoHorizon retain their separate support boundaries. A callable
-sampler is not proof of real-time feasibility; require conditioned-request latency,
-actual execution/condition coverage and explicit fallback accounting before
-claiming a model-algorithm combination is ready for a physical study.
+Consult the dated [model matrix](references/inference-matrix.md) and current backend
+capabilities before recommending or generating a combination. Do not revive withdrawn
+combinations by copying historical recipes. Each algorithm has its own support boundary.
+A callable sampler is not proof of real-time feasibility; require conditioned-request
+latency, actual execution/condition coverage and explicit fallback accounting before
+claiming a model-algorithm combination is ready for a physical study. Record new evidence
+before changing a compatibility decision; one model's result is not a rule for all models.
 
 ## Compilation settings
 
@@ -96,8 +122,10 @@ compilation/cache, task prompt, horizon, window, guidance and candidate count un
 Never substitute ordinary sampling for AutoHorizon/RTC/PAINT/BID or fabricate a held
 pose as a conditioning trajectory. Conditions come from an isolated preview timeline.
 
-Use real sensor/state observations; discard computed commands at the hardware boundary.
-A preview is not closed-loop robot validation. Keep preview histories and counters out
+On an explicitly authorized connected station, use real sensor/state observations and
+discard computed commands at the hardware boundary. Without robot authorization, use
+recorded observations and disconnected devices; label this as offline verification,
+not station Warmup. A preview is not closed-loop robot validation. Keep preview histories and counters out
 of formal trials, drain worker/decoder output and acknowledge backend reset before
 Start. Verify serial/progress cadence, conditioned requests, adaptive horizons, step
 and chunk IK, process decoding, error visibility and zero predicted-command dispatch

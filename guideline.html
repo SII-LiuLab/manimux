@@ -544,6 +544,34 @@ Only ordinary sampling is supported: RTC, PAINT and multi-inflight are not
 advertised. Smooth limits and filters commands but cannot fix stale predictions,
 network stalls or incorrect model trajectories. API and offline checks do not
 establish physical task success.</p>
+<h4 id="poke-api">Poke-Aurora</h4>
+<p><code>policy.worker: poke_api</code> connects to
+<code>https://api.pokebot.com/v1</code> without an additional SDK or local model service.
+Set <code>PLATFORM_API_KEY</code> in the runtime environment. The client queries
+the available models and schema, then sends one wrist RGB image, instruction and
+eight-coordinate state to <code>/chat/completions</code>. The
+<a href="https://developers.pokebot.com/zh/docs/roboapi/latest/cloud-api">Poke API</a>
+returns absolute model-frame flange poses through <code>execute_actions</code>.
+This is a different action contract from Dream-1's dual-arm joint output.</p>
+<p>Start from <code>manimux/configs/examples/poke-yam/serial-example.yaml</code>.
+Its right-arm selection is a template; the other arm holds its runtime reference.
+The Poke adapter converts xyzw quaternions, calibrated model coordinates and flange
+targets into the configured robot's TCP frame, then uses its existing IK.
+Configure <code>model_from_base</code>, <code>flange_from_tcp</code> and the
+rotation-only <code>flange_from_model_tool</code> as xyz/wxyz poses.
+The template leaves these unset and disables execution. See
+<a href="https://developers.pokebot.com/zh/docs/roboapi/latest/calibration">Poke's
+Home/plane calibration convention</a>; no additional robot runtime is required.</p>
+<pre><code>python -m manimux inspect --config manimux/configs/examples/poke-yam/serial-example.yaml
+python -m scripts.validation.poke_api_probe --config /path/to/calibrated-poke.yaml --recorded-observation /path/to/observation.npz --calls 3 --output /tmp/poke-probe.json</code></pre>
+<p>The probe constructs no hardware drivers. Use <code>--model-state /path/to/state.json</code>
+with an explicit model-frame eight-number array for an interface-only test that skips FK/IK.
+Every response is saved before validation under <code>data/diagnostics/poke-api</code>,
+with request ID, input identity and timing. The current integration uses stateless
+calls; cloud sessions and execution receipts are not implemented. It does not retry
+failed requests or claim that predicted actions were physically executed.
+Only default sampling with one request in flight is supported. Targets use 30 Hz;
+the example plays a complete chunk on receipt, so network latency remains observation lag.</p>
 <h3 id="time-rate-and-handoff-parameters">Time, rate and handoff parameters</h3>
 <table>
 <thead>
@@ -2006,6 +2034,10 @@ task when it remains available. Each task remembers its own selection during thi
 show their current phase and elapsed time. A progress heartbeat means the reporter is alive,
 not that the robot has reached its target. If the heartbeat is lost, the UI marks hardware
 state unknown and keeps another Prepare blocked until the runtime reports completion or failure.</p>
+<p>After Prepare, the robot holds its reached pose while waiting and warming up.
+Pause holds the position measured when pausing; Home replaces it with the reached Home pose.
+These targets stay fixed until the next transition, rather than following hand movement
+or drift. Pause / Hold is position control, not a manual-drag mode.</p>
 <ol>
 <li>Use <strong>Prepare Run</strong> for a free trial. For a scored trial, reset the scene, select <strong>Layout</strong>, then click <strong>Prepare Experiment</strong>; its Top reference is attached automatically.</li>
 <li>Hover over the Top layout reference and click its expand icon to fill the browser window. The image keeps its aspect ratio; press Escape or click the close button to return.</li>

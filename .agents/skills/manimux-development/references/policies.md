@@ -3,6 +3,124 @@
 Source paths below are relative to the repository root. Read
 `.agents/skills/manimux-development/references/components.md` for payload examples and migration limits.
 
+## Mandatory shared contract for every model and backend
+
+These requirements apply to every model, checkpoint, embodiment, local framework and
+hosted API. Backend-specific examples below describe implementation details; they do
+not exempt an integration from this contract. An older implementation is evidence to
+inspect, not permission to reproduce its protocol gaps.
+
+The shared path is:
+
+```text
+robot observation -> PolicyAdapter.prepare_request -> PolicyModel client/wire codec
+backend response -> client/wire codec -> grouped joint/pose payload
+                 -> PolicyAdapter.decode_action -> ActionChunk
+                 -> shared scheduling/executor -> robot command boundary
+```
+
+`PolicyModel` supplies reset, inference, capabilities and close. The client translates
+the backend's transport and field names. The adapter maps observations and actions to
+the configured embodiment, using its geometry. Runtime owns timing, admission and
+execution. Different HTTP/WebSocket protocols do not justify different runtime action
+contracts. Reuse an existing compatible adapter before creating another one.
+
+For every integration, establish and validate both observation and action contracts:
+
+- Images: physical sensor mapping, image keys, ordering, color space and preprocessing.
+- State/actions: group and coordinate order, representation, units, absolute/delta
+  meaning and delta anchor; pose reference frame, controlled point (flange or TCP),
+  quaternion order, and tool/gripper meaning and range.
+- Timing: observation identity/time, action interval, horizon, retained source offsets,
+  request/reset association and metadata used by scheduling or sampling.
+- Capabilities: supported sampling/conditioning modes, condition coordinate space,
+  reset/failure behavior and explicit refusal of unsupported combinations.
+
+Do not infer semantics from vector width, a model name or an example's defaults.
+Convert wire field names, array layout, units and quaternion order in the codec using
+documented semantics. Use the adapter and configured geometry for physical frame,
+control-point and embodiment conversion. Preserve the meaning through every boundary;
+do not relabel flange coordinates as TCP coordinates to satisfy a shape check.
+
+The current grouped reader is `manimux/policies/actions.py`; it validates formats,
+groups, finite matrices and horizons. `PolicyModel.infer()` currently returns `object`,
+and not every semantic item above has a typed, centrally validated field. These are
+implementation gaps, not exemptions. Inspect the actual recipe, metadata and adapter
+contract; add a shared declaration/validation where needed instead of inventing an
+unsupported YAML field or claiming the method signature guarantees compatibility.
+
+### Native payloads require a justified, user-approved exception
+
+Here `native` means preserving backend-specific action data for a designated adapter
+to interpret, instead of converting it into the common grouped `joint` or `pose`
+representation at the client boundary. It does not mean permission to send API output
+directly to motors. It couples that client to that decoder and makes cross-backend
+validation and adapter reuse harder. Backend-native HTTP/MessagePack transport and
+model-internal tensors are different concepts; they can remain behind a common client.
+
+New or changed integrations MUST use the shared representation when it can express
+the required semantics. Different JSON keys, flat arrays, quaternion order, units,
+single/dual-arm layouts, gripper conventions, additional mapping work or the existence
+of a legacy native adapter are not reasons to add another native action path.
+
+Before proposing an exception:
+
+1. Inspect the shared action reader, compatible adapters, model schema and resolved
+   embodiment. Attempt a concrete mapping and identify the exact semantic requirement
+   the shared contract cannot express; show an example input/output and its meaning.
+2. Determine whether a reusable extension of the shared contract solves the gap.
+   Prefer that extension when appropriate. Missing conversion code or missing exposed
+   geometry is work to implement in its owning layer, not evidence of impossibility.
+3. Only if conformance is genuinely infeasible, present the specific limitation,
+   alternatives considered, affected capabilities and smallest proposed exception.
+   Ask for the user's explicit confirmation before implementing or selecting a new
+   native fallback. Silence, general integration permission and prior legacy usage
+   do not approve this exception. Continue independent conforming work while pending.
+4. If approved, document its scope, schema, frames/units/timing, paired decoder,
+   validation, failure behavior, tests and the user's decision in the integration
+   record. Keep ordinary decoding, command validation and runtime ownership intact.
+
+Never silently fall back to native after canonical decoding fails. Preserve working
+legacy deployments outside the requested scope, but do not present them as conforming
+new templates. A shared-contract migration should preserve model/control semantics
+and be verified before switching an existing deployment.
+
+### Resolve geometry and station facts before asking the user
+
+Read the resolved experiment and recipe, selected robot assembly/groups, component and
+tool models, private station bindings/calibration and model input/output schema. Trace
+the real loaders and record the source of each value. Use an offline `RobotModel` and
+the same injected kinematics used by runtime; do not connect hardware for discovery.
+
+Ownership is independent of which model happens to need the information:
+
+| Information | Owning source |
+| --- | --- |
+| Joint order/units, link geometry, flange-to-TCP/tool geometry | Embodiment/component/tool model |
+| Component mounts and physical control groups | Robot assembly |
+| Device addresses, physical camera/arm mapping, measured station extrinsics | Reusable private station bindings/calibration |
+| Training/model frame, controlled point, normalization, output convention | Model contract and model transforms |
+| Mapping selected model inputs/actions to the installed assembly | Adapter composed from those sources |
+
+Automatically reuse and validate available data. Do not ask the user to re-enter known
+geometry, select an arm already selected by the recipe, or remeasure an existing
+calibration just because a new model is being integrated. If geometry exists but the
+public model API does not expose it, implement the reusable access in that layer.
+Do not copy intrinsic tool geometry into every policy's calibration fields.
+
+Only genuinely missing physical facts or conflicting/unresolved user choices require
+a question. Route missing measurements to station setup or new-embodiment setup;
+identify the missing quantity, inspected sources, required measurement and why it is
+needed. Continue client/conversion/offline work independently. Never invent identity
+transforms, infer left/right from enumeration, or treat GUI display placement as
+calibration. Clearly mark synthetic transforms as test fixtures.
+
+After writing the integration, show the selected groups/cameras, observation/action
+meaning, transform chain, source files and resolved values, validation results and
+remaining unknowns for user review. Do the discovery, mapping and writing first;
+ask the user to check the concrete result, not design the adapter or fill an empty
+template. That review does not authorize robot startup.
+
 ## Classify the integration first
 
 Do not infer the integration layer from an upstream repository name or from the fact
@@ -84,11 +202,13 @@ in `manimux/policies/xpolicylab/codec.py` selects grouped or native output:
   order. Format describes representation, not absolute versus delta semantics.
 - `pose`: per-group rows `[x, y, z, qw, qx, qy, qz, tool...]`, translation in metres.
   The selected adapter must define the frame and absolute/delta interpretation.
-- `native`: explicit specialized/unmigrated representation. Document its decoder
-  pairing; do not silently guess a layout from vector width.
+- `native`: existing specialized/unmigrated representation, subject to the
+  [exception gate](#native-payloads-require-a-justified-user-approved-exception).
+  It is not an equal default choice for new integrations.
 
 The XPolicyLab client selects these through `policy.options.action_format`; its
-default is currently `native`. Migrated joint/pose adapters therefore need the
+default is currently `native`; this is a legacy compatibility default, not guidance
+for new integrations. Migrated joint/pose adapters therefore need the
 matching explicit experiment option. Wire field names belong in the client/codec;
 do not import an XPolicyLab codec into a new backend-independent action adapter.
 Retain action semantics and sampler metadata such as AAC/PAINT/AutoHorizon
@@ -155,6 +275,67 @@ timestamps are playback timestamps, not fresh camera feedback. The report includ
 accepted/rejected plans, raw response paths and a `.commands.npz` artifact for every
 would-be command. This validates the software path, not live observation freshness,
 physical tracking or task success.
+
+### Poke-Aurora API
+
+Implementation status: the initial Poke codec returns a native action payload and
+its adapter takes explicit transform fields. This does not yet satisfy the shared
+contract above and is not a template for another API. Review/migrate the payload to
+the common pose contract and resolve geometry from its owning sources; existing code
+does not constitute user approval of a native exception. The details below describe
+the current software path, not a completed protocol migration or calibrated station.
+
+`policy.worker: poke_api` uses Poke's HTTPS OpenAI-compatible endpoint through
+Python's standard library. It is separate from `dream_api`: Dream-1 beta returns
+dual YAM joints, while Poke-Aurora uses one wrist RGB image and absolute flange
+targets `[x,y,z,qx,qy,qz,qw,gripper]` in a calibrated model frame. Source contract:
+[cloud API](https://developers.pokebot.com/zh/docs/roboapi/latest/cloud-api),
+[coordinates](https://developers.pokebot.com/zh/docs/roboapi/latest/inputs), and
+[calibration](https://developers.pokebot.com/zh/docs/roboapi/latest/calibration).
+
+The client checks `/models` and the selected model's `/schema` on reset, sends
+one stateless `/chat/completions` request per observation, and decodes exactly
+one `execute_actions` tool call. The initial recipe selects `poke-aurora-preview`,
+40 rows at 30 Hz. Delivered row count is validated against schema and optional
+`metadata.action_shape`; request IDs come from `X-Request-ID`. PNG resizing
+preserves aspect ratio, without cropping, rotation or mirroring. Credentials
+come from `PLATFORM_API_KEY`; the base URL is explicit YAML. There are no retries,
+redirects, SDK episode recordings, or fabricated cloud execution receipts.
+Cloud `/sessions` and execution-feedback history are not implemented: the
+PolicyModel contract does not receive actual dispatched-step receipts. Local
+reset fences request identities only. Default sampling and single-inflight are
+the only advertised capabilities.
+
+`PokePoseAdapter` uses the configured robot's FK/IK, selected `controlled_group`
+and `camera`. Other robot groups hold the runtime-selected reference. Three
+explicit xyz/wxyz poses describe `model_from_base`, `flange_from_tcp`, and the
+rotation-only `flange_from_model_tool` orientation alignment:
+
+```
+model_T_tool = model_T_base @ base_T_tcp @ inv(flange_T_tcp) @ flange_T_model_tool
+```
+
+The inverse maps provider targets back to configured TCP targets. This includes
+the orientation alignment used by RoboAPI 0.4.5's Home/plane calibration; a
+change of quaternion order alone is insufficient. Missing transforms fail at
+adapter construction. Do not replace missing station calibration with identities
+or claim a synthetic transform is physically calibrated. IK rejects the entire
+chunk on failure; the configured executor still owns smoothing and limits.
+
+All responses, including malformed JSON and transport errors, are saved before
+decoding to `data/diagnostics/poke-api`, using shared `policies/diagnostics.py`.
+Raw actions remain intact. The documented gripper tolerance is 0.01: small
+overshoot is clipped with affected rows recorded, larger overshoot fails.
+Non-finite values and non-unit quaternions fail with row diagnostics.
+
+The template is `manimux/configs/examples/poke-yam/serial-example.yaml`, with
+unfilled station transforms and hardware execution disabled. It is not a
+qualified real-station rollout. `scripts/validation/poke_api_probe.py` uses
+recorded observations and the process worker, without creating a device driver.
+With configured transforms it checks FK, inference, IK, timeline admission and
+Smooth would-be commands. `--model-state <json>` explicitly selects an
+interface-only test and skips physical coordinate conversion; report this limit.
+Inputs must carry capture provenance, especially if image/state are not simultaneous.
 
 Read `manimux/policy_adapter/base.py` and its factory in `__init__.py`.
 `policy.adapter.type: module:Class` selects the class. Construction receives

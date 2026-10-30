@@ -5,6 +5,31 @@ description: Build a custom ManiMux real-robot study from a supported deployment
 
 # ManiMux Experiments
 
+## Robot authorization — required for every task
+
+Without explicit user permission, do not start or restart a robot, connect its
+controller, enable actuators, or cause robot motion. This includes Prepare, Warmup
+on connected hardware, Start, Home, gripper calibration, replay and recovery/release.
+Invoking this skill or requesting integration, configuration, testing, evaluation or
+video capture does not grant that permission. Reuse explicit authorization already
+given for the same robot and operation; do not ask for it repeatedly.
+
+Complete configuration, code and disconnected validation first. If permission is
+missing, show the concrete robot, resolved configuration and intended operations,
+then ask before the first hardware-affecting action. Configuration review is not
+robot-start authorization. Leave physical controls with the operator by default.
+`execute: false`, “dry run” and “warmup” are not evidence of isolation: constructors,
+connect and cleanup can move hardware. Use disconnected models/fake devices offline.
+A separately authorized GUI/model/camera service launch may proceed only after
+verifying it will not connect or actuate the robot. Preserve existing service and
+hardware ownership; do not stop, restart or release an active robot to test a change.
+
+All models/backends must follow the [shared integration contract](../manimux-development/references/policies.md#mandatory-shared-contract-for-every-model-and-backend).
+Reuse resolved embodiment/tool geometry and station calibration before asking for
+missing physical facts. Do not introduce a backend-specific `native` action path
+for convenience. Only a demonstrated inability to conform justifies requesting an
+explicit user-approved exception; legacy implementations are not new templates.
+
 Work from the user's checkout. Read the [repository guide](../manimux-development/references/agent-guide.md)
 before editing. This is the entry point for building or evaluating a user's own study;
 use the development skill only when a required component or behavior is missing.
@@ -108,10 +133,10 @@ The implemented protocol is documented in
 Do not create a second catalog format. Direct variant launches are unscored trials;
 formal scoring/progress requires `--config-list`.
 
-Publication is explicit: this checkout tracks only the `pi05-latest300ep-step30000`
-experiment group and its config list. Other studies remain local through `.gitignore`.
-Do not force-add ignored studies. If the user requests publishing another study,
-update the experiment and config list allowlists together and verify its dependencies.
+Publication is explicit. Inspect the current checkout's ignore rules and study
+allowlists; do not assume a previous user's published model or study applies here.
+Do not force-add ignored studies. If the user requests publishing a study, update
+its experiment and config list allowlists together and verify its dependencies.
 
 ## Build a new real-robot experiment
 
@@ -163,10 +188,11 @@ Follow the stages that remain unfinished; do not repeat an already working deplo
    refreshes the derived inventory; camera and generic policy `--check` do not start
    devices/model. Deliver all service commands with the same `--config-list`, station
    and explicit ID when service configuration differs. Use the model's environment.
-   This Pi05 comparison uses fixed 32-step windows, not 16; other models use the
-   agreed ratio. Report AutoHorizon separately as adaptive. Configuration work does
-   not authorize service startup or motion.
-6. **Collect and evaluate.** In interactive run mode select Task/Method/Layout → Prepare Run
+   Read window sizes and ratios from the active study protocol and resolved variants;
+   do not copy a previous model's numerical settings. Report adaptive horizons separately
+   from fixed windows. Configuration work does not authorize service startup or motion.
+6. **Collect and evaluate.** After explicit robot authorization, the operator (or an
+   agent authorized for those controls) selects Task/Method/Layout → Prepare Run
    or Prepare Experiment → Activate Warmup → Start → Finish → save/skip evaluation.
    Prepare may connect/move the robot as configured. Each attempt gets a new rollout;
    reset the scene per protocol. Report generation is a separate offline step below.
@@ -186,8 +212,9 @@ Before moving records, classify each saved manifest; keep adaptive selectors sep
 from fixed windows and distinguish Async refill/progress and RTC beta. Move whole
 sessions, preserve snapshots/labels, verify hashes and retain a path mapping. Historical
 aliases must not be counted alongside canonical paths. Update README, guideline and
-active catalog references when retiring launch entries. This user's Pi05 active protocol
-uses K=32; old K=16 records are archival and must not be supplied as new launch commands.
+active catalog references when retiring launch entries. Resolve the active protocol
+version from the current study; archived window sizes or other settings must not
+be supplied as new launch commands merely because old recordings used them.
 
 ## Evaluate saved trials
 

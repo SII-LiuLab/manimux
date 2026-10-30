@@ -5,6 +5,31 @@ description: Bind a ManiMux deployment to a local robot, cameras, SDK environmen
 
 # ManiMux Station Setup
 
+## Robot authorization — required for every task
+
+Without explicit user permission, do not start or restart a robot, connect its
+controller, enable actuators, or cause robot motion. This includes Prepare, Warmup
+on connected hardware, Start, Home, gripper calibration, replay and recovery/release.
+Invoking this skill or requesting integration, configuration, testing, evaluation or
+video capture does not grant that permission. Reuse explicit authorization already
+given for the same robot and operation; do not ask for it repeatedly.
+
+Complete configuration, code and disconnected validation first. If permission is
+missing, show the concrete robot, resolved configuration and intended operations,
+then ask before the first hardware-affecting action. Configuration review is not
+robot-start authorization. Leave physical controls with the operator by default.
+`execute: false`, “dry run” and “warmup” are not evidence of isolation: constructors,
+connect and cleanup can move hardware. Use disconnected models/fake devices offline.
+A separately authorized GUI/model/camera service launch may proceed only after
+verifying it will not connect or actuate the robot. Preserve existing service and
+hardware ownership; do not stop, restart or release an active robot to test a change.
+
+All models/backends must follow the [shared integration contract](../manimux-development/references/policies.md#mandatory-shared-contract-for-every-model-and-backend).
+Reuse resolved embodiment/tool geometry and station calibration before asking for
+missing physical facts. Do not introduce a backend-specific `native` action path
+for convenience. Only a demonstrated inability to conform justifies requesting an
+explicit user-approved exception; legacy implementations are not new templates.
+
 Read the [repository guide](../manimux-development/references/agent-guide.md) before
 editing and use the [station walkthrough](references/station.md) for commands and
 binding schemas. Paths are relative to the checkout. A clone does not install SDKs,
@@ -30,6 +55,15 @@ Camera/model services remain separate from the runtime command.
 
 ## Agent-assisted setup
 
+Apply the shared [information ownership and review workflow](../manimux-development/references/policies.md#resolve-geometry-and-station-facts-before-asking-the-user)
+for every model. Read the resolved assembly/groups, component/tool geometry, existing
+station calibration and model contract before questioning the user. Intrinsic tool
+geometry belongs to the embodiment/tool model; measured installation transforms belong
+to reusable station calibration. Do not request the same calibration for each backend.
+An inaccessible but already known geometry value needs a model API change, not another
+measurement. Only genuinely missing physical facts need setup questions or measurement.
+Never manufacture a calibration or copy another station's values to finish a template.
+
 Own the local setup work; do not hand the user a template and ask them to fill YAML.
 First inspect existing station bindings, intended Python environments, model assets,
 OS device/interface listings and occupied service ports using non-actuating checks.
@@ -52,6 +86,9 @@ config list. Help the user choose it once, then reuse it on subsequent launches.
 Return the written station path, a short binding summary, remaining unverified items
 and matched launch commands. Distinguish static validation from device connectivity
 and actual motion. Setup alone does not authorize launching services or moving hardware.
+Include each selected arm/camera and transform's source, resolved value and validation
+status. Ask the user to check this concrete mapping after the agent has written it;
+approval of that mapping is not permission to start the robot.
 
 ## Bind an existing deployment
 
@@ -90,7 +127,8 @@ and actual motion. Setup alone does not authorize launching services or moving h
   Address binding must not change action semantics, timing, FK/IK, limits or weights.
 - RoboGUI's Tianji preset is `--robot tianji`; the assembly/runtime identity is
   `tianji-taccap`. Match the deployment's identity rather than copying the CLI alias.
-- Read `execute`, `move_to_start_on_connect` and `home_on_close` from the experiment.
+- Read `execute`, `move_to_start_on_connect` and the selected assembly's cleanup/Home
+  behavior from the resolved configuration and current implementation.
   Prepare can cause motion; `execute: false` alone does not make a launch offline.
   Inspecting bindings or providing commands does not authorize service startup/motion.
 

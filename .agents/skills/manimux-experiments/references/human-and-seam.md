@@ -39,16 +39,22 @@ Keep differing rubric snapshots separate. The task report exposes both count
 and stage summaries in `scores_by_rubric`. Rule setup and examples are in
 [the study guide](../../../../guideline.html#experiments).
 
-## Seam calculation
+## Native-action seam calculation
 
-For a reviewed boundary between outgoing plan `o` and incoming plan `i`, let
-`t_i` be `committed.start_time_ns` of the incoming plan:
+For a study evaluating the model-plus-inference action-sequence join, use original
+model action rows after required coordinate/action decoding. Do not temporally
+interpolate either endpoint. This is the manuscript profile adopted on 2026-10-29;
+older same-time reference results remain a separately named diagnostic.
+
+For each execution-qualified outgoing/incoming pair:
 
 ```text
-q_old = interpolate outgoing committed joint plan at t_i
-q_new = first incoming committed joint row
+j_old = min(floor((last_old_tick_ns - old_start_ns) / old_dt_ns), old_retained_length - 1)
+raw_offset = infra_source_offset - raw_source_offset + time_trimmed_steps + handoff_skipped_steps
+q_old = old_canonical_raw[old_raw_offset + j_old]
+q_new = new_canonical_raw[new_raw_offset]
 J_arm_mm = 1000 * norm(FK_arm(q_new).xyz - FK_arm(q_old).xyz)
-episode_mean_arm = mean(J_arm_mm for eligible boundaries in this episode)
+episode_mean_arm = mean(eligible J_arm_mm)
 episode_p95_arm = percentile(eligible J_arm_mm, 95, method="linear")
 episode_max_arm = max(eligible J_arm_mm)
 setting_mean_arm = mean(episode_mean_arm for eligible episodes)
@@ -56,28 +62,49 @@ setting_p95_arm = mean(episode_p95_arm for eligible episodes)
 setting_max_arm = max(episode_max_arm for eligible episodes)
 ```
 
-Use the recorded embodiment/tool FK and action units, and keep left/right separate.
-P95 denotes the 95th percentile, not a confidence interval. The register uses the
-mean of per-episode P95 values; do not replace it with a pooled-handoff percentile.
-The Max column keeps the worst eligible seam across the cohort, not the mean of
-per-episode maxima. Use the same eligible boundary set for all three statistics.
-Save each arm's worst seam episode and boundary identity. Main result tables use
-six separate columns in mm: L-Mean, L-P95, L-Max, R-Mean, R-P95, R-Max.
-Do not combine arms into one cell or average them together.
-This is a **committed reference seam**, not measured displacement or command jump.
-For a continuous seam require actual outgoing/incoming execution evidence and
-valid outgoing coverage at the boundary. Serial end-hold restart comparisons are
-a different boundary class; use the task's explicit hold convention and report
-them separately. The implemented `end_hold` class uses the recorded constant
-command before takeover (verified against recorded hold ticks), not an assumed
-endpoint. Do not silently clamp expired trajectories into a continuous
-seam. No eligible boundaries means missing.
+Require the old tick to be at or after its plan start. Verify matching action
+space, observation origin and action interval, and that the entire retained
+committed prefix matches its mapped raw slice (absolute tolerance 1e-8, zero
+relative tolerance). Reject a mismatch rather than substituting blended,
+interpolated, measured or command endpoints. The retained prefix length limits
+the outgoing index; the unexecuted tail is not an executed row.
 
-Match recorded `request_seq`/plan IDs, committed timestamps, `ticks.plan_id` and
-control times; inspect `events.jsonl` and any restart/hold evidence. Exclude startup,
-Home/Resume restart, superseded plans that never execute, and cross-segment pairs.
-If the stored evidence cannot establish eligibility, retain an unknown reason.
-Save reviewed boundary identities and their class alongside the numeric output.
+Use the recorded embodiment/tool FK and action units. Keep six separate columns
+in mm: L-Mean, L-P95, L-Max, R-Mean, R-P95, R-Max. Do not average arms together.
+P95 is a quantile, not a confidence interval; setting P95 averages rollout P95s,
+not pooled boundaries. Setting Max is the worst eligible boundary, not an average
+of rollout maxima. Save its rollout and boundary ID. All three statistics use
+the same eligible boundary set. No values means missing.
+
+Match actual tick ownership, request/plan IDs and boundary events. Require the
+switch to be bracketed by outgoing/incoming ticks; exclude startup, pauses,
+Home/reset/restart, long gaps and plans never observed executing. Keep continuous
+and end-hold classes separate. Constant recorded commands establish end-hold
+eligibility, but the numerical endpoint is the last reached original action.
+Do not label an expired-plan boundary continuous by clamping its endpoint.
+
+This is an **action-sequence join distance**, including ordinary between-step
+motion. It is not a same-time trajectory difference, physical displacement or
+issued-command jump. Timing and latency still select the retained rows. There is
+no requirement that it be smaller than the interpolated-reference metric.
+The last native timestamp strictly before takeover is a separate sensitivity;
+do not substitute it silently for the last observed outgoing execution tick.
+
+### Current implementation and historical results
+
+The ordinary `manimux/evaluation/seams.py` and plotter still calculate the legacy
+interpolated committed-reference metric. The manuscript update did not migrate
+them. Do not relabel their output as native-action seams.
+
+The local frozen implementation and validation are in
+`data/analysis/native-action-seams-20261029/`. Its cohort-specific `recompute.py`
+reuses execution-eligibility rules and maps endpoints back to original rows.
+Do not use the frozen-cohort script as a general CLI without explicitly adapting
+the cohort and FK profile. Current paper values and definitions are in
+`/home/ubuntu/manimux-overleaf/source/native-action-seams-20261029.json` and
+`native-action-seams.md`; `scripts/apply_native_action_seams.py` reapplies only
+the six seam columns after historical importers. Other metric definitions and
+original source snapshots are retained.
 
 ## Existing plotter: exploratory diagnostics
 

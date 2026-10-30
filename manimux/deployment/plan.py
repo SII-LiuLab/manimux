@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 # Hosted model APIs run inside the runtime worker; there is no local model service.
-HOSTED_POLICY_WORKERS = {"dream_api"}
+HOSTED_POLICY_WORKERS = {"dream_api", "poke_api"}
 
 
 def external_camera_sensors(config):

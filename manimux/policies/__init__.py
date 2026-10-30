@@ -21,6 +21,7 @@ def _fake_model_factory(config: dict) -> PolicyModel:
 _MODEL_BUILTINS: dict[str, PolicyModelFactory | str] = {
     "fake": _fake_model_factory,
     "dream_api": "manimux.policies.dream.client:build_model",
+    "poke_api": "manimux.policies.poke.client:build_model",
     "starvla_ws": "manimux.policies.starvla.client:build_model",
     "xpolicylab_ws": "manimux.policies.xpolicylab.client:build_model",
 }

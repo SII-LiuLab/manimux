@@ -5,6 +5,25 @@ description: Implement or review ManiMux components, model adapters, inference s
 
 # ManiMux Development
 
+## Robot authorization — required for every task
+
+Without explicit user permission, do not start or restart a robot, connect its
+controller, enable actuators, or cause robot motion. This includes Prepare, Warmup
+on connected hardware, Start, Home, gripper calibration, replay and recovery/release.
+Invoking this skill or requesting integration, configuration, testing, evaluation or
+video capture does not grant that permission. Reuse explicit authorization already
+given for the same robot and operation; do not ask for it repeatedly.
+
+Complete configuration, code and disconnected validation first. If permission is
+missing, show the concrete robot, resolved configuration and intended operations,
+then ask before the first hardware-affecting action. Configuration review is not
+robot-start authorization. Leave physical controls with the operator by default.
+`execute: false`, “dry run” and “warmup” are not evidence of isolation: constructors,
+connect and cleanup can move hardware. Use disconnected models/fake devices offline.
+A separately authorized GUI/model/camera service launch may proceed only after
+verifying it will not connect or actuate the robot. Preserve existing service and
+hardware ownership; do not stop, restart or release an active robot to test a change.
+
 Read the [repository guide](references/agent-guide.md) and relevant nested/framework
 `AGENTS.md` before editing. For a custom study using supported components, start with
 [experiments](../manimux-experiments/SKILL.md); for another local hardware installation,
@@ -39,6 +58,17 @@ do not require other Harnesses to copy RPent's Toolkit, HTTP transport or planne
 
 ## Implement against the contract
 
+- Apply the [shared model contract](references/policies.md#mandatory-shared-contract-for-every-model-and-backend)
+  to every model/backend, including hosted APIs and peer frameworks. Convert backend
+  responses to the common grouped joint/pose representation and reuse compatible
+  adapters. Never add a native path for convenience or copy a legacy exception.
+  If conformance is genuinely infeasible, document the exact gap and shared-extension
+  alternatives, then obtain explicit user confirmation before adding an exception.
+- Resolve groups, cameras, geometry and calibration from the actual experiment,
+  embodiment/tool model, station and model contract before asking the user. Missing
+  access to known geometry is an implementation task, not a request to recalibrate.
+  Follow [information ownership and review](references/policies.md#resolve-geometry-and-station-facts-before-asking-the-user).
+  Write and validate the mapping, then present the values and sources for user review.
 - Preserve unrelated work and state the edit scope. Reuse the existing factory,
   configuration loader and runtime loop. Validate data in the layer that owns it.
 - Preserve units, frames, group order, input/output shapes, timestamps, action meaning,
@@ -102,6 +132,13 @@ Read the [hardware exit contract](references/components.md#hardware-exit-safety)
 and the embodiment's implementation before declaring a lifecycle change complete.
 
 ## Complete and verify
+
+Before declaring an integration complete, review the full client-to-adapter path:
+common representation (or explicitly approved exception), declared semantics and
+capabilities, resolved information sources, real loader/adapter compatibility and
+disconnected validation. Verify malformed or unsupported responses fail rather than
+falling back to native. Report legacy gaps honestly; editing these skills alone does
+not migrate code. Do not hand off an unapproved native integration as finished.
 
 ### Deployment handoff requires a complete run without hardware commands
 

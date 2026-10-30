@@ -227,10 +227,10 @@ Join the **ManiMux developer WeChat group** to discuss integrations, experiments
 and contributions. Open the invitation below and scan it in WeChat.
 
 <p align="center">
-  <img src="assets/community/wechat-developers-20261021.jpg" alt="ManiMux developer WeChat group invitation QR code" width="300">
+  <img src="assets/community/wechat-developers-20261029.jpg" alt="ManiMux developer WeChat group invitation QR code" width="300">
 </p>
 
-This invitation is valid until **October 28, 2026**. If it has expired, please open
+This invitation is valid until **November 5, 2026**. If it has expired, please open
 [a GitHub issue](https://github.com/SII-LiuLab/manimux/issues) to request an updated invitation.
 
 </details>
