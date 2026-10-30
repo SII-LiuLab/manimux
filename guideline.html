@@ -553,7 +553,7 @@ eight-coordinate state to <code>/chat/completions</code>. The
 <a href="https://developers.pokebot.com/zh/docs/roboapi/latest/cloud-api">Poke API</a>
 returns absolute model-frame flange poses through <code>execute_actions</code>.
 This is a different action contract from Dream-1's dual-arm joint output.</p>
-<p>Start from <code>manimux/configs/examples/poke-yam/serial-example.yaml</code>.
+<p>Start from <code>manimux/configs/experiments/example-yam-poke/serial.yaml</code>.
 Its right-arm selection is a template; the other arm holds its runtime reference.
 The Poke adapter converts xyzw quaternions, calibrated model coordinates and flange
 targets into the configured robot's TCP frame, then uses its existing IK.
@@ -562,7 +562,7 @@ rotation-only <code>flange_from_model_tool</code> as xyz/wxyz poses.
 The template leaves these unset and disables execution. See
 <a href="https://developers.pokebot.com/zh/docs/roboapi/latest/calibration">Poke's
 Home/plane calibration convention</a>; no additional robot runtime is required.</p>
-<pre><code>python -m manimux inspect --config manimux/configs/examples/poke-yam/serial-example.yaml
+<pre><code>python -m manimux inspect --config manimux/configs/experiments/example-yam-poke/serial.yaml
 python -m scripts.validation.poke_api_probe --config /path/to/calibrated-poke.yaml --recorded-observation /path/to/observation.npz --calls 3 --output /tmp/poke-probe.json</code></pre>
 <p>The probe constructs no hardware drivers. Use <code>--model-state /path/to/state.json</code>
 with an explicit model-frame eight-number array for an interface-only test that skips FK/IK.

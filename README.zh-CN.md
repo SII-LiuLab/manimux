@@ -21,7 +21,7 @@
 
 ## 动态
 
-- **2026-10-30** — 新增 [ChunkTrust AHS](https://sii-liulab.github.io/manimux/guideline.html#chunktrust)，自适应选择动作块执行步数；同时接入 RTC+AHS，并在启动时检查后端是否支持。实现与验证见 [PR #25](https://github.com/SII-LiuLab/manimux/pull/25)。
+- **2026-10-30** — 新增 [ChunkTrust AHS](https://sii-liulab.github.io/manimux/guideline.html#chunktrust)，自适应选择动作块执行步数，并为 RTC+AHS 加入后端能力检查（[PR #25](https://github.com/SII-LiuLab/manimux/pull/25)）。新增 [Poke-Aurora API 支持](https://sii-liulab.github.io/manimux/guideline.html#poke-api)及需完成标定的 YAM 示例，无需本地模型服务。
 
 - **2026-10-22** — 支持 [Franka FR3 + Robotiq 夹爪](https://sii-liulab.github.io/manimux/guideline.html#franka-deployment) 与 [RPent agent](https://sii-liulab.github.io/manimux/guideline.html#agent-integrations)。
 
