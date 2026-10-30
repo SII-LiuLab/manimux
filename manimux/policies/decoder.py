@@ -11,8 +11,8 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
-from manimux.policy_adapter import build_policy_adapter
 from manimux.policies.base import attach_sampling_stats
+from manimux.policy_adapter import build_policy_adapter
 from manimux.types import ActionChunk, ActionContext, InferenceResponse
 
 
@@ -24,12 +24,14 @@ class DecodeResult:
 
 
 def _decode_main(
-    requests, results, startup, robot_data, policy_data, motion_limits, partition
+    requests, results, startup, robot_data, policy_data, motion_limits, partition, ik_options=None
 ):
     try:
         robot = robot_data
         policy = policy_data
-        adapter = build_policy_adapter(robot, policy, motion_limits=motion_limits)
+        adapter = build_policy_adapter(
+            robot, policy, motion_limits=motion_limits, ik_options=ik_options
+        )
         adapter.validate(robot, policy)
         if not getattr(adapter, "supports_context_only_decode", False):
             raise ValueError("adapter does not support context-only decoding")
@@ -102,6 +104,7 @@ class ActionDecoderClient:
                         else getattr(adapter, "motion_limits", None)
                     ),
                     partition,
+                    {"failure_policy": adapter.ik_failure_policy},
                 ),
                 name=f"manimux-decode-{partition or 'action'}",
                 daemon=True,

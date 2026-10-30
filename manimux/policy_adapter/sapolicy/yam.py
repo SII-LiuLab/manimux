@@ -11,7 +11,6 @@ in ``XPolicyLab.policy.SAPolicy``.
 
 from __future__ import annotations
 
-import logging
 import uuid
 from collections import OrderedDict
 from collections.abc import Mapping, Sequence
@@ -31,8 +30,6 @@ from manimux.types import (
     ObservationSnapshot,
     SensorFrame,
 )
-
-log = logging.getLogger("manimux.policies.sapolicy")
 
 DEFAULT_GROUP_ORDER = ("left_arm", "right_arm")
 ARM_JOINTS = 6
@@ -511,7 +508,7 @@ class SAPolicyYamAdapter(PolicyAdapter):
             groups[group] = self._solve_arm(
                 group,
                 actions[offset:end, arm_index * 8 : arm_index * 8 + 8],
-                np.asarray(seed_state[:ARM_JOINTS], dtype=np.float64),
+                np.asarray(seed_state, dtype=np.float64),
                 diagnostics=ik_diagnostics,
                 unbiased=(
                     raw_model_actions[offset:end, arm_index * 8 : arm_index * 8 + 8]
@@ -564,43 +561,47 @@ class SAPolicyYamAdapter(PolicyAdapter):
             raise ValueError("independent decoding requires a positive IK budget")
         started = time.monotonic_ns()
         deadline = started + int(budget_ms * 1e6)
-        current = self._kinematics.clip_arm_joints(seed_state[:ARM_JOINTS])
-        previous_gripper = float(seed_state[-1])
-        out = np.tile(np.r_[current, previous_gripper], (len(actions), 1))
-        results, durations, failed_at = [], [], None
+        sequence = self.ik_sequence(group, seed_state)
+        out = np.empty((len(actions), GROUP_DIM))
+        results, durations, converged_steps = [], [], []
+        failed_at, skipped = None, 0
         for step, row in enumerate(actions):
             point_start = time.monotonic_ns()
             reason = hold_reason or ("budget_exceeded" if point_start >= deadline else None)
+            candidate = None
             if reason:
                 converged, result = False, {"reason": reason, "iterations": 0}
+                skipped += 1
+                if failed_at is None:
+                    failed_at = step
             else:
                 target = self._kinematics_from_model[group] @ _wire_endpose_to_pose(row[:7])
                 converged, solved, result = self._kinematics.ik_bounded(
                     target,
-                    current,
+                    sequence.current[:ARM_JOINTS],
                     float(row[7]),
                     deadline_ns=deadline,
                 )
+                if time.monotonic_ns() >= deadline:
+                    converged = False
+                    result = {**result, "reason": "budget_exceeded"}
+                    if failed_at is None:
+                        failed_at = step
                 if converged:
-                    current = self._kinematics.clip_arm_joints(solved)
-                    previous_gripper = float(row[7])
+                    candidate = np.r_[self._kinematics.clip_arm_joints(solved), row[7]]
             durations.append((time.monotonic_ns() - point_start) / 1e6)
             results.append(result)
-            out[step] = np.r_[current, previous_gripper]
-            if not converged:
-                failed_at = step
-                out[step:] = out[step]
-                break
+            converged_steps.append(bool(converged))
+            out[step] = sequence.resolve(
+                converged, candidate, reason=result.get("reason", "no_solution")
+            )
         diagnostics[group] = {
+            **sequence.metadata(),
             "ik_ms": (time.monotonic_ns() - started) / 1e6,
             "step_ms": durations,
             "step_results": results,
-            "converged": [
-                i < (failed_at if failed_at is not None else len(actions))
-                for i in range(len(actions))
-            ],
-            "failed_steps": int(failed_at is not None),
-            "skipped_steps": 0 if failed_at is None else len(actions) - failed_at - 1,
+            "converged": converged_steps,
+            "skipped_steps": skipped,
             "hold_from_step": failed_at,
             "budget_ms": budget_ms,
             "seed_joints": np.asarray(seed_state[:ARM_JOINTS]).tolist(),
@@ -618,8 +619,7 @@ class SAPolicyYamAdapter(PolicyAdapter):
     ) -> np.ndarray:
         horizon = actions.shape[0]
         out = np.empty((horizon, GROUP_DIM), dtype=np.float64)
-        current = self._kinematics.clip_arm_joints(seed)
-        failures = 0
+        sequence = self.ik_sequence(group, seed)
         import time
 
         durations = []
@@ -630,31 +630,28 @@ class SAPolicyYamAdapter(PolicyAdapter):
             model_target = _wire_endpose_to_pose(row[:7])
             target = self._kinematics_from_model[group] @ model_target
             started = time.perf_counter_ns()
-            converged, raw_solved = self._kinematics.ik(target, current, float(gripper))
+            converged, raw_solved = self._kinematics.ik(
+                target, sequence.current[:ARM_JOINTS], float(gripper)
+            )
             if not converged and unbiased is not None:
                 # A biased target can leave the workspace (e.g. elbow at its limit near
                 # the base); the model's own target is then the nearest executable one.
                 model_target = _wire_endpose_to_pose(unbiased[step, :7])
                 target = self._kinematics_from_model[group] @ model_target
-                converged, raw_solved = self._kinematics.ik(target, current, float(gripper))
+                converged, raw_solved = self._kinematics.ik(
+                    target, sequence.current[:ARM_JOINTS], float(gripper)
+                )
                 unbiased_steps += int(bool(converged))
             durations.append((time.perf_counter_ns() - started) / 1e6)
-            solved = np.asarray(raw_solved, dtype=np.float64)
-            if converged and solved.shape == (ARM_JOINTS,) and np.isfinite(solved).all():
-                current = self._kinematics.clip_arm_joints(solved)
-            else:
-                failures += 1
+            solved = self._kinematics.clip_arm_joints(raw_solved) if converged else raw_solved
+            out[step] = sequence.resolve(converged, np.r_[solved, gripper])
             converged_steps.append(bool(converged))
-            out[step, :ARM_JOINTS] = current
-            out[step, ARM_JOINTS] = float(gripper)
-        if failures:
-            log.warning("%s: IK did not converge on %d/%d chunk steps", group, failures, horizon)
         if diagnostics is not None:
             diagnostics[group] = {
                 "ik_ms": sum(durations),
                 "step_ms": durations,
                 "converged": converged_steps,
-                "failed_steps": failures,
+                **sequence.metadata(),
                 "unbiased_steps": unbiased_steps,
                 "seed_joints": np.asarray(seed).tolist(),
             }

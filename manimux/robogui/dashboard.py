@@ -203,7 +203,6 @@ class PolicyRoboGUI:
         self.episode_finalized = False
         self._build_scene()
         self._build_gui()
-        self.camera_view.add_diagnostics(expand_by_default=False)
         self.recordings_panel = RecordingsPanel(self)
 
         def display_message(message: dict[str, Any]) -> None:
@@ -680,7 +679,7 @@ class PolicyRoboGUI:
 
     def _build_recovery_gui(self) -> None:
         self.recovery_folder = self.server.gui.add_folder(
-            "Advanced recovery", expand_by_default=False, visible=False,
+            "Manual recovery", expand_by_default=False, visible=False,
         )
         with self.recovery_folder:
             self.recovery_status = self.server.gui.add_markdown(
@@ -702,7 +701,7 @@ class PolicyRoboGUI:
                 "Exit drag", color="gray", disabled=True, visible=False,
             )
             self.home_btn = self.server.gui.add_button(
-                "Return Home (keep rollout open)", color="gray", disabled=True
+                "Return Home (keep rollout open)", color="gray", disabled=True, visible=False
             )
             self.recovery_details_folder = self.server.gui.add_folder(
                 "Last error", expand_by_default=False, visible=False
@@ -1063,8 +1062,7 @@ class PolicyRoboGUI:
             self._supports_hand_guiding(action) for action in ("release", "release_5s")
         )
         has_hand_guiding = has_drag or has_release
-        self.recovery_folder.label = "Manual recovery" if declared else "Advanced recovery"
-        self.recovery_folder.visible = self._gui_stage == "control" or declared
+        self.recovery_folder.visible = has_clear or has_hand_guiding
         self.clear_error_btn.visible = has_clear
         self.drag_arm.visible = has_hand_guiding
         self.drag_btn.visible = has_drag
@@ -1582,7 +1580,7 @@ class PolicyRoboGUI:
         self._history_loading = True
         self._history_error = False
         if hasattr(self, "recordings_panel"):
-            self.recordings_panel.configure(root)
+            self.recordings_panel.configure(root, history_sessions=sessions)
         self.history_status.content = "Reading experiment history…"
         self.history_status.visible = True
         self.retry_history_btn.visible = False

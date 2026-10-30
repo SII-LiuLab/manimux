@@ -171,7 +171,7 @@ def main():
         parser.error("Select the Dream API + Smooth recipe")
     # Only offline RobotModel geometry is loaded by the adapter. No build_robot,
     # sensor constructor, runtime service, controller or actuator is instantiated.
-    adapter = build_policy_adapter(config["robot"], config["policy"])
+    adapter = build_policy_adapter(config["robot"], config["policy"], ik_options=config["execution"]["ik"])
     worker = PolicyWorkerClient(config["policy"], "dream-api-probe")
     report = {
         "hardware_used": False,

@@ -146,7 +146,7 @@ closing above the bottle (opening 0.32–0.45 versus approximately 0.52–0.57 w
 `base_offset_m: {left_arm: [0, 0, 0.022], right_arm: [0, 0, 0.022]}`:
 
 - Request: measured joints and PAINT prefixes (likewise RTC conditions) pass through FK → base-frame z +2.2 cm → IK into model coordinates.
-- Action: each model output row passes through FK → z −2.2 cm → IK into robot joints; orientation and gripper remain unchanged. IK failure rejects the entire chunk.
+- Action: each model output row passes through FK → z −2.2 cm → IK into robot joints; orientation and gripper remain unchanged on successful solves. Action IK uses the shared `execution.ik.failure_policy`: default `hold_last_valid` holds both arm and gripper for failed points and retries later targets; `reject` rejects the chunk. Observation coordinate conversion still fails explicitly.
 - Initial pose: the ABC ready pose is also shifted down 2.2 cm, so the model still sees its ABC ready pose.
 
 Offline checks: each row moves down exactly 22.0 mm, horizontal deviation < 0.03 mm; prefix round-trip error < 2e-3 rad;

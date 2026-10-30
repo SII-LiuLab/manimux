@@ -1,0 +1,39 @@
+policy_name: FastWAM
+protocol: ws
+eval_batch: false
+port: 8504
+host: 127.0.0.1
+bench_name: ManiMux
+task_name: latest300
+ckpt_name: fastwam_latest300_step30000
+env_cfg_type: yam_dual
+action_type: joint
+action_dim: 14
+seed: 0
+inference_seed: 0
+checkpoint_path: /media/ubuntu/CY的三星T7/ManiMux/checkpoints/finetuned/FastWAM/fastwam_official_presample_v4/step_030000.pt
+dataset_stats_path: /media/ubuntu/CY的三星T7/ManiMux/checkpoints/finetuned/FastWAM/fastwam_official_presample_v4/dataset_stats.json
+training_config_path: /media/ubuntu/CY的三星T7/ManiMux/checkpoints/finetuned/FastWAM/fastwam_official_presample_v4/config.yaml
+sim_cfg_name: sim_robotwin.yaml
+sim_task: robotwin_uncond_3cam_384_1e-4
+device: cuda
+mixed_precision: bf16
+action_horizon: 32
+replan_steps: 24
+num_inference_steps: 10
+sigma_shift: null
+text_cfg_scale: 1.0
+negative_prompt: ''
+rand_device: cpu
+tiled: false
+timing_enabled: false
+default_instruction: follow the instruction
+allow_dummy_policy: false
+robot_action_dim_info:
+  arm_dim:
+  - 6
+  - 6
+  ee_dim:
+  - 1
+  - 1
+num_envs: 1

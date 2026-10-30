@@ -3,6 +3,7 @@
 import time
 from dataclasses import dataclass, replace
 
+from manimux.kinematics.failure import failed_ik_command
 from manimux.runtime.ik import StepIKResolver, ik_parameters
 from manimux.runtime.pose_limits import PoseSpeedLimiter
 from manimux.timing import stage
@@ -26,6 +27,7 @@ class ExecutionPipeline:
     def __init__(self, executor, *, kinematics, ik_options, control_dt_ns):
         self.executor = executor
         options = ik_parameters(**(ik_options or {}))
+        self.ik_failure_policy = options["failure_policy"]
         self.resolver = None
         self.pose_limiter = None
         if options["mode"] == "step":
@@ -66,7 +68,15 @@ class ExecutionPipeline:
                 }
             if resolved is None:
                 # Atomic hold belongs to execution, not to the mathematical IK solver.
-                held = copy_group_vector(last_command)
+                held = {
+                    name: failed_ik_command(
+                        q,
+                        policy=self.ik_failure_policy,
+                        reason=ik_status["reason"],
+                    )
+                    for name, q in last_command.items()
+                }
+                ik_status["failure_policy"] = self.ik_failure_policy
                 with stage("executor_step"):
                     self.executor.reset(RobotState(held, now_ns, state.sequence))
                     command = RobotCommand(copy_group_vector(held), now_ns, reference.plan_id)

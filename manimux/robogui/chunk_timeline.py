@@ -29,6 +29,7 @@ class ChunkLane:
     conditioned: bool = False
     source_chunk_id: int | None = None
     condition_from_index: int | None = None
+    condition_steps: int | None = None
     latency_from_index: int | None = None
     gripper_closed_steps_by_group: dict[str, tuple[bool, ...]] = field(default_factory=dict)
 
@@ -321,32 +322,26 @@ class ChunkTimelineView:
                 return
             chunk_id = int(raw_chunk_id)
             horizon = max(1, int(metadata.get("horizon_steps", 1)))
-            overlap = max(0, int(metadata.get("conditioned_overlap_steps", 0)))
-            frozen = max(0, int(metadata.get("frozen_steps", 0)))
+            overlap, frozen = self._condition_overlap(metadata)
             conditioned = bool(metadata.get("conditioned", False))
             active_chunk_id = metadata.get("active_chunk_id")
             source_chunk_id = active_chunk_id if conditioned else None
-            source_index_is_raw = "executed_steps" in metadata
-            source_index = max(
-                0,
-                int(
-                    metadata["executed_steps"]
-                    if source_index_is_raw
-                    else metadata.get("active_chunk_index", 0)
-                ),
-            )
+            raw_index = self._raw_source_index(metadata)
             if active_chunk_id is not None:
                 source_lane_index = self._lane_by_chunk.get(int(active_chunk_id))
                 if source_lane_index is not None:
                     source_lane = self.lanes[source_lane_index]
-                    source_lane.latency_from_index = min(
+                    source_index = min(
                         source_lane.horizon_steps,
-                        source_index
-                        if source_index_is_raw
-                        else source_lane.trimmed_steps + source_index,
+                        raw_index
+                        if raw_index is not None
+                        else source_lane.trimmed_steps
+                        + max(0, int(metadata.get("active_chunk_index", 0))),
                     )
+                    source_lane.latency_from_index = source_index
                     if conditioned:
                         source_lane.condition_from_index = source_index
+                        source_lane.condition_steps = overlap
             lane = ChunkLane(
                 chunk_id=chunk_id,
                 horizon_steps=horizon,
@@ -402,17 +397,13 @@ class ChunkTimelineView:
                         previous_lane.trimmed_steps + max(0, int(metadata["active_chunk_index"])),
                     )
                 if conditioned and previous_lane.condition_from_index is None:
-                    previous_lane.condition_from_index = max(
-                        0,
-                        int(
-                            metadata.get(
-                                "executed_steps",
-                                previous_lane.condition_from_index
-                                if previous_lane.condition_from_index is not None
-                                else previous_lane.trimmed_steps + previous_lane.cursor,
-                            )
-                        ),
+                    raw_index = self._raw_source_index(metadata)
+                    previous_lane.condition_from_index = (
+                        raw_index
+                        if raw_index is not None
+                        else previous_lane.trimmed_steps + previous_lane.cursor
                     )
+                    previous_lane.condition_steps = self._condition_overlap(metadata)[0]
                 previous_lane.state = "source" if conditioned else "retired"
 
         committed_steps = len(next(iter(message.get("groups", {}).values()), []))
@@ -425,11 +416,8 @@ class ChunkTimelineView:
             trimmed, max(0, int(metadata.get("time_trimmed_steps", trimmed)))
         )
         handoff_skipped = trimmed - time_trimmed
-        overlap = min(
-            raw_horizon,
-            max(0, int(metadata.get("conditioned_overlap_steps", 0))),
-        )
-        frozen = min(raw_horizon, max(0, int(metadata.get("frozen_steps", 0))))
+        overlap, frozen = self._condition_overlap(metadata)
+        overlap, frozen = min(raw_horizon, overlap), min(raw_horizon, frozen)
 
         def raw_gripper_steps(values: Any) -> tuple[bool, ...]:
             committed = tuple(bool(value) for value in values)
@@ -493,6 +481,33 @@ class ChunkTimelineView:
         self.active_chunk_id = chunk_id
 
     @staticmethod
+    def _raw_source_index(metadata: dict[str, Any]) -> int | None:
+        # RTC reports executed_steps and PAINT execution_steps, both in raw
+        # source-chunk rows; active_chunk_index excludes the trimmed prefix.
+        for key in ("executed_steps", "execution_steps"):
+            if key in metadata:
+                return max(0, int(metadata[key]))
+        return None
+
+    @staticmethod
+    def _condition_overlap(metadata: dict[str, Any]) -> tuple[int, int]:
+        # PAINT conditions only on its delay prefix; RTC on the whole remainder.
+        if metadata.get("conditioned") and "delay_steps" in metadata:
+            delay = max(0, int(metadata["delay_steps"]))
+            return delay, delay
+        return (
+            max(0, int(metadata.get("conditioned_overlap_steps", 0))),
+            max(0, int(metadata.get("frozen_steps", 0))),
+        )
+
+    @staticmethod
+    def _condition_end(lane: ChunkLane) -> int:
+        start = max(0, lane.condition_from_index or 0)
+        if lane.condition_steps is None:
+            return lane.horizon_steps
+        return min(lane.horizon_steps, start + lane.condition_steps)
+
+    @staticmethod
     def _cell_state(lane: ChunkLane, index: int) -> str:
         if lane.state == "pending":
             if index < lane.frozen_steps:
@@ -518,7 +533,10 @@ class ChunkTimelineView:
             and lane.cursor < lane.committed_steps
         ):
             return "current"
-        if lane.condition_from_index is not None and index >= lane.condition_from_index:
+        if (
+            lane.condition_from_index is not None
+            and lane.condition_from_index <= index < ChunkTimelineView._condition_end(lane)
+        ):
             return "condition-source"
         if lane.state == "retired" and committed_index >= lane.cursor:
             return "superseded"
@@ -620,7 +638,7 @@ class ChunkTimelineView:
             max(0, source.condition_from_index or source.cursor),
         )
         linked_steps = min(
-            max(0, source.horizon_steps - source_start),
+            max(0, self._condition_end(source) - source_start),
             max(0, target.overlap_steps),
         )
         if linked_steps <= 0:
@@ -649,7 +667,7 @@ class ChunkTimelineView:
         ranges: list[str] = []
         if lane.condition_from_index is not None:
             start = min(lane.horizon_steps, max(0, lane.condition_from_index))
-            count = lane.horizon_steps - start
+            count = ChunkTimelineView._condition_end(lane) - start
             if count > 0:
                 left = 100.0 * start / lane.horizon_steps
                 width = 100.0 * count / lane.horizon_steps

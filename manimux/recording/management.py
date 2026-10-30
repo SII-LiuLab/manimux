@@ -44,12 +44,30 @@ def record_revision(path: Path) -> str:
     return digest.hexdigest()
 
 
-def list_recordings(root: Path) -> list[dict]:
-    """Read one method, without traversing videos, arrays, archives or aliases."""
+def list_recordings(root: Path, *, history_sessions=()) -> list[dict]:
+    """Read current records and explicitly imported sessions, never archives."""
+    rows = _local_recordings(root)
+    seen = {str((root / row["relative"]).resolve()) for row in rows}
+    for session in dict.fromkeys(Path(p).resolve() for p in history_sessions):
+        if "_archive" in session.parts or not session.name.startswith("session-"):
+            continue
+        for row in _local_recordings(session.parent, session_name=session.name):
+            path = (session.parent / row["relative"]).resolve()
+            if str(path) in seen:
+                continue
+            seen.add(str(path))
+            rows.append({**row, "relative": f"history:{path}", "path": str(path),
+                         "read_only": True, "revision": None})
+    return rows
+
+
+def _local_recordings(root: Path, *, session_name=None) -> list[dict]:
     rows = []
     if not root.is_dir():
         return rows
     for session in sorted(root.glob("session-*"), reverse=True):
+        if session_name is not None and session.name != session_name:
+            continue
         if session.is_symlink() or not session.is_dir():
             continue
         for path in sorted(session.glob("rollout-*"), reverse=True):

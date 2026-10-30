@@ -1,4 +1,4 @@
-"""Request-scoped evidence captured before wire/action decoding and rejection."""
+"""Experiment records linking provider replies to requests and rejected actions."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import base64
 import hashlib
 import json
 import math
+import os
 import time
 from contextvars import ContextVar
 from dataclasses import asdict, is_dataclass
@@ -59,7 +60,11 @@ class ResponseLog:
     def write(self, name, payload):
         if self.path is not None:
             self.path.mkdir(parents=True, exist_ok=True)
-            (self.path / name).write_text(json.dumps(_safe(payload), allow_nan=False) + "\n")
+            text = json.dumps(_safe(payload), allow_nan=False)
+            secret = os.environ.get(self.config.get("options", {}).get("api_key_env", ""), "")
+            if secret:
+                text = text.replace(json.dumps(secret)[1:-1], "[redacted]")
+            (self.path / name).write_text(text + "\n")
 
     def __enter__(self):
         if self.path is None:
@@ -77,6 +82,7 @@ class ResponseLog:
                 "expected_backend": self.config.get("expected_backend"),
                 "started_ns": self.started_ns,
                 "state": request.observation.state.groups,
+                "model_state": getattr(request, "model_state", None),
                 "cameras": {
                     name: {
                         "sha256": hashlib.sha256(frame.data.tobytes()).hexdigest(),
@@ -90,7 +96,7 @@ class ResponseLog:
         self.token = _current.set(self)
         return self
 
-    def capture(self, payload, stage):
+    def capture(self, payload, stage, metadata=None):
         if self.path is None:
             return
         self.count += 1
@@ -100,6 +106,7 @@ class ResponseLog:
                 "stage": stage,
                 "received_ns": time.monotonic_ns(),
                 "response": payload,
+                "metadata": metadata,
             },
         )
 
@@ -119,11 +126,11 @@ class ResponseLog:
             _current.reset(self.token)
 
 
-def capture_response(payload, *, stage="provider"):
+def capture_response(payload, *, stage="provider", metadata=None):
     """Called immediately after receive, before inspecting provider fields."""
     log = _current.get()
     if log is not None:
-        log.capture(payload, stage)
+        log.capture(payload, stage, metadata)
 
 
 def response_log_path(root, session_id, request_seq):

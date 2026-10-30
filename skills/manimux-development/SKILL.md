@@ -29,6 +29,34 @@ Read the [repository guide](references/agent-guide.md) and relevant nested/frame
 [experiments](../manimux-experiments/SKILL.md); for another local hardware installation,
 use [station setup](../manimux-station-setup/SKILL.md).
 
+## Leave context in independent work directories
+
+When creating a separate task directory, scratch project, checkout or Git worktree,
+write `WORKSPACE.md` at its root immediately, before substantive work. A directory
+name or chat history is not sufficient context for the next session. For a normal
+source/package directory, add its purpose to the owning README instead of adding
+workspace notes to every generated subdirectory. Do not overwrite an existing README.
+
+Keep the note concise and include:
+
+- Why this directory was created, the task it serves and why the existing workspace
+  was insufficient. For an older directory, mark unknown history rather than invent it.
+- Creation and last-update dates, the canonical project path, and any available task
+  link. For Git worktrees, record the branch, starting commit and intended merge target;
+  identify separately modified submodules as well.
+- What belongs here: implementation, tests, benchmarks, results or publication assets;
+  list the important entry points and related input/output or paper paths.
+- Current status, completed checks, remaining work and the next concrete step.
+  Distinguish implemented code, offline checks and real-model/hardware validation.
+- What is unique or uncommitted, what has been merged (with commit/PR references),
+  and when the directory can be removed or archived. Record an explicit keep decision.
+
+Read this note before resuming, repurposing, merging or cleaning the directory, and
+verify it against the current files and Git state. Update it at milestones and before
+handoff or ending a work session; preserve it when moving or archiving the directory.
+Keep local workspace notes out of public commits unless publication is requested:
+use the repository's local Git exclude file. Never include credentials in the note.
+
 ## Choose the owning layer
 
 Trace the selected YAML through its loader, interface, working implementation and
@@ -91,9 +119,35 @@ Matching method names alone is insufficient. Fail explicitly for unsupported mod
   lifecycle. Select VLA workers/adapters through the ordinary experiment; do not
   create a second hardware or experiment lifecycle. RPent uses its existing unified
   Toolkit; other Harnesses may use different adapters. See [RPent](references/rpent.md).
+- All action IK paths must consume `execution.ik.failure_policy` through the shared
+  IK failure implementation, including chunk/step, analytic/differential and inline/
+  process decoding. Default `hold_last_valid` holds the complete arm-and-tool command
+  at a failed point, preserves time and retries later targets; `reject` rejects the
+  chunk or raises before the step command. Never let a model adapter advance the
+  gripper on a failed arm solve or hide its own failure default. Preserve solver
+  acceptance checks, record substitutions as experiment evidence, and test failure
+  followed by recovery with a changing gripper. See the [IK execution contract](references/runtime-config.md#chunk-ik-and-execution-time-ik).
 - Keep deployment constants in YAML. New capability needs an explicit protocol when
   it cannot fit the existing one; do not hide extra tool coordinates or weaken IK to
   imitate a supported interface.
+
+## Keep experiments and development debugging separate
+
+Classify code by its consumer and lifecycle, not by words such as log, diagnostic or
+statistics. Experiment recording is product functionality: preserve observations,
+provider responses (including rejected output), actions, execution feedback, timings,
+configuration and evaluation artifacts needed for reproducibility and analysis.
+Use the shared recording path and experiment/session identity; do not duplicate an
+archive inside each client or make a standalone transport call create evidence files.
+
+Temporary print/dump statements, integration probes, fake responses, ad hoc timing
+reports and development-only behavior overrides belong in tests or validation scripts.
+Do not add them to production modules, hide them behind new debug flags, or create a
+second implementation of an existing configuration setting. Keep transport, identity
+and action-contract checks, actionable errors, and user-facing runtime status.
+Before deleting existing instrumentation, trace its recording/evaluation/UI consumers.
+Remove development scaffolding and duplicates; do not remove experimental evidence.
+Verify both retained experiment recording and ordinary client behavior after cleanup.
 
 ## Physical hardware safety is a required review
 
@@ -156,12 +210,14 @@ real-station qualification. If representative observations or provider access ar
 unavailable, state the missing verification rather than claim readiness.
 
 The agent owns the diagnose/fix/retest loop before asking the operator to Start.
-Persist raw provider responses **before** decoding or rejection, linked to session,
+Use the shared experiment recorder, or test-owned capture for standalone probes, to
+persist raw provider responses **before** decoding or rejection, linked to session,
 request sequence, input identity, prompt/model and timing. Preserve malformed output
 as well as successful output; redact credentials and avoid dumping images into
 console logs. Errors must identify field, expected/actual shape or range, invalid
-indices/count and the saved artifact path. Do not silently clip or substitute invalid
-actions just to pass. Use the provider's documented action semantics for any conversion.
+indices/count; recorded rejection events must link the evidence path. Do not silently
+clip or substitute invalid actions just to pass. Use the provider's documented action
+semantics for any conversion.
 Verify rejected-response persistence, timeout/error handling, request association and
 no hardware sends. Run multiple consecutive representative requests, inspect admission
 and command output, and report rejections/limitations rather than merely process exit.

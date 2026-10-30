@@ -148,10 +148,11 @@ def read_experiment(
         if name == "policy_server" and isinstance(raw.get(name), dict):
             backend_identity = raw[name].pop("backend_identity", None)
     adapter = raw.get("policy", {}).get("adapter", {})
-    diff_ik = adapter.get("diff_ik", {})
-    if isinstance(diff_ik, dict) and "config" in diff_ik:
-        reference = (source.parent / diff_ik.pop("config")).resolve()
-        adapter["diff_ik"] = _merge(read_yaml(reference), diff_ik)
+    for name in ("diff_ik", "dls_ik"):
+        tuning = adapter.get(name, {})
+        if isinstance(tuning, dict) and "config" in tuning:
+            reference = (source.parent / tuning.pop("config")).resolve()
+            adapter[name] = _merge(read_yaml(reference), tuning)
     robot = raw.setdefault("robot", {})
     if robot.get("config") is not None:
         robot["config"] = str((source.parent / robot["config"]).resolve())

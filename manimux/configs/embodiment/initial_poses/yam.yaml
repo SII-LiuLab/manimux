@@ -29,6 +29,47 @@ poses:
         left-gripper_pos.npy: 38fd4b8ace4172881caea63347c967a983b486005474d0098d7cf69980692df1
         right-joint_pos.npy: f7b3a8848e415082d6e100e297d16f20f70559128591c516232278841ba0b877
         right-gripper_pos.npy: 74f9babc67d95bf9ef3df59860acf7ce802bef6769c4026890f1a2918138b759
+  ready_mid:
+    label: Ready mid (dragged)
+    duration_s: 4.0
+    joints:
+      left_arm: [-0.0326, 0.1726, 0.0051, 0.1356, -0.0185, -0.0611, 0.9991]
+      right_arm: [0.0326, 0.1726, 0.0051, 0.1356, 0.0185, 0.0611, 0.9991]
+    source:
+      fields: left measured after hand-guided drag 2026-10-30; right mirrors left (j1, j5, j6 negated)
+  ready_elbow:
+    label: Ready elbow bent (j3 0.3)
+    duration_s: 4.0
+    joints:
+      left_arm: [-0.0326, 0.71, 0.30, 0.36, -0.0185, -0.0611, 0.9991]
+      right_arm: [0.0326, 0.71, 0.30, 0.36, 0.0185, 0.0611, 0.9991]
+    source:
+      fields: dragged left j2 0.71 with j3 raised off its 0 stop to 0.3 and j4 reduced to keep the gripper level; right mirrors left
+  ready_elbow_low:
+    label: Ready elbow bent, low
+    duration_s: 4.0
+    joints:
+      left_arm: [-0.0326, 0.71, 0.30, 0.19, -0.0185, -0.0611, 0.9991]
+      right_arm: [0.0326, 0.71, 0.30, 0.19, 0.0185, 0.0611, 0.9991]
+    source:
+      fields: ready_elbow with j4 0.36 -> 0.19 (wrist pitched ~10 deg down), grasp_site z 0.231 -> 0.190
+  ready_low_elbow:
+    label: Ready low elbow (j2 0.45)
+    duration_s: 4.0
+    joints:
+      left_arm: [-0.0326, 0.45, 0.25, 0.20, -0.0185, -0.0611, 0.9991]
+      right_arm: [0.0326, 0.45, 0.25, 0.20, 0.0185, 0.0611, 0.9991]
+    source:
+      fields: j2 0.71 -> 0.45 lowers the rear elbow (link3 z 0.29 -> 0.23); gripper level; j3 stays off its stop
+  home_raised:
+    label: Home raised 6 cm
+    duration_s: 3.0
+    joints:
+      left_arm: [0.0, 0.174, 0.2327, -0.0586, 0.0, 0.0, 1.0]
+      right_arm: [0.0, 0.174, 0.2327, -0.0586, 0.0, 0.0, 1.0]
+    source:
+      derived_from: home
+      fields: IK of home grasp_site raised 0.06 m (z 0.174 -> 0.233), same xy and orientation
   home:
     label: Home
     duration_s: 2.0

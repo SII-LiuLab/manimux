@@ -5,18 +5,26 @@ from dataclasses import replace
 
 import numpy as np
 
+from manimux.kinematics.failure import DEFAULT_FAILURE_POLICY, validate_failure_policy
 from manimux.kinematics.poses import matrix_pose, pose_matrix
 from manimux.policy_adapter.pose_output import POSE_SPACE
 from manimux.runtime.pose_limits import pose_speed_limit_parameters
 
 
 def ik_parameters(**options):
-    unknown = set(options) - {"mode", "budget_ms", "pose_speed_limit"}
+    unknown = set(options) - {"mode", "budget_ms", "pose_speed_limit", "failure_policy"}
     if unknown:
         raise ValueError(f"unknown execution.ik fields: {sorted(unknown)}")
-    values = {"mode": "chunk", "budget_ms": None, "pose_speed_limit": None, **options}
+    values = {
+        "mode": "chunk",
+        "budget_ms": None,
+        "pose_speed_limit": None,
+        "failure_policy": DEFAULT_FAILURE_POLICY,
+        **options,
+    }
     if values["mode"] not in {"chunk", "step"}:
         raise ValueError("execution.ik.mode must be chunk or step")
+    validate_failure_policy(values["failure_policy"])
     budget = values["budget_ms"]
     if budget is not None and (not np.isfinite(budget) or budget <= 0):
         raise ValueError("execution.ik.budget_ms must be positive and finite")
@@ -42,6 +50,8 @@ def validate_ik_config(config):
         raise ValueError(
             "execution.ik.mode=step requires a pose-producing adapter; joint adapters need no IK mode"
         )
+    if config["policy"]["adapter"].get("ik_backend") == "dls":
+        raise ValueError("ik_backend: dls is chunk IK; it requires execution.ik.mode=chunk")
     if config["executor"]["type"] != "direct":
         raise ValueError(
             "step IK requires direct executor; smooth/mpc require future joint references"
@@ -135,8 +145,7 @@ class StepIKResolver:
                 break
             q = np.asarray(result.joints, dtype=float)
             if q.shape != measured[name].shape or not np.isfinite(q).all():
-                failure = f"{name}:invalid_solution"
-                break
+                raise ValueError(f"step IK returned an invalid solution for {name}")
             output[name] = q.copy()
         elapsed = time.monotonic_ns() - started
         if time.monotonic_ns() > deadline:

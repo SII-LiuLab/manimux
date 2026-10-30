@@ -166,9 +166,9 @@ class DPYamAdapter(KinematicAdapter):
             for rows in poses.values():
                 rows[:, 7] = np.clip(rows[:, 7], 0, 1)
             return pose_chunk(context, poses, self.dt)
-        groups = {}
+        groups, diagnostics = {}, {}
         for group in self.groups:
-            seed = np.asarray(seed_state.groups[group][:6]).copy()
+            sequence = self.ik_sequence(group, seed_state.groups[group])
             rows = []
             for action in actions[group]:
                 pose = np.asarray(action[:7], dtype=float)
@@ -183,11 +183,9 @@ class DPYamAdapter(KinematicAdapter):
                 transform[:3, 3] = pose[:3]
                 transform[:3, :3] = Rotation.from_quat(pose[[4, 5, 6, 3]]).as_matrix()
                 aperture = float(np.clip(grip[0], 0, 1))
-                ok, joints = self._ik(group, transform, seed, aperture)
-                if not ok:
-                    raise ValueError(f"DP IK failed for {group} at step {len(rows)}")
-                seed = joints
-                rows.append(np.r_[joints, aperture])
+                ok, joints = self._ik(group, transform, sequence.current[:6], aperture)
+                rows.append(sequence.resolve(ok, np.r_[joints, aperture]))
+            diagnostics[group] = sequence.metadata()
             groups[group] = np.asarray(rows)
         return ActionChunk(
             f"dp-{uuid.uuid4().hex[:8]}",
@@ -197,4 +195,5 @@ class DPYamAdapter(KinematicAdapter):
             "joint_position",
             self.dt,
             groups,
+            metadata={"ik": diagnostics},
         )

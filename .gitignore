@@ -3,6 +3,12 @@
 # Local training jobs, cluster submission payloads, and TensorBoard operations.
 # These are intentionally kept out of the public ManiMux repository.
 /.local/
+# Keep real API credentials local; empty example files are publishable.
+.env
+.env.*
+*.env
+!.env.example
+!*.env.example
 # Private training recipes, launchers, notes and outputs stay outside the package.
 /training/
 /manimux/configs/local/station.yaml
@@ -26,8 +32,7 @@ data/
 __pycache__/
 *.py[cod]
 dist/
-checkpoints/pretrained/
-checkpoints/finetuned/
+/checkpoints/
 recordings/
 logs/
 **/SOURCE.json

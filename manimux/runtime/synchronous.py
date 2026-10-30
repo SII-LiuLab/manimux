@@ -48,14 +48,6 @@ class SynchronousChunkStrategy:
     def submission_fields(self) -> dict:
         return {}
 
-    def build_warmup_submission(
-        self, *, session_id, request_seq, now_ns, snapshot, adapter, conditioned=False,
-    ):
-        return self._make_submission(
-            session_id=session_id, request_seq=request_seq, now_ns=now_ns,
-            snapshot=snapshot, adapter=adapter,
-        )
-
     def _make_submission(self, *, session_id, request_seq, now_ns, snapshot, adapter):
         return InferenceSubmission(
             request=self.request_type(

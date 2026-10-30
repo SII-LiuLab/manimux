@@ -190,9 +190,6 @@ class TianjiDifferentialIK:
         self.W = np.diag([config.w_pos] * 3 + [config.w_rot] * 3)
         self._p_rows = np.concatenate([np.arange(j + 1) for j in range(7)])
         self._p_cols = np.concatenate([np.full(j + 1, j) for j in range(7)])
-        probe = np.arange(49, dtype=float).reshape(7, 7)
-        if not np.array_equal(_upper_csc(probe).data, probe[self._p_rows, self._p_cols]):
-            raise RuntimeError("Unexpected sparse upper-triangle layout")
         marker = _constraint_matrix(-2.0, -3.0)
         self._a_data = marker.data.copy()
         self._a_c6 = int(np.flatnonzero(marker.data == -2.0)[0])

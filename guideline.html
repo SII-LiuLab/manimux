@@ -518,6 +518,16 @@ asynchronous scheduler and executor, without a local model server or GPU.
 The first supported provider is <code>policy.worker: dream_api</code>.
 Other providers need an explicit observation/action adapter; arbitrary JSON
 responses are not robot commands.</p>
+<p>Dream and Poke both read credentials from the runtime environment. Public,
+empty templates live in <code>manimux/configs/credentials/dream.env.example</code>
+and <code>manimux/configs/credentials/poke.env.example</code>. Copy the needed
+template to <code>.local/credentials/dream.env</code> or
+<code>.local/credentials/poke.env</code>, fill in the key only in that local copy,
+then run <code>source .local/credentials/dream.env</code> or
+<code>source .local/credentials/poke.env</code> in the terminal that launches
+ManiMux. The templates include <code>export</code>, so child processes inherit
+the variable. Clients do not load these files automatically. Real credential
+files are Git-ignored; publish only empty templates.</p>
 <p>Install the optional client with <code>pip install -e '.[dream]'</code>.
 Set <code>DREAM_API_KEY</code> in the runtime environment, never in configuration
 files. Dream-1 beta uses one current frame per camera (overhead and both wrists).
@@ -531,12 +541,11 @@ python -m scripts.validation.dream_api_probe --config /path/to/your/dream-smooth
 For operator-controlled deployment, use the same config with the camera server
 and <code>manimux run --config ...</code>; no <code>policy_server</code> is needed.
 The key must be present in the process that runs the policy worker.
-Every SDK response is saved before validation under
-<code>policy.options.response_log_dir</code> (default
-<code>data/diagnostics/dream-api</code>), including rejected responses.
-Each JSON record links raw actions to session/request, prompt, state, camera hashes
-and timing; errors identify the file and offending action values.
-Non-finite numbers use explicit strings and credentials are redacted.
+With experiment response recording configured, the shared worker saves SDK responses
+before decoding under <code>policy.options.response_log_dir</code> (the recipe uses
+<code>data/diagnostics/dream-api</code>). Request, response and outcome files link inputs,
+raw actions, rejected output and timing to the session/request. Credentials are redacted.
+The API client itself performs no archive I/O outside an active recorder.
 Finite gripper commands are clipped to <code>[0,1]</code>, following the official
 Dream robot adapter. Raw values and affected rows remain in the diagnostic record;
 joint predictions are unchanged and non-finite output is still rejected.
@@ -566,8 +575,9 @@ Home/plane calibration convention</a>; no additional robot runtime is required.<
 python -m scripts.validation.poke_api_probe --config /path/to/calibrated-poke.yaml --recorded-observation /path/to/observation.npz --calls 3 --output /tmp/poke-probe.json</code></pre>
 <p>The probe constructs no hardware drivers. Use <code>--model-state /path/to/state.json</code>
 with an explicit model-frame eight-number array for an interface-only test that skips FK/IK.
-Every response is saved before validation under <code>data/diagnostics/poke-api</code>,
-with request ID, input identity and timing. The current integration uses stateless
+The shared experiment recorder preserves raw HTTP responses before JSON/action decoding,
+including malformed output, under the configured response directory. The recipe uses
+<code>data/diagnostics/poke-api</code>; standalone client calls do not create archives. The current integration uses stateless
 calls; cloud sessions and execution receipts are not implemented. It does not retry
 failed requests or claim that predicted actions were physically executed.
 Only default sampling with one request in flight is supported. Targets use 30 Hz;
@@ -1817,14 +1827,11 @@ hold. Start drains warmup and waits for backend reset acknowledgement and a fres
 observation before native Astra begins deciding. A reset failure keeps the planner
 blocked. Warmup does not relax deadlines or plan-age limits, and does not guarantee
 that later model calls will meet them.</p>
-<p>For an explicit RPent debugging condition, add
-<code>agent.debug_max_plan_age_s: 2.0</code> to the experiment. This optional finite,
-positive value changes the plan-age limit only for managed GUI RPent, including its
-warmup. Provider request timeout, control freshness and
-motion checks stay unchanged. Use a distinct debug variant rather than changing an
-existing recorded condition; the setting is included in its condition fingerprint.
-The disconnected <a href="manimux/configs/experiments/example-rpent-synthetic/demo/rpent_gui_debug.yaml">RPent debug
-example</a> shows this opt-in.</p>
+<p>Set RPent plan-age limits using the shared <code>inference.max_plan_age_s</code>
+experiment setting. Warmup and execution use that same resolved limit. Select a distinct
+variant when changing a recorded condition; the
+<a href="manimux/configs/experiments/example-rpent-synthetic/demo/rpent_gui_debug.yaml">disconnected example</a>
+uses a 2-second limit without an agent-specific debugging override.</p>
 <p>To test RPent using only observation and motion primitives, set
 <code>agent.policy_enabled: false</code> in the experiment. This boolean defaults
 to true. RPent then offers <code>observe</code>, <code>move_to</code>,
@@ -3002,6 +3009,12 @@ decisions and result tables; it is not a second public guide.</p>
 </tbody>
 </table>
 <h3 id="step-ik">Choose when IK runs</h3>
+<p><strong>Shared IK failure behavior:</strong> set <code>execution.ik.failure_policy</code> for every model that uses action IK. The default <code>hold_last_valid</code> holds the failed arm group and its gripper at the previous accepted command for that point, keeps its timestamp, and attempts the next target. A first-point failure holds the selected seed; an all-failed chunk remains a recorded hold. <code>reject</code> rejects the whole decoded chunk, or raises before the current command in step mode. Invalid inputs or malformed successful solutions remain errors in both modes.</p>
+<pre><code>execution:
+  ik:
+    mode: chunk
+    failure_policy: hold_last_valid  # or reject</code></pre>
+<p>The same setting applies to inline/process decoding and analytic/differential action IK. Step IK keeps all arms and grippers together on failure; chunk IK holds the affected group. A failed dense IK interval discards partial substeps and holds the full command for the interval. Normal experiment metadata records held indices and counts; held rows must not be counted as solved IK. This controls target commands, with downstream interpolation and executor limits still active. Replace the old <code>policy.adapter.ik_failure_policy</code> setting with this shared field.</p>
 <p>Pose-producing adapters support two modes. <code>chunk</code> is the default and solves the decoded chunk before Timeline commit. <code>step</code> keeps TCP poses in Timeline and solves only the current target inside each control tick. Joint-output adapters need no IK mode.</p>
 <pre><code>execution:
   ik:
@@ -3011,7 +3024,7 @@ run:
   control_timing: true</code></pre>
 <p>Merge these fields into an experiment with a direct executor and inline action decoding. The optional budget defaults to half the control period and must be shorter than that period. Add them to a variant whose adapter uses IK (for example OpenWAM YAM or XR1 YAM). Existing experiments remain in chunk mode.</p>
 <p>Step mode supports serial/async for IK adapters. OpenWAM YAM and XR1 YAM also support pose-space RTC/PAINT; Pi05 Tianji, XR1 Tianji and UMI-DP Tianji support pose-space RTC. Unsupported combinations fail at configuration validation. Smooth/MPC, joint candidate scoring, temporal ensembling, executor-based RTC forecasts, cubic joint blends, waypoint handoff and decoder diffIK substeps require chunk mode.</p>
-<p>The current pose is interpolated with linear position/gripper and quaternion SLERP, then IK is seeded from the current measured joint state. Both arms share the budget; a failed or late solution holds both arms at the previous command. Watch the <code>step_ik</code> timing stage and <code>step_ik_hold</code> events. The budget is cooperative: native calls cannot always be interrupted, so verify control timing on the target machine. Pose-space interpolation can produce a different joint path from interpolating a pre-solved joint chunk.</p>
+<p>The current pose is interpolated with linear position/gripper and quaternion SLERP, then IK is seeded from the current measured joint state. Both arms share the budget; under the default failure policy, a failed or late solution holds both arms and grippers at the previous command. Watch the <code>step_ik</code> timing stage and <code>step_ik_hold</code> events. The budget is cooperative: native calls cannot always be interrupted, so verify control timing on the target machine. Pose-space interpolation can produce a different joint path from interpolating a pre-solved joint chunk.</p>
 <p><strong>Optional TCP target speed limit (off by default):</strong> set <code>execution.ik.pose_speed_limit</code> to a mapping with <code>max_linear_m_s</code> and/or <code>max_angular_rad_s</code>. Values must be positive and finite. Omit it or use <code>null</code> to disable. This setting applies to step IK only.</p>
 <pre><code>execution:
   ik:

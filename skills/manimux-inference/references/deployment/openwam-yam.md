@@ -32,11 +32,14 @@ absolute `0=closed, 1=open` values. The policy converts poses to EEF20 using
 the upstream math, and returns absolute pose dictionaries with explicit
 `absolute_per_arm_base_xyz_wxyz` action semantics. ManiMux runs YAM IK;
 malformed poses, invalid grippers and wrong horizons reject the whole chunk.
-Chunk IK defaults to `policy.adapter.ik_failure_policy: reject`. The explicit
-`hold_last_valid` policy holds the arm and gripper at the last accepted target on
-unconverged rows and continues with the clean seed. Invalid solutions or an arm
-with no converged rows still reject the chunk. Metadata records per-arm failed
-counts and indices. Step IK retains its separate atomic-hold contract. The default action rate is 30 Hz and horizon is 32.
+Use the shared `execution.ik.failure_policy`: `hold_last_valid` (default) holds
+both arm and gripper at an unsuccessful point and attempts later targets with the
+last valid seed; `reject` rejects the chunk. An all-failed chunk remains a recorded
+hold under the default, with zero solved rows. Malformed successful solutions remain
+errors. The same setting reaches inline/process decoders and step IK, where failure
+holds all groups atomically. This is ManiMux execution behavior, not a claim about
+the upstream GR1 example. See the [shared IK contract](../../../manimux-development/references/runtime-config.md#chunk-ik-and-execution-time-ik).
+The default action rate is 30 Hz and horizon is 32.
 
 ARX-X5 simulation remains supported through `arx_x5_sim`; its calibration and
 standard XPolicy batch evaluation are separate from the YAM profile.
@@ -109,8 +112,8 @@ Existing config files are never overwritten by the binding command.
 
 The second command starts only the standard XPolicy server on port 8500.
 The unbound repository runtime template is deliberately blocked for the YAM
-driver. Dummy mode (`--dummy`) is for non-hardware protocol debugging only;
-it cannot generate a bound deployment config.
+driver. The deployment launcher requires a real model and rejects dummy policies.
+Use disconnected test fixtures in tests/validation scripts for protocol checks.
 
 In another terminal, test the complete inference/IK boundary without hardware:
 

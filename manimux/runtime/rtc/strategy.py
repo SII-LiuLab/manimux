@@ -65,9 +65,6 @@ class RtcInferenceStrategy:
         self._request_forecast: dict[int, int]
         self._infeasible_reported: bool
         self._infeasible_pending: tuple[int, int] | None
-        self._latency: list[tuple[int, float, float]]
-        self._loop_ms: list[float]
-        self._last_report_step: int
         self.reset()
 
     def set_condition_predictor(self, predictor) -> None:
@@ -103,9 +100,6 @@ class RtcInferenceStrategy:
         self._active_request_seq = -1
         self._infeasible_reported = False
         self._infeasible_pending = None
-        self._latency = []
-        self._loop_ms = []
-        self._last_report_step = 0
 
     def seed_warmup(self, *, latency_ns: Sequence[int]) -> None:
         """Seed automatic delay from E2E samples, retaining it across resets.
@@ -123,43 +117,6 @@ class RtcInferenceStrategy:
         self._delay_forecast = deque(
             self._warmup_delay_steps or (0,), maxlen=self._delay_buffer_size
         )
-
-    def build_warmup_submission(
-        self,
-        *,
-        session_id: str,
-        request_seq: int,
-        now_ns: int,
-        snapshot: ObservationSnapshot,
-        adapter: PolicyAdapter,
-        conditioned: bool = False,
-    ) -> InferenceSubmission:
-        """Exercise either sampler branch without a timeline or execution history."""
-        condition = None
-        weights = None
-        if conditioned:
-            horizon = int(self._config["policy"]["horizon_policy_steps"])
-            measured = np.concatenate([snapshot.state.groups[name] for name in self._group_order])
-            rows = np.repeat(measured[None, :], horizon, axis=0)
-            executed = min(self._min_execute_steps or max(1, horizon // 2), horizon - 1)
-            # Compile the conditioned branch even when early compile latency is
-            # infeasible for execution. This synthetic mask is never committed.
-            delay = min(max(1, max(self._delay_forecast)), executed, horizon - executed)
-            condition, weights = inpainting_condition(
-                rows, executed_steps=executed, delay_steps=delay
-            )
-        request = RtcInferenceRequest(
-            session_id=session_id,
-            request_seq=request_seq,
-            observation_time_ns=snapshot.state.monotonic_ns,
-            deadline_ns=now_ns + int(self._config["policy"]["timeout_s"] * 1_000_000_000),
-            observation=adapter.build_observation(snapshot),
-            instruction=self._config["run"]["task_prompt"],
-            action_condition=None if condition is None else condition.astype(np.float64),
-            condition_weights=None if weights is None else weights.astype(np.float64),
-            rtc_beta=self._rtc_beta,
-        )
-        return InferenceSubmission(request=request, event_fields={"conditioned": conditioned})
 
     def execution_horizon(self, horizon: int, delay: int) -> int:
         floor = self._min_execute_steps or max(1, horizon // 2)
@@ -338,13 +295,6 @@ class RtcInferenceStrategy:
         delay_ns = max(0, now_ns - min(started_ns, observation_ns))
         measured_delay = (delay_ns + chunk.dt_ns - 1) // chunk.dt_ns
         self._delay_forecast.append(measured_delay)
-        self._latency.append(
-            (
-                measured_delay,
-                response.inference_ms,
-                (now_ns - started_ns) / 1e6,
-            )
-        )
         self._conditioned_requests.discard(response.request_seq)
         return {
             "measured_delay": measured_delay,
@@ -387,30 +337,7 @@ class RtcInferenceStrategy:
         ]
 
     def on_tick(self, *, steps: int, loop_ms: float, control_dt_ns: int) -> None:
-        self._loop_ms.append(loop_ms)
-        report_every = max(1, int(round(2e9 / control_dt_ns)))
-        if steps - self._last_report_step < report_every:
-            return
-        self._last_report_step = steps
-        recent = self._latency[-5:]
-        if recent:
-            delay = sum(item[0] for item in recent) / len(recent)
-            server = sum(item[1] for item in recent) / len(recent)
-            trip = sum(item[2] for item in recent) / len(recent)
-            horizon = 0 if self._active_rows is None else len(self._active_rows)
-            margin = horizon - max(self._delay_forecast) - delay
-            inference = (
-                f"| infer server {server:5.0f}ms trip {trip:5.0f}ms "
-                f"d={delay:4.1f} margin={margin:+5.1f} steps"
-            )
-        else:
-            inference = "| infer --"
-        print(
-            f"[rtc] step {steps:5d} | loop {sum(self._loop_ms) / len(self._loop_ms):5.1f}/"
-            f"{control_dt_ns / 1e6:.0f}ms max {max(self._loop_ms):5.1f} {inference}",
-            flush=True,
-        )
-        self._loop_ms.clear()
+        del steps, loop_ms, control_dt_ns
 
 
 def rtc_parameters(**options) -> dict:

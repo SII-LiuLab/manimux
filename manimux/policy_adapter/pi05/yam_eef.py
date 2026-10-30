@@ -1,6 +1,5 @@
 """Observation-anchored Pi05 EEF targets converted to YAM joint commands."""
 
-import json
 import uuid
 from dataclasses import dataclass, field
 
@@ -76,11 +75,12 @@ class Pi05YamEefAdapter(PolicyAdapter):
             for rows in poses.values():
                 rows[:, 7] = np.clip(rows[:, 7], 0, 1)
             return pose_chunk(context, poses, self.dt)
-        groups = {}
+        groups, diagnostics = {}, {}
         for group in self.groups:
             seed = np.asarray(seed_state.groups[group]).copy()
+            sequence = self.ik_sequence(group, seed)
             rows = []
-            for step, action in enumerate(actions[group]):
+            for action in actions[group]:
                 pose = np.asarray(action[:7], dtype=float)
                 grip = np.asarray(action[7:], dtype=float)
                 if (
@@ -95,23 +95,12 @@ class Pi05YamEefAdapter(PolicyAdapter):
                 aperture = float(np.clip(grip[0], 0, 1))
                 result = self.kin.ik(
                     {group: target},
-                    {group: seed},
+                    {group: sequence.current},
                     fixed_coordinates={group: {"gripper": aperture}},
                 )[group]
-                if not result.converged:
-                    diagnostic = dict(
-                        group=group,
-                        step=step,
-                        target=pose.tolist(),
-                        seed=seed.tolist(),
-                        gripper=aperture,
-                        reason=result.reason,
-                    )
-                    raise ValueError(
-                        "Pi05 EEF IK failed: " + json.dumps(diagnostic, separators=(",", ":"))
-                    )
-                seed = np.asarray(result.joints).copy()
+                seed = sequence.resolve(result.converged, result.joints, reason=result.reason)
                 rows.append(seed)
+            diagnostics[group] = sequence.metadata()
             groups[group] = np.asarray(rows)
         return ActionChunk(
             f"pi05-eef-{uuid.uuid4().hex[:8]}",
@@ -122,8 +111,9 @@ class Pi05YamEefAdapter(PolicyAdapter):
             self.dt,
             groups,
             metadata={
+                "ik": diagnostics,
                 "raw_model_eef": {
                     side: actions[f"{side}_arm"][:, :7].tolist() for side in ("left", "right")
-                }
+                },
             },
         )

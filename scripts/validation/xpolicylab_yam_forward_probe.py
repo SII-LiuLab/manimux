@@ -205,7 +205,7 @@ def main() -> int:
         request = InferenceRequest(**request_fields)
 
     model = build_policy_model(config["policy"])
-    adapter = build_policy_adapter(config["robot"], config["policy"])
+    adapter = build_policy_adapter(config["robot"], config["policy"], ik_options=config["execution"]["ik"])
     request = adapter.prepare_request(request)
     started = time.perf_counter()
     try:

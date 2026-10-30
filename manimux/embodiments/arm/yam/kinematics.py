@@ -92,6 +92,7 @@ class YamKinematics:
         num_arm_joints: int = 6,
         *,
         assets_root: Path | str | None = None,
+        ee_site: str = EE_SITE,
         pos_threshold: float | None = 1e-4,
         ori_threshold: float = 1e-4,
         max_iters: int = 200,
@@ -122,9 +123,12 @@ class YamKinematics:
         self._xml = combined_model_xml(self._assets_root, arm_type, gripper_type)
         self.model = mujoco.MjModel.from_xml_string(self._xml)
         self.data = mujoco.MjData(self.model)
-        self.site_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, EE_SITE)
+        if not isinstance(ee_site, str) or not ee_site.strip():
+            raise ValueError("ee_site must name a site in the configured YAM model")
+        self.ee_site = ee_site
+        self.site_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, ee_site)
         if self.site_id < 0:
-            raise RuntimeError(f"{EE_SITE} is missing from the {arm_type} model")
+            raise ValueError(f"YAM ee_site {ee_site!r} is missing from the {arm_type} model")
 
         # mujoco's MjData and mink's Configuration are both single-writer.
         self._lock = threading.Lock()
@@ -174,7 +178,7 @@ class YamKinematics:
         return qpos
 
     def fk(self, joints: FloatArray, gripper: float) -> FloatArray:
-        """Joint positions -> 4x4 grasp-site transform in the arm base frame."""
+        """Joint positions -> configured control-site transform in the arm base frame."""
         qpos = self.robot_state_to_qpos(joints, gripper)
         with self._lock:
             self.data.qpos[:] = qpos
@@ -263,7 +267,7 @@ class YamKinematics:
                 handle.write(self._xml)
                 xml_path = handle.name
             try:
-                self._solver = Kinematics(xml_path, EE_SITE)
+                self._solver = Kinematics(xml_path, self.ee_site)
             finally:
                 Path(xml_path).unlink(missing_ok=True)
         return self._solver
@@ -274,7 +278,7 @@ class YamKinematics:
         init_joints: FloatArray,
         gripper: float,
     ) -> tuple[bool, FloatArray]:
-        """4x4 grasp-site target -> (converged, joint positions).
+        """4x4 configured control-site target -> (converged, joint positions).
 
         ``init_joints`` seeds the differential solver, so passing the measured
         joints keeps the solution on the branch the arm is already on.
@@ -287,7 +291,7 @@ class YamKinematics:
             solver = self._get_solver()
             converged, qpos = solver.ik(  # type: ignore[attr-defined]
                 target,
-                site_name=EE_SITE,
+                site_name=self.ee_site,
                 init_q=init_qpos,
                 # Without limits the differential solver happily integrates past
                 # the joint stops while chasing an unreachable target.
@@ -364,10 +368,30 @@ class YamKinematics:
                 return True, candidate, info
         return False, joints, info
 
+    def ik_nearby(
+        self, target_pose: FloatArray, init_joints: FloatArray, gripper: float,
+        *, max_joint_step: float, joint_motion_cost: float | None = None,
+    ) -> tuple[bool, FloatArray, dict[str, object]]:
+        """Solve inside a box of max_joint_step around the seed; never changes branch.
+
+        Unlike ik(), the closest pose inside the box is returned even when it
+        misses the tolerance; info carries its residual for the caller to judge.
+        joint_motion_cost regularizes the arm joints toward the seed.
+        """
+        seed = self.clip_arm_joints(init_joints)
+        lower, upper = self.joint_position_limits()
+        bounds = (np.maximum(lower, seed - max_joint_step), np.minimum(upper, seed + max_joint_step))
+        return self._ik_bounded_task(
+            target_pose, seed, gripper, deadline_ns=None,
+            orientation_cost=1.0, orientation_threshold=self._ori_threshold,
+            joint_bounds=bounds, joint_motion_cost=joint_motion_cost,
+        )
+
     def _ik_bounded_task(
         self, target_pose: FloatArray, init_joints: FloatArray, gripper: float,
-        *, deadline_ns: int, orientation_cost: float, orientation_threshold: float,
+        *, deadline_ns: int | None, orientation_cost: float, orientation_threshold: float,
         joint_bounds: tuple[FloatArray, FloatArray] | None = None,
+        joint_motion_cost: float | None = None,
     ) -> tuple[bool, FloatArray, dict[str, object]]:
         """Same Mink objective/limits, with a cooperative deadline and stall exit.
 
@@ -387,10 +411,17 @@ class YamKinematics:
             configuration = self._bounded_configuration
             configuration.update(qpos)
             task = mink.FrameTask(
-                frame_name=EE_SITE, frame_type="site", position_cost=1.0,
+                frame_name=self.ee_site, frame_type="site", position_cost=1.0,
                 orientation_cost=orientation_cost, lm_damping=1.0,
             )
             task.set_target(mink.SE3.from_matrix(target))
+            tasks = [task]
+            if joint_motion_cost:
+                cost = np.zeros(self.model.nv)
+                cost[:self._num_arm_joints] = joint_motion_cost
+                posture = mink.PostureTask(self.model, cost=cost)
+                posture.set_target(qpos)
+                tasks.append(posture)
             limits = self._joint_limits()
             if joint_bounds is not None:
                 local_limit = mink.ConfigurationLimit(self.model)
@@ -407,7 +438,7 @@ class YamKinematics:
                 if iteration > 0 and pos <= self._pos_threshold and rot <= orientation_threshold:
                     reason = "converged"
                     break
-                if time.monotonic_ns() >= deadline_ns:
+                if deadline_ns is not None and time.monotonic_ns() >= deadline_ns:
                     reason = "budget_exceeded"
                     break
                 if iteration == self._max_iters:
@@ -420,7 +451,7 @@ class YamKinematics:
                 if stale >= 12:
                     reason = "stagnation"
                     break
-                velocity = mink.solve_ik(configuration, [task], .01, "quadprog",
+                velocity = mink.solve_ik(configuration, tasks, .01, "quadprog",
                                          damping=1e-4, limits=limits)
                 configuration.integrate_inplace(velocity, .01)
                 iterations += 1
@@ -469,6 +500,7 @@ class YamManipulatorKinematics(ManipulatorKinematicsBase):
 
     def __init__(self, **options):
         self.solver = YamKinematics(**options)
+        self.tcp_frame = self.solver.ee_site
 
     def fk(self, configuration):
         return self.solver.pose(configuration)
@@ -488,6 +520,20 @@ class YamManipulatorKinematics(ManipulatorKinematicsBase):
         if ok:
             return IKResult(True, joints=np.r_[joints, gripper])
         return IKResult(False, reason=info.get("reason", "no_solution"))
+
+    def ik_nearby(
+        self, target_tcp, seed_configuration, *, fixed_coordinates, max_joint_step,
+        joint_motion_cost=None,
+    ):
+        """(converged, configuration, info); the configuration is the closest pose even on a miss."""
+        if set(fixed_coordinates) != {"gripper"}:
+            raise ValueError("YAM IK requires the gripper coordinate")
+        gripper = fixed_coordinates["gripper"]
+        ok, joints, info = self.solver.ik_nearby(
+            target_tcp, np.asarray(seed_configuration)[:6], gripper, max_joint_step=max_joint_step,
+            joint_motion_cost=joint_motion_cost,
+        )
+        return ok, np.r_[joints, gripper], info
 
     def _ik(self, target, seed, *, gripper):
         # Pass the target gripper value before solving so FK and IK use the same complete configuration.

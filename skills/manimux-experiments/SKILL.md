@@ -218,6 +218,13 @@ be supplied as new launch commands merely because old recordings used them.
 
 ## Evaluate saved trials
 
+Experiment evidence is a maintained product feature, not disposable debug output.
+Preserve the observations, provider responses, action/feedback traces, configuration,
+timing and reports used for reproducibility and evaluation. Development-only probes
+and temporary dumps belong outside production modules. Before cleanup, trace consumers
+and retain the shared experiment recording path; do not delete data or recording
+functionality simply because a filename contains `debug` or `diagnostic`.
+
 - [Evidence and reporting](references/evidence-and-reporting.md): locate sessions,
   qualify cohorts, preserve setting identities and update progress/result rows.
 - [HTML reports](references/evaluation-reports.md): create `task.yaml`, bind episodes

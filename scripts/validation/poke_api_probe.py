@@ -7,8 +7,11 @@ from dataclasses import asdict
 from pathlib import Path
 
 import numpy as np
+from scipy.spatial.transform import Rotation
 
 from manimux.cli import load_config
+from manimux.kinematics.poses import pose_matrix
+from manimux.policies.response_log import response_log_path
 from manimux.policies.worker import PolicyWorkerClient
 from manimux.policy_adapter import build_policy_adapter
 from manimux.policy_adapter.poke import PokeRequest
@@ -27,6 +30,7 @@ def main():
         help="Explicit model-frame JSON array; interface-only, skips FK/IK",
     )
     parser.add_argument("--calls", type=int, default=3)
+    parser.add_argument("--input-provenance", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if not 1 <= args.calls <= 10:
@@ -40,7 +44,7 @@ def main():
     # Model-frame inputs exercise transport alone. Otherwise require real configured
     # transforms and run the ordinary offline adapter, admission and executor.
     adapter = (
-        None if model_state is not None else build_policy_adapter(config["robot"], config["policy"])
+        None if model_state is not None else build_policy_adapter(config["robot"], config["policy"], ik_options=config["execution"]["ik"])
     )
     report = {
         "hardware_used": False,
@@ -50,6 +54,8 @@ def main():
         "model_state_source": str(args.model_state) if args.model_state else "configured FK",
         "calls": [],
     }
+    if args.input_provenance:
+        report["input_provenance"] = json.loads(args.input_provenance.read_text())
     arrays = {}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     worker = PolicyWorkerClient(config["policy"], "poke-api-probe")
@@ -99,8 +105,16 @@ def main():
                 "index": index,
                 "shape": list(raw["actions"].shape),
                 "timing": raw["sampling_stats"]["poke_api"],
+                "response_path": str(response_log_path(
+                    config["policy"]["options"].get("response_log_dir"),
+                    request.session_id, index,
+                )),
             }
+            report["calls"].append(row)
             if adapter is not None:
+                if adapter.decode_pose_only:
+                    raise ValueError("This probe requires chunk IK, not pose-only decoding")
+                ik_started = time.monotonic()
                 chunk = adapter.decode_action(
                     raw,
                     ActionContext(
@@ -111,6 +125,30 @@ def main():
                         observation_state=state,
                     ),
                 )
+                row["ik_ms"] = (time.monotonic() - ik_started) * 1000
+                model = adapter.kinematics.models[adapter.group]
+                errors = []
+                for action, joints in zip(
+                    raw["actions"], chunk.groups[adapter.group][:len(raw["actions"])], strict=True,
+                ):
+                    target = (
+                        adapter.base_from_model
+                        @ pose_matrix(action[[0, 1, 2, 6, 3, 4, 5]])
+                        @ adapter.model_tool_from_tcp
+                    )
+                    actual = model.fk(joints)
+                    errors.append([
+                        np.linalg.norm(target[:3, 3] - actual[:3, 3]),
+                        Rotation.from_matrix(target[:3, :3].T @ actual[:3, :3]).magnitude(),
+                    ])
+                ik = chunk.metadata["ik"][adapter.group]
+                row["ik"] = ik
+                row["ik_solved_rows"] = ik["solved_steps"]
+                row["ik_held_rows"] = ik["failed_steps"]
+                row["max_fk_position_error_m"] = float(np.max(errors, axis=0)[0])
+                row["max_fk_rotation_error_rad"] = float(np.max(errors, axis=0)[1])
+                for group, joints in chunk.groups.items():
+                    arrays[f"call_{index}_{group}_joints"] = joints
                 timeline = ActionTimeline(
                     config["robot"]["group_dims"],
                     action_start_mode=config["inference"]["action_start_mode"],
@@ -130,7 +168,6 @@ def main():
                     arrays[f"call_{index}_{group}_commands"] = commands
                 row["commands_finite"] = all(np.isfinite(v).all() for v in preview.values())
                 row["command_rows"] = {g: len(v) for g, v in preview.items()}
-            report["calls"].append(row)
             print(json.dumps(row), flush=True)
         report["status"] = "passed"
     except Exception as exc:

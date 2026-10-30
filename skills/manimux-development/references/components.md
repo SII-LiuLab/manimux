@@ -73,6 +73,15 @@ with a fake SDK. State separately what still needs the real SDK or authorized ha
 
 ## Arm and shared controller
 
+YAM's model option `ee_site` selects the same MuJoCo site for observation FK,
+ordinary IK, deadline-bounded IK and the model's `tcp_frame` metadata. It defaults
+to `grasp_site`. Set it under an assembly arm component's `options` only when the
+policy's control-point convention requires a different model site (for example,
+`tcp_site`). Site names do not establish physical flange identity. A control-point
+change does not provide station/task-frame calibration or authorize hardware motion.
+Keep observation and target conversion consistent with the selected site and validate
+the resolved assembly offline before deployment.
+
 Start at `manimux/embodiments/arm/base.py`: `ArmBase`, `ArmController`, `ArmState`
 and `ArmModel`. Put a vendor implementation and its assets under
 `manimux/embodiments/arm/<name>/`; declare it in

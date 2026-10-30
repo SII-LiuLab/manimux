@@ -3,41 +3,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from html import escape
 from pathlib import Path
 
 from manimux.recording.management import list_recordings, restore_recordings, trash_recordings
-
-RECORDS_STYLE = """
-<style>
-.mm-records-session { --mm-records-muted: #59636f; box-sizing: border-box;
-  min-width: 0; padding: 8px 12px 12px; font: 12px/1.55 system-ui, sans-serif;
-  color: var(--mantine-color-text, #263445); overflow-wrap: anywhere; }
-[data-mantine-color-scheme="dark"] .mm-records-session { --mm-records-muted: #b1bac6; }
-.mm-records-session header { margin-bottom: 4px; font-size: 11px; font-weight: 500;
-  font-variant-numeric: tabular-nums; color: var(--mm-records-muted); }
-.mm-records-entry + .mm-records-entry {
-  border-top: 1px solid var(--mantine-color-default-border, #e8edf2); }
-.mm-records-entry summary { display: grid; grid-template-columns: minmax(0, 1fr) 10px;
-  column-gap: 8px; padding: 10px 0; list-style: none; cursor: pointer; }
-.mm-records-entry summary::-webkit-details-marker { display: none; }
-.mm-records-entry summary::after { content: ''; width: 5px; height: 5px;
-  border-right: 1px solid currentColor; border-bottom: 1px solid currentColor;
-  transform: rotate(-45deg); grid-column: 2; grid-row: 1 / 3; align-self: center;
-  color: var(--mm-records-muted); }
-.mm-records-entry[open] summary::after { transform: rotate(45deg); }
-.mm-records-entry summary:focus-visible {
-  outline: 2px solid var(--mantine-primary-color-filled, #228be6); outline-offset: 2px; }
-.mm-records-entry summary:hover .mm-records-name { text-decoration: underline;
-  text-underline-offset: 3px; }
-.mm-records-name { font-weight: 500; }
-.mm-records-meta { grid-column: 1; margin-top: 3px; font-size: 11px;
-  color: var(--mm-records-muted); }
-.mm-records-files { padding: 0 0 12px; font-size: 11px;
-  color: var(--mm-records-muted); }
-.mm-records-files pre { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-</style>
-"""
 
 
 def _session_labels(sessions):
@@ -60,6 +28,8 @@ def _session_labels(sessions):
 
 def _record_label(row):
     parts = [row["episode"], row["status"]]
+    if row.get("read_only"):
+        parts.append("Imported history · read-only")
     if row["score"] is not None:
         parts.append(f"score {row['score']}")
     if row["layout"]:
@@ -73,6 +43,7 @@ class RecordingsPanel:
     def __init__(self, dashboard):
         self.host = dashboard
         self.root = None
+        self.history_sessions = ()
         self.rows = []
         self.checks = {}
         self.handles = []
@@ -82,19 +53,19 @@ class RecordingsPanel:
         self.last_receipt = None
         self.session_ids = {}
         gui = dashboard.server.gui
-        self.folder = gui.add_folder("Experiment records", expand_by_default=False, order=10000)
+        self.folder = gui.add_folder("Experiment records", expand_by_default=True, order=10000)
         with self.folder:
             self.info = gui.add_markdown("No recordings loaded.", order=0)
             self.status = gui.add_markdown("", order=1)
             self.refresh_button = gui.add_button("Refresh records", color="gray", order=2)
             self.filters = gui.add_folder(
-                "Filter records", expand_by_default=False, visible=False, order=3
+                "Filter records", expand_by_default=True, visible=False, order=3
             )
             with self.filters:
                 self.layout = gui.add_dropdown("Recorded layout", ("All layouts",))
                 self.session = gui.add_dropdown("Session", ("All sessions",))
             self.management = gui.add_folder(
-                "Manage records", expand_by_default=False, visible=False, order=10000
+                "Manage records", expand_by_default=True, visible=False, order=10000
             )
             with self.management:
                 gui.add_markdown(
@@ -107,13 +78,6 @@ class RecordingsPanel:
                 )
                 self.undo = gui.add_button("Undo last deletion", color="gray", disabled=True,
                                            visible=False, order=10003)
-            self.details = gui.add_folder("Storage details", expand_by_default=False, order=10001)
-            with self.details:
-                self.output = gui.add_html("")
-                gui.add_markdown(
-                    "Deleted rollouts move to `_archive/deleted`. Undo restores the last deletion. "
-                    "Imported history is read-only."
-                )
 
         @self.refresh_button.on_click
         def refresh(_event):
@@ -176,11 +140,12 @@ class RecordingsPanel:
         for relative, handle in self.checks.items():
             handle.disabled = not allowed or not revisions.get(relative)
 
-    def configure(self, root):
+    def configure(self, root, *, history_sessions=()):
         root = Path(root).resolve() if root else None
         if root != self.root:
             self.last_receipt = None
         self.root = root
+        self.history_sessions = tuple(history_sessions)
         self.refresh()
 
     def refresh(self):
@@ -188,6 +153,7 @@ class RecordingsPanel:
             return
         self.epoch += 1
         epoch, root = self.epoch, self.root
+        sessions = self.history_sessions
         self.loading = True
         self.status.content = "Reading recordings…"
         self.update_enabled()
@@ -198,15 +164,8 @@ class RecordingsPanel:
                     return
                 self.loading = False
                 try:
-                    self.rows = future.result()
-                    self.output.content = (
-                        '<div style="padding:8px 12px;font-size:12px;line-height:1.55;'
-                        'overflow-wrap:anywhere">'
-                        'Current Task / Method output:<br>'
-                        '<code style="white-space:normal;overflow-wrap:anywhere">'
-                        f'{escape(str(root))}</code>'
-                        '</div>'
-                    ) if root else "Waiting for a Task / Method output directory."
+                    # Formal scored experiments only; raw runs remain on disk.
+                    self.rows = [row for row in future.result() if row["score"] is not None]
                     labels = _session_labels(
                         sorted({r["session"] for r in self.rows}, reverse=True)
                     )
@@ -230,7 +189,9 @@ class RecordingsPanel:
                     self.host._report_error("Read recordings", exc)
                 self.update_enabled()
 
-        future = self.host._jobs.submit(lambda: list_recordings(root) if root else [])
+        future = self.host._jobs.submit(
+            lambda: list_recordings(root, history_sessions=sessions) if root else []
+        )
         future.add_done_callback(apply)
 
     def render(self):
@@ -247,55 +208,27 @@ class RecordingsPanel:
         ]
         count = len(self.rows)
         self.info.content = (
-            f"{count} recording{'s' if count != 1 else ''}"
+            f"{count} scored experiment{'s' if count != 1 else ''}"
             + (f" · {len(rows)} shown" if len(rows) != count else "")
-            if count else "No recordings yet. Completed runs will appear here."
+            if count else "No recordings for this Task / Method / Initial pose."
         )
         self.management.visible = bool(rows) or self.last_receipt is not None
         labels = _session_labels(list(dict.fromkeys(r["session"] for r in rows)))
-        with self.folder:
-            for session in dict.fromkeys(r["session"] for r in rows):
-                content = (
-                    RECORDS_STYLE + '<section class="mm-records-session">'
-                    f'<header>{escape(labels[session])}</header>'
+        with self.management:
+            for row in rows:
+                # Full-width description avoids Viser's narrow checkbox-label column.
+                label = f"{labels[row['session']]} · {_record_label(row)}"
+                self.handles.append(gui.add_markdown(label, order=10 + len(self.handles)))
+                checkbox = gui.add_checkbox(
+                    "Select", False, disabled=True, order=10 + len(self.handles),
                 )
-                for row in (r for r in rows if r["session"] == session):
-                    label = _record_label(row)
-                    with self.management:
-                        checkbox = gui.add_checkbox(
-                            f"{labels[session]} · {label}", False, disabled=True,
-                            order=10 + len(self.checks),
-                        )
-                        self.handles.append(checkbox)
-                        self.checks[row["relative"]] = checkbox
+                self.handles.append(checkbox)
+                self.checks[row["relative"]] = checkbox
 
-                        @checkbox.on_update
-                        def changed(_event):
-                            with self.host.lock:
-                                self.update_enabled()
-
-                    path = self.root / row["relative"]
-                    try:
-                        names = [
-                            p.name + ("/" if p.is_dir() else "")
-                            for p in sorted(path.iterdir()) if not p.is_symlink()
-                        ]
-                    except OSError:
-                        names = ["Recording no longer available; refresh."]
-                    tree = "\n".join(escape(name) for name in names)
-                    metadata = label.removeprefix(row["episode"] + " · ")
-                    content += (
-                        '<details class="mm-records-entry">'
-                        f'<summary aria-label="{escape(label)} · Files and location">'
-                        f'<span class="mm-records-name">{escape(row["episode"])}</span>'
-                        f'<span class="mm-records-meta">{escape(metadata)}</span></summary>'
-                        '<div class="mm-records-files">Files and location'
-                        f'<div>{escape(str(path))}</div><pre>{tree}</pre>'
-                        '</div></details>'
-                    )
-                self.handles.append(
-                    gui.add_html(content + '</section>', order=10 + len(self.handles))
-                )
+                @checkbox.on_update
+                def changed(_event):
+                    with self.host.lock:
+                        self.update_enabled()
         self.update_enabled()
 
     def confirm_delete(self, client):

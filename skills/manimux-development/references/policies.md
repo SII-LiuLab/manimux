@@ -248,15 +248,14 @@ Reset closes the prior provider session and clears observations; failures
 propagate without a caller retry loop. Only default sampling is advertised;
 RTC, PAINT, AAC, BID, AutoHorizon and multi-inflight are refused.
 
-Every API response is saved before validation under
-`policy.options.response_log_dir` (default `data/diagnostics/dream-api`), grouped
-by a hash of the session ID. JSON includes the untouched SDK response values,
-request sequence, observation timestamp, prompt/state, camera hashes and timing.
-Non-finite numbers are represented by explicit `NaN`/`Infinity` strings, and API
-credentials are redacted. Transport failures also produce records. Successful
-sampling statistics and decode errors reference the saved path. A write failure
-fails inference rather than silently losing diagnostic evidence. These local
-records are separate from the disabled provider-side episode recorder.
+Experiment response recording is owned by the shared worker's `ResponseLog`, enabled
+by `policy.options.response_log_dir` (the recipe selects `data/diagnostics/dream-api`).
+The client contributes the SDK response before decoding; it does not open files.
+Request-scoped `request.json`, `response-*.json` and `outcome.json` preserve inputs,
+raw/decoded outputs, timing and failures. Non-finite values are encoded explicitly
+and credentials are redacted. Worker/runtime rejection events link the evidence
+folder. Standalone client calls without an active recorder perform no archive I/O.
+This experiment record is separate from the disabled provider-side episode recorder.
 
 The recipe uses 48 rows at 30 Hz (the research page's 1.6-second horizon).
 The SDK pacing default is separately 20 Hz; it is not authoritative model
@@ -322,9 +321,12 @@ adapter construction. Do not replace missing station calibration with identities
 or claim a synthetic transform is physically calibrated. IK rejects the entire
 chunk on failure; the configured executor still owns smoothing and limits.
 
-All responses, including malformed JSON and transport errors, are saved before
-decoding to `data/diagnostics/poke-api`, using shared `policies/diagnostics.py`.
-Raw actions remain intact. The documented gripper tolerance is 0.01: small
+The client supplies the raw HTTP response before JSON/action decoding to the shared
+experiment recorder (`policies/response_log.py`). The recipe selects
+`data/diagnostics/poke-api`; RPent selects a session-owned directory. Request, response
+and failure records share the same format as other backends. Direct client calls do
+not write files; validation scripts can activate the recorder explicitly. Raw actions
+remain intact in experiment evidence. The documented gripper tolerance is 0.01: small
 overshoot is clipped with affected rows recorded, larger overshoot fails.
 Non-finite values and non-unit quaternions fail with row diagnostics.
 
@@ -432,6 +434,10 @@ geometry and independent-process reconstruction where used. Exercise the selecte
 recipe's client-format/adapter pairing. Offline geometry or synthetic transport
 tests do not prove checkpoint inference or physical task success.
 
+
+## Shared IK failure behavior
+
+All model and backend adapters use the [shared execution IK policy](runtime-config.md#chunk-ik-and-execution-time-ik). Configure `execution.ik.failure_policy`, not an adapter-specific default. `hold_last_valid` holds both arm and gripper at a failed target and attempts later targets; `reject` fails the decode. Use the common `IKSequence` helper for chunk decoding and preserve the resolved policy when constructing child decoders. Raw solver failures must never produce independently advancing gripper commands.
 
 ## Optional pose decoding for step IK
 

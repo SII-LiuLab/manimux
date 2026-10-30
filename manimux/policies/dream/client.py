@@ -7,7 +7,7 @@ import numpy as np
 from manimux.policies.base import action_interval
 from manimux.policies.capabilities import PolicyCapabilities, metadata_mismatches
 from manimux.policies.dream.codec import CAMERAS, DreamCodec
-from manimux.policies.dream.diagnostics import save_response
+from manimux.policies.response_log import capture_response
 
 
 class DreamPolicyModel:
@@ -42,9 +42,6 @@ class DreamPolicyModel:
         if not isinstance(self.key_env, str) or not self.key_env.isidentifier():
             raise ValueError("api_key_env must name an environment variable")
         self.codec = DreamCodec(config)
-        self.response_log_dir = options.get("response_log_dir", "data/diagnostics/dream-api")
-        if not isinstance(self.response_log_dir, str) or not self.response_log_dir.strip():
-            raise ValueError("Dream response_log_dir must be a non-empty path")
         self.client = None
         self.session_id = None
         self._metadata = {}
@@ -130,31 +127,12 @@ class DreamPolicyModel:
             message = str(exc)
             if key:
                 message = message.replace(key, "[REDACTED]")
-            path = save_response(
-                self.response_log_dir, request, checkpoint=self.checkpoint,
-                observation=observation, raw=None, timing=self.client.last_timing,
-                secret=key, error=f"{type(exc).__name__}: {message}",
-            )
             raise RuntimeError(
-                f"Dream inference failed ({type(exc).__name__}): {message}; response_log={path}"
+                f"Dream inference failed ({type(exc).__name__}): {message}"
             ) from None
-        # Persist before validation: a rejected response is precisely the evidence
-        # needed to distinguish invalid provider output from an adapter mismatch.
-        path = save_response(
-            self.response_log_dir, request, checkpoint=self.checkpoint,
-            observation=observation, raw=raw, timing=self.client.last_timing, secret=key,
-        )
-        try:
-            result = self.codec.decode(raw)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f"{exc}; response_log={path}") from None
-        result["sampling_stats"] = {
-            "dream_api": {
-                **result["sampling_stats"]["dream_api"],
-                **dict(self.client.last_timing or {}),
-                "response_log": str(path),
-            }
-        }
+        capture_response(raw, metadata={"timing": self.client.last_timing})
+        result = self.codec.decode(raw)
+        result["sampling_stats"]["dream_api"].update(self.client.last_timing or {})
         return result
 
     def capabilities(self):

@@ -95,7 +95,7 @@ class PokePoseAdapter(KinematicAdapter):
             raise ValueError("Poke adapter requires codec-normalized gripper values")
         if context.ik_seed is None:
             raise ValueError("Poke IK requires the runtime-selected seed")
-        groups = {}
+        groups, diagnostics = {}, {}
         for group, model in self.kinematics.models.items():
             seed = np.array(context.ik_seed.groups[group], dtype=float, copy=True)
             if group != self.group:
@@ -104,28 +104,27 @@ class PokePoseAdapter(KinematicAdapter):
                 )
                 groups[group] = np.repeat(row[None], max(2, len(actions)), axis=0)
                 continue
+            sequence = self.ik_sequence(group, seed)
             solved = []
-            for step, row in enumerate(actions):
+            for row in actions:
                 model_pose = pose_matrix(row[[0, 1, 2, 6, 3, 4, 5]])
                 target = self.base_from_model @ model_pose @ self.model_tool_from_tcp
                 if self.decode_pose_only:
                     solved.append(np.r_[matrix_pose(target), row[7]])
                     continue
                 result = model.ik(
-                    target, seed, fixed_coordinates={model.coordinates[-1].name: float(row[7])}
+                    target,
+                    sequence.current,
+                    fixed_coordinates={model.coordinates[-1].name: float(row[7])},
                 )
-                if not result.converged:
-                    log = raw.get("sampling_stats", {}).get("poke_api", {}).get("response_log")
-                    raise ValueError(
-                        f"Poke IK failed: group={group} row={step} reason={result.reason}; "
-                        f"response_log={log}"
-                    )
-                seed = np.asarray(result.joints).copy()
+                seed = sequence.resolve(result.converged, result.joints, reason=result.reason)
                 solved.append(seed)
+            diagnostics[group] = sequence.metadata()
             groups[group] = np.asarray(solved)
             if len(solved) == 1:
                 groups[group] = np.repeat(groups[group], 2, axis=0)
         metadata = {
+            "ik": diagnostics,
             "controlled_group": self.group,
             "raw_model_steps": len(actions),
             "held_groups": [g for g in groups if g != self.group],

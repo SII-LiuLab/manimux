@@ -11,8 +11,8 @@ import numpy as np
 
 from manimux.policies.base import action_interval
 from manimux.policies.capabilities import PolicyCapabilities, metadata_mismatches
-from manimux.policies.diagnostics import save_response
 from manimux.policies.poke.codec import PokeCodec
+from manimux.policies.response_log import capture_response
 
 
 class PokePolicyModel:
@@ -49,7 +49,6 @@ class PokePolicyModel:
             raise ValueError("Poke timeout must be finite and positive")
         if not np.isclose(action_interval(config), 1 / 30, rtol=0, atol=1e-9):
             raise ValueError("Poke absolute targets use the documented 30 Hz clock")
-        self.response_log_dir = options.get("response_log_dir", "data/diagnostics/poke-api")
         self.codec = PokeCodec(config)
         self.session_id = None
         self._key = ""
@@ -116,9 +115,8 @@ class PokePolicyModel:
     def infer(self, request):
         if self.session_id is None or request.session_id != self.session_id:
             raise ValueError("Poke request does not belong to the active session")
-        messages, observation = self.codec.encode(request)
+        messages, _ = self.codec.encode(request)
         start = time.monotonic()
-        raw, request_id, error = None, None, None
         try:
             raw, request_id = self._request(
                 "/chat/completions",
@@ -127,33 +125,14 @@ class PokePolicyModel:
                     "messages": messages,
                 },
             )
+            capture_response(raw, stage="provider_wire", metadata={"request_id": request_id})
             raw = json.loads(raw)
         except Exception as exc:
-            error = f"{type(exc).__name__}: {exc}".replace(self._key, "[REDACTED]")
-        timing = {
-            "rtt_ms": (time.monotonic() - start) * 1000,
-            "request_id": request_id,
-            "mode": "stateless",
-            "base_url": self.base_url,
-        }
-        path = save_response(
-            self.response_log_dir,
-            request,
-            checkpoint=self.model,
-            observation=observation,
-            raw=raw,
-            timing=timing,
-            secret=self._key,
-            error=error,
-            provider="poke",
-        )
-        if error:
-            raise RuntimeError(f"Poke inference failed: {error}; response_log={path}")
-        try:
-            result = self.codec.decode(raw)
-        except (TypeError, ValueError, KeyError) as exc:
-            raise ValueError(f"{exc}; response_log={path}") from None
-        result["sampling_stats"]["poke_api"].update(timing, response_log=str(path))
+            message = f"{type(exc).__name__}: {exc}".replace(self._key, "[REDACTED]")
+            raise RuntimeError(f"Poke inference failed: {message}") from None
+        elapsed_ms = (time.monotonic() - start) * 1000
+        result = self.codec.decode(raw)
+        result["sampling_stats"]["poke_api"].update(rtt_ms=elapsed_ms, request_id=request_id)
         return result
 
     def capabilities(self):

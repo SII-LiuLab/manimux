@@ -72,9 +72,6 @@ class PaintInferenceStrategy:
         self._request_forecast: dict[int, int]
         self._request_execution: dict[int, int]
         self._conditioned_requests: set[int]
-        self._latency: list[tuple[int, int, float, float]]
-        self._loop_ms: list[float]
-        self._last_report_step: int
         self.reset()
 
     @property
@@ -102,9 +99,6 @@ class PaintInferenceStrategy:
         self._request_forecast = {}
         self._request_execution = {}
         self._conditioned_requests = set()
-        self._latency = []
-        self._loop_ms = []
-        self._last_report_step = 0
 
     def seed_warmup(self, *, latency_ns: Sequence[int]) -> None:
         """Retain steady E2E samples across reset, with the configured initial floor."""
@@ -134,39 +128,6 @@ class PaintInferenceStrategy:
                 "must retain future actions after latency trimming.",
                 algorithm="paint",
             )
-
-    def build_warmup_submission(
-        self,
-        *,
-        session_id: str,
-        request_seq: int,
-        now_ns: int,
-        snapshot: ObservationSnapshot,
-        adapter: PolicyAdapter,
-        conditioned: bool = False,
-    ) -> InferenceSubmission:
-        """Warm the actual PAINT wire path without consuming a formal trajectory."""
-        fields = dict(
-            session_id=session_id,
-            request_seq=request_seq,
-            observation_time_ns=snapshot.state.monotonic_ns,
-            deadline_ns=now_ns + int(self._config["policy"]["timeout_s"] * 1_000_000_000),
-            observation=adapter.build_observation(snapshot),
-            instruction=self._config["run"]["task_prompt"],
-        )
-        if not conditioned:
-            return InferenceSubmission(
-                request=InferenceRequest(**fields), event_fields={"conditioned": False},
-            )
-        measured = np.concatenate([snapshot.state.groups[name] for name in self._group_order])
-        delay = self._initial_delay_steps
-        request = PaintInferenceRequest(
-            **fields,
-            paint_action_prefix=np.repeat(measured[None, :], delay, axis=0),
-            paint_delay_steps=delay,
-            paint_execution_steps=self._execution_steps,
-        )
-        return InferenceSubmission(request=request, event_fields={"conditioned": True})
 
     def build_submission(
         self,
@@ -329,14 +290,6 @@ class PaintInferenceStrategy:
         actual = self._actual_trimmed_steps(chunk, now_ns)
         if forecast > 0:
             self._delay_forecast.append(actual)
-        self._latency.append(
-            (
-                actual,
-                forecast,
-                response.inference_ms,
-                (now_ns - started_ns) / 1e6,
-            )
-        )
         self._conditioned_requests.discard(response.request_seq)
         fields: dict[str, object] = {
             "paint_wait_policy": "terminal_hold_v1",
@@ -344,6 +297,7 @@ class PaintInferenceStrategy:
             "measured_delay": actual,
             "forecast_delay": forecast,
             "server_ms": round(response.inference_ms, 1),
+            "request_to_commit_ms": (now_ns - started_ns) / 1e6,
             "trimmed_steps": result.trimmed_steps,
             "forecast_terminal_hold_policy_steps": max(0, executed + forecast - previous_horizon) if forecast else 0,
             "elapsed_terminal_hold_policy_steps": max(0, executed + actual - previous_horizon) if forecast else 0,
@@ -379,30 +333,7 @@ class PaintInferenceStrategy:
         return []
 
     def on_tick(self, *, steps: int, loop_ms: float, control_dt_ns: int) -> None:
-        self._loop_ms.append(loop_ms)
-        report_every = max(1, int(round(2e9 / control_dt_ns)))
-        if steps - self._last_report_step < report_every:
-            return
-        self._last_report_step = steps
-        recent = self._latency[-5:]
-        if recent:
-            delay = sum(item[0] for item in recent) / len(recent)
-            forecast = sum(item[1] for item in recent) / len(recent)
-            server = sum(item[2] for item in recent) / len(recent)
-            trip = sum(item[3] for item in recent) / len(recent)
-            inference = (
-                f"| infer server {server:5.0f}ms trip {trip:5.0f}ms "
-                f"d={delay:4.1f}/{forecast:4.1f} steps"
-            )
-        else:
-            inference = "| infer --"
-        print(
-            f"[paint] step {steps:5d} | loop "
-            f"{sum(self._loop_ms) / len(self._loop_ms):5.1f}/"
-            f"{control_dt_ns / 1e6:.0f}ms max {max(self._loop_ms):5.1f} {inference}",
-            flush=True,
-        )
-        self._loop_ms.clear()
+        del steps, loop_ms, control_dt_ns
 
 
 def paint_parameters(**options) -> dict:

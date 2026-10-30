@@ -23,9 +23,11 @@ The model still receives joint state and the original three RGB cameras.
 The runtime supplies the FK anchors, receives absolute EEF targets, and applies
 YAM's existing Mink/quadprog IK with joint limits. Measured joints seed the first
 solve; subsequent targets use the previous solution. The model predicts 50 rows;
-only the first 20 rows enter IK and execution. Any failure rejects the chunk and
-logs the arm, row, target, seed, gripper and solver failure reason. The grouped
-IK interface does not expose rejected candidate joints or final residuals.
+only the first 20 rows enter IK and execution. The shared
+`execution.ik.failure_policy` defaults to `hold_last_valid`: hold the complete arm
+and gripper command at a failed point and attempt subsequent targets. `reject`
+rejects the chunk. Experiment metadata records substitutions and target poses;
+the grouped IK interface does not expose rejected candidate joints or final residuals.
 Successful plans retain the decoded EEF targets in adapter metadata.
 
 This uses the existing ManiMux single-inflight scheduling recipe, action spacing

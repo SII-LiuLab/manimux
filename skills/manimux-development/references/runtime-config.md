@@ -600,11 +600,9 @@ reset acknowledgement and the next fresh observation. Reset failure, cancellatio
 or stale controls cannot enable it. Preview work creates no agent tool calls or
 formal dispatched-step/chunk counts, and all timing and motion limits still apply.
 
-An explicit `agent.debug_max_plan_age_s` overrides only managed GUI RPent's copied
-plan-age limit for both preview and execution. It must be finite and positive. Provider
-request timeouts, control freshness and motion checks remain unchanged. The opt-in
-participates in the collection fingerprint; select a new debug variant for recorded
-conditions. Omission preserves existing fingerprints and runtime behavior.
+Managed RPent uses the ordinary `inference.max_plan_age_s` for preview and execution.
+Change the shared experiment setting in a new variant rather than adding an agent-only
+runtime override. Request timeouts, control freshness and motion checks remain separate.
 
 `agent.policy_enabled: false` selects observation and motion primitives only for
 managed RPent. This boolean defaults to true. It omits the policy worker and VLA
@@ -717,6 +715,65 @@ chunk decoding, while `step` keeps an absolute TCP trajectory until each control
 tick. `execution.ik.budget_ms` is optional and defaults to half the control period.
 It must be positive and less than one control period.
 
+`execution.ik.failure_policy` is shared by all action IK adapters and the step-IK
+execution pipeline. It must not be reimplemented as a model-specific option:
+
+- `hold_last_valid` (default): retain the failed group's complete previous accepted
+  command, including its gripper. Retain the row and timestamp, discard the failed
+  candidate as a seed, and attempt subsequent targets. The first failure holds the
+  runtime-selected seed. An entirely unsuccessful chunk is an explicitly recorded
+  hold, not evidence that IK solved any targets.
+- `reject`: a chunk decoder raises and no part of that chunk is committed; step IK
+  raises before issuing a command for that tick. Existing runtime error handling
+  owns the resulting stop/hold lifecycle; this setting does not enable recovery.
+
+Chunk IK handles each configured decode group independently. Step IK retains its
+atomic all-group execution contract: failure of either arm holds both complete
+arm/gripper commands. These are command targets; downstream interpolation and
+executor limits still govern motion and do not prove measured physical stillness.
+For differential IK with dense substeps, accept the whole target interval or replace
+all of its partial samples with the previous valid command, preserve its duration,
+and reset solver history before the next target. Bounded decoders continue after
+ordinary point failures while budget remains; after budget expiry they hold the
+remaining rows, or reject under `reject`.
+
+The adapter factory receives the resolved execution settings; process workers receive
+the same failure policy as inline decoding. The old `policy.adapter.ik_failure_policy`
+is rejected with a migration message. Record per-group `ik` metadata (failure policy,
+solved/failed counts, failed indices and reasons) through normal experiment recording;
+do not add adapter-owned debug logs. Counts include attempted handoff lead-in knots
+when present; they are decode-sequence indices, not necessarily original model rows.
+Malformed input, nonfinite successful solutions and coordinate-mapping errors remain
+errors in both modes. Raw mathematical IK still returns convergence status. Observation
+conversion and initialization checks must not fabricate observations by applying an
+action hold policy. Joint-output models without an IK conversion are unaffected.
+
+### YAM DLS chunk IK
+
+XR-1 YAM selects the chunk solver with `policy.adapter.ik_backend: mink | dls`,
+like Tianji's `analytic | diff`. `mink` (default) is the strict i2rt/mink solve.
+`dls` (damped least squares) solves each output step from the previous accepted joints:
+
+```
+min_q |pose error|^2 + joint_motion_cost^2 * |q - q_previous|^2,  |q - q_previous| <= max_joint_step_rad
+```
+
+The box keeps one IK branch. The motion cost (iterated damped least squares) leaves
+well-conditioned motion at ~1-2 mm. Near a singularity it declines large swings that
+buy little pose: j1 when a target passes the base yaw axis at lift-off from Home, and
+j4/j6 when the wrist reaches j5 ~ +-pi/2. A residual within `max_position_error_m` /
+`max_rotation_error_rad` is accepted and recorded as `approximations` in the `ik`
+metadata. A larger residual is an ordinary IK failure for `execution.ik.failure_policy`.
+It is chunk IK only, and `execution.ik.mode: step` rejects it. Reference the shared profile:
+
+```yaml
+policy:
+  adapter:
+    ik_backend: dls
+    dls_ik:
+      config: ../../../embodiment/arm/yam_dls_ik.yaml
+```
+
 The step path is adapter pose decoding -> pose ActionTimeline -> one sampled
 pose per group -> ExecutionPipeline (optional PoseSpeedLimiter -> StepIKResolver
 -> DirectExecutor) -> existing safety/send path.
@@ -731,8 +788,9 @@ The execution stages are built once and IK is warmed before the control loop. IK
 the current control tick's measured joint state and solves only the current target.
 The pipeline receives the last sent command separately for failure holds and
 optional target limiting; the IK solver does not choose fallback commands. A shared budget
-covers all arms. If any arm fails, is nonfinite, or returns late, hold all groups
-at the last command and reset executor velocity history. `step_ik_hold` records
+covers all arms. Under the default failure policy, if any arm fails or returns late,
+hold all groups including their grippers at the last command and reset executor
+velocity history. Nonfinite or incorrectly shaped successful solutions are errors. `step_ik_hold` records
 failures; `run.control_timing: true` records the `step_ik` stage. YAM checks a
 cooperative deadline between native solver iterations. Other native solvers are
 checked after return; a long native call cannot be preempted. This is a soft

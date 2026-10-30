@@ -116,6 +116,7 @@ RoboGUI provides the operator workspace.
         <strong>API</strong>
         <ul>
           <li><a href="manimux/configs/experiments/example-yam-dream1/README.md">Dream-1</a> ✅</li>
+          <li><a href="https://sii-liulab.github.io/manimux/guideline.html#poke-api">Poke-Aurora</a> ✅ (requires station calibration)</li>
         </ul>
       </td>
       <td>
@@ -128,6 +129,7 @@ RoboGUI provides the operator workspace.
           <li><a href="https://sii-liulab.github.io/manimux/guideline.html#paint">PAINT</a> ✅</li>
           <li><a href="https://sii-liulab.github.io/manimux/guideline.html#aac">AAC</a> ✅</li>
           <li><a href="https://sii-liulab.github.io/manimux/guideline.html#autohorizon">AutoHorizon</a> ✅</li>
+          <li><a href="https://sii-liulab.github.io/manimux/guideline.html#chunktrust">ChunkTrust AHS</a> ✅ (serial / RTC; requires trace support; RTC backend validation pending)</li>
           <li><a href="https://sii-liulab.github.io/manimux/guideline.html#bid-backward">BID (backward-only)</a> ✅</li>
         </ul>
       </td>

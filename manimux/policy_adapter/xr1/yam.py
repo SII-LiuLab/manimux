@@ -23,7 +23,6 @@ incremental step-to-step offsets.
 
 from __future__ import annotations
 
-import logging
 import uuid
 from collections import OrderedDict
 from collections.abc import Mapping, Sequence
@@ -43,8 +42,6 @@ from manimux.types import (
     InferenceRequest,
     ObservationSnapshot,
 )
-
-log = logging.getLogger("manimux.policies.xr1")
 
 DEFAULT_SERVER = "http://127.0.0.1:8400"
 DEFAULT_GROUP_ORDER = ("left_arm", "right_arm")
@@ -127,6 +124,7 @@ class XR1YamAdapter(KinematicAdapter):
     """End-effector deltas -> absolute poses -> YAM joint groups via IK."""
 
     supports_step_ik = True
+    supports_dls_ik = True
     pose_condition_modes = ("rtc", "paint")
 
     def __init__(self, robot: dict, policy: dict, *, kinematics=None) -> None:
@@ -265,13 +263,21 @@ class XR1YamAdapter(KinematicAdapter):
                 start += width
             return pose_chunk(context, targets, self._action_dt_ns, metadata=gripper_metadata)
         groups: dict[str, np.ndarray] = {}
+        diagnostics = {}
         start = 0
         for name in self._group_order:
             width = self._group_dims[name]
             joints = anchor[start : start + ARM_JOINTS]
             gripper = float(anchor[start + ARM_JOINTS])
             groups[name] = self._solve_arm(
-                name, actions, joints, gripper, width, gripper_targets[name]
+                name,
+                actions,
+                joints,
+                gripper,
+                width,
+                gripper_targets[name],
+                diagnostics=diagnostics,
+                seed=None if context.ik_seed is None else context.ik_seed.groups[name],
             )
             start += width
 
@@ -283,7 +289,7 @@ class XR1YamAdapter(KinematicAdapter):
             action_space="joint_position",
             dt_ns=self._action_dt_ns,
             groups=groups,
-            metadata=gripper_metadata,
+            metadata={**gripper_metadata, "ik": diagnostics},
         )
 
     def _solve_arm(
@@ -294,6 +300,9 @@ class XR1YamAdapter(KinematicAdapter):
         gripper: float,
         width: int,
         gripper_targets: np.ndarray,
+        *,
+        diagnostics=None,
+        seed=None,
     ) -> np.ndarray:
         columns = ARM_SLICES[group]
         anchor_pose = self._fk(group, joints, gripper)
@@ -302,8 +311,7 @@ class XR1YamAdapter(KinematicAdapter):
 
         horizon = actions.shape[0]
         out = np.empty((horizon, width), dtype=np.float64)
-        seed = joints.astype(np.float64).copy()
-        failures = 0
+        sequence = self.ik_sequence(group, np.r_[joints, gripper] if seed is None else seed)
 
         for step in range(horizon):
             row = actions[step]
@@ -312,25 +320,14 @@ class XR1YamAdapter(KinematicAdapter):
             target[:3, 3] = anchor_position + anchor_rotation @ row[columns["pos"]]
             target[:3, :3] = anchor_rotation @ _axis_angle_to_rotation(row[columns["aa"]])
 
-            converged, solved = self._ik(group, target, seed, gripper)
-            if converged:
-                # Seeding the next step with this solution keeps the chunk on one
-                # IK branch, so the joint trajectory stays continuous.
-                seed = solved
-            else:
-                # A non-converged solve is wherever the differential solver ran out
-                # of iterations, not a pose the model asked for. Hold the last good
-                # configuration instead of commanding it, and keep the seed clean so
-                # one unreachable step cannot poison the rest of the chunk.
-                failures += 1
-                solved = seed
-            out[step, :ARM_JOINTS] = solved
-            out[step, ARM_JOINTS] = gripper_targets[step]
+            aperture = float(gripper_targets[step])
+            converged, solved, residual = self._solve_ik(
+                group, target, sequence.current[:ARM_JOINTS], aperture
+            )
+            out[step] = sequence.resolve(converged, np.r_[solved, aperture], residual=residual)
 
-        if failures:
-            log.warning("%s: IK did not converge on %d/%d chunk steps", group, failures, horizon)
-        if not np.isfinite(out).all():
-            raise ValueError(f"XR-1 IK produced non-finite joints for {group}")
+        if diagnostics is not None:
+            diagnostics[group] = sequence.metadata()
         return np.ascontiguousarray(out)
 
     def validate(self, robot: dict, policy: dict) -> None:

@@ -192,22 +192,6 @@ class TrainTimeRtcInferenceStrategy(RtcInferenceStrategy):
             return {"ordinary": 2}
         return super().warmup_required_calls
 
-    def build_warmup_submission(self, **kwargs) -> InferenceSubmission:
-        if self._delay_estimator != "fixed":
-            return self._hard_prefix(super().build_warmup_submission(**kwargs))
-        # Warmup has no committed timeline. Hold the measured pose for exactly
-        # the configured prefix, independent of the parent's synthetic delay.
-        submission = super().build_warmup_submission(**{**kwargs, "conditioned": False})
-        count = self._fixed_prefix_steps if kwargs.get("conditioned", False) else 0
-        if count:
-            measured = np.concatenate(
-                [kwargs["snapshot"].state.groups[name] for name in self._group_order]
-            )
-            horizon = self._config["policy"]["horizon_policy_steps"]
-            submission.request.action_condition = np.repeat(measured[None, :], horizon, axis=0)
-            submission.request.condition_weights = (np.arange(horizon) < count).astype(float)
-        return self._hard_prefix(submission)
-
 
 def train_time_rtc_parameters(**options) -> dict:
     values = {

@@ -6,9 +6,11 @@ import math
 import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from functools import partial
 
 import numpy as np
 
+from manimux.kinematics.failure import IKConvergenceError
 from manimux.kinematics.robot import RobotKinematics
 from manimux.kinematics.tianji_diff import rotation_matrix, rotation_vector
 from manimux.policies.base import action_interval
@@ -276,7 +278,7 @@ class _Pi05TianjiEEAdapter(PolicyAdapter):
                     fixed_coordinates={"gripper": gripper},
                 )
                 if not result.converged:
-                    raise ValueError(f"Tianji IK {result.reason}; rejecting the entire chunk")
+                    raise IKConvergenceError(f"Tianji IK {result.reason}")
                 current = _state_vector(result.joints, label="IK result").copy()
             else:
                 result = diff_solver.solve(
@@ -285,8 +287,8 @@ class _Pi05TianjiEEAdapter(PolicyAdapter):
                     duration_s / substeps,
                 )
                 if not result.ok:
-                    raise ValueError(
-                        f"Tianji differential IK {result.reason}; rejecting the entire chunk "
+                    raise IKConvergenceError(
+                        f"Tianji differential IK {result.reason} "
                         f"(lag_mm={result.pos_err_mm}, lag_deg={result.rot_err_deg}, "
                         f"detail={result.detail})"
                     )
@@ -420,9 +422,11 @@ class _Pi05TianjiEEAdapter(PolicyAdapter):
         runtime_groups: dict[str, np.ndarray] = {}
         samples_per_action = None
         lag_stats: dict[str, dict[str, float | int]] = {}
+        diagnostics = {}
         for name in groups_to_decode:
             model = self.kinematics.models[name]
             current = _state_vector(seed_groups[name], label=f"IK seed {name}").copy()
+            sequence = self.ik_sequence(name, current)
             previous_gripper = float(current[-1])
             solver = self.diff_solvers.get(name)
             lag = None
@@ -434,36 +438,45 @@ class _Pi05TianjiEEAdapter(PolicyAdapter):
                     "lag_exceedances": 0,
                 }
             rows: list[np.ndarray] = []
-            runtime_rows: list[np.ndarray] | None = (
-                [] if self.execute_diff_ik_substeps else None
-            )
+            runtime_rows: list[np.ndarray] | None = [] if self.execute_diff_ik_substeps else None
             if handoff is not None:
                 for pose, gripper in handoff.lead_in[name]:
-                    current = self._solve_knot(
+                    current = sequence.solve_interpolated(
+                        partial(
+                            self._solve_knot,
+                            model,
+                            current,
+                            pose,
+                            gripper,
+                            diff_solver=solver,
+                            lag=lag,
+                            duration_s=self.waypoint_handoff.runtime_dt_ns / 1e9,
+                        ),
+                        duration_s=self.waypoint_handoff.runtime_dt_ns / 1e9,
+                        substep_dt_s=self._validation_dt_s,
+                        reset=None if solver is None else solver.reset,
+                    )
+                    runtime_rows.append(current.copy())
+                    previous_gripper = float(current[-1])
+                # The last lead-in target is the first retained source row.
+                rows.append(current.copy())
+            for pose, gripper in targets[name]:
+                substep_joints: list[np.ndarray] | None = [] if runtime_rows is not None else None
+                current = sequence.solve_interpolated(
+                    partial(
+                        self._solve_knot,
                         model,
                         current,
                         pose,
                         gripper,
                         diff_solver=solver,
                         lag=lag,
-                        duration_s=self.waypoint_handoff.runtime_dt_ns / 1e9,
-                    )
-                    runtime_rows.append(current.copy())
-                    previous_gripper = gripper
-                # The last lead-in target is the first retained source row.
-                rows.append(current.copy())
-            for pose, gripper in targets[name]:
-                substep_joints: list[np.ndarray] | None = (
-                    [] if runtime_rows is not None else None
-                )
-                current = self._solve_knot(
-                    model,
-                    current,
-                    pose,
-                    gripper,
-                    diff_solver=solver,
-                    lag=lag,
+                        substep_joints=substep_joints,
+                    ),
+                    duration_s=self._action_dt_s,
+                    substep_dt_s=self._validation_dt_s,
                     substep_joints=substep_joints,
+                    reset=None if solver is None else solver.reset,
                 )
                 rows.append(current.copy())
                 if runtime_rows is not None:
@@ -475,9 +488,10 @@ class _Pi05TianjiEEAdapter(PolicyAdapter):
                     samples_per_action = count
                     for substep_index, joints in enumerate(substep_joints, start=1):
                         alpha = substep_index / count
-                        aperture = (1.0 - alpha) * previous_gripper + alpha * gripper
+                        aperture = (1.0 - alpha) * previous_gripper + alpha * float(current[-1])
                         runtime_rows.append(np.r_[joints, aperture])
-                previous_gripper = gripper
+                previous_gripper = float(current[-1])
+            diagnostics[name] = sequence.metadata()
             groups[name] = np.ascontiguousarray(np.stack(rows))
             if runtime_rows is not None:
                 runtime_groups[name] = np.ascontiguousarray(np.stack(runtime_rows))
@@ -517,6 +531,7 @@ class _Pi05TianjiEEAdapter(PolicyAdapter):
             source_offset_steps=0,
             runtime_trajectory=runtime_trajectory,
             metadata={
+                "ik": diagnostics,
                 "source_action_semantics": ACTION_SEMANTICS,
                 "native_action_semantics": NATIVE_ACTION_SEMANTICS,
                 "gripper_clip_tolerance": self._gripper_clip_tolerance,

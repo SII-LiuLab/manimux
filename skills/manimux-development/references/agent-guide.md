@@ -31,6 +31,14 @@ Skills route agents to these same maintained protocol guides.
 
 ## Documentation ownership
 
+Production code implements reusable behavior and experiment recording. Keep temporary
+debugging, test fixtures and one-off integration reports in tests/validation scripts.
+Do not remove recorded observations, raw predictions, rejected responses, timing or
+evaluation data merely because they help diagnosis: they are experiment functionality
+when used for reproducibility, analysis or operator feedback. Trace consumers before
+cleanup and consolidate duplicate recording through the existing shared recorder.
+See [the development boundary](../SKILL.md#keep-experiments-and-development-debugging-separate).
+
 Skills are reusable instructions for agents working with a user's own models and
 station. Put shared requirements and inspection/validation steps before examples.
 Do not turn one user's checkpoint, arm, calibration, window size or experiment into
@@ -270,6 +278,13 @@ Fixing a legacy bug does not authorize migrating unrelated models or stopping li
   changes to the user-confirmed remote/branch before publishing a parent gitlink. Never publish
   an unreachable submodule revision or assume a developer branch.
 - Commit or push only when requested. Keep unrelated edits and submodule pointers unchanged.
+
+## Independent work directories
+
+New task directories and worktrees must carry a root `WORKSPACE.md` explaining their
+purpose, provenance, current state and retention/cleanup conditions. Follow the
+[workspace context rule](../SKILL.md#leave-context-in-independent-work-directories)
+when creating, resuming, handing off or cleaning them; do not rely on session memory.
 
 ## Public branch changes
 

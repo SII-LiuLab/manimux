@@ -329,6 +329,7 @@ class EdgeRuntime(PlanningContext):
             self._config["policy"],
             kinematics=self._robot.kinematics,
             motion_limits=self._config["executor"]["motion_limits"],
+            ik_options=self._config["execution"]["ik"],
         )
         adapter.decode_pose_only = step_ik_enabled(self._config)
         adapter.validate(self._config["robot"], self._config["policy"])
