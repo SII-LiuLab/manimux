@@ -3015,6 +3015,14 @@ decisions and result tables; it is not a second public guide.</p>
     mode: chunk
     failure_policy: hold_last_valid  # or reject</code></pre>
 <p>The same setting applies to inline/process decoding and analytic/differential action IK. Step IK keeps all arms and grippers together on failure; chunk IK holds the affected group. A failed dense IK interval discards partial substeps and holds the full command for the interval. Normal experiment metadata records held indices and counts; held rows must not be counted as solved IK. This controls target commands, with downstream interpolation and executor limits still active. Replace the old <code>policy.adapter.ik_failure_policy</code> setting with this shared field.</p>
+<p><strong>YAM chunk IK solver:</strong> XR-1 and OpenWAM on YAM choose <code>policy.adapter.ik_backend: mink</code> (default, strict solve) or <code>dls</code> (damped least squares from the previous step, which declines large joint swings near singularities such as lift-off from Home and the wrist limit). DLS has two methods, selected by profile: <code>yam_dls_ik.yaml</code> applies the joint-motion cost on every step; <code>yam_dls_gate_ik.yaml</code> applies it only when the seed's smallest Jacobian singular value is below <code>singularity_gate</code>, so ordinary motion tracks like <code>mink</code>.</p>
+<pre><code>policy:
+  adapter:
+    ik_backend: dls
+    dls_ik:
+      config: ../../../embodiment/arm/yam_dls_gate_ik.yaml
+      singularity_gate: [0.03, 0.06]   # from your own demonstrations</code></pre>
+<p>The gate depends on the station's TCP and task workspace. Derive it from that station's demonstrations or rollouts with <code>python -m scripts.setup.dls_gate_calibrate {teleop_dir}</code> (10th percentile of the singular value, high = 2 &times; low), then verify lift-off and the wrist-limit phase on the robot. The shipped <code>[0.03, 0.06]</code> is the reference station's value.</p>
 <p>Pose-producing adapters support two modes. <code>chunk</code> is the default and solves the decoded chunk before Timeline commit. <code>step</code> keeps TCP poses in Timeline and solves only the current target inside each control tick. Joint-output adapters need no IK mode.</p>
 <pre><code>execution:
   ik:

@@ -750,36 +750,54 @@ action hold policy. Joint-output models without an IK conversion are unaffected.
 
 ### YAM DLS chunk IK
 
-XR-1 YAM selects the chunk solver with `policy.adapter.ik_backend: mink | dls`,
+XR-1 and OpenWAM YAM select the chunk solver with `policy.adapter.ik_backend: mink | dls`,
 like Tianji's `analytic | diff`. `mink` (default) is the strict i2rt/mink solve.
 `dls` (damped least squares) solves each output step from the previous accepted joints:
 
 ```
-min_q |pose error|^2 + joint_motion_cost^2 * |q - q_previous|^2,  |q - q_previous| <= max_joint_step_rad
+min_q |pose error|^2 + c^2 * |q - q_previous|^2,  |q - q_previous| <= max_joint_step_rad
 ```
 
-The box keeps one IK branch. The motion cost (iterated damped least squares) leaves
-well-conditioned motion at ~1-2 mm. Near a singularity it declines large swings that
-buy little pose: j1 when a target passes the base yaw axis at lift-off from Home, and
-j4/j6 when the wrist reaches j5 ~ +-pi/2. A residual within `max_position_error_m` /
+The box keeps one IK branch. Near a singularity the motion cost declines large swings
+that buy little pose: j1 when a target passes the base yaw axis at lift-off from Home,
+and j4/j6 when the wrist reaches j5 ~ +-pi/2. A residual within `max_position_error_m` /
 `max_rotation_error_rad` is accepted and recorded as `approximations` in the `ik`
 metadata. A larger residual is an ordinary IK failure for `execution.ik.failure_policy`.
-It is chunk IK only, and `execution.ik.mode: step` rejects it. Reference the shared profile:
+It is chunk IK only, and `execution.ik.mode: step` rejects it.
+
+Two DLS methods, selected by profile:
+
+| Method | Profile | Cost `c` | Accuracy (teleop replay, p95) |
+|---|---|---|---|
+| DLS | `yam_dls_ik.yaml` | `joint_motion_cost` (0.1) on every step | 2.7 mm overall, 1.3 mm near gripper events |
+| DLS gate | `yam_dls_gate_ik.yaml` | `joint_motion_cost` scaled by `singularity_gate` | 0.7 mm overall, 0.06 mm near gripper events |
 
 ```yaml
 policy:
   adapter:
     ik_backend: dls
     dls_ik:
-      config: ../../../embodiment/arm/yam_dls_ik.yaml
+      config: ../../../embodiment/arm/yam_dls_gate_ik.yaml   # or yam_dls_ik.yaml
 ```
 
-`singularity_gate: [low, high]` applies the cost only near singularities: full
-`joint_motion_cost` while the seed's smallest 6D Jacobian singular value is below
-`low`, none above `high` (exact tracking like `mink`), linear in between.
-`yam_dls_gate_ik.yaml` uses `[0.03, 0.06]`; offline on teleop it cuts the p95 error
-near gripper events from 1.3 mm to 0.06 mm while lift-off damping matches the
-always-on cost of 0.1.
+`singularity_gate: [low, high]` compares the seed's smallest 6D Jacobian singular value
+`sigma_min` with the gate: full cost below `low`, none above `high` (exact tracking like
+`mink`), linear in between. On the reference station both methods damp lift-off and the
+wrist limit equally; the gate removes the lag on ordinary motion.
+
+The gate is station data. `sigma_min` depends on the TCP site and on where the tasks
+place the arm, so derive it from that station's own demonstrations or rollouts:
+
+```bash
+python -m scripts.setup.dls_gate_calibrate {teleop_dir} [--ee-site grasp_site]
+```
+
+It reads `*joint_pos*.npy` arm trajectories or ManiMux `data.zarr` recordings and
+suggests `low` = 10th percentile of `sigma_min`, `high` = 2 x `low`. Override it in the
+experiment (`dls_ik: {config: ..., singularity_gate: [low, high]}`), then check lift-off
+from the start pose and the wrist-limit phase on the robot before comparing methods.
+The shipped `[0.03, 0.06]` comes from the reference station's 80 teleop arm
+trajectories and is not a default for other stations.
 
 The step path is adapter pose decoding -> pose ActionTimeline -> one sampled
 pose per group -> ExecutionPipeline (optional PoseSpeedLimiter -> StepIKResolver

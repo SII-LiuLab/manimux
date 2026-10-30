@@ -1,8 +1,10 @@
-# YAM DLS chunk IK with the joint-motion cost gated by singularity
-# (policy.adapter.ik_backend: dls). As yam_dls_ik.yaml, but the cost is full
-# below sigma_min 0.03, zero above 0.06 (exact tracking like the original IK),
-# linear in between; sigma_min is the smallest singular value of the 6D Jacobian
-# at the seed. Near-singular steps (lift-off, wrist at j5 ~ +-pi/2) stay damped.
+# YAM DLS chunk IK, gated method (policy.adapter.ik_backend: dls). As
+# yam_dls_ik.yaml, but the joint-motion cost acts only near singularities: full
+# below singularity_gate[0], zero above [1] (exact tracking like mink), linear in
+# between, on the seed's smallest 6D Jacobian singular value.
+# The gate is station data, not a universal constant: [0.03, 0.06] comes from the
+# reference station's teleop demonstrations (80 arm trajectories, grasp_site).
+# Derive yours with scripts/setup/dls_gate_calibrate.py and override singularity_gate.
 max_joint_step_rad: 0.15
 max_position_error_m: 0.02
 max_rotation_error_rad: 0.17
