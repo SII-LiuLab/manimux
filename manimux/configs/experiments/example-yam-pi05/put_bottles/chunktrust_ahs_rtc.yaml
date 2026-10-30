@@ -1,0 +1,48 @@
+# Future combined-trace backend contract: the released default-trace fork alone
+# does NOT satisfy this recipe. Startup must reject its missing RTC capability.
+# No backend capability or model/hardware validation is fabricated by this YAML.
+_base_:
+- ../_base_.yaml
+- ../../../tasks/put_bottles.yaml
+robot:
+  control_hz: 100.0
+policy:
+  action_decoding: inline
+  options:
+    response_log_dir: data/diagnostics/chunktrust-ahs-rtc-pi05
+policy_server:
+  return_denoise_trace: true
+  backend_identity:
+    model:
+      action_type: joint
+      execution: {backend: jax}
+      rtc_guidance:
+        padding_mask: valid_action_indices
+        valid_action_indices: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+      denoise_trace:
+        enabled: true
+        schema_version: 1
+        field: v
+        axes: [denoising_step, action_step, model_action]
+        coordinate_space: normalized_model
+        velocity_kind: raw_network_velocity
+        model_action_dim: 32
+        valid_action_indices: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+        dtype: float32
+        supported_modes: [default, rtc]
+inference:
+  config: ../../../inference/yam_chunktrust_ahs_rtc.yaml
+  algorithm: chunktrust_ahs_rtc
+  inference_schedule: single_inflight
+  request_trigger: algorithm
+  chunk_policy_steps: null
+  max_chunk_policy_steps: null
+  # Consumption-ledger alignment happens before this start mode; no wall-age crop.
+  action_start_mode: first_step_when_ready
+  blend_policy_steps: 0
+  handoff_skip_steps: 0
+robogui:
+  policy_label: Pi05 put-bottles - ChunkTrust AHS RTC - 100 Hz control
+experiment:
+  task: put_bottles
+  variant: chunktrust_ahs_rtc

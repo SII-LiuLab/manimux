@@ -22,6 +22,8 @@ robot state and predicted action chunks in one workspace.
 
 ## News
 
+- **2026-10-30** — Added [ChunkTrust AHS](https://sii-liulab.github.io/manimux/guideline.html#chunktrust) for adaptive action-chunk execution horizons, plus an RTC+AHS integration gated by backend capabilities. See [PR #25](https://github.com/SII-LiuLab/manimux/pull/25) for implementation and validation.
+
 - **2026-10-22** — Support for [Franka FR3 with Robotiq gripper](https://sii-liulab.github.io/manimux/guideline.html#franka-deployment) and the [RPent agent](https://sii-liulab.github.io/manimux/guideline.html#agent-integrations).
 
 <a id="what-you-can-do"></a>

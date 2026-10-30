@@ -79,6 +79,12 @@ class PolicyWarmup:
 
     def activate(self):
         if self.phase == "idle":
+            validator = getattr(self.strategy, "validate_capabilities", None)
+            if callable(validator):
+                validator(self.worker.capabilities)
+            initializer = getattr(self.strategy, "begin_warmup", None)
+            if callable(initializer):
+                initializer()
             self.phase = "warming"
             self._was_paused = True
             self._event("warmup_activated")
@@ -186,6 +192,9 @@ class PolicyWarmup:
         first_call = job.branch not in self.first_inference_ms
         if not first_call:
             self.latency_ns.append(elapsed_ns)
+        observer = getattr(self.strategy, "on_warmup_response", None)
+        if callable(observer):
+            observer(latency_ns=elapsed_ns, first_call=first_call)
         self.first_inference_ms.setdefault(job.branch, elapsed_ns / 1e6)
         self._recent_ns.append(elapsed_ns)
         self.completed_requests += 1
@@ -311,7 +320,9 @@ class PolicyWarmup:
                             self.config["policy"]["horizon_policy_steps"]
                             - int(fields.get("executed_steps", 0)),
                         )
-                        fields["frozen_steps"] = int(fields.get("forecast_delay", 0))
+                        fields["frozen_steps"] = int(
+                            fields.get("frozen_budget", fields.get("forecast_delay", 0))
+                        )
                     self._pending[request.request_seq] = PendingPreview(
                         request, started_ns, branch, fields
                     )

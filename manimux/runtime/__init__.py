@@ -6,8 +6,9 @@ ensembling, Physical Intelligence real-time chunking, or a strategy plugin.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from manimux.runtime.decode_forecast import FORECAST_MODES
 from manimux.runtime.inference import INFERENCE_ALGORITHMS, build_inference_strategy
@@ -105,6 +106,24 @@ def inference_parameters(*, executor: dict, **options) -> dict:
     )
     if options["algorithm"] not in INFERENCE_ALGORITHMS:
         raise ValueError(f"inference.algorithm must be one of {sorted(INFERENCE_ALGORITHMS)}")
+    chunktrust = options["algorithm"] in {"chunktrust_ahs", "chunktrust_ahs_rtc"}
+    if chunktrust:
+        if options.get("chunk_policy_steps") is not None:
+            raise ValueError("ChunkTrust selects K; omit inference.chunk_policy_steps")
+        options.setdefault("action_start_mode", "first_step_when_ready")
+        options.setdefault("blend_policy_steps", 0)
+        if options["algorithm"] == "chunktrust_ahs_rtc":
+            rtc = options.get("rtc", {})
+            if not isinstance(rtc, Mapping):
+                raise ValueError("inference.rtc must be a mapping for ChunkTrust RTC")
+            options["rtc"] = {
+                "beta": 10.0,
+                "initial_delay_policy_steps": None,
+                "delay_buffer_size": 10,
+                **rtc,
+            }
+    elif options.get("chunktrust") is not None:
+        raise ValueError("inference.chunktrust requires a ChunkTrust algorithm")
     if options.get("algorithm") in {"serial", "bid_backward"}:
         options.setdefault("inference_schedule", "serial")
     serial_act = (
@@ -166,7 +185,19 @@ def inference_parameters(*, executor: dict, **options) -> dict:
         "aac": {},
         "bid": {},
         "paint": {},
+        "chunktrust": None,
     }, options, 'inference', extra=('history',))
+    if chunktrust:
+        from manimux.runtime.chunktrust.config import chunktrust_parameters
+
+        settings = values["chunktrust"]
+        if settings is None:
+            settings = {}
+        if not isinstance(settings, Mapping):
+            raise ValueError("inference.chunktrust must be a mapping")
+        if values["algorithm"] == "chunktrust_ahs_rtc":
+            settings = {"candidates": [10, 20, 30, 40], **settings}
+        values["chunktrust"] = chunktrust_parameters(**settings)
     if values.get("rtc") is not None:
         values["rtc"] = rtc_parameters(**values["rtc"])
     values["train_time_rtc"] = train_time_rtc_parameters(**values["train_time_rtc"])
@@ -199,6 +230,8 @@ def validate_runtime_parameters(config: dict) -> None:
     from manimux.runtime.ik import validate_ik_config
     validate_ik_config(config)
     settings = config["inference"]
+    if settings["algorithm"] in {"chunktrust_ahs", "chunktrust_ahs_rtc"}:
+        _validate_chunktrust_runtime(config)
     if settings["min_plan_hold_policy_steps"] and config["policy"]["action_decoding"] != "inline":
         raise ValueError("min_plan_hold_policy_steps requires inline action decoding")
     ensemble = (settings.get("temporal_ensemble") or {}).get("enabled", False)
@@ -362,6 +395,8 @@ def validate_inference_parameters(values: dict, executor: dict, *, provided=froz
     from manimux.runtime.scheduling import validate_request_schedule
 
     validate_request_schedule(values, provided=provided)
+    if values["algorithm"] in {"chunktrust_ahs", "chunktrust_ahs_rtc"}:
+        _validate_chunktrust_inference(values, executor)
     minimum = values["min_plan_hold_policy_steps"]
     if type(minimum) is not int or minimum < 0:
         raise ValueError("inference.min_plan_hold_policy_steps must be a non-negative integer")
@@ -495,3 +530,94 @@ def validate_inference_parameters(values: dict, executor: dict, *, provided=froz
             raise ValueError("AAC chunk_id_selector must be 0, mean or backward")
         if not 0 < values["aac"]["backward_beta"] <= 1:
             raise ValueError("AAC backward_beta must be in (0, 1]")
+
+
+def _validate_chunktrust_inference(values: dict[str, Any], executor: dict[str, Any]) -> None:
+    """Keep adaptive consumption separate from fixed-window RTC and latency trimming."""
+    import math
+
+    from manimux.runtime.rtc.strategy import rtc_parameters
+
+    for field in ("strategy", "chunk_policy_steps", "max_chunk_policy_steps", "history"):
+        if values.get(field) is not None:
+            raise ValueError(f"ChunkTrust does not support inference.{field}")
+    for field in ("min_plan_hold_policy_steps", "handoff_skip_steps", "blend_policy_steps"):
+        if type(values[field]) is not int or values[field] != 0:
+            raise ValueError(f"ChunkTrust requires inference.{field}=0")
+    if (
+        values["action_start_mode"] != "first_step_when_ready"
+        or values["handoff"] != "blend"
+        or values["blend_mode"] != "linear"
+        or isinstance(values["handoff_margin_s"], bool)
+        or values["handoff_margin_s"] != 0
+    ):
+        raise ValueError(
+            "ChunkTrust requires first_step_when_ready, linear blend handoff and zero margin; "
+            "the strategy aligns consumed rows before committing, without wall-clock trimming"
+        )
+    if values["independent_group_decoding"] is not False:
+        raise ValueError("ChunkTrust does not support independent group decoding")
+    if (values.get("temporal_ensemble") or {}).get("enabled", False) is not False:
+        raise ValueError("ChunkTrust does not support ACT temporal ensembling")
+    if executor["type"] != "direct" or executor["motion_limits"] is not None:
+        raise ValueError("ChunkTrust requires executor.type=direct and motion_limits=null")
+    rtc = values["rtc"]
+    if not isinstance(rtc, Mapping):
+        raise ValueError("ChunkTrust requires a mapping for inference.rtc")
+    beta = rtc["beta"]
+    if isinstance(beta, bool) or not isinstance(beta, int | float) or not (
+        math.isfinite(beta) and beta > 0
+    ):
+        raise ValueError("ChunkTrust rtc.beta must be finite and positive")
+    size = rtc["delay_buffer_size"]
+    if type(size) is not int or size < 1:
+        raise ValueError("ChunkTrust rtc.delay_buffer_size must be a positive integer")
+    initial = rtc["initial_delay_policy_steps"]
+    if initial is not None and (type(initial) is not int or initial < 0):
+        raise ValueError(
+            "ChunkTrust rtc.initial_delay_policy_steps must be null or nonnegative integer"
+        )
+    if values["algorithm"] == "chunktrust_ahs":
+        if rtc != rtc_parameters():
+            raise ValueError("inference.rtc overrides are inactive for chunktrust_ahs")
+        return
+    if rtc["min_execute_policy_steps"] is not None:
+        raise ValueError("ChunkTrust RTC chooses K; rtc.min_execute_policy_steps must be null")
+    if rtc["condition_source"] != "canonical":
+        raise ValueError("ChunkTrust RTC requires rtc.condition_source=canonical")
+
+
+def _validate_chunktrust_runtime(config: dict[str, Any]) -> None:
+    """Validate the first supported target-preserving client/adapter/executor path."""
+    policy = config["policy"]
+    adapter = policy["adapter"]
+    if policy["worker"] != "xpolicylab_ws" or policy["action_decoding"] != "inline":
+        raise ValueError("ChunkTrust requires xpolicylab_ws with inline action decoding")
+    if policy["options"].get("action_format", "native") != "joint":
+        raise ValueError("ChunkTrust requires policy.options.action_format=joint")
+    if adapter["type"] != "manimux.policy_adapter.joint:JointAdapter":
+        raise ValueError("ChunkTrust requires the standard absolute-joint adapter")
+    if tuple(config["robot"]["group_dims"].items()) != (("left_arm", 7), ("right_arm", 7)):
+        raise ValueError(
+            "ChunkTrust requires ordered left_arm/right_arm groups with seven joints each"
+        )
+    if (
+        adapter.get("gripper_mapping") is not None
+        or adapter.get("allow_short_horizon", False) is not False
+    ):
+        raise ValueError("ChunkTrust requires complete joint chunks without gripper remapping")
+    if config.get("execution", {}).get("ik", {}).get("mode", "chunk") != "chunk":
+        raise ValueError("ChunkTrust does not support step IK")
+    settings = config["inference"]
+    if settings["algorithm"] == "chunktrust_ahs_rtc" and max(
+        settings["chunktrust"]["candidates"]
+    ) >= policy["horizon_policy_steps"]:
+        raise ValueError("ChunkTrust RTC candidates must leave at least one future policy row")
+    if (
+        isinstance(settings["expected_decode_s"], bool) or settings["expected_decode_s"] != 0
+        or type(settings["decode_forecast_size"]) is not int
+        or settings["decode_forecast_size"] != 0
+    ):
+        raise ValueError("ChunkTrust does not support process-decode latency forecasting")
+    if config["run"].get("execution_mode", "vla") != "vla":
+        raise ValueError("ChunkTrust requires the ordinary VLA runtime")

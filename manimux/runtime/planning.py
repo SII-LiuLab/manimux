@@ -23,6 +23,7 @@ class PlanningContext:
             gripper_indices=((self._config["executor"].get("smooth") or {}).get(
                 "gripper") or {}).get("group_indices", {}),
             action_start_mode=self._config["inference"]["action_start_mode"],
+            allow_retimed_suffix=getattr(self._strategy, "allow_retimed_suffix", False),
             hold_last_step=(
                 (
                     self._config["inference"]["inference_schedule"] == "serial"

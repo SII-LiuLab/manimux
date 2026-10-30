@@ -458,3 +458,24 @@ flow samplers use XPolicyLab's pinned implementation. ManiMux passes validated
 recipe options through this API. Do not monkey-patch model methods or replace
 module-level selector functions. A model that does not call the configurable
 selector must fail explicitly rather than claim the options were applied.
+
+## ChunkTrust denoising evidence
+
+The built-in `chunktrust_ahs` and `chunktrust_ahs_rtc` selectors consume model evidence
+locally; their 19 algorithm options are not server sampling parameters. Both XPolicyLab
+client paths preserve an `INFER_RESULT` mapping containing `denoise_trace`, including
+the original actions. The adapter transforms actions only. Runtime trace validation
+checks live HELLO identity, raw normalized coordinates, dtype, T/H/D and the explicit
+valid-action mapping before scoring. No normalized velocity is interpreted as a robot
+command. Raw wire responses are persisted before decoding or evidence rejection.
+
+`return_denoise_trace` is the existing optional fork's deployment flag, not a wire
+sampling override. Keep strict RTC validators intact: send only mode, physical action
+condition, row weights and beta. Current canonical Pi05 has no trace hook. The public
+fixed fork supports default trace only; it does not support RTC+trace or the required
+zero-guidance mask for padded model dimensions. A dedicated strategy capability hook
+checks the actual loaded model before hardware connection and preview; expected
+metadata cannot manufacture support. See the [ChunkTrust contract and external-service
+workflow](../../manimux-inference/references/chunktrust.md) for capability fields,
+source restrictions, presets and disconnected validation. Keep the canonical submodule
+pin and managed source launcher unchanged; optional trace uses `--external-policy`.

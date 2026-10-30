@@ -1,0 +1,41 @@
+# Requires the documented fixed-revision XPolicyLab default-trace deployment.
+# Config inspection is hardware-free; CPU probes do not qualify a real station.
+_base_:
+- ../_base_.yaml
+- ../../../tasks/put_bottles.yaml
+policy:
+  action_decoding: inline
+  options:
+    response_log_dir: data/diagnostics/chunktrust-ahs-pi05
+policy_server:
+  return_denoise_trace: true
+  backend_identity:
+    model:
+      action_type: joint
+      execution: {backend: jax}
+      denoise_trace:
+        enabled: true
+        schema_version: 1
+        field: v
+        axes: [denoising_step, action_step, model_action]
+        coordinate_space: normalized_model
+        velocity_kind: raw_network_velocity
+        model_action_dim: 32
+        valid_action_indices: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+        dtype: float32
+        supported_modes: [default]
+inference:
+  config: ../../../inference/yam_chunktrust_ahs.yaml
+  algorithm: chunktrust_ahs
+  inference_schedule: serial
+  request_trigger: algorithm
+  chunk_policy_steps: null
+  max_chunk_policy_steps: null
+  action_start_mode: first_step_when_ready
+  blend_policy_steps: 0
+  handoff_skip_steps: 0
+robogui:
+  policy_label: Pi05 put-bottles - ChunkTrust AHS - Serial 30 Hz
+experiment:
+  task: put_bottles
+  variant: chunktrust_ahs

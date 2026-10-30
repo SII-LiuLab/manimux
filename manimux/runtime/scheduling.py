@@ -7,8 +7,8 @@ import math
 from manimux.runtime.safety import RuntimeState
 
 _CHUNK_STRATEGIES = {"async", "serial", "bid_backward"}
-_SINGLE = {"train_time_rtc", "rtc", "paint", "act_temporal_ensemble"}
-_ADAPTIVE = {"aac", "autohorizon"}
+_SINGLE = {"train_time_rtc", "rtc", "paint", "act_temporal_ensemble", "chunktrust_ahs_rtc"}
+_ADAPTIVE = {"aac", "autohorizon", "chunktrust_ahs"}
 _STREAMING = {
     "async", "rtc", "act_temporal_ensemble", "bid_backward",
     "paint", "aac", "autohorizon",
@@ -40,6 +40,11 @@ def validate_request_schedule(values: dict, *, provided=frozenset()) -> None:
         raise ValueError(f"unknown inference_schedule: {schedule!r}")
     if trigger not in {"refill", "continuous", "algorithm", "progress"}:
         raise ValueError(f"unknown inference.request_trigger: {trigger!r}")
+    chunktrust_schedule = {"chunktrust_ahs": "serial", "chunktrust_ahs_rtc": "single_inflight"}
+    if algorithm in chunktrust_schedule and schedule != chunktrust_schedule[algorithm]:
+        raise ValueError(
+            f"{algorithm} requires inference_schedule={chunktrust_schedule[algorithm]}"
+        )
     if values["strategy"] is not None and (
         schedule == "multi_inflight" or trigger == "continuous"
     ):

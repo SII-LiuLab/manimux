@@ -1,5 +1,27 @@
 # Third-party notices
 
+## ChunkTrust PI-family AHS numerical core
+
+`manimux/runtime/chunktrust/_pi_ahs.py` is copied byte-for-byte from
+`hf618/ChunkTrust`, revision `a9fd57412b3a19a0728cd726b0558dd89395fb84`,
+`src/chunktrust/_pi_ahs.py` (SHA-256
+`44ee901b6397c77405e073cc5909d18e869dd64f96aea7e2c17d94475481b8bd`).
+ChunkTrust's source manifest identifies its source as
+`Reflex/RoboTwin/eval_rebuttal/12_chunktrust_rtc_pi0_pi05_fft50_ready_20260918/runtime/selector.py`.
+The numerical methods were extracted from its PI/OpenPI integrations; extraction
+does not replace the applicable upstream license. ChunkTrust's MIT license is
+retained in `licenses/chunktrust-MIT.txt` and OpenPI's Apache-2.0 license in
+`licenses/chunktrust-openpi-Apache-2.0.txt`.
+
+The ManiMux adapter supplies explicit typed parameter mapping, speculative state,
+acceptance/reset, input validation and external execution history. It does not
+modify the copied file, vendor a model implementation, or reproduce the historical
+RoboDriver controller. The OpenPI upstream revision recorded by ChunkTrust is
+`650c5b0283a49c42784fb5055a0507da2c6d347d`; ChunkTrust's source snapshot and
+file hash identify its research modifications. Model weights and datasets retain
+their own terms. Frozen-code provenance is available from
+`manimux.runtime.chunktrust.provenance`.
+
 ## Dream Labs YAM training-reference geometry
 
 `manimux/policy_adapter/assets/dream_yam.urdf` is derived from

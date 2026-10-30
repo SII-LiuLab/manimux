@@ -42,12 +42,12 @@ from manimux.policies.xpolicylab.codec import (
     encode_observation,
 )
 from manimux.policies.xpolicylab.ws_client import XPolicyLabWsClient
-from manimux.runtime.train_time_rtc import TrainTimeRtcRequest
 from manimux.runtime.aac import AacInferenceRequest
 from manimux.runtime.autohorizon import AutoHorizonInferenceRequest
 from manimux.runtime.bid import BidInferenceRequest
 from manimux.runtime.paint import PaintInferenceRequest
 from manimux.runtime.rtc.request import RtcInferenceRequest
+from manimux.runtime.train_time_rtc import TrainTimeRtcRequest
 from manimux.types import InferenceRequest, InferenceResponse
 
 
@@ -403,7 +403,9 @@ class XPolicyLabWsPolicyModel:
                 if not isinstance(payload, dict) or "actions" not in payload:
                     raise ValueError("infer reply has no actions")
                 result = (
-                    payload if {"action_semantics", "autohorizon", "paint"}.intersection(payload)
+                    payload if {
+                        "action_semantics", "autohorizon", "paint", "denoise_trace",
+                    }.intersection(payload)
                     else payload["actions"]
                 )
                 if isinstance(num_samples, InferenceRequest):
@@ -423,7 +425,8 @@ class XPolicyLabWsPolicyModel:
         for request_id, (response, started_ns, _) in self._pending.items():
             if request_id in self._expired:
                 continue
-            if time.monotonic_ns() - started_ns > self._timeout_for_request(response.request_seq) * 1e9:
+            timeout_ns = self._timeout_for_request(response.request_seq) * 1e9
+            if time.monotonic_ns() - started_ns > timeout_ns:
                 # Report once, keeping its transport credit occupied until the
                 # late reply is drained. A stalled peer must stay bounded.
                 self._expired.add(request_id)

@@ -24,7 +24,7 @@ def main() -> None:
         algorithm = inference["algorithm"]
         horizon = config["policy"]["horizon_policy_steps"]
         expected = round(horizon * args.ratio)
-        if algorithm == "autohorizon":
+        if algorithm in {"autohorizon", "chunktrust_ahs", "chunktrust_ahs_rtc"}:
             actual = None
         elif algorithm == "rtc":
             actual = inference["rtc"]["min_execute_policy_steps"]

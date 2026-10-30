@@ -30,10 +30,10 @@ has neither ``msgpack`` nor ``websockets`` installed.
 
 from __future__ import annotations
 
-import time
-import uuid
 import inspect
 import ipaddress
+import time
+import uuid
 from contextlib import suppress
 from datetime import UTC, datetime
 from types import TracebackType
@@ -263,6 +263,7 @@ class XPolicyLabWsClient:
         if (
             sampling.get("mode") in {"aac", "paint", "autohorizon"}
             or "action_semantics" in payload
+            or "denoise_trace" in payload
         ):
             return dict(payload)
         return payload["actions"]
@@ -303,9 +304,13 @@ class XPolicyLabWsClient:
         if self._conn is None:
             raise XPolicyLabProtocolError("client is not connected")
         try:
-            reply = unpack_frame(self._conn.recv(timeout=0))
+            raw = self._conn.recv(timeout=0)
         except TimeoutError:
             return None
+        from manimux.policies.response_log import capture_response
+
+        capture_response(raw, stage="provider_wire")
+        reply = unpack_frame(raw)
         self._pending_requests.discard(reply.get("message_id"))
         return reply
 

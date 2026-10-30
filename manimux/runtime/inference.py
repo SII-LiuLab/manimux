@@ -287,6 +287,8 @@ _STRATEGY_BUILTINS: dict[str, InferenceStrategyFactory | str] = {
     "bid_backward": "manimux.runtime.bid:BidBackwardStrategy",
     "paint": "manimux.runtime.paint:PaintInferenceStrategy",
     "autohorizon": "manimux.runtime.autohorizon:AutoHorizonInferenceStrategy",
+    "chunktrust_ahs": "manimux.runtime.chunktrust.strategy:ChunkTrustAhsStrategy",
+    "chunktrust_ahs_rtc": "manimux.runtime.chunktrust.rtc:ChunkTrustAhsRtcStrategy",
 }
 
 INFERENCE_ALGORITHMS = frozenset(_STRATEGY_BUILTINS)

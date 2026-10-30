@@ -69,6 +69,8 @@ exclude = ["manimux/configs/local/station.yaml"]
 "licenses/i2rt-MIT.txt" = "manimux/licenses/i2rt-MIT.txt"
 "licenses/starvla-MIT.txt" = "manimux/licenses/starvla-MIT.txt"
 "licenses/dreamlabs-Apache-2.0.txt" = "manimux/licenses/dreamlabs-Apache-2.0.txt"
+"licenses/chunktrust-MIT.txt" = "manimux/licenses/chunktrust-MIT.txt"
+"licenses/chunktrust-openpi-Apache-2.0.txt" = "manimux/licenses/chunktrust-openpi-Apache-2.0.txt"
 
 [tool.pytest.ini_options]
 addopts = "-q"
@@ -81,6 +83,13 @@ extend-exclude = ["third_party"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+# Preserve the upstream core byte for byte; source identity is checked separately.
+"manimux/runtime/chunktrust/_pi_ahs.py" = ["ALL"]
+
+[tool.ruff.format]
+exclude = ["manimux/runtime/chunktrust/_pi_ahs.py"]
 
 [tool.pyright]
 include = ["manimux", "tests", "scripts"]

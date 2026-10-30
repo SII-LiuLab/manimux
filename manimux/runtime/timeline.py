@@ -124,6 +124,7 @@ class ActionTimeline:
         max_source_steps: int | None = None,
         action_start_mode: str = "drop_infer_latency",
         hold_last_step: bool = False,
+        allow_retimed_suffix: bool = False,
         blend_mode: str = "linear",
         gripper_indices: dict[str, int] | None = None,
     ) -> None:
@@ -144,6 +145,9 @@ class ActionTimeline:
         # first_step_when_ready starts the untrimmed chunk at commit; drop_infer_latency
         # keeps the source row grid, so a plan may start up to one row after the commit.
         self._starts_at_commit = action_start_mode == "first_step_when_ready"
+        if allow_retimed_suffix and not (self._starts_at_commit and hold_last_step):
+            raise ValueError("retimed suffixes require commit-time playback with a final interval")
+        self._allow_retimed_suffix = allow_retimed_suffix
         self._hold_last_step = hold_last_step
         self._group_dims = dict(group_dims)
         self._active: _ActivePlan | None = None
@@ -232,7 +236,7 @@ class ActionTimeline:
             return CommitResult(False, "stale_request_seq")
         if max_plan_age_ns is not None and now_ns - chunk.observation_time_ns > max_plan_age_ns:
             return CommitResult(False, "plan_too_old")
-        if self._hold_last_step and chunk.source_offset_steps:
+        if self._hold_last_step and chunk.source_offset_steps and not self._allow_retimed_suffix:
             return CommitResult(False, "serial_requires_untrimmed_chunk")
         if set(chunk.groups) != set(self._group_dims):
             return CommitResult(False, "group_mismatch")
