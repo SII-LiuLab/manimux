@@ -147,7 +147,7 @@ class TacCapCamera:
 
     def close(self) -> None:
         self._started = False
-        camera = getattr(self, "_camera", None)
+        camera = self._camera
         if camera is not None:
             camera.stop()
             self._camera = None

@@ -134,7 +134,8 @@ class YamKinematics:
         self._lock = threading.Lock()
         self._solver: object | None = None
         self._limits: list | None = None
-        self._arm_limits = self.joint_position_limits()
+        self._bounded_configuration: object | None = None
+        self._arm_limits = self._model_joint_limits()
 
     @property
     def num_arm_joints(self) -> int:
@@ -207,8 +208,9 @@ class YamKinematics:
 
     def joint_position_limits(self) -> tuple[FloatArray, FloatArray]:
         """Return lower/upper limits for the canonical arm-joint vector."""
-        if hasattr(self, "_arm_limits"):
-            return self._arm_limits[0].copy(), self._arm_limits[1].copy()
+        return self._arm_limits[0].copy(), self._arm_limits[1].copy()
+
+    def _model_joint_limits(self) -> tuple[FloatArray, FloatArray]:
         lower = np.full(self._num_arm_joints, -np.inf, dtype=np.float64)
         upper = np.full(self._num_arm_joints, np.inf, dtype=np.float64)
         for qpos_index in range(self._num_arm_joints):
@@ -416,7 +418,7 @@ class YamKinematics:
         qpos = self.robot_state_to_qpos(self.clip_arm_joints(init_joints), gripper)
         reason, iterations = "max_iters", 0
         with self._lock:
-            if not hasattr(self, "_bounded_configuration"):
+            if self._bounded_configuration is None:
                 self._bounded_configuration = mink.Configuration(self.model)
             configuration = self._bounded_configuration
             configuration.update(qpos)
