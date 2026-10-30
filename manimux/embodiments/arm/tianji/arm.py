@@ -349,6 +349,12 @@ class TianjiController(ArmController):
             if np.any(q < lower) or np.any(q > upper):
                 raise ValueError(f"{name}: target exceeds joint limits")
 
+    def command_bounds(self) -> dict[str, FloatArray]:
+        return {
+            name: np.column_stack(settings.joint_limits)
+            for name, settings in self.settings.items()
+        }
+
     def send_commands(self, targets: Mapping[str, FloatArray]) -> None:
         with self._lock:
             self._require_ready()

@@ -47,7 +47,7 @@ from manimux.runtime.inference import (
     seed_strategy_warmup,
 )
 from manimux.runtime.lifecycle import OperationStatus, ShutdownStatus
-from manimux.runtime.planning import PlanningContext
+from manimux.runtime.planning import PlanningContext, condition_overlap_fields
 from manimux.runtime.safety import RuntimeState, SafetyGuard
 from manimux.runtime.scheduling import RequestScheduler
 from manimux.runtime.timeline import CommitResult
@@ -1621,13 +1621,10 @@ class EdgeRuntime(PlanningContext):
                             **submission.event_fields,
                         }
                         if bool(submission.event_fields.get("conditioned", False)):
-                            executed_steps = int(submission.event_fields.get("executed_steps", 0))
-                            visual_fields["conditioned_overlap_steps"] = max(
-                                0, self._config["policy"]["horizon_policy_steps"] - executed_steps
-                            )
-                            visual_fields["frozen_steps"] = int(
-                                submission.event_fields.get("forecast_delay", 0)
-                            )
+                            visual_fields.update(condition_overlap_fields(
+                                submission.event_fields,
+                                self._config["policy"]["horizon_policy_steps"],
+                            ))
                         pending_visuals[request_seq] = visual_fields
                         if self._multi_inflight:
                             # Coalesced uploads never produce a plan. Keep diagnostic

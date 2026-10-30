@@ -12,6 +12,22 @@ from manimux.runtime.timeline import ActionTimeline
 from manimux.types import ActionContext, RobotState
 
 
+def condition_overlap_fields(fields: dict, horizon_steps: int) -> dict[str, int]:
+    """RoboGUI/record overlap of a conditioned submission, in source policy rows.
+
+    RTC conditions on the unexecuted remainder and freezes its forecast delay
+    (ChunkTrust RTC reports that budget as frozen_budget). PAINT conditions only
+    on its delay prefix.
+    """
+    if "delay_steps" in fields:
+        delay = max(0, int(fields["delay_steps"]))
+        return {"conditioned_overlap_steps": delay, "frozen_steps": delay}
+    return {
+        "conditioned_overlap_steps": max(0, horizon_steps - int(fields.get("executed_steps", 0))),
+        "frozen_steps": int(fields.get("frozen_budget", fields.get("forecast_delay", 0))),
+    }
+
+
 class PlanningContext:
     def _build_timeline(self) -> ActionTimeline:
         return ActionTimeline(

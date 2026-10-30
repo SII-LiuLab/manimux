@@ -182,7 +182,8 @@ class _RoboGUIInbox:
     @staticmethod
     def _identity(message: dict[str, Any]) -> tuple:
         metadata = message.get("metadata") or {}
-        return (message.get("robot"), metadata.get("service_id"),
+        # The runtime identifies its service by run_dir (see chunk_timeline).
+        return (message.get("robot"), metadata.get("run_dir"),
                 metadata.get("episode_id"), metadata.get("episode_dir"))
 
     def put(self, message: dict[str, Any]) -> None:

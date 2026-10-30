@@ -8,6 +8,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 
 from manimux.policies.actions import action_groups
+from manimux.policy_adapter.gripper_mapping import clip_aperture
 from manimux.policy_adapter.kinematics import KinematicAdapter
 from manimux.policy_adapter.pose_output import pose_chunk
 from manimux.policy_adapter.umi_dp.history import MeasuredHistory
@@ -161,16 +162,19 @@ class DPYamAdapter(KinematicAdapter):
         seed_state = context.ik_seed if context.ik_seed is not None else anchor
         if seed_state is None:
             raise ValueError("DP IK requires a seed")
+        apertures, gripper_clip = clip_aperture(
+            {name: np.asarray(rows[:, 7], dtype=float) for name, rows in actions.items()}
+        )
         if self.decode_pose_only:
             poses = {name: rows.copy() for name, rows in actions.items()}
-            for rows in poses.values():
-                rows[:, 7] = np.clip(rows[:, 7], 0, 1)
-            return pose_chunk(context, poses, self.dt)
+            for name, rows in poses.items():
+                rows[:, 7] = apertures[name]
+            return pose_chunk(context, poses, self.dt, metadata=gripper_clip)
         groups, diagnostics = {}, {}
         for group in self.groups:
             sequence = self.ik_sequence(group, seed_state.groups[group])
             rows = []
-            for action in actions[group]:
+            for action, aperture in zip(actions[group], apertures[group], strict=True):
                 pose = np.asarray(action[:7], dtype=float)
                 grip = np.asarray(action[7:], dtype=float)
                 if (
@@ -182,7 +186,7 @@ class DPYamAdapter(KinematicAdapter):
                 transform = np.eye(4)
                 transform[:3, 3] = pose[:3]
                 transform[:3, :3] = Rotation.from_quat(pose[[4, 5, 6, 3]]).as_matrix()
-                aperture = float(np.clip(grip[0], 0, 1))
+                aperture = float(aperture)
                 ok, joints = self._ik(group, transform, sequence.current[:6], aperture)
                 rows.append(sequence.resolve(ok, np.r_[joints, aperture]))
             diagnostics[group] = sequence.metadata()
@@ -195,5 +199,5 @@ class DPYamAdapter(KinematicAdapter):
             "joint_position",
             self.dt,
             groups,
-            metadata={"ik": diagnostics},
+            metadata={"ik": diagnostics, **gripper_clip},
         )

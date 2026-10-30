@@ -7,7 +7,8 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 
 from manimux.policies.actions import action_groups
-from manimux.policy_adapter.base import PolicyAdapter
+from manimux.policy_adapter.base import PolicyAdapter, require_request_type
+from manimux.policy_adapter.gripper_mapping import clip_aperture
 from manimux.policy_adapter.pose_output import pose_chunk
 from manimux.types import ActionChunk, InferenceRequest
 
@@ -40,8 +41,7 @@ class Pi05YamEefAdapter(PolicyAdapter):
             raise ValueError("Pi05 YAM EEF requires two 6+1 joint groups")
 
     def prepare_request(self, request):
-        if getattr(request, "action_condition", None) is not None:
-            raise ValueError("Pi05 YAM EEF does not support RTC conditions")
+        require_request_type(request, (InferenceRequest,), "Pi05 YAM EEF")
         state = {}
         poses = self.kin.fk(request.observation.state.groups)
         for side, group in zip(("left", "right"), self.groups, strict=True):
@@ -70,17 +70,20 @@ class Pi05YamEefAdapter(PolicyAdapter):
         seed_state = context.ik_seed if context.ik_seed is not None else anchor
         if seed_state is None:
             raise ValueError("Pi05 EEF IK requires a joint seed")
+        apertures, gripper_clip = clip_aperture(
+            {name: np.asarray(rows[:, 7], dtype=float) for name, rows in actions.items()}
+        )
         if self.decode_pose_only:
             poses = {name: rows.copy() for name, rows in actions.items()}
-            for rows in poses.values():
-                rows[:, 7] = np.clip(rows[:, 7], 0, 1)
-            return pose_chunk(context, poses, self.dt)
+            for name, rows in poses.items():
+                rows[:, 7] = apertures[name]
+            return pose_chunk(context, poses, self.dt, metadata=gripper_clip)
         groups, diagnostics = {}, {}
         for group in self.groups:
             seed = np.asarray(seed_state.groups[group]).copy()
             sequence = self.ik_sequence(group, seed)
             rows = []
-            for action in actions[group]:
+            for action, aperture in zip(actions[group], apertures[group], strict=True):
                 pose = np.asarray(action[:7], dtype=float)
                 grip = np.asarray(action[7:], dtype=float)
                 if (
@@ -92,7 +95,7 @@ class Pi05YamEefAdapter(PolicyAdapter):
                 target = np.eye(4)
                 target[:3, 3] = pose[:3]
                 target[:3, :3] = Rotation.from_quat(pose[[4, 5, 6, 3]]).as_matrix()
-                aperture = float(np.clip(grip[0], 0, 1))
+                aperture = float(aperture)
                 result = self.kin.ik(
                     {group: target},
                     {group: sequence.current},
@@ -112,6 +115,7 @@ class Pi05YamEefAdapter(PolicyAdapter):
             groups,
             metadata={
                 "ik": diagnostics,
+                **gripper_clip,
                 "raw_model_eef": {
                     side: actions[f"{side}_arm"][:, :7].tolist() for side in ("left", "right")
                 },

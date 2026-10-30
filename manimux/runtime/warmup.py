@@ -4,6 +4,7 @@ from collections import Counter, deque
 from dataclasses import dataclass, replace
 
 from manimux.runtime.inference import InferenceTimingError, decode_strategy_action
+from manimux.runtime.planning import condition_overlap_fields
 from manimux.runtime.preview import PreviewPlanner
 from manimux.types import copy_action_chunk
 
@@ -315,14 +316,9 @@ class PolicyWarmup:
                     fields["active_chunk_index"] = fields.pop("chunk_index")
                     branch = "conditioned" if fields.get("conditioned") else "ordinary"
                     if branch == "conditioned":
-                        fields["conditioned_overlap_steps"] = max(
-                            0,
-                            self.config["policy"]["horizon_policy_steps"]
-                            - int(fields.get("executed_steps", 0)),
-                        )
-                        fields["frozen_steps"] = int(
-                            fields.get("frozen_budget", fields.get("forecast_delay", 0))
-                        )
+                        fields.update(condition_overlap_fields(
+                            fields, self.config["policy"]["horizon_policy_steps"]
+                        ))
                     self._pending[request.request_seq] = PendingPreview(
                         request, started_ns, branch, fields
                     )
