@@ -32,7 +32,6 @@ from .communication import ControlServer, PolicyPlan, RoboGUIReceiver, RobotSnap
 from .errors import OperatorErrors
 from .recordings_panel import RecordingsPanel
 from .reference_layouts import DEFAULT_LAYOUT_ROOT
-from .recordings_panel import RecordingsPanel
 from .robot_view import RobotGroup, RobotView, load_robogui_config, load_robot_view
 from .score_choices import ScoreChoices
 from .study_setup import completed_repeats, next_repeat, reference_task, unscored_experiments
@@ -136,7 +135,6 @@ class PolicyRoboGUI:
         self.finish_requested = False
         self.home_requested = False
         self.finish_home: bool | None = None
-        self._gui_stage: RoboGUIStage = "waiting"
         self._clear_recovery()
         self.new_rollout_requested = False
         self._rollout_request: dict[str, Any] = {}
@@ -1297,7 +1295,6 @@ class PolicyRoboGUI:
     def _set_stage(self, stage: RoboGUIStage) -> None:
         """Expose only the controls that are actionable in the current stage."""
 
-        self._gui_stage = stage
         self.instruction.visible = self.experiments_available or stage not in {"waiting", "setup"}
         self.new_rollout_folder.visible = stage in {"waiting", "setup", "preparing"} or (
             stage == "control" and not self.rollout_started

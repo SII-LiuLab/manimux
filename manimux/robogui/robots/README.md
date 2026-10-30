@@ -12,6 +12,4 @@ preview and replay. Their display placement does not define hardware calibration
 or add a robot deployment recipe. See the [ALOHA](../../../skills/manimux-station-setup/references/aloha.md)
 and [PiPER](../../../skills/manimux-station-setup/references/piper.md) asset guides.
 
-`base.py`, `yam.py` and the old discovery exports remain for compatibility
-consumers, including historical collection-record replay. They are not the live
-dashboard integration path. See the [display protocol](../../../skills/manimux-development/references/runtime-config.md#robogui-replay-and-recording).
+See the [display protocol](../../../skills/manimux-development/references/runtime-config.md#robogui-replay-and-recording).
