@@ -32,7 +32,13 @@ def shared_service_contract(config: dict) -> dict:
     normalization. Task instructions belong to run.task_prompt, not model identity.
     Runtime strategies/executors are rebuilt by Prepare and may differ.
     """
-    policy = config["policy"]
+    policy = dict(config["policy"])
+    # The chunk IK solver runs in the runtime's decoder, rebuilt for every rollout;
+    # switching mink <-> dls needs no service restart.
+    policy["adapter"] = {
+        key: value for key, value in (policy.get("adapter") or {}).items()
+        if key not in {"ik_backend", "dls_ik"}
+    }
     return {
         "policy_server": config.get("policy_server"),
         "camera_server": config.get("camera_server"),

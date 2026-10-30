@@ -188,6 +188,16 @@ class YamKinematics:
             transform[:3, 3] = self.data.site_xpos[self.site_id]
         return transform
 
+    def min_singular_value(self, joints: FloatArray, gripper: float) -> float:
+        """Smallest singular value of the 6D site Jacobian over the arm joints (m, rad mixed)."""
+        qpos = self.robot_state_to_qpos(joints, gripper)
+        jacobian = np.zeros((6, self.model.nv))
+        with self._lock:
+            self.data.qpos[:] = qpos
+            mujoco.mj_forward(self.model, self.data)
+            mujoco.mj_jacSite(self.model, self.data, jacobian[:3], jacobian[3:], self.site_id)
+        return float(np.linalg.svd(jacobian[:, :self._num_arm_joints], compute_uv=False)[-1])
+
     def pose(self, configuration: FloatArray) -> FloatArray:
         """FK from one packed ``[joints..., gripper]`` vector (robogui entry point)."""
         values = np.asarray(configuration, dtype=np.float64).reshape(-1)
@@ -534,6 +544,10 @@ class YamManipulatorKinematics(ManipulatorKinematicsBase):
             joint_motion_cost=joint_motion_cost,
         )
         return ok, np.r_[joints, gripper], info
+
+    def min_singular_value(self, configuration):
+        q = np.asarray(configuration, dtype=np.float64)
+        return self.solver.min_singular_value(q[:6], float(q[6]))
 
     def _ik(self, target, seed, *, gripper):
         # Pass the target gripper value before solving so FK and IK use the same complete configuration.

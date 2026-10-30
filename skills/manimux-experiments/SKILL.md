@@ -165,6 +165,8 @@ Follow the stages that remain unfinished; do not repeat an already working deplo
    The assembly's `initial_poses` library supplies RoboGUI's independent pose menu
    for both trials and studies. Verify Home is present for assemblies with verified
    Home coordinates; do not add duplicate experiment files merely to expose it.
+   `run.initial_pose_choices: [<id>, ...]` narrows the menu (UI only, not a condition);
+   a configured start equal to a preset takes that preset's name instead of a duplicate.
    Selection is idle-only and does not move hardware until Prepare. Nondefault
    poses have separate `__pose_<id>` recording/progress directories; task switches
    restore task defaults, while method switches preserve an available operator pose.

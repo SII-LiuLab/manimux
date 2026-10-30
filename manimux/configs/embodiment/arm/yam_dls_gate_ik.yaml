@@ -1,0 +1,10 @@
+# YAM DLS chunk IK with the joint-motion cost gated by singularity
+# (policy.adapter.ik_backend: dls). As yam_dls_ik.yaml, but the cost is full
+# below sigma_min 0.03, zero above 0.06 (exact tracking like the original IK),
+# linear in between; sigma_min is the smallest singular value of the 6D Jacobian
+# at the seed. Near-singular steps (lift-off, wrist at j5 ~ +-pi/2) stay damped.
+max_joint_step_rad: 0.15
+max_position_error_m: 0.02
+max_rotation_error_rad: 0.17
+joint_motion_cost: 0.1
+singularity_gate: [0.03, 0.06]

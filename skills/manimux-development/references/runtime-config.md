@@ -774,6 +774,13 @@ policy:
       config: ../../../embodiment/arm/yam_dls_ik.yaml
 ```
 
+`singularity_gate: [low, high]` applies the cost only near singularities: full
+`joint_motion_cost` while the seed's smallest 6D Jacobian singular value is below
+`low`, none above `high` (exact tracking like `mink`), linear in between.
+`yam_dls_gate_ik.yaml` uses `[0.03, 0.06]`; offline on teleop it cuts the p95 error
+near gripper events from 1.3 mm to 0.06 mm while lift-off damping matches the
+always-on cost of 0.1.
+
 The step path is adapter pose decoding -> pose ActionTimeline -> one sampled
 pose per group -> ExecutionPipeline (optional PoseSpeedLimiter -> StepIKResolver
 -> DirectExecutor) -> existing safety/send path.

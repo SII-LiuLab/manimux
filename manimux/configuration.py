@@ -106,6 +106,8 @@ def apply_initial_pose(raw: dict) -> None:
     from manimux.cli import read_yaml
 
     selection = raw.pop("initial_pose", None)
+    # Presets offered in RoboGUI; the active start is always offered. UI only, not a condition.
+    choices = raw.get("run", {}).pop("initial_pose_choices", None)
     robot = raw["robot"]
     options = robot.setdefault("options", {})
     path = None
@@ -126,6 +128,12 @@ def apply_initial_pose(raw: dict) -> None:
     poses = [_validated_pose(key, value, robot.get("group_dims", {}),
                              options.get("start_duration_s"))
              for key, value in presets.items()]
+    catalog = poses
+    if choices is not None:
+        unknown = set(choices) - {p["id"] for p in poses}
+        if unknown:
+            raise ValueError(f"Unknown initial_pose_choices: {sorted(unknown)}")
+        poses = [p for p in poses if p["id"] in choices]
     if len({p["label"] for p in poses}) != len(poses):
         raise ValueError("Initial pose labels must be unique")
     run = raw.setdefault("run", {})
@@ -140,6 +148,12 @@ def apply_initial_pose(raw: dict) -> None:
     if current["id"] not in {p["id"] for p in poses}:
         # Preserve legacy inline starts or intentional hold as the default choice.
         current.setdefault("duration_s", options.get("start_duration_s"))
+        # A configured start identical to a preset takes its name and replaces it in the list.
+        same = next((p for p in catalog if p["joints"] == current["joints"]
+                     and p["duration_s"] == current["duration_s"]), None)
+        if same is not None:
+            current["label"] = same["label"]
+            poses = [p for p in poses if p is not same]
         poses.insert(0, current)
     run["initial_pose_options"] = poses
     raw.setdefault("config_sources", {})[str(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
