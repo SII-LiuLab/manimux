@@ -111,10 +111,10 @@ uv run manimux up --config <experiment.yaml> \
 加入 **ManiMux 开发者微信群**，讨论集成、实验与贡献。用微信扫描下方邀请二维码：
 
 <p align="center">
-  <img src="assets/community/wechat-developers-20261021.jpg" alt="ManiMux 开发者微信群邀请二维码" width="300">
+  <img src="assets/community/wechat-developers-20261029.jpg" alt="ManiMux 开发者微信群邀请二维码" width="300">
 </p>
 
-邀请有效期至 **2026 年 10 月 28 日**。若已过期，请开 [GitHub issue](https://github.com/SII-LiuLab/manimux/issues) 索取新邀请。
+邀请有效期至 **2026 年 11 月 5 日**。若已过期，请开 [GitHub issue](https://github.com/SII-LiuLab/manimux/issues) 索取新邀请。
 
 ## 引用
 
