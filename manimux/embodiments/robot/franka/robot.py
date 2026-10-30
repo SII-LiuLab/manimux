@@ -14,10 +14,9 @@ class FrankaRobot(RobotBase):
         hardware=None,
         component_hardware=None,
         execute=False,
-        home_on_close=False,
         move_to_start_on_connect=False,
     ):
-        if home_on_close is not False or move_to_start_on_connect is not False:
+        if move_to_start_on_connect is not False:
             raise ValueError("Franka startup/Home motion is not configured")
         if len(model.groups) != 1:
             raise ValueError("Franka assembly currently supports one arm")
