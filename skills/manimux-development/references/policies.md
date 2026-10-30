@@ -475,13 +475,16 @@ checks live HELLO identity, raw normalized coordinates, dtype, T/H/D and the exp
 valid-action mapping before scoring. No normalized velocity is interpreted as a robot
 command. Raw wire responses are persisted before decoding or evidence rejection.
 
-`return_denoise_trace` is the existing optional fork's deployment flag, not a wire
+`return_denoise_trace` is the pinned XPolicyLab deployment flag, not a wire
 sampling override. Keep strict RTC validators intact: send only mode, physical action
-condition, row weights and beta. Current canonical Pi05 has no trace hook. The public
-fixed fork supports default trace only; it does not support RTC+trace or the required
+condition, row weights and beta. The canonical Pi05 pin includes opt-in default trace;
+the AHS experiment enables it through the existing managed launcher. It does not support
+RTC+trace or the required
 zero-guidance mask for padded model dimensions. A dedicated strategy capability hook
 checks the actual loaded model before hardware connection and preview; expected
-metadata cannot manufacture support. See the [ChunkTrust contract and external-service
+metadata cannot manufacture support. See the [ChunkTrust contract and deployment
 workflow](../../manimux-inference/references/chunktrust.md) for capability fields,
-source restrictions, presets and disconnected validation. Keep the canonical submodule
-pin and managed source launcher unchanged; optional trace uses `--external-policy`.
+source restrictions, presets and disconnected validation. Keep the submodule gitlink,
+declared backend provenance and documentation aligned. Trace stays off by default for
+other recipes. An external model service remains optional. CPU integration evidence
+does not qualify native JAX, checkpoints or physical deployment.

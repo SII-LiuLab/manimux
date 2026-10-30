@@ -1,4 +1,4 @@
-# Requires the documented fixed-revision XPolicyLab default-trace deployment.
+# Uses default-mode trace from the pinned XPolicyLab managed deployment.
 # Config inspection is hardware-free; CPU probes do not qualify a real station.
 _base_:
 - ../_base_.yaml

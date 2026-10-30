@@ -1,4 +1,4 @@
-# Future combined-trace backend contract: the released default-trace fork alone
+# Future combined-trace backend contract: the pinned default-trace backend alone
 # does NOT satisfy this recipe. Startup must reject its missing RTC capability.
 # No backend capability or model/hardware validation is fabricated by this YAML.
 _base_:

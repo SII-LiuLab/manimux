@@ -12,8 +12,8 @@ from numpy.typing import NDArray
 
 from manimux.policies.capabilities import PolicyCapabilities
 
-TRACE_FORK_URL = "https://github.com/hf618/XPolicyLab.git"
-TRACE_FORK_REVISION = "53ac927bd485c97d068586b0b9116b14b5e07126"
+TRACE_BACKEND_URL = "https://github.com/Cuzyoung/XPolicyLab.git"
+TRACE_BACKEND_REVISION = "ac9591d24a8e89d891b3a1f5838861b33e004e5f"
 _INDICES = tuple(range(14))
 
 
@@ -118,7 +118,7 @@ def validate_capabilities(
         raise ValueError(
             f"ChunkTrust requires joint sampling and raw-trace support for {sorted(required)}; "
             f"sampling={sorted(capabilities.sampling_modes)}, trace={modes}. "
-            "The published 53ac927 trace backend supports default only."
+            "The pinned XPolicyLab trace backend supports default only."
         )
     if rtc:
         guidance = _mapping(model.get("rtc_guidance"), "backend.model.rtc_guidance")

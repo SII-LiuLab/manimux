@@ -26,13 +26,17 @@ and inline decoding. Extra blend/skip, ACT, process decode, Smooth/MPC, other pr
 and multi-inflight algorithm composition are rejected initially. The transport probe
 also checks streaming payload preservation; that does not enable a streaming strategy.
 
-The canonical XPolicyLab submodule does not expose the required velocity trace.
-The optional public fork
-[`hf618/XPolicyLab@53ac927`](https://github.com/hf618/XPolicyLab/tree/53ac927bd485c97d068586b0b9116b14b5e07126)
-exposes **default-only** trace. It can supply `chunktrust_ahs`; it cannot supply
+The canonical XPolicyLab submodule is pinned to
+[`Cuzyoung/XPolicyLab@ac9591d`](https://github.com/Cuzyoung/XPolicyLab/tree/ac9591d24a8e89d891b3a1f5838861b33e004e5f),
+which merges [the opt-in Pi05 trace implementation](https://github.com/Cuzyoung/XPolicyLab/pull/4).
+The ordinary managed launcher loads that submodule. Trace is disabled by default;
+the AHS experiment enables `policy_server.return_denoise_trace: true`.
+This pin exposes **default-only** trace. It can supply `chunktrust_ahs`; it cannot supply
 `chunktrust_ahs_rtc`. Its Model, Policy and sampler reject RTC+trace. Startup validates
 the real HELLO before hardware connection; separate RTC and default trace capabilities
 are insufficient evidence of combined support. No verified RTC+trace service is shipped.
+The trace implementation was merged on CPU/source evidence. Native JAX, checkpoints,
+real model-service inference and hardware qualification remain outstanding.
 
 ## Parameters and their consumers
 
@@ -113,7 +117,7 @@ Missing, wrong-dtype or misaligned evidence rejects the response; original provi
 wire is journaled before parsing or rejection.
 
 RTC requires both `default` and `rtc` in sampling and trace modes, plus this **future**
-model metadata (it is not implemented by the published trace fork):
+model metadata (it is not implemented by the pinned trace backend):
 
 ```yaml
 rtc_guidance:
@@ -144,6 +148,15 @@ The preview strategy excludes the first ordinary and the first conditioned cold 
 from delay calibration. Steady end-to-end samples seed formal execution after reset.
 Formal execution does not exclude its first latency sample or clamp infeasible delays.
 
+For ordinary `chunktrust_ahs` with `first_step_when_ready`, the execution clock is
+refreshed after local selection, prefix validation and anchor conversion. Timeline
+commit, acceptance feedback and top-level `observation_to_commit_ms` share that time,
+so those computations do not consume the beginning of the selected prefix. Nested
+`chunktrust.handoff_time_ns` remains the immutable selection snapshot used to validate
+the proposal, not the actual Timeline start. This change does not alter the clock
+semantics of RTC, AAC, BID or other selectors. A plan that becomes too old during
+selection is rejected without advancing selector state or history.
+
 `robot.options.execute: false` produces validation-only feedback and does not advance
 the formal RTC consumption ledger. It is not a closed-loop substitute for successful
 command submission; the formal RTC request cadence cannot be qualified by simply
@@ -163,12 +176,35 @@ This is the ManiMux control-grid adaptation, not a reproduction of the source TO
 execution protocol. Experiment recording of provider responses, control commands
 and measured feedback is separate and retains its existing values and cadence.
 
-## External model service without changing the default pin
+## Managed deployment and optional external service
 
-The managed launcher explicitly imports `third_party/XPolicyLab`; changing only its
-Python interpreter does not select another source tree. Keep that default unchanged.
-Prepare the fixed public fork above in its own checkout/model environment, then export
-the resolved standalone model recipe using the station's real bindings:
+Initialize the exact checked-in backend revision:
+
+```bash
+git submodule update --init third_party/XPolicyLab
+git -C third_party/XPolicyLab rev-parse HEAD  # ac9591d24a8e89d891b3a1f5838861b33e004e5f
+```
+
+Use the existing Pi05 model environment, checkpoint and normalization setup. The
+managed launcher explicitly imports this submodule, not a separate contributor
+checkout or the latest upstream branch. After qualifying the real model, use the
+ordinary managed workflow with the AHS experiment and station bindings:
+
+```bash
+manimux up \
+  --config manimux/configs/experiments/example-yam-pi05/put_bottles/chunktrust_ahs.yaml \
+  --local /path/to/station.yaml \
+  --policy-python third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python
+```
+
+The model environment supplied to `--policy-python` must already be installed.
+The managed path does not require `--external-policy` or a separate source fork.
+Changing only the model Python interpreter does not select another source tree.
+Keep the model/backend environment separate from the ManiMux runtime environment.
+
+An independently managed service remains optional. Use a checkout of the same fixed
+canonical revision in its model environment, then export the resolved standalone
+recipe using the station's real bindings:
 
 ```bash
 python scripts/setup/export_chunktrust_backend.py \
@@ -185,7 +221,7 @@ In the model environment, using a checkout directory named `XPolicyLab`:
 
 ```bash
 CHUNKTRUST_XPL_ROOT=/path/to/XPolicyLab
-git -C "$CHUNKTRUST_XPL_ROOT" rev-parse HEAD  # must equal 53ac927bd485c97d068586b0b9116b14b5e07126
+git -C "$CHUNKTRUST_XPL_ROOT" rev-parse HEAD  # must equal ac9591d24a8e89d891b3a1f5838861b33e004e5f
 PYTHONPATH="$CHUNKTRUST_XPL_ROOT/..:$CHUNKTRUST_XPL_ROOT:$CHUNKTRUST_XPL_ROOT/policy/Pi_05/openpi/src" \
   "$CHUNKTRUST_XPL_ROOT/policy/Pi_05/openpi/.venv/bin/python" \
   "$CHUNKTRUST_XPL_ROOT/setup_policy_server.py" --config_path /tmp/chunktrust-backend.yaml --protocol ws
@@ -210,6 +246,12 @@ uv run --locked --extra xpolicylab python scripts/validation/chunktrust_lifecycl
   --output /tmp/manimux-chunktrust-lifecycle.json
 uv run --locked --extra xpolicylab python scripts/validation/chunktrust_wire_probe.py \
   --output /tmp/manimux-chunktrust-wire-probe
+CHUNKTRUST_BASELINE_EDGE=$(mktemp)
+git show c585eec2b4cb6534638281c969a5293c4d15cadf:manimux/runtime/edge.py > "$CHUNKTRUST_BASELINE_EDGE"
+uv run --locked --extra xpolicylab python scripts/validation/chunktrust_edge_probe.py \
+  --output /tmp/manimux-chunktrust-edge-probe --baseline-edge "$CHUNKTRUST_BASELINE_EDGE"
+uv run --locked --extra xpolicylab python scripts/validation/chunktrust_backend_probe.py \
+  --output /tmp/manimux-chunktrust-backend-probe
 ```
 
 The config probe exercises actual preset/experiment loading and matrix generation.
@@ -232,3 +274,17 @@ of missing/dtype/shape/NaN evidence. Network socket construction is forbidden. O
 include source hashes, dependency versions and request/response bytes outside the repo.
 It does not load OpenPI or test its JAX sampler. Real weights, guided raw-v semantics,
 numeric equivalence, latency/memory and physical task success need separate evidence.
+
+The edge probe exercises the complete formal `EdgeRuntime.run` and real recorder with
+synthetic responses and disconnected devices. It injects selection/anchor computation
+time, checks first-row execution and expired-plan rejection, and compares ordinary
+serial and BID behavior with the pre-fix runtime. Injected time is not a measured
+model or selector latency. The two historical comparisons require `--baseline-edge`
+and a checkout with the baseline commit available; without it they are reported as
+skipped, not passed. No robot driver is constructed.
+
+The backend probe checks the pinned source identity and actual managed Model/Policy/
+codec import paths, resolved trace flags and the Model-to-runtime trace contract.
+Heavyweight neural dependencies are substituted explicitly and sockets are forbidden.
+It proves the Python configuration and interface path, not native JAX or checkpoint
+inference. Exported provenance still reports configuration-only evidence.

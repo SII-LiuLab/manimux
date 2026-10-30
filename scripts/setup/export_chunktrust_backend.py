@@ -17,8 +17,8 @@ sys.path.insert(0, str(ROOT))
 
 from manimux.cli import load_config, resolve_local_path  # noqa: E402
 from manimux.runtime.chunktrust.trace import (  # noqa: E402
-    TRACE_FORK_REVISION,
-    TRACE_FORK_URL,
+    TRACE_BACKEND_REVISION,
+    TRACE_BACKEND_URL,
 )
 
 
@@ -31,7 +31,7 @@ def export_backend(config_path: Path, *, local: Path | None, output: Path) -> di
         raise ValueError("the ChunkTrust backend export requires xpolicylab_ws")
     if config["inference"]["algorithm"] == "chunktrust_ahs_rtc":
         raise ValueError(
-            "the fixed public 53ac927 backend supports default trace only; "
+            "the pinned canonical XPolicyLab backend supports default trace only; "
             "no verified RTC+trace backend revision is available to export"
         )
     recipe = dict(config.get("policy_server") or {})
@@ -63,7 +63,7 @@ def export_backend(config_path: Path, *, local: Path | None, output: Path) -> di
     provenance = {
         "schema_version": 1,
         "manimux_revision": revision.stdout.strip() if revision.returncode == 0 else None,
-        "backend_source": {"url": TRACE_FORK_URL, "revision": TRACE_FORK_REVISION},
+        "backend_source": {"url": TRACE_BACKEND_URL, "revision": TRACE_BACKEND_REVISION},
         "backend_source_status": "required_dependency_not_checked_out_or_loaded_by_exporter",
         "supported_trace_modes": ["default"],
         "config_sources_sha256": config.get("config_sources", {}),

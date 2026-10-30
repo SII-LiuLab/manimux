@@ -1327,7 +1327,7 @@ class EdgeRuntime(PlanningContext):
                                 with stage("timeline_commit"):
                                     try:
                                         if selector is not None:
-                                            # Selection and trimming share one handoff clock.
+                                            # Score and prepare against one selection snapshot.
                                             chunk = selector.select_chunk(
                                                 chunk=chunk, now_ns=now_ns,
                                             )
@@ -1343,6 +1343,27 @@ class EdgeRuntime(PlanningContext):
                                             f"invalid_strategy_chunk:{type(exc).__name__}:{exc}",
                                         )
                                     else:
+                                        commit_anchor = self._execution.reference_from_joints(
+                                            commit.current_command
+                                        )
+                                        if (
+                                            selector is not None
+                                            and self._config["inference"]["algorithm"]
+                                            == "chunktrust_ahs"
+                                            and self._config["inference"]["action_start_mode"]
+                                            == "first_step_when_ready"
+                                        ):
+                                            # Ordinary AHS starts its prefix after local work.
+                                            # Time-aligned selectors retain their scoring clock.
+                                            now_ns = self._clock.now_ns()
+                                            latency_ms = (
+                                                now_ns - chunk.observation_time_ns
+                                            ) / 1e6
+                                            chunk.metadata["observation_to_commit_ms"] = latency_ms
+                                            if canonical_raw is not None:
+                                                canonical_raw.metadata[
+                                                    "observation_to_commit_ms"
+                                                ] = latency_ms
                                         result = self._timeline.commit(
                                             chunk,
                                             now_ns=now_ns,
@@ -1350,7 +1371,7 @@ class EdgeRuntime(PlanningContext):
                                                 self._config["inference"]["max_plan_age_s"]
                                                 * 1_000_000_000
                                             ),
-                                            current_command=self._execution.reference_from_joints(commit.current_command),
+                                            current_command=commit_anchor,
                                             blend_steps=commit.blend_steps,
                                             command_velocity={
                                                 name: (last_command[name]-previous_command[name])

@@ -71,7 +71,9 @@ class StrategyActionDecoder(Protocol):
 class StrategyChunkSelector(Protocol):
     """Optional selection after decoding, immediately before preparation/commit.
 
-    now_ns is the same timestamp used by prepare_chunk and Timeline.commit.
+    Selection and preparation share now_ns. Time-aligned selectors commit on that
+    same clock. Ordinary ChunkTrust AHS refreshes the commit clock after local
+    selection/preparation and anchor conversion, retaining its selection snapshot.
     Warmup commits only to its isolated preview timeline. Only on_plan_accepted
     may advance reference history; rejection/reset discard pending state.
     """

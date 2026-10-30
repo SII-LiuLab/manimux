@@ -173,7 +173,11 @@ class ChunkTrustAhsStrategy(SynchronousChunkStrategy):
         return chunk
 
     def select_chunk(self, *, chunk: ActionChunk, now_ns: int) -> ActionChunk:
-        """Select at the same handoff clock used by Timeline, after full decoding."""
+        """Select after decoding and retain this clock in the proposal snapshot.
+
+        Ordinary AHS starts execution after local work completes. RTC retains its
+        shared scoring/commit clock for time-aligned conditioning and cropping.
+        """
         decoded = self._decoded.get(chunk.request_seq)
         if decoded is None or decoded[0] != chunk.plan_id:
             raise ValueError("ChunkTrust selection requires its own complete decoded response")
