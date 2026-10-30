@@ -49,6 +49,8 @@ ManiMux 位于策略服务与机器人硬件之间，负责观测/动作适配�
 
 用合成数据启动操作界面——**无需机器人、相机或模型服务**。核心参数是 `--robot yam --demo`。
 
+首次克隆仓库和下载依赖需要联网。
+
 ```bash
 git clone https://github.com/SII-LiuLab/manimux.git
 cd manimux
