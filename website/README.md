@@ -61,7 +61,7 @@ illustrative footage. Do not interpret animation or a connection badge as execut
 ## Recutting the opening
 
 Source: `scripts/media/recut-product-hook.py` (Python with Pillow, FFmpeg). Run under
-`.agents/skills/manimux-demo-video/scripts/throttle.py` with the same one-core,
+`skills/manimux-demo-video/scripts/throttle.py` with the same one-core,
 60% duty cycle, 1536 MiB / zero-swap systemd scope described by the video skill.
 The script encodes sequential segments, concatenates them, checks full decoding,
 and verifies 2560 × 1440, 30 fps, 2760 frames / 92 seconds. `--hook-only` reuses the

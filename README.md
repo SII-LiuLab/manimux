@@ -6,7 +6,7 @@
 
 An open-source harness for real-world manipulation inference and experiment management.
 
-**[Website](https://sii-liulab.github.io/manimux/)** · **[Documentation](https://sii-liulab.github.io/manimux/guideline.html)** · **[Quick start](#quick-start)** · **[Demo](https://sii-liulab.github.io/manimux/#recordings)**
+**[Website](https://sii-liulab.github.io/manimux/)** · **[Documentation](https://sii-liulab.github.io/manimux/guideline.html)** · **[Quick start](#quick-start)** · **[Try GUI](#try-robogui-offline)** · **[中文](README.zh-CN.md)**
 
 [![Python: 3.11 | 3.12](https://img.shields.io/badge/Python-3.11%20%7C%203.12-5C996B?style=flat&labelColor=45534B&logo=python&logoColor=white)](pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-5C996B?style=flat&labelColor=45534B)](LICENSE)
@@ -19,6 +19,10 @@ An open-source harness for real-world manipulation inference and experiment mana
 
 **Dream-1 on YAM, through RoboGUI.** Watch a real-robot run with live camera views,
 robot state and predicted action chunks in one workspace.
+
+## News
+
+- **2026-10-22** — Support for [Franka FR3 with Robotiq gripper](https://sii-liulab.github.io/manimux/guideline.html#franka-deployment) and the [RPent agent](https://sii-liulab.github.io/manimux/guideline.html#agent-integrations).
 
 <a id="what-you-can-do"></a>
 
@@ -46,7 +50,7 @@ RoboGUI provides the operator workspace.
 
 </details>
 
-[Architecture and extension protocols](.agents/skills/manimux-development/references/README.md) · [Inference guide](https://sii-liulab.github.io/manimux/guideline.html#algorithms)
+[Architecture and extension protocols](skills/manimux-development/references/README.md) · [Inference guide](https://sii-liulab.github.io/manimux/guideline.html#algorithms)
 
 <a id="integrate"></a>
 <a id="included-integrations"></a>
@@ -109,7 +113,7 @@ RoboGUI provides the operator workspace.
         </ul>
         <strong>API</strong>
         <ul>
-          <li><a href="manimux/configs/examples/dream1-yam/README.md">Dream-1</a> ✅</li>
+          <li><a href="manimux/configs/experiments/example-yam-dream1/README.md">Dream-1</a> ✅</li>
         </ul>
       </td>
       <td>
@@ -135,7 +139,12 @@ and [supported combinations](https://sii-liulab.github.io/manimux/guideline.html
 
 ## Quick start
 
-Try RoboGUI without hardware. Requires **Python 3.11 or 3.12** and [uv](https://docs.astral.sh/uv/).
+Requires **Python 3.11 or 3.12** and [uv](https://docs.astral.sh/uv/).
+
+### Try RoboGUI offline
+
+Launch the operator GUI with synthetic data — **no robot, camera, or model server required**.
+The key flags are `--robot yam --demo`.
 
 ```bash
 git clone https://github.com/SII-LiuLab/manimux.git
@@ -144,8 +153,22 @@ uv sync --dev
 uv run manimux-robogui --robot yam --demo --host 127.0.0.1 --port 8086
 ```
 
-Open **http://127.0.0.1:8086**. The preview uses synthetic data and does not connect
-to a robot. Model environments and checkpoints are needed only for real deployment.
+Then open **http://127.0.0.1:8086** in your browser.
+
+| Flag | Meaning |
+| --- | --- |
+| `--robot yam` | Use the YAM RoboGUI preset (also: `piper`, `aloha`, `tianji`) |
+| `--demo` | Drive the UI with synthetic joint/camera streams; no hardware I/O |
+| `--host` / `--port` | Bind address for the local web UI |
+
+Other presets (same environment, different port if needed):
+
+```bash
+uv run manimux-robogui --robot piper --demo --host 127.0.0.1 --port 8087
+uv run manimux-robogui --robot aloha --demo --host 127.0.0.1 --port 8087
+```
+
+Model environments and checkpoints are needed only for real-robot deployment below.
 
 ### Run on a robot: one command for all services
 
@@ -203,9 +226,9 @@ for external model/camera services, separate trial roots and Franka.
 | I want to… | Start here |
 | --- | --- |
 | Deploy a model on a real robot | [Station setup](https://sii-liulab.github.io/manimux/guideline.html#configuration) → [Deployment recipes](https://sii-liulab.github.io/manimux/guideline.html#support) |
-| Run Dream-1 through its cloud API | [Dream-1 on YAM](manimux/configs/examples/dream1-yam/README.md) |
-| Run Pi05 through XPolicyLab | [Pi05 on YAM](manimux/configs/examples/pi05-xpolicylab-yam/README.md) |
-| Let an agent plan with a VLA (RPent) | [RPent examples: Dream-1 or Pi05 on YAM](manimux/configs/examples/README.md) |
+| Run Dream-1 through its cloud API | [Dream-1 on YAM](manimux/configs/experiments/example-yam-dream1/README.md) |
+| Run Pi05 through XPolicyLab | [Pi05 on YAM](manimux/configs/experiments/example-yam-pi05/README.md) |
+| Let an agent plan with a VLA (RPent) | RPent variant of either example: [Dream-1](manimux/configs/experiments/example-yam-dream1/put_bottles/rpent.yaml) · [Pi05](manimux/configs/experiments/example-yam-pi05/put_bottles/rpent.yaml) |
 | Compare methods and evaluate runs | [Experiment workflow](https://sii-liulab.github.io/manimux/guideline.html#experiments) · [Records & replay](https://sii-liulab.github.io/manimux/guideline.html#records) |
 
 <a id="contributing"></a>
@@ -213,18 +236,17 @@ for external model/camera services, separate trial roots and Franka.
 ## Contributing & community
 
 Contributions to robot and policy integrations, inference strategies, RoboGUI,
-and documentation are welcome. Start with the [contribution guide](.agents/skills/manimux-development/references/README.md#contributing).
-For agent-assisted development, use the [development skill](.agents/skills/manimux-development/SKILL.md).
+and documentation are welcome. Start with the [contribution guide](skills/manimux-development/references/README.md#contributing).
+For agent-assisted development, use the [development skill](skills/manimux-development/SKILL.md).
 
 **Latest update · 2026-10-18:** The [ManiMux website](https://sii-liulab.github.io/manimux/) and dedicated [user guide](https://sii-liulab.github.io/manimux/guideline.html) are live.
 
 <a id="developer-community"></a>
 
-<details>
-<summary>Join the developer WeChat group</summary>
+### Developer WeChat group
 
 Join the **ManiMux developer WeChat group** to discuss integrations, experiments,
-and contributions. Open the invitation below and scan it in WeChat.
+and contributions. Scan the invitation below in WeChat.
 
 <p align="center">
   <img src="assets/community/wechat-developers-20261029.jpg" alt="ManiMux developer WeChat group invitation QR code" width="300">
@@ -232,8 +254,6 @@ and contributions. Open the invitation below and scan it in WeChat.
 
 This invitation is valid until **November 5, 2026**. If it has expired, please open
 [a GitHub issue](https://github.com/SII-LiuLab/manimux/issues) to request an updated invitation.
-
-</details>
 
 ## Citation
 

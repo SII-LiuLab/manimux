@@ -1,5 +1,5 @@
 agent: rpent
-experiment: ../examples/rpent_franka.yaml
+experiment: ../experiments/example-franka/pick_yellow_block/rpent.yaml
 motion: ../local/rpent_franka_motion.yaml
 endpoint: http://127.0.0.1:8088
 task: Pick up the yellow block and place it in the pink bowl.

@@ -11,7 +11,6 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 XPOLICY_ROOT = REPO_ROOT / "third_party" / "XPolicyLab"
-DEFAULT_CONFIG = REPO_ROOT / "manimux/configs/policy/sapolicy/yam/abc-bottles.yaml"
 
 
 def _prepare_imports() -> None:
@@ -70,7 +69,8 @@ def _validate(config: dict[str, Any]) -> dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+    parser.add_argument("--config", type=Path, required=True,
+                        help="SAPolicy recipe or experiment YAML")
     parser.add_argument("--check", action="store_true", help="validate and print resolved setup")
     parser.add_argument("--local", type=Path)
     args = parser.parse_args()

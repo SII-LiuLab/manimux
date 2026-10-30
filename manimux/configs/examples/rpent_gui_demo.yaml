@@ -1,8 +1,0 @@
-# Disconnected synthetic robot/policy. Configure a provider in the agent recipe.
-_base_: rpent_demo.yaml
-agent:
-  config: ../agents/rpent.yaml
-run:
-  warmup_before_start: true
-robogui:
-  enabled: true

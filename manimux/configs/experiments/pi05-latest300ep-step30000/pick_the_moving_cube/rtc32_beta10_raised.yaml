@@ -1,6 +1,0 @@
-_base_: rtc32_beta10.yaml
-experiment:
-  variant: rtc32_beta10_raised
-initial_pose:
-  config: ../../../embodiment/initial_poses/yam.yaml
-  id: raised_ready

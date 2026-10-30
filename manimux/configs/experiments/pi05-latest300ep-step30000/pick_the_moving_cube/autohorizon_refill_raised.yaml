@@ -1,6 +1,0 @@
-_base_: autohorizon_refill.yaml
-experiment:
-  variant: autohorizon_refill_raised
-initial_pose:
-  config: ../../../embodiment/initial_poses/yam.yaml
-  id: raised_ready

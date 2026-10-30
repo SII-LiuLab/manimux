@@ -8,7 +8,7 @@ Prepare or Start. A blocked runtime shutdown retains its attachable operator ter
 
 Choose `--config <runtime.yaml>` for unscored trials, or `--config-list <list.yaml>`
 for a managed study. Camera, generic policy and runtime all accept these two inputs.
-Use the same file and private station in all three commands; use the [launch guide](../../guideline.html#latest300ep-launch)
+Use the same file and private station in all three commands; use the [launch guide](../../guideline.html#example-study)
 for commands and environment selection.
 
 | Module | Owns |

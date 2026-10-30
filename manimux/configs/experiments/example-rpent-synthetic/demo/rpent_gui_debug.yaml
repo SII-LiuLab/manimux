@@ -1,0 +1,4 @@
+# Explicit RPent debugging condition with a 2-second plan-age limit.
+_base_: rpent_gui.yaml
+agent:
+  debug_max_plan_age_s: 2.0

@@ -10,18 +10,65 @@ Use this page to locate the file to edit; use the
 manimux/configs/
 ├── lists/<study>.yaml                        # choices, trial plan, recording root
 ├── tasks/<task>.yaml                         # prompt, layouts, inline scoring, optional pose
-├── experiments/<model-checkpoint>/
-│   ├── _base_.yaml                           # shared choices, only when needed
-│   └── <task>/<variant>.yaml                 # specific model/task/algorithm settings
+├── experiments/<study>/
+│   ├── _base_.yaml                           # runnable baseline: robot, cameras, policy, timing
+│   └── <task>/<variant>.yaml                 # what this method changes
 ├── embodiment/{robot,sensor,initial_poses}/  # hardware, control profiles, named poses
-├── agents/                                  # shared agent recipes and motion profiles
-├── examples/                                # standalone development examples
+├── agents/                                  # RPent recipes and motion templates
 ├── policy/                                  # model artifacts, serving and action contracts
 ├── inference/                               # algorithm base settings
 ├── executor/                                # execution settings
 ├── robogui/                                 # display and preview settings
 └── local/                                   # private station bindings and local configurations
 ```
+
+## Worked example: how the files fit together
+
+The published `example-*` studies show every layer; there is no separate examples folder.
+Follow one entry of `example-yam-pi05` from top to bottom:
+
+```text
+lists/example-yam-pi05.yaml                         1. study entry
+  experiments:
+  - id: put_bottles_async10
+    config: ../experiments/example-yam-pi05/put_bottles/async10.yaml
+    trials: {repeats: 3}
+        │
+        ▼
+experiments/example-yam-pi05/put_bottles/async10.yaml   2. one method
+  _base_:
+  - ../_base_.yaml
+  - ../../../tasks/put_bottles.yaml
+  policy: {action_dt_s: 0.1}                        # only what this method changes
+  inference: {algorithm: async, request_trigger: progress, chunk_policy_steps: 28}
+  executor: {config: ../../../executor/yam_smooth_standard.yaml, type: smooth}
+  experiment: {task: put_bottles, variant: async28_slow10_smooth}
+        │
+        ├─▶ experiments/example-yam-pi05/_base_.yaml      3. runnable baseline
+        │     robot, cameras, policy client, Serial 30 Hz, RoboGUI, recording
+        │     camera_server: {config: ../../embodiment/sensor/cameras/realsense_3_views.yaml}
+        │     policy_server: {config: ../../policy/pi05/yam/put-bottles/joint-step30000.yaml}
+        │           │
+        │           └─▶ policy/pi05/yam/put-bottles/joint-step30000.yaml   4. model recipe
+        │                 checkpoint and normalization below paths.checkpoints,
+        │                 horizon, action contract, backend identity
+        │
+        └─▶ tasks/put_bottles.yaml                   5. task
+              prompt, max steps, layouts, scoring rubric
+
+local/station.yaml (private, not in Git)             6. this station
+  CAN channels, camera serials, service endpoints, paths.checkpoints
+```
+
+The other entries differ only in layer 2: `serial.yaml` adds nothing, and `rtc.yaml` sets
+`inference.algorithm: rtc`. `rpent.yaml` adds `agent: {config: ../../../agents/rpent_pi05_yam.yaml}`;
+that RPent recipe adds the planner and points to the private motion profile
+`local/rpent_yam_motion.yaml`.
+To try one variant, run `manimux up --config <variant>`; for scored, counted trials, run
+`manimux up --config-list lists/example-yam-pi05.yaml`. Build your own study the same way:
+a private list and variants that inherit a shared `_base_.yaml` and a task.
+
+## Where each setting lives
 
 | Change | Owning file / field |
 | --- | --- |
@@ -37,10 +84,10 @@ manimux/configs/
 | Recording root | Config list `recording.root` |
 | CAN/IP, camera serials, service endpoints and installed artifact paths | Private `local/station.yaml` |
 
-Examples: [coin task](tasks/coin.yaml), [medium-block task](tasks/stack_blocks_medium.yaml),
-[shared Pi05 settings](experiments/pi05-latest300ep-step30000/_base_.yaml),
-[RTC variant](experiments/pi05-latest300ep-step30000/coin/rtc32_beta10.yaml),
-[current config list](lists/pi05-latest300ep-step30000.yaml).
+Examples: [put-bottles task](tasks/put_bottles.yaml),
+[study base](experiments/example-yam-pi05/_base_.yaml),
+[RTC variant](experiments/example-yam-pi05/put_bottles/rtc.yaml),
+[example config list](lists/example-yam-pi05.yaml).
 
 ## Composition and storage boundaries
 
@@ -54,8 +101,16 @@ Examples: [coin task](tasks/coin.yaml), [medium-block task](tasks/stack_blocks_m
 - Recordings go to `<recording.root>/<list.id>/<experiment.task>/<experiment.variant>/session-…/rollout-…`. Relative roots resolve beside the config list YAML.
 - Repeats create recordings, not copied YAMLs. Changed scientific conditions require a new variant ID when records already exist. Historical recordings retain their saved settings and scores.
 
-Only `experiments/pi05-latest300ep-step30000/` and its config list are published study
-examples in this checkout. Other experiment groups and config lists are ignored by default.
+Only the `example-*` studies and lists are published:
+
+| Study | Shows |
+| --- | --- |
+| [`example-yam-pi05`](experiments/example-yam-pi05/README.md) | Pi05 through XPolicyLab: Serial, RTC, Async 10 Hz + Smooth, RPent ([list](lists/example-yam-pi05.yaml)) |
+| [`example-yam-dream1`](experiments/example-yam-dream1/README.md) | Hosted Dream-1 API: Serial, RPent ([list](lists/example-yam-dream1.yaml)) |
+| [`example-franka`](experiments/example-franka/_base_.yaml) | Franka FR3: Pi05-DROID through XPolicyLab, RPent |
+| [`example-rpent-synthetic`](experiments/example-rpent-synthetic/_base_.yaml) | Hardware-free dispatch and RPent GUI checks |
+
+Your own experiment groups and config lists are ignored by default.
 Intentional publication can update both allowlists in the root `.gitignore` or explicitly
 use `git add -f`; include required dependencies. Station secrets, weights, training jobs
 and recordings remain private.
@@ -65,8 +120,8 @@ and recordings remain private.
 - [Configuration, config lists and storage](../../guideline.html#experiment-lists): complete setup and composition examples.
 - [Agent integration](../../guideline.html#agent-integrations): RPent recipes, path resolution and matching runtime configuration.
 - [Tasks and scoring](../../guideline.html#experiments): explicit score options for every task, plus the trial workflow.
-- [Launch commands](../../guideline.html#latest300ep-launch): matching camera, model, RoboGUI and runtime services.
+- [Launch commands](../../guideline.html#example-study): matching camera, model, RoboGUI and runtime services.
 - [Switching and reload rules](../../guideline.html#experiment-switch-boundaries): compatible entries and service restart boundaries.
 - [Policy recipes](policy/README.md) and [camera recipes](embodiment/sensor/cameras/README.md): component-specific ownership.
-- [Experiment skill](../../.agents/skills/manimux-experiments/SKILL.md): agent workflow for eliciting task details, writing files and validating them.
-- [Station setup skill](../../.agents/skills/manimux-station-setup/SKILL.md): agent workflow for local hardware and service bindings.
+- [Experiment skill](../../skills/manimux-experiments/SKILL.md): agent workflow for eliciting task details, writing files and validating them.
+- [Station setup skill](../../skills/manimux-station-setup/SKILL.md): agent workflow for local hardware and service bindings.

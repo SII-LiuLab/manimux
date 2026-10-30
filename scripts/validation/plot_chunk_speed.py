@@ -2,7 +2,7 @@
 """Build a self-contained speed report from finalized dual-arm rollouts.
 
 The only robot interface used is offline RobotModel FK. See
-.agents/skills/manimux-experiments/references/chunk-speed.md for the evidence contract and optional Pi05 probe.
+skills/manimux-experiments/references/chunk-speed.md for the evidence contract and optional Pi05 probe.
 """
 
 from __future__ import annotations

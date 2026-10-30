@@ -97,7 +97,7 @@ This is separate from a model server's environment. RPent is not required.
   offers Finish rollout with Return Home disabled. Shared cleanup still stops
   owned control before saving a successful recording; failures remain visible.
 
-Use `configs/examples/franka_joint_policy.yaml` for an ordinary XPolicyLab-backed
+Use `configs/experiments/example-franka/_base_.yaml` for an ordinary XPolicyLab-backed
 joint deployment, and `configs/local/franka_example.yaml` for station bindings.
 Supply the selected model's actual cameras, horizon, action semantics and backend
 identity. The example is an interface recipe, not a bundled trained policy.

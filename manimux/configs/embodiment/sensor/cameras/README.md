@@ -94,7 +94,7 @@ envs/yam/.venv/bin/python -m manimux.servers.camera.server \
   --camera-config manimux/configs/embodiment/sensor/cameras/realsense_3_views.yaml
 
 envs/yam/.venv/bin/python -m manimux.servers.camera.server \
-  --config-list manimux/configs/lists/pi05-yam-put-bottles-joint-step30000-standalone.yaml --experiment-id put_bottles_rtc_joint_step30000
+  --config-list manimux/configs/lists/example-yam-pi05.yaml --experiment-id put_bottles_rtc
 ```
 
 Use one of these commands, not both on the same ports/devices. The station template

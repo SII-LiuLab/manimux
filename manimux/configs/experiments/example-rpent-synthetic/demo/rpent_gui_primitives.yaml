@@ -1,0 +1,4 @@
+# RPent with motion primitives only; no VLA calls.
+_base_: rpent_gui.yaml
+agent:
+  policy_enabled: false

@@ -1,0 +1,11 @@
+# Example study entry: direct Pi05, Serial. Listed in ../../../lists/example-yam-pi05.yaml.
+# Each entry = study base (station, model, timing) + task (prompt, layouts, scoring)
+# + only what this method changes.
+_base_:
+- ../_base_.yaml
+- ../../../tasks/put_bottles.yaml
+robogui:
+  policy_label: Pi05 put-bottles - Serial 30 Hz
+experiment:
+  task: put_bottles
+  variant: serial

@@ -3,7 +3,7 @@
 Public poses/joints use metres/radians. Internally mm/degrees preserve the
 reference QP weights, regularization and nullspace objective. This is a rate
 controller with tracking lag, not an analytic inverse with convergence bounds.
-See .agents/skills/manimux-development/references/tianji-diff-ik.md for source revision, guard semantics and validation.
+See skills/manimux-development/references/tianji-diff-ik.md for source revision, guard semantics and validation.
 No model, robot connection or closed-source kinematics library is loaded.
 """
 

@@ -3,7 +3,7 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = ROOT / '.agents/skills/manimux-demo-video/assets/inputs/robogui-live.mp4'
+SOURCE = ROOT / 'skills/manimux-demo-video/assets/inputs/robogui-live.mp4'
 OUT = ROOT / 'website/assets'
 
 

@@ -34,7 +34,7 @@ and passes them to the same components; leader/follower buttons and recording lo
 
 ## Camera ownership and configuration example
 
-`manimux/configs/experiments/pi05-latest300ep-step30000/put_bottles/rtc32_beta10.yaml` is a composed configuration example.
+`manimux/configs/experiments/example-yam-pi05/put_bottles/rtc.yaml` is a composed configuration example.
 The separate camera service selects assembly cameras using `camera_server.cameras`; runtime reads network
 sensors without also calling the robot's `start_sensors()`. Callers using robot sensors in-process must
 explicitly manage `start_sensors()` / `close_sensors()`. Each device has one capture owner.
@@ -46,7 +46,7 @@ from manimux.cli import load_config
 from manimux.clock import SystemClock
 from manimux.embodiments.robot import build_robot
 
-config = load_config("manimux/configs/experiments/pi05-latest300ep-step30000/put_bottles/rtc32_beta10.yaml",
+config = load_config("manimux/configs/experiments/example-yam-pi05/put_bottles/rtc.yaml",
                      local="manimux/configs/local/yam_example.yaml")
 robot = build_robot(config["robot"], SystemClock())
 print({name: model.num_coordinates for name, model in robot.kinematics.models.items()})

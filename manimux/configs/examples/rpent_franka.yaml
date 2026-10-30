@@ -1,8 +1,0 @@
-# TCP tools and Pi05 VLA calls share this runtime; VLA uses the standard JointAdapter.
-_base_: franka_pi05_droid.yaml
-run:
-  warmup_before_start: false
-inference:
-  chunk_policy_steps: null
-  max_chunk_policy_steps: null
-  handoff_skip_steps: 0

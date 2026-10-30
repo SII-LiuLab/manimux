@@ -62,7 +62,7 @@
     "evidence": "Repository labels the source a real-robot demo; full model/checkpoint/inference provenance is unavailable."
   },
   "hero": {
-    "source": ".agents/skills/manimux-demo-video/assets/inputs/robogui-live.mp4",
+    "source": "skills/manimux-demo-video/assets/inputs/robogui-live.mp4",
     "duration_seconds": 23.2,
     "width": 1280,
     "height": 720,

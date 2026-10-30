@@ -1,0 +1,18 @@
+# Example config list: hosted Dream-1 on one task, direct and with the RPent agent.
+#   export DREAM_API_KEY=...
+#   manimux up --config-list manimux/configs/lists/example-yam-dream1.yaml \
+#     --runtime-python envs/yam/.venv/bin/python
+id: example-yam-dream1
+recording:
+  root: ../../../data/experiments
+experiments:
+- id: put_bottles_serial
+  label: Dream-1 - Serial
+  config: ../experiments/example-yam-dream1/put_bottles/serial.yaml
+  trials:
+    repeats: 3
+- id: put_bottles_rpent
+  label: Dream-1 + RPent
+  config: ../experiments/example-yam-dream1/put_bottles/rpent.yaml
+  trials:
+    repeats: 3

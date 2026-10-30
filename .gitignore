@@ -81,12 +81,12 @@ logs/
 # Private study decisions and results; preserve the local file.
 /experiments.md
 
-# Publish the current Pi05 study only; other studies remain local.
+# Publish only the example-* studies; your own studies remain local.
 /manimux/configs/experiments/*
 !/manimux/configs/experiments/README.md
-!/manimux/configs/experiments/pi05-latest300ep-step30000/
+!/manimux/configs/experiments/example-*/
 /manimux/configs/lists/*
-!/manimux/configs/lists/pi05-latest300ep-step30000.yaml
+!/manimux/configs/lists/example-*.yaml
 !/manimux/configs/lists/README.md
 
 # Task definitions used only by private/historical experiment variants.
@@ -95,3 +95,11 @@ logs/
 
 # Scratch/reference implementations are local; maintained algorithms live in manimux/.
 /reference_files/
+
+# Unused local scripts and private hosting metadata (files stay on disk).
+/scripts/media/orbbec_preview.py
+/scripts/validation/analyze_chunk_boundaries.py
+/scripts/validation/benchmark_step_chunk_ik.py
+/scripts/validation/pi05_yam_offline_infer.py
+/scripts/validation/run_policy_branch_regressions.sh
+/website/.openai/hosting.json

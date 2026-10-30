@@ -1,17 +1,22 @@
 # Experiment variants
 
-Only `pi05-latest300ep-step30000/` is published in this checkout. Other experiment
-directories and their config list entries are local and ignored by Git. Creating
-a local study does not publish it; explicitly update the allowlist in `.gitignore`
-when another study is intended for sharing. Shared component/task definitions are
-maintained separately from these installation-specific experiment variants.
-Task definitions needed only by historical local variants live in the ignored
-`../local/tasks/` directory; the public `../tasks/` directory contains shared task
-definitions rather than migration-generated legacy copies.
+Only the `example-*` studies are published; they are also the runtime examples:
 
-Store reusable variants under `<model-checkpoint>/<task>/<variant>.yaml`.
-Use `_base_.yaml` only for shared choices, and inherit task definitions from
-`../../tasks/` at the appropriate relative depth. Component references stay in
+| Study | Base | Variants |
+| --- | --- | --- |
+| [`example-yam-pi05/`](example-yam-pi05/README.md) | Pi05 through XPolicyLab, YAM, Serial 30 Hz | `put_bottles/{serial,rtc,async10,rpent}` |
+| [`example-yam-dream1/`](example-yam-dream1/README.md) | Hosted Dream-1 API, YAM, Serial 30 Hz | `put_bottles/{serial,rpent}` |
+| [`example-franka/`](example-franka/_base_.yaml) | Franka FR3, XPolicyLab joint policy, read-only | `pick_yellow_block/{pi05_droid,rpent}` |
+| [`example-rpent-synthetic/`](example-rpent-synthetic/_base_.yaml) | Synthetic robot and tool policy, no hardware | `demo/{rpent,rpent_gui,rpent_gui_debug,rpent_gui_primitives}` |
+
+Your own experiment directories and their config list entries are local and ignored by
+Git. Creating a local study does not publish it; explicitly update the allowlist in
+`.gitignore` when another study is intended for sharing.
+
+Store variants under `<study>/<task>/<variant>.yaml`. The study `_base_.yaml` is a
+runnable baseline (robot, cameras, policy client and model recipe, timing, RoboGUI); each
+variant inherits it and a task from `../../tasks/`, then sets only what its method
+changes, as the example variants do. Component references stay in
 `policy/`, `inference/`, `embodiment/` and `executor/`. Scoring lives inline
 in the shared task YAML.
 
@@ -28,11 +33,9 @@ generic policy services also accept that `--config`. This route offers Prepare R
 only and saves separate trial records; it never consumes the study repeat budget.
 A new standalone runtime config needs no experiment identity, layouts or scoring.
 
-Current Pi05 entry: [`../lists/pi05-latest300ep-step30000.yaml`](../lists/pi05-latest300ep-step30000.yaml).
+Example lists: [`../lists/example-yam-pi05.yaml`](../lists/example-yam-pi05.yaml),
+[`../lists/example-yam-dream1.yaml`](../lists/example-yam-dream1.yaml).
 See the [complete protocol and commands](../../../guideline.html#experiment-lists).
-
-Unresolved historical recipes live in ignored `../local/archived_experiments/`;
-they are not runnable examples or config list entries.
 
 Raw historical sessions retain their saved parameters and paths. Their config list
 `history` inputs require compatible conditions. A change only to the stop budget

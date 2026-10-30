@@ -38,7 +38,7 @@ def parse(text):
 def repo_link(match):
     target = match.group(1)
     path = urlsplit(target).path
-    if path.startswith(('.agents/', 'manimux/')):
+    if path.startswith(('skills/', 'manimux/')):
         if not (REPO / path).is_file():
             raise ValueError(f'Missing guide repository reference: {path}')
         return f'href="{GITHUB}{target}"'

@@ -1,13 +1,13 @@
 # Station templates
 
-Use the [station guide](../../../.agents/skills/manimux-station-setup/references/station.md) for device bindings,
+Use the [station guide](../../../skills/manimux-station-setup/references/station.md) for device bindings,
 service addresses, checkpoint paths and configuration inspection.
 
 - `yam_example.yaml`: YAM with the configured camera services.
 - `tianji_taccap_example.yaml`: Tianji controller and TacCap components.
 - `piper_example.yaml`: standard PiPER CAN and measured width calibration.
 - `arx_x5_example.yaml`: X5 (2023) CAN, separate encoder/command calibration and
-  explicit SDK polling selection. See [SDK adapter limits](../../../.agents/skills/manimux-station-setup/references/can-arms.md).
+  explicit SDK polling selection. See [SDK adapter limits](../../../skills/manimux-station-setup/references/can-arms.md).
 - Copy the matching template to `station.yaml`, the default private station file.
 
 Template names use underscores; retain the `.yaml` extension. Additional private

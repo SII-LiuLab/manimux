@@ -11,7 +11,7 @@ from PIL import Image, ImageDraw, ImageFont
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / 'recordings/agent-demo-v5-1440p/manimux-product-demo-en-1440p30.mp4'
 OUT = ROOT / 'recordings/agent-demo-v6-hook'
-FONT = ROOT / '.agents/skills/manimux-demo-video/assets/fonts/Manrope.ttf'
+FONT = ROOT / 'skills/manimux-demo-video/assets/fonts/Manrope.ttf'
 OUT.mkdir(parents=True, exist_ok=True)
 
 

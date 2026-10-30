@@ -24,4 +24,4 @@ envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py --h
 
 For self-contained chunk speed reports with online execution, offline Pi05
 predictions, wrist images and inference latency, see the
-[chunk speed diagnostics guide](../.agents/skills/manimux-experiments/references/chunk-speed.md).
+[chunk speed diagnostics guide](../skills/manimux-experiments/references/chunk-speed.md).

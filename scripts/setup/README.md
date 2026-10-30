@@ -6,7 +6,7 @@ README and public user guide describe the firmware and control contract.
 
 `check_can_arm_sdks.py` verifies the official PiPER and X5 bindings used by the
 ManiMux controllers. Install the selected SDK following the
-[installation guide](../../.agents/skills/manimux-station-setup/references/robot-sdks.md), then run from the repository root:
+[installation guide](../../skills/manimux-station-setup/references/robot-sdks.md), then run from the repository root:
 
 ```bash
 envs/aloha/.venv/bin/python scripts/setup/check_can_arm_sdks.py --sdk piper

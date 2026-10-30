@@ -107,18 +107,14 @@ Meshes are copied unchanged. The URDF uses relative mesh paths and omits
 collision elements; upstream joint geometry, inertia, visual origins and
 materials remain unchanged. These resources support offline rendering and
 FK/IK, not physical calibration or collision-free motion. Preparation and
-model scope are documented in `.agents/skills/manimux-station-setup/references/piper.md`.
+model scope are documented in `skills/manimux-station-setup/references/piper.md`.
 
 ## Tianji Marvin model assets
 
-`manimux/embodiments/arm/tianji/assets/` and
-`manimux/embodiments/robot/tianji_taccap/assets/` contain the vendor CAD exports of the Tianji
-Marvin left arm, right arm and stand (URDF and STL), as bundled in
-`SII-LiuLab/universal_robogui` at commit `a7278af`. The stand URDF keeps only
-the `Link_Base`/`Link_Stand` links of the vendor's full assembly, and link
-colors are replaced with the palette of the bundled YAM model. These assets
-are used only for robogui rendering. The DH parameters and joint limits in
-`manimux/kinematics/tianji.py` are copied from the vendor SDK's
+The Tianji Marvin CAD exports (arm and stand URDF/STL) are not distributed with this
+repository; stations install them locally under `manimux/embodiments/arm/tianji/assets/`
+and `manimux/embodiments/robot/tianji_taccap/assets/`. The DH parameters and joint limits
+in `manimux/kinematics/tianji.py` are copied from the vendor SDK's
 `CommonConfig/ccs_m6_40.MvKDCfg`.
 
 ## Tianji differential IK
@@ -128,25 +124,10 @@ flange Jacobian in `tianji.py` are adapted from `SII-LiuLab/tianji-control`
 revision `1e7dfdbc94c62f87501d6485b8c0e43ce6dbf513` (`algos/diff_ik.py`,
 `algos/kinematics.py`, and the joint-limit objective in `algos/nullspace.py`).
 Tracking-lag guard semantics follow CalibWrist revision
-`f17a62a2ab77207de54fdca73dc8ff4d76f87cdb`. See `.agents/skills/manimux-development/references/tianji-diff-ik.md` for the
+`f17a62a2ab77207de54fdca73dc8ff4d76f87cdb`. See `skills/manimux-development/references/tianji-diff-ik.md` for the
 port boundaries and numerical validation. The source tianji-control checkout
 does not include a project-level license file; no different license is asserted
 for this derived code here.
-
-## Marvin SDK
-
-`manimux/embodiments/arm/tianji/sdk/marvin/` contains the Python bindings
-(`fx_robot.py`, `fx_kine.py`), Linux x86-64 libraries (`libMarvinSDK.so`,
-`libKine.so`) and the `ccs_m6_40.MvKDCfg` arm table from the vendor's
-`TJ_FX_ROBOT_CONTRL_SDK`, unmodified. The SDK is Copyright 2025 上海孚晞科技有限公司
-under the Apache License 2.0; see the `LICENSE` file in that directory.
-
-## UMI follower gripper assets
-
-`manimux/embodiments/end_effector/taccap/assets/umi_follower/` contains the XenseRobotics
-UMI follower gripper CAD (follower gripper assembly 0720, URDF and STL) with colors replaced by
-the bundled YAM gripper palette. Its flange mount and TCP follow the
-derivation in `SII-LiuLab/tianji-control` commit `d1def56`.
 
 ## README Earth model and architecture animation
 

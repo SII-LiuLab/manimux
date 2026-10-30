@@ -1,7 +1,7 @@
-# RPent recipe for the YAM Dream-1 example (examples/rpent_dream1_yam.yaml).
+# RPent recipe for experiments/example-yam-dream1/put_bottles/rpent.yaml.
 # Codex uses the account logged in on this host; Astra decides observe/motion/VLA calls.
 agent: rpent
-experiment: ../examples/rpent_dream1_yam.yaml
+experiment: ../experiments/example-yam-dream1/put_bottles/rpent.yaml
 # Private, measured: copy rpent_yam_motion.example.yaml to ../local/rpent_yam_motion.yaml.
 motion: ../local/rpent_yam_motion.yaml
 endpoint: http://127.0.0.1:8088

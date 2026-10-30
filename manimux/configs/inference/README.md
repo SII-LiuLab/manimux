@@ -19,4 +19,4 @@ Historical settings remain evidence, not launch recommendations.
 For parameter meanings, supported combinations and warmup behavior, use the
 [user guide](../../../guideline.html#optional-algorithm-composition).
 For model capability verification, use the
-[inference skill](../../../.agents/skills/manimux-inference/SKILL.md).
+[inference skill](../../../skills/manimux-inference/SKILL.md).

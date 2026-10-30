@@ -1,0 +1,30 @@
+# Example config list: one task, one model, four methods. Start it with
+#   manimux up --config-list manimux/configs/lists/example-yam-pi05.yaml \
+#     --runtime-python envs/yam/.venv/bin/python \
+#     --policy-python third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python
+# RoboGUI then offers each entry; Prepare Experiment counts repeats per entry and asks for
+# the task's score after Finish. Keep your own studies in a private list like this one.
+id: example-yam-pi05
+recording:
+  root: ../../../data/experiments
+experiments:
+- id: put_bottles_serial
+  label: Pi05 - Serial
+  config: ../experiments/example-yam-pi05/put_bottles/serial.yaml
+  trials:
+    repeats: 3
+- id: put_bottles_rtc
+  label: Pi05 - RTC
+  config: ../experiments/example-yam-pi05/put_bottles/rtc.yaml
+  trials:
+    repeats: 3
+- id: put_bottles_async10
+  label: Pi05 - Async 10 Hz + Smooth
+  config: ../experiments/example-yam-pi05/put_bottles/async10.yaml
+  trials:
+    repeats: 3
+- id: put_bottles_rpent
+  label: Pi05 + RPent
+  config: ../experiments/example-yam-pi05/put_bottles/rpent.yaml
+  trials:
+    repeats: 3

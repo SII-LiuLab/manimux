@@ -1,6 +1,0 @@
-_base_: serial32.yaml
-experiment:
-  variant: serial32_raised
-initial_pose:
-  config: ../../../embodiment/initial_poses/yam.yaml
-  id: raised_ready

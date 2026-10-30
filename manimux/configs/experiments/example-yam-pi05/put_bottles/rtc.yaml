@@ -1,0 +1,25 @@
+# Example study entry: direct Pi05 with RTC, the inference method as the variable.
+# 30 Hz model rows interpolated at 100 Hz control; the next chunk is conditioned on the
+# rows still executing.
+_base_:
+- ../_base_.yaml
+- ../../../tasks/put_bottles.yaml
+robot:
+  control_hz: 100.0
+robogui:
+  policy_label: Pi05 put-bottles - RTC (beta 10, 32 steps) - 100 Hz control
+inference:
+  algorithm: rtc
+  inference_schedule: single_inflight
+  request_trigger: algorithm
+  chunk_policy_steps: null
+  action_start_mode: drop_infer_latency
+  max_plan_age_s: 2.0
+  rtc:
+    min_execute_policy_steps: 32
+    initial_delay_policy_steps: null
+    delay_buffer_size: 10
+    beta: 10
+experiment:
+  task: put_bottles
+  variant: rtc32_beta10

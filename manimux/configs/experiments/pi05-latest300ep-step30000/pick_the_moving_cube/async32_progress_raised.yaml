@@ -1,6 +1,0 @@
-_base_: async32_progress.yaml
-experiment:
-  variant: async32_progress_raised
-initial_pose:
-  config: ../../../embodiment/initial_poses/yam.yaml
-  id: raised_ready
