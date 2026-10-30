@@ -4,10 +4,18 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from copy import deepcopy
 from pathlib import Path
 
 import yaml
+
+
+def safe_id(value, label: str) -> str:
+    """Path-safe stable ID shared by collections, tasks, poses and reports."""
+    if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", value):
+        raise ValueError(f"{label} must be a path-safe nonempty ID")
+    return value
 
 
 def initial_pose_metadata(config: dict) -> dict:
@@ -73,10 +81,8 @@ def compose(path: str | Path, stack: tuple[Path, ...] = ()) -> tuple[dict, dict[
 
 def _validated_pose(pose_id: str, pose: dict, dimensions: dict, default_duration) -> dict:
     import math
-    import re
 
-    if not isinstance(pose_id, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", pose_id):
-        raise ValueError("Initial pose ID must be path-safe")
+    safe_id(pose_id, "Initial pose ID")
     joints = pose["joints"]
     if set(joints) != set(dimensions):
         raise ValueError("Initial pose must specify every robot group")

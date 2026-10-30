@@ -21,6 +21,7 @@ from pathlib import Path
 
 import yaml
 
+from manimux.configuration import safe_id
 from manimux.evaluation import seams
 from manimux.evaluation.manual import completion_annotation
 from manimux.evaluation.rubric import count_result, evaluation_parameters, stage_option
@@ -402,10 +403,8 @@ def load_task(task_dir: Path):
     data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     if not isinstance(data, dict) or data.get("schema") != "task-report-v1":
         raise ValueError("task.yaml requires schema: task-report-v1")
-    if not isinstance(data.get("task_id"), str) or not re.fullmatch(
-        r"[A-Za-z0-9][A-Za-z0-9_-]{0,99}", data["task_id"]
-    ):
-        raise ValueError("task_id must be a safe stable identifier")
+    if len(safe_id(data.get("task_id"), "task_id")) > 100:
+        raise ValueError("task_id must be at most 100 characters")
     if not isinstance(data.get("groups"), list):
         raise ValueError("groups must be an explicit list")
     if not isinstance(data.get("output_root"), str):

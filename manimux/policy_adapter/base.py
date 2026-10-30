@@ -8,6 +8,15 @@ from manimux.kinematics.failure import DEFAULT_FAILURE_POLICY, IKSequence
 from manimux.types import ActionChunk, ActionContext, InferenceRequest, ObservationSnapshot
 
 
+def require_request_type(request: InferenceRequest, allowed: tuple[type, ...], model: str) -> None:
+    """Reject algorithm-specific requests an adapter would rebuild without their fields."""
+    if type(request) not in allowed:
+        raise ValueError(
+            f"{model} supports {[cls.__name__ for cls in allowed]} requests, "
+            f"not {type(request).__name__}; its algorithm fields would be dropped"
+        )
+
+
 class PolicyAdapter(ABC):
     """Models may share a conversion flow; policy.adapter.type selects the implementation.
 
