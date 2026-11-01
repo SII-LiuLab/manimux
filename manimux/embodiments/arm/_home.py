@@ -65,6 +65,13 @@ class CalibratedHomeController(ArmController):
     connection can supply actuator support. No SDK calls belong in this class.
     """
 
+    def validate_commands(self, targets):
+        self.calibration.validate(targets)
+
+    def command_bounds(self):
+        # Six calibrated joint ranges plus the normalized integrated gripper.
+        return {self.channel: np.vstack((self.calibration.bounds, [0.0, 1.0]))}
+
     def configure_home(self, target, **arrival_limits):
         if self._control_owned:
             raise RuntimeError("cannot change Home while motor control is owned")

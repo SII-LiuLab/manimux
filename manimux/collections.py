@@ -8,20 +8,13 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import re
 import tempfile
 from copy import deepcopy
 from datetime import UTC
 from pathlib import Path
 
-from manimux.configuration import initial_pose_metadata
+from manimux.configuration import initial_pose_metadata, safe_id
 from manimux.experiment_list import ExperimentChoice, ExperimentList, shared_service_contract
-
-
-def safe_id(value, label: str) -> str:
-    if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", value):
-        raise ValueError(f"{label} must be a path-safe nonempty ID")
-    return value
 
 
 def _has_rollout_records(session: Path) -> bool:

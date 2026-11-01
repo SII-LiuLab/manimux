@@ -173,9 +173,6 @@ class ArxX5Controller(CalibratedHomeController):
                 raise RuntimeError("X5 SDK polling is stale or its clock does not match")
             return {self.channel: ArmState(q, poll_completed_ns, sequence)}
 
-    def validate_commands(self, targets: Mapping[str, FloatArray]) -> None:
-        self.calibration.validate(targets)
-
     def send_commands(self, targets: Mapping[str, FloatArray]) -> None:
         q = self.calibration.validate(targets)
         if not self.execute:

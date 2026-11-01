@@ -72,3 +72,18 @@ class GripperMapping:
             assert self.deadzone is not None and self.exponent is not None
             values.update(deadzone=self.deadzone, exponent=self.exponent)
         return values
+
+
+def clip_aperture(groups):
+    """Clip model apertures to [0, 1] and report the clip for chunk metadata.
+
+    Small regression overshoot is expected; the largest absolute correction is
+    recorded so clipping is never silent.
+    """
+    clipped = {name: np.clip(values, 0.0, 1.0) for name, values in groups.items()}
+    largest = max(
+        (float(np.max(np.abs(clipped[name] - values), initial=0.0))
+         for name, values in groups.items()),
+        default=0.0,
+    )
+    return clipped, {"gripper_output": "clip", "gripper_clip_max_abs": largest}

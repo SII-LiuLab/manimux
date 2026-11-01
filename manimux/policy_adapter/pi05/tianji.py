@@ -15,7 +15,7 @@ from manimux.kinematics.robot import RobotKinematics
 from manimux.kinematics.tianji_diff import rotation_matrix, rotation_vector
 from manimux.policies.base import action_interval
 from manimux.policies.xpolicylab.codec import matrix_pose, pose_matrix
-from manimux.policy_adapter.base import PolicyAdapter
+from manimux.policy_adapter.base import PolicyAdapter, require_request_type
 from manimux.policy_adapter.gripper_mapping import GripperMapping
 from manimux.policy_adapter.handoff import WaypointHandoff
 from manimux.policy_adapter.pose_output import pose_chunk, target_rows
@@ -171,6 +171,7 @@ class _Pi05TianjiEEAdapter(PolicyAdapter):
         return snapshot
 
     def prepare_request(self, request: InferenceRequest) -> Pi05TianjiRequest:
+        require_request_type(request, (InferenceRequest, RtcInferenceRequest), "Pi05 Tianji")
         groups = request.observation.state.groups
         extra = {}
         for name in self._group_order:
@@ -521,7 +522,7 @@ class _Pi05TianjiEEAdapter(PolicyAdapter):
             )
 
         chunk = ActionChunk(
-            plan_id=f"xr1-tianji-{context.request_seq}-{uuid.uuid4().hex[:8]}",
+            plan_id=f"pi05-tianji-{context.request_seq}-{uuid.uuid4().hex[:8]}",
             request_seq=context.request_seq,
             observation_time_ns=context.observation_time_ns,
             created_time_ns=context.created_time_ns,
