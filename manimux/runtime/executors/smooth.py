@@ -80,10 +80,6 @@ class SmoothExecutor:
         self._rc = rc
 
     @property
-    def has_pending_release(self) -> bool:
-        return any(event.kind == "release" for event in self._gripper_events.values())
-
-    @property
     def uses_close_latch(self) -> bool:
         return self._gripper is not None and self._gripper["mode"] == "close_latch"
 

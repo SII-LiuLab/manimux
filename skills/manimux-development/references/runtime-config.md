@@ -443,10 +443,8 @@ Keep imported asset licenses and mesh references with the component. Do not requ
 another developer's absolute paths. `robogui_display_frame` arranges the scene; it
 must not be used to change TCP offsets or control-space calibration.
 
-The older `robogui/robots/base.py` `RobotAdapter` and its entry-point loader still
-serve compatibility consumers such as collection-record replay. They are not the
-current live dashboard's integration entry point. A display model is also distinct
-from `policy_adapter.PolicyAdapter`, which converts policy inputs/actions.
+A display model is distinct from `policy_adapter.PolicyAdapter`, which converts
+policy inputs/actions.
 
 Keep URDF display mapping distinct from command coordinates: rendering two fingers
 does not add two action DOFs. Use offline models/assets for replay; loading an action
