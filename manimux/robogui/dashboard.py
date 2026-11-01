@@ -11,6 +11,7 @@ import uuid
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
+from html import escape
 from pathlib import Path
 from typing import Any, Literal, cast
 
@@ -33,7 +34,7 @@ from .recordings_panel import RecordingsPanel
 from .reference_layouts import DEFAULT_LAYOUT_ROOT
 from .robot_view import RobotGroup, RobotView, load_robogui_config, load_robot_view
 from .score_choices import ScoreChoices
-from .study_setup import completed_repeats, next_repeat, reference_task, unscored_experiments
+from .study_setup import completed_repeats, next_repeat, reference_task, remaining_trials, unscored_experiments
 from .top_overlay import TopViewOverlay
 
 MAX_PLAN_HISTORY = 16
@@ -334,6 +335,7 @@ class PolicyRoboGUI:
             )
             self.layout = self.server.gui.add_dropdown("Layout", ("—",), disabled=True)
             self.layout_progress = self.server.gui.add_markdown("")
+            self.study_remaining = self.server.gui.add_html("", visible=False)
             self.history_status = self.server.gui.add_markdown("", visible=False)
             self.retry_history_btn = self.server.gui.add_button(
                 "Retry reading experiment history", visible=False,
@@ -1533,6 +1535,7 @@ class PolicyRoboGUI:
         )
         self.layout.visible = show_layout and self.layout.options != ("—",)
         self.layout_progress.visible = self.layout.visible
+        self.study_remaining.visible = self.layout.visible and bool(self.study_remaining.content)
 
     def _setup_hint(self) -> str:
         if not self.experiments_available:
@@ -1550,6 +1553,8 @@ class PolicyRoboGUI:
         root, task = self._study_root, self.task_command
         defaults = dict(self._research_defaults)
         sessions = self._history_sessions
+        choices = [c for c in self._experiment_choices if c.get("task") == task]
+        layouts, reference = self.top_overlay.layouts if self.top_overlay is not None else None, self._reference_task
         self._history_epoch += 1
         epoch = self._history_epoch
         self._history_loading = True
@@ -1559,10 +1564,25 @@ class PolicyRoboGUI:
         self.history_status.visible = True
         self.retry_history_btn.visible = False
 
+        def reference_hashes() -> dict[str, str]:
+            hashes: dict[str, str] = {}
+            if layouts is None or not reference:
+                return hashes
+            for choice in choices:
+                template = (choice.get("study") or {}).get("experiment_template") or {}
+                for slot in template.get("layout_ids") or []:
+                    if slot not in hashes:
+                        try:
+                            hashes[slot] = layouts.snapshot(reference, slot)[1]["reference_layout"]["sha256"]
+                        except (OSError, ValueError):
+                            hashes[slot] = ""
+            return hashes
+
         def read_history():
             return (
                 completed_repeats(root, task, defaults, history_sessions=sessions),
                 unscored_experiments(root, task, history_sessions=sessions),
+                remaining_trials(choices, task, reference_hashes()),
             )
 
         def apply(future):
@@ -1571,7 +1591,7 @@ class PolicyRoboGUI:
                     return
                 self._history_loading = False
                 try:
-                    self._repeat_history, self._unscored_experiments = future.result()
+                    self._repeat_history, self._unscored_experiments, remaining = future.result()
                 except (OSError, ValueError, TypeError) as exc:
                     self._history_error = True
                     self.history_status.content = "History could not be read. Retry before Prepare."
@@ -1581,6 +1601,8 @@ class PolicyRoboGUI:
                     return
                 self.history_status.visible = False
                 self._resolve_error("Read experiment history")
+                self.study_remaining.content = self._remaining_html(remaining)
+                self._refresh_layout_visibility()
                 selected = self.unscored_experiment.value
                 self.unscored_experiment.options = tuple(self._unscored_experiments) or ("—",)
                 self.unscored_experiment.value = (
@@ -1596,6 +1618,63 @@ class PolicyRoboGUI:
 
         self._update_prepare_enabled()
         self._jobs.submit(read_history).add_done_callback(apply)
+
+    def _remaining_html(self, rows: list[dict[str, Any]]) -> str:
+        """Every method of this task in one card, so a skipped slot stays visible."""
+        if not rows:
+            return ""
+        left = sum(len(r["missing"]) for r in rows)
+        total = sum(r["total"] for r in rows)
+
+        def bar(done: int, of: int, color: str) -> str:
+            return (
+                '<div style="height:4px;border-radius:2px;background:#e9ecef;overflow:hidden">'
+                f'<div style="width:{100 * done / max(of, 1):.1f}%;height:100%;background:{color}"></div></div>'
+            )
+
+        items = []
+        for r in rows:
+            missing, current = r["missing"], r["id"] == self._experiment_id
+            done = r["total"] - len(missing)
+            name, _, detail = str(r["label"]).partition(" - ")
+            badge = (
+                '<span style="color:#2b8a3e;font-weight:600">✓ done</span>' if not missing else
+                f'<span style="background:#fff4e6;color:#d9480f;border-radius:10px;padding:0 7px;'
+                f'font-weight:600">{len(missing)} left</span>'
+            )
+            by_layout: dict[str, list[int]] = {}
+            for layout, repeat in missing:
+                by_layout.setdefault(str(layout), []).append(repeat)
+            chips = "".join(
+                '<span style="display:inline-block;margin:4px 4px 0 0;padding:0 6px;border-radius:4px;'
+                'background:#f1f3f5;color:#495057;font:11px/18px ui-monospace,monospace">'
+                f"{escape(layout)} · {' '.join(f'r{repeat}' for repeat in repeats)}</span>"
+                for layout, repeats in by_layout.items()
+            )
+            items.append(
+                '<div style="padding:6px 8px;border-radius:6px;margin-top:4px;'
+                + ('background:#e7f5ff;box-shadow:inset 3px 0 0 #1c7ed6;' if current else '')
+                + '">'
+                '<div style="display:flex;align-items:baseline;gap:6px">'
+                f'<span style="font-weight:600;color:#212529">{escape(name)}</span>'
+                f'<span style="flex:1;min-width:0;font-size:11px;color:#868e96;overflow:hidden;'
+                f'text-overflow:ellipsis;white-space:nowrap">{escape(detail)}</span>'
+                f'<span style="font-size:12px;color:#868e96;font-variant-numeric:tabular-nums">'
+                f'{done}/{r["total"]}</span>{badge}</div>'
+                f'<div style="margin-top:4px">{bar(done, r["total"], "#b2f2bb" if not missing else "#fd7e14")}</div>'
+                f"{f'<div>{chips}</div>' if chips else ''}</div>"
+            )
+        summary = "All trials scored" if not left else f"{left} trial{'s' if left != 1 else ''} left"
+        return (
+            '<div style="border:1px solid #dee2e6;border-radius:8px;padding:10px 8px 8px;'
+            'font:13px/1.4 system-ui,sans-serif;color:#212529">'
+            '<div style="display:flex;align-items:baseline;padding:0 8px 6px">'
+            f'<span style="font-weight:700">{summary}</span><span style="flex:1"></span>'
+            f'<span style="font-size:12px;color:#868e96;font-variant-numeric:tabular-nums">'
+            f'{total - left}/{total} scored</span></div>'
+            f'<div style="padding:0 8px 4px">{bar(total - left, total, "#40c057" if not left else "#228be6")}</div>'
+            + "".join(items) + "</div>"
+        )
 
     def _open_unscored_experiment(self) -> None:
         if (self._records_busy() or not self.service_ready or self.episode_active or self.preparing_rollout
