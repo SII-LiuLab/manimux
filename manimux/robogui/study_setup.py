@@ -48,6 +48,34 @@ def completed_repeats(
     return result
 
 
+def remaining_trials(
+    choices: list[dict[str, Any]], task: str, reference_sha: dict[str, str],
+) -> list[dict[str, Any]]:
+    """Unscored layout/repeat slots for every method of one task in a config list.
+
+    A slot counts as done exactly when Prepare would skip it: the same layout, the
+    current reference image and a scored repeat within the template limit.
+    """
+    rows = []
+    for choice in choices:
+        study = choice.get("study") or {}
+        template = study.get("experiment_template") or {}
+        layouts, repeats = template.get("layout_ids") or [], template.get("repeats")
+        if choice.get("task") != task or not layouts or not repeats:
+            continue
+        history = completed_repeats(
+            Path(study["output_dir"]), task, study.get("research_defaults", {}),
+            history_sessions=tuple(Path(p) for p in study.get("history_sessions", [])),
+        )
+        missing = [
+            (layout, repeat) for layout in layouts for repeat in range(1, repeats + 1)
+            if repeat not in history.get((layout, reference_sha.get(layout, "")), set())
+        ]
+        rows.append({"id": choice["id"], "label": choice["label"],
+                     "total": len(layouts) * repeats, "missing": missing})
+    return rows
+
+
 def next_repeat(used: set[int], limit: int | None) -> int:
     repeat = 1
     while repeat in used:

@@ -17,11 +17,19 @@ class ExperimentChoice:
     sha256: str
 
     def metadata(self) -> dict:
+        run = self.config["run"]
         return {
             "id": self.id, "label": self.label, "config_path": str(self.path),
-            "task": self.config["run"]["task_prompt"],
+            "task": run["task_prompt"],
             "method": self.config["inference"]["algorithm"],
             "initial_pose": initial_pose_metadata(self.config),
+            # Enough for the operator UI to count every method's remaining trials.
+            "study": {
+                "output_dir": str(run["output_dir"]),
+                "history_sessions": [str(p) for p in run.get("history_sessions", [])],
+                "experiment_template": run.get("experiment_template"),
+                "research_defaults": {key: run.get(key, "") for key in ("experiment_name", "condition")},
+            },
         }
 
 
