@@ -119,6 +119,7 @@ class TianjiTaccapRobot(RobotBase):
             ready_timeout_s=ready_timeout_s,
         )
         self._arms = MappingProxyType(configs)
+        self._recovery_home_stop: threading.Event | None = None
         super().__init__(
             arm_components={name: TianjiArm(self.controller, name) for name in configs},
             end_effectors={
@@ -294,12 +295,12 @@ class TianjiTaccapRobot(RobotBase):
             self._end_effector_control = previous_control
 
     def _check_home_cancel(self) -> None:
-        stop = getattr(self, "_recovery_home_stop", None)
+        stop = self._recovery_home_stop
         if stop is not None and stop.is_set():
             raise RuntimeError("Tianji-TacCap Home cancelled")
 
     def _home_wait(self, period_s: float) -> None:
-        stop = getattr(self, "_recovery_home_stop", None)
+        stop = self._recovery_home_stop
         if stop is None:
             time.sleep(period_s)
         else:
@@ -498,6 +499,7 @@ class TianjiTaccapRobot(RobotBase):
         )
         self.controller = controller
         self._arms = MappingProxyType(configs)
+        self._recovery_home_stop: threading.Event | None = None
 
 
 # Compatibility name for existing direct-construction callers.

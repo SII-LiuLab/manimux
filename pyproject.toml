@@ -53,9 +53,6 @@ manimux-robogui = "manimux.robogui.dashboard:main"
 manimux-camera-server = "manimux.servers.camera.server:main"
 manimux-rpent = "manimux.agents.rpent.cli:main"
 
-[project.entry-points."manimux.robogui.robots"]
-yam = "manimux.robogui.robots.yam:YamAdapter"
-
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

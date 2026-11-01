@@ -43,7 +43,6 @@ from manimux.types import (
     ObservationSnapshot,
 )
 
-DEFAULT_SERVER = "http://127.0.0.1:8400"
 DEFAULT_GROUP_ORDER = ("left_arm", "right_arm")
 DEFAULT_CAMERA_MAP = {
     "top_cam": "d405_front",

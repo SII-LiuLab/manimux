@@ -150,6 +150,8 @@ Requires **Python 3.11 or 3.12** and [uv](https://docs.astral.sh/uv/).
 Launch the operator GUI with synthetic data — **no robot, camera, or model server required**.
 The key flags are `--robot yam --demo`.
 
+The initial repository clone and dependency downloads require an internet connection.
+
 ```bash
 git clone https://github.com/SII-LiuLab/manimux.git
 cd manimux
