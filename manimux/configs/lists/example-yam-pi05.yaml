@@ -1,7 +1,10 @@
-# Example config list: one task, one model, four methods. Start it with
-#   manimux up --config-list manimux/configs/lists/example-yam-pi05.yaml \
-#     --runtime-python envs/yam/.venv/bin/python \
-#     --policy-python third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python
+# Example config list: one task, one model, four methods. `manimux up` takes a single
+# --config; start a list as four services that all read this same file:
+#   LIST=manimux/configs/lists/example-yam-pi05.yaml
+#   envs/yam/.venv/bin/python -m manimux.servers.camera.server --config-list $LIST
+#   third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python -m manimux.servers.policy --config-list $LIST
+#   envs/yam/.venv/bin/python -m manimux.robogui.dashboard --robot yam --port 8086
+#   envs/yam/.venv/bin/python -m manimux run --config-list $LIST
 # RoboGUI then offers each entry; Prepare Experiment counts repeats per entry and asks for
 # the task's score after Finish. Keep your own studies in a private list like this one.
 id: example-yam-pi05

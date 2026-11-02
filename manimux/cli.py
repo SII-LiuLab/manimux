@@ -94,6 +94,12 @@ def _merge_executor(base: dict, overrides: dict) -> dict:
 def load_local(path: str | Path) -> dict:
     """Read device, service and path bindings; execution flags belong to experiments."""
     source = Path(path).expanduser().resolve()
+    if not source.is_file():
+        raise FileNotFoundError(
+            f"station file {source} does not exist; copy a template from "
+            "manimux/configs/local/ (for example yam_example.yaml) to "
+            "manimux/configs/local/station.yaml, or pass --local <station.yaml>"
+        )
     bindings = read_yaml(source)
     # Retain the existing boundary check so misplaced execution flags are not ignored.
     extra = set(bindings) - {"robot", "services", "paths"}

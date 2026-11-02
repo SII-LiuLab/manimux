@@ -1,7 +1,10 @@
 # Example config list: hosted Dream-1 on one task, direct and with the RPent agent.
-#   export DREAM_API_KEY=...
-#   manimux up --config-list manimux/configs/lists/example-yam-dream1.yaml \
-#     --runtime-python envs/yam/.venv/bin/python
+# The model is hosted, so only camera, RoboGUI and runtime run locally, all on this list:
+#   LIST=manimux/configs/lists/example-yam-dream1.yaml
+#   python -m manimux.servers.camera.server --config-list $LIST
+#   python -m manimux.robogui.dashboard --robot yam --port 8086
+#   export DREAM_API_KEY=...   # in the runtime terminal only
+#   python -m manimux run --config-list $LIST
 id: example-yam-dream1
 recording:
   root: ../../../data/experiments

@@ -132,7 +132,7 @@ and reference them with <code>config:</code>.</p>
 interfaces, camera serials, endpoints and checkpoint roots. Preserve component names.</p>
 <p><code>config:</code> paths resolve relative to the containing YAML; mappings merge and lists replace.
 Experiment <code>run.output_dir</code> is relative to the launch directory. Station-local paths resolve
-relative to the station file. Formal studies use collection <code>recording.root</code>; station output overrides are rejected.</p>
+relative to the station file. Formal studies use the config list <code>recording.root</code>; station output overrides are rejected.</p>
 <h3 id="franka-deployment">Franka FR3: ordinary policy deployment</h3>
 <p>The Franka arm is an independent embodiment. A model worker supplies actions to
 the normal adapter, runtime and executor; the driver uses Franky for joint control.
@@ -231,13 +231,9 @@ bounds, scalar cap, command-safety rates and control period are saved as
 support it; RoboGUI network options remain separate. Advanced model-specific launchers
 may instead take a model recipe as <code>--config</code>. See <a href="skills/manimux-station-setup/references/station.md#scope-and-remaining-independent-entry-points">entry-point scope</a>.</p>
 <p><strong>Before launch, inspect the resolved config without connecting hardware:</strong></p>
-<pre><code class="language-bash">envs/yam/.venv/bin/python - &lt;&lt;'PY'
-from manimux.collections import load_collection
-catalog = load_collection('manimux/configs/lists/example-yam-pi05.yaml')
-cfg = catalog.choices['coin_rtc'].config
-for key in ('run', 'policy', 'inference', 'executor', 'evaluation'):
-    print(key, cfg[key])
-PY
+<pre><code class="language-bash">envs/yam/.venv/bin/python -m manimux inspect \
+  --config-list manimux/configs/lists/example-yam-pi05.yaml \
+  --local manimux/configs/local/station.yaml
 </code></pre>
 <p>Edit YAML before loading the experiment. Restart the affected process after changes;
 editing a file does not hot-reload a running deployment.</p>
@@ -1684,12 +1680,15 @@ execution, and Pi05 driven by RPent. Each entry is a small file under
 prompt, layouts, scoring), then sets only what the method changes and its
 <code>experiment.task</code>/<code>experiment.variant</code>. Keep your own studies as
 private lists and variants in the same layout.</p>
-<pre><code class="language-bash">manimux up --config-list manimux/configs/lists/example-yam-pi05.yaml \
-  --runtime-python envs/yam/.venv/bin/python \
-  --policy-python third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python
-envs/yam/.venv/bin/python -m manimux inspect \
-  --config-list manimux/configs/lists/example-yam-pi05.yaml --index
+<pre><code class="language-bash">LIST=manimux/configs/lists/example-yam-pi05.yaml
+envs/yam/.venv/bin/python -m manimux inspect --config-list $LIST --index
+envs/yam/.venv/bin/python -m manimux.servers.camera.server --config-list $LIST
+third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python -m manimux.servers.policy --config-list $LIST
+envs/yam/.venv/bin/python -m manimux.robogui.dashboard --robot yam --host 127.0.0.1 --port 8086
+envs/yam/.venv/bin/python -m manimux run --config-list $LIST
 </code></pre>
+<p>Run each service in its own terminal. <code>manimux up</code> manages a single
+<code>--config</code>; a config list always runs as these four services.</p>
 <p>Open RoboGUI. Choose Task → Method → Layout → Prepare Run / Prepare Experiment → Activate
 Warmup → Start → Finish → save/skip evaluation. Prepare may move to the configured initial
 pose. Changed scientific conditions use distinct variant IDs; existing recordings are not
@@ -1701,7 +1700,7 @@ belong to deliberate variants.</p>
 <p><strong>YAM IK position acceptance:</strong> Set <code>options.pos_threshold</code> in <code>manimux/configs/embodiment/arm/yam.yaml</code>: <code>0.0001</code> means 0.1 mm (solver default), <code>0.001</code> means 1 mm, and <code>null</code> disables final position-error acceptance. This applies to chunk and step IK across model adapters using that arm definition. Disabling acceptance retains position optimization, orientation acceptance, finite-value checks and joint limits; it does not guarantee faster solving or bound the remaining position error. Step IK retains its computation budget. Restart the runtime after finishing the current trial to load a changed setting.</p>
 <p><strong>LingBot-VLA2 RTC withdrawn (2026-10-18).</strong> RTC is removed from the model capability list and all LingBot experiment entries. Measured conditioned sampling averaged 961.32 ms, exceeding the 0.60 s remaining-action budget at H=50, K=32 and 30 Hz. Historical RTC-labelled records include unconditioned fallbacks and must not be treated as a validated RTC baseline. Normal inference, PAINT and AutoHorizon retain their separate paths. Running processes must be restarted normally to load this removal; editing files does not update an already loaded model.</p>
 <p><strong>PAINT waiting behavior:</strong> PAINT can keep running when inference exceeds the old chunk's remaining duration. It conditions the next prediction on the available suffix followed by a repeated terminal target, including the gripper. The runtime holds the last command until a valid result arrives, then applies the usual latency trimming. It does not reduce the configured execution steps or switch algorithms. Recorded metadata includes forecast and elapsed terminal-hold policy steps. Real request failures retain the common recovery path; a delay consuming the entire new prediction horizon still fails explicitly. The terminal-hold extension is covered by offline tests, not a new hardware validation.</p>
-<p>OpenWAM cached Serial/Async uses the original compiled DiT cache recipe. The RTC-cache config list uses eager execution and the declared cache modes. Specialized sampling and compilation support remain model-specific; retain these flags and measured latency when comparing methods.</p>
+<p id="openwam-rtc-cache">OpenWAM cached Serial/Async uses the original compiled DiT cache recipe. The RTC-cache config list uses eager execution and the declared cache modes. Specialized sampling and compilation support remain model-specific; retain these flags and measured latency when comparing methods.</p>
 <h3 id="single-config-trial">Try one existing configuration</h3>
 <p>No study YAML is required. Reuse a concrete variant, or let the agent write one runtime configuration from your robot, model and task requirements. Layouts, repetition budgets and a scoring rubric are optional for trials. Keep the same config and station across services; use the model's installed environment for policy serving.</p>
 <pre><code class="language-bash">cd {repo}
@@ -2094,7 +2093,8 @@ Select the session/rollout and score it in the existing form using its saved rub
 new YAML rules do not replace historical scoring rules. Free runs and partial attempts are excluded.</p>
 </section>
 <section aria-labelledby="records" class="guide-page" data-page-id="records" data-title="Records &amp; replay" hidden=""><h2 id="records">Records</h2>
-<pre><code class="language-text">&lt;run.output_dir&gt;/
+<pre><code class="language-text">&lt;recording.root&gt;/&lt;list id&gt;/&lt;task&gt;/&lt;variant&gt;/   # config list
+&lt;run.output_dir&gt;/trials/&lt;task&gt;/&lt;variant&gt;/        # single --config
 └── session-.../
     ├── session-manifest.json
     └── rollout-.../

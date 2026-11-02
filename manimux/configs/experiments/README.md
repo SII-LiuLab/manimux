@@ -4,8 +4,9 @@ Only the `example-*` studies are published; they are also the runtime examples:
 
 | Study | Base | Variants |
 | --- | --- | --- |
-| [`example-yam-pi05/`](example-yam-pi05/README.md) | Pi05 through XPolicyLab, YAM, Serial 30 Hz | `put_bottles/{serial,rtc,async10,rpent}` |
+| [`example-yam-pi05/`](example-yam-pi05/README.md) | Pi05 through XPolicyLab, YAM, Serial 30 Hz | `put_bottles/{serial,rtc,async10,rpent,chunktrust_ahs,chunktrust_ahs_rtc}` |
 | [`example-yam-dream1/`](example-yam-dream1/README.md) | Hosted Dream-1 API, YAM, Serial 30 Hz | `put_bottles/{serial,rpent}` |
+| [`example-yam-poke/`](example-yam-poke/serial.yaml) | Hosted Poke API, YAM | `serial` |
 | [`example-franka/`](example-franka/_base_.yaml) | Franka FR3, XPolicyLab joint policy, read-only | `pick_yellow_block/{pi05_droid,rpent}` |
 | [`example-rpent-synthetic/`](example-rpent-synthetic/_base_.yaml) | Synthetic robot and tool policy, no hardware | `demo/{rpent,rpent_gui,rpent_gui_debug,rpent_gui_primitives}` |
 
