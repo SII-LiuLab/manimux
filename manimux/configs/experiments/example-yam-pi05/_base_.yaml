@@ -1,7 +1,8 @@
 # Shared baseline of the example study: Pi05 (put-bottles, joint positions) served
 # locally by XPolicyLab on YAM, Serial 30 Hz. Runnable on its own with --config.
 run:
-  task_prompt: Put the bottles into the bin.
+  # The checkpoint was trained on episodes labelled with this string, not a sentence.
+  task_prompt: put_bottles_into_the_bin
   max_control_steps: 6000
   warmup_before_start: true
   sensor_reading:
@@ -51,7 +52,7 @@ policy:
     request_timeout_s: 10.0
 # The recipe selects the checkpoint below the station's paths.checkpoints root.
 policy_server:
-  config: ../../policy/pi05/yam/put-bottles/joint-step30000.yaml
+  config: ../../policy/pi05/yam/put-bottles/joint.yaml
 inference:
   algorithm: serial
   inference_schedule: serial

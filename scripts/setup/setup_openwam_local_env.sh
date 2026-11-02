@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 BASE_PYTHON=${OPENWAM_BASE_PYTHON:-${ROOT}/envs/yam/.venv/bin/python}
 VENV=${OPENWAM_VENV:-${ROOT}/envs/openwam/.venv}
 UV_CACHE_DIR=${UV_CACHE_DIR:-/tmp/manimux-uv-cache}

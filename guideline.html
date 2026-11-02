@@ -36,6 +36,36 @@ uv run manimux-robogui --robot yam --demo --host 127.0.0.1 --port 8086
 </code></pre>
 <p>Open <code>http://127.0.0.1:8086</code>. This demo does not connect hardware.
 Use <code>--robot piper</code> or <code>--robot aloha</code> for the corresponding asset preview.</p>
+<h3 id="offline-trial-loop">Run a full trial loop offline</h3>
+<p>The demo above only animates RoboGUI. The
+<a href="manimux/configs/experiments/example-synthetic/README.md">hardware-free example study</a>
+adds the runtime with a synthetic robot and policy and its own empty station file, so Prepare,
+Start, Finish, scoring, counted trials and recordings all work on any machine. Stop the demo
+first, then run each command in its own terminal:</p>
+<pre><code class="language-bash">uv run manimux-robogui --robot yam --host 127.0.0.1 --port 8086
+uv run manimux run --config-list manimux/configs/lists/example-synthetic.yaml
+</code></pre>
+<h3 id="cli-reference">Command reference</h3>
+<p>Every command accepts <code>--help</code>. A runtime config is one experiment YAML
+(<code>--config</code>); a config list (<code>--config-list</code>) adds the trial plan and
+recording root. <code>--local</code> selects the station file (default
+<code>manimux/configs/local/station.yaml</code>).</p>
+<table>
+<thead><tr><th>Command</th><th>Does</th></tr></thead>
+<tbody>
+<tr><td><code>manimux inspect --config X</code> / <code>--config-list L</code></td><td>Print the resolved configuration; opens nothing</td></tr>
+<tr><td><code>manimux doctor --config X</code></td><td>Check environments, services and paths of a deployment without opening devices</td></tr>
+<tr><td><code>manimux up --config X</code></td><td>Start camera, model, RoboGUI and runtime for one config; Ctrl-C stops them (<a href="#managed-deployment">managed deployment</a>)</td></tr>
+<tr><td><code>manimux up --demo --robot yam</code></td><td>Synthetic RoboGUI only</td></tr>
+<tr><td><code>manimux status</code> / <code>manimux attach --service runtime</code></td><td>Health of managed services / attach to one service's terminal</td></tr>
+<tr><td><code>manimux run --config X</code> / <code>--config-list L</code></td><td>The runtime: waits for RoboGUI's Prepare and Start; <code>--once</code> exits after one trial</td></tr>
+<tr><td><code>python -m manimux.servers.camera.server --config X</code></td><td>Camera service; <code>--check</code> resolves devices without opening them</td></tr>
+<tr><td><code>python -m manimux.servers.policy --config X</code></td><td>XPolicyLab model service, run with the model's Python; <code>--check</code> prints the recipe without loading weights</td></tr>
+<tr><td><code>manimux-robogui --robot P</code></td><td>Operator GUI with preset P; <code>--list-robots</code>, <code>--demo</code>, <code>--config</code> for a <a href="manimux/configs/robogui/README.md">display override</a>, <code>--replay-actions</code> for offline replay</td></tr>
+<tr><td><code>manimux-rpent serve</code> / <code>run --config agents/…</code></td><td>RPent planner outside RoboGUI (<a href="#agent-integrations">RPent</a>)</td></tr>
+<tr><td><code>python -m manimux.evaluation --task-dir D</code></td><td>Build an evaluation report from recorded trials (<a href="#reports">Reports</a>)</td></tr>
+</tbody>
+</table>
 <table>
 <thead>
 <tr>
@@ -132,7 +162,7 @@ and reference them with <code>config:</code>.</p>
 interfaces, camera serials, endpoints and checkpoint roots. Preserve component names.</p>
 <p><code>config:</code> paths resolve relative to the containing YAML; mappings merge and lists replace.
 Experiment <code>run.output_dir</code> is relative to the launch directory. Station-local paths resolve
-relative to the station file. Formal studies use collection <code>recording.root</code>; station output overrides are rejected.</p>
+relative to the station file. Formal studies use the config list <code>recording.root</code>; station output overrides are rejected.</p>
 <h3 id="franka-deployment">Franka FR3: ordinary policy deployment</h3>
 <p>The Franka arm is an independent embodiment. A model worker supplies actions to
 the normal adapter, runtime and executor; the driver uses Franky for joint control.
@@ -231,13 +261,9 @@ bounds, scalar cap, command-safety rates and control period are saved as
 support it; RoboGUI network options remain separate. Advanced model-specific launchers
 may instead take a model recipe as <code>--config</code>. See <a href="skills/manimux-station-setup/references/station.md#scope-and-remaining-independent-entry-points">entry-point scope</a>.</p>
 <p><strong>Before launch, inspect the resolved config without connecting hardware:</strong></p>
-<pre><code class="language-bash">envs/yam/.venv/bin/python - &lt;&lt;'PY'
-from manimux.collections import load_collection
-catalog = load_collection('manimux/configs/lists/example-yam-pi05.yaml')
-cfg = catalog.choices['coin_rtc'].config
-for key in ('run', 'policy', 'inference', 'executor', 'evaluation'):
-    print(key, cfg[key])
-PY
+<pre><code class="language-bash">envs/yam/.venv/bin/python -m manimux inspect \
+  --config-list manimux/configs/lists/example-yam-pi05.yaml \
+  --local manimux/configs/local/station.yaml
 </code></pre>
 <p>Edit YAML before loading the experiment. Restart the affected process after changes;
 editing a file does not hot-reload a running deployment.</p>
@@ -1572,7 +1598,7 @@ revisions, not automatically to a new checkpoint.</p>
 <section aria-labelledby="experiment-lists" class="guide-page" data-page-id="experiment-lists" data-title="Config lists &amp; task switching" hidden=""><h2 id="experiment-lists">Config lists &amp; task switching</h2>
 <p>A <strong>config list</strong> is the entry point for a study, including a single experiment. It selects reusable variants, the trial plan and one recording root. Camera, model and runtime commands use the same config list and station. Compatible task/method choices switch in RoboGUI after Finish, recovery and evaluation.</p>
 <h3 id="experiment-config-locations">Configuration ownership</h3>
-<p><strong>Published examples:</strong> only the <code>example-*</code> studies under <code>experiments/</code> and their <code>lists/example-*.yaml</code> are tracked; they double as the runtime examples (Pi05 and Dream-1 on YAM, Franka, a hardware-free RPent check). Your own study directories and config lists stay local and Git-ignored; shared components and task definitions remain reusable.</p>
+<p><strong>Published examples:</strong> only the <code>example-*</code> studies under <code>experiments/</code> and their <code>lists/example-*.yaml</code> are tracked; they double as the runtime examples (a hardware-free trial loop, Pi05 and Dream-1 on YAM, Pi05 on Tianji, Franka, a hardware-free RPent check). Your own study directories and config lists stay local and Git-ignored; shared components and task definitions remain reusable.</p>
 <pre><code>manimux/configs/
   lists/&lt;study&gt;.yaml                       # entries, trials, recording.root
   experiments/&lt;study&gt;/_base_.yaml            # runnable baseline: robot, cameras, policy
@@ -1694,24 +1720,27 @@ execution, and Pi05 driven by RPent. Each entry is a small file under
 prompt, layouts, scoring), then sets only what the method changes and its
 <code>experiment.task</code>/<code>experiment.variant</code>. Keep your own studies as
 private lists and variants in the same layout.</p>
-<pre><code class="language-bash">manimux up --config-list manimux/configs/lists/example-yam-pi05.yaml \
-  --runtime-python envs/yam/.venv/bin/python \
-  --policy-python third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python
-envs/yam/.venv/bin/python -m manimux inspect \
-  --config-list manimux/configs/lists/example-yam-pi05.yaml --index
+<pre><code class="language-bash">LIST=manimux/configs/lists/example-yam-pi05.yaml
+envs/yam/.venv/bin/python -m manimux inspect --config-list $LIST --index
+envs/yam/.venv/bin/python -m manimux.servers.camera.server --config-list $LIST
+third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python -m manimux.servers.policy --config-list $LIST
+envs/yam/.venv/bin/python -m manimux.robogui.dashboard --robot yam --host 127.0.0.1 --port 8086
+envs/yam/.venv/bin/python -m manimux run --config-list $LIST
 </code></pre>
+<p>Run each service in its own terminal. <code>manimux up</code> manages a single
+<code>--config</code>; a config list always runs as these four services.</p>
 <p>Open RoboGUI. Choose Task → Method → Layout → Prepare Run / Prepare Experiment → Activate
 Warmup → Start → Finish → save/skip evaluation. Prepare may move to the configured initial
 pose. Changed scientific conditions use distinct variant IDs; existing recordings are not
 rewritten. Tasks may inherit an <code>initial_pose: {config: …, id: …}</code>; overrides
 belong to deliberate variants.</p>
 <h3 id="mixed300ep-launch">Other config lists and service selection</h3>
-<p>The following config lists are local examples, not included in a fresh clone. When present on your station, use <code>lists/lingbot-vla2-bottles30k-all-tasks.yaml</code>, <code>openwam-bottles30k-all-tasks.yaml</code>, <code>openwam-bottles30k-cached-all-tasks.yaml</code>, <code>openwam-bottles30k-rtc-cache-all-tasks.yaml</code> or <code>xiaomi-xr1-bottles30k-ratio64-all-tasks.yaml</code> as appropriate. These bottle-trained weights are being evaluated across tasks; inclusion is not evidence of training coverage or successful task performance.</p>
+<p>Private config lists, such as cross-task evaluations of one checkpoint, work the same way; they stay on the station that wrote them and are not part of a fresh clone. Inclusion of a checkpoint in such a list is not evidence of training coverage or task performance.</p>
 <p>The generic XPolicyLab launcher is <code>python -m manimux.servers.policy --config-list …</code>, using that model's installed Python environment. <code>--check</code> prints the resolved service recipe without loading weights. Camera <code>--check</code> resolves devices without opening them. Pi05's dedicated launcher additionally validates its artifact paths.</p>
 <p><strong>YAM IK position acceptance:</strong> Set <code>options.pos_threshold</code> in <code>manimux/configs/embodiment/arm/yam.yaml</code>: <code>0.0001</code> means 0.1 mm (solver default), <code>0.001</code> means 1 mm, and <code>null</code> disables final position-error acceptance. This applies to chunk and step IK across model adapters using that arm definition. Disabling acceptance retains position optimization, orientation acceptance, finite-value checks and joint limits; it does not guarantee faster solving or bound the remaining position error. Step IK retains its computation budget. Restart the runtime after finishing the current trial to load a changed setting.</p>
 <p><strong>LingBot-VLA2 RTC withdrawn (2026-10-18).</strong> RTC is removed from the model capability list and all LingBot experiment entries. Measured conditioned sampling averaged 961.32 ms, exceeding the 0.60 s remaining-action budget at H=50, K=32 and 30 Hz. Historical RTC-labelled records include unconditioned fallbacks and must not be treated as a validated RTC baseline. Normal inference, PAINT and AutoHorizon retain their separate paths. Running processes must be restarted normally to load this removal; editing files does not update an already loaded model.</p>
 <p><strong>PAINT waiting behavior:</strong> PAINT can keep running when inference exceeds the old chunk's remaining duration. It conditions the next prediction on the available suffix followed by a repeated terminal target, including the gripper. The runtime holds the last command until a valid result arrives, then applies the usual latency trimming. It does not reduce the configured execution steps or switch algorithms. Recorded metadata includes forecast and elapsed terminal-hold policy steps. Real request failures retain the common recovery path; a delay consuming the entire new prediction horizon still fails explicitly. The terminal-hold extension is covered by offline tests, not a new hardware validation.</p>
-<p>OpenWAM cached Serial/Async uses the original compiled DiT cache recipe. The RTC-cache config list uses eager execution and the declared cache modes. Specialized sampling and compilation support remain model-specific; retain these flags and measured latency when comparing methods.</p>
+<p id="openwam-rtc-cache">OpenWAM cached Serial/Async uses the original compiled DiT cache recipe. The RTC-cache config list uses eager execution and the declared cache modes. Specialized sampling and compilation support remain model-specific; retain these flags and measured latency when comparing methods.</p>
 <h3 id="single-config-trial">Try one existing configuration</h3>
 <p>No study YAML is required. Reuse a concrete variant, or let the agent write one runtime configuration from your robot, model and task requirements. Layouts, repetition budgets and a scoring rubric are optional for trials. Keep the same config and station across services; use the model's installed environment for policy serving.</p>
 <pre><code class="language-bash">cd {repo}
@@ -2105,7 +2134,8 @@ Select the session/rollout and score it in the existing form using its saved rub
 new YAML rules do not replace historical scoring rules. Free runs and partial attempts are excluded.</p>
 </section>
 <section aria-labelledby="records" class="guide-page" data-page-id="records" data-title="Records &amp; replay" hidden=""><h2 id="records">Records</h2>
-<pre><code class="language-text">&lt;run.output_dir&gt;/
+<pre><code class="language-text">&lt;recording.root&gt;/&lt;list id&gt;/&lt;task&gt;/&lt;variant&gt;/   # config list
+&lt;run.output_dir&gt;/trials/&lt;task&gt;/&lt;variant&gt;/        # single --config
 └── session-.../
     ├── session-manifest.json
     └── rollout-.../
@@ -2993,6 +3023,18 @@ decisions and result tables; it is not a second public guide.</p>
 <tr>
 <td>Preview RoboGUI without hardware</td>
 <td><a href="#install">Install</a></td>
+</tr>
+<tr>
+<td>Run the full trial loop without hardware</td>
+<td><a href="#offline-trial-loop">Offline trial loop</a></td>
+</tr>
+<tr>
+<td>Look up a command</td>
+<td><a href="#cli-reference">Command reference</a></td>
+</tr>
+<tr>
+<td>Start your own study from an example</td>
+<td><a href="manimux/configs/experiments/README.md#start-your-own-study">Start your own study</a></td>
 </tr>
 <tr>
 <td>Connect a station or change a checkpoint</td>

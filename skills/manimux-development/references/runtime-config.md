@@ -476,9 +476,8 @@ Home moves the arms to
 `home.joints_deg` on a 9 deg/s cosine joint profile, confirms arrival within 0.5 degrees,
 then opens the grippers when end-effector control is enabled. Idle recovery Home enables
 gripper control within the Tianji assembly itself. Loading or displaying Home never moves
-hardware. The shared `tianji_taccap.yaml` retains the original pass-ball Home; experiments
-explicitly select `tianji_taccap_pass_ball.yaml` or `tianji_taccap_pack_plate.yaml` for
-their task's destination.
+hardware. The shared `tianji_taccap.yaml` retains the original pass-ball Home; pack-plate
+experiments explicitly select `tianji_taccap_pack_plate.yaml` for that task's destination.
 
 ## Which YAML owns the setting?
 

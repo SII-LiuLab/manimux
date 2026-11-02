@@ -77,8 +77,8 @@ for an earlier 12-row prefix on both arms. The current 20-row prefix has offline
 adapter coverage but has not repeated that real-checkpoint timing run. A warm
 request measured 122 ms including transport/inference, then 89 ms of IK; the
 cold request took 5.94 s to infer.
-These are individual measurements, not latency distributions. Receipts are in
-private `training/pi05-yam-eef-deploy/`.
+These are individual measurements, not latency distributions. Receipts are
+private and not published.
 
 No robot was moved during validation. The auxiliary EEF predictions have not
 been evaluated for physical task success or for reachability from all start

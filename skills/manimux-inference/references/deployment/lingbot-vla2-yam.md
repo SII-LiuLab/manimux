@@ -112,16 +112,12 @@ server:  third_party/XPolicyLab/policy/LingBot_VLA2/setup_eval_policy_server.sh
 profile: third_party/XPolicyLab/policy/LingBot_VLA2/robot_configs/yam_dual_absolute.yaml
 source:  third_party/XPolicyLab/policy/LingBot_VLA2/lingbot_vla_v2/  # vendored upstream source
 check:   scripts/validation/check_lingbot_vla2_yam.py
-audit:   scripts/validation/lingbot_vla2_yam_audit.py
 prepare: scripts/datasets/prepare_lingbot_vla2_base_assets.py
-joint+EEF train: training/scripts/train_lingbot_vla2_yam_joint_ee_cluster.sh
-joint+EEF profile: training/configs/lingbot-vla2/yam_dual_joint_ee_relative.yaml
 stats:   manimux/configs/policy/lingbot-vla2/yam/assets/base_projection_norm_stats.json
 ```
 
-The `training/` entries above belong to the optional private workspace, which is
-ignored by Git and absent from a fresh clone. Deployment uses the policy recipes
-and checkpoint artifacts independently of those local training launchers.
+The joint+EEF training launcher and profile are not published. Deployment uses the
+policy recipes and checkpoint artifacts independently of any training launcher.
 
 There is no second native server entry point. The standard launcher calls
 `third_party/XPolicyLab/setup_policy_server.py`, which loads `model.py` solely through `policy_name: LingBot_VLA2`.
@@ -207,12 +203,6 @@ Thus mismatched training artifacts and execution timing fail before model loadin
 stretching actions in the hardware loop.
 
 RTC configurations are rejected by the LingBot validation tool.
-
-Audit the existing foundation checkpoint's 55D projection:
-
-```bash
-envs/yam/.venv/bin/python scripts/validation/lingbot_vla2_yam_audit.py
-```
 
 ## Base-checkpoint capability experiment
 

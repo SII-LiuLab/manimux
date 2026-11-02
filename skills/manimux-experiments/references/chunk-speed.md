@@ -41,7 +41,7 @@ recorded embodiment config paths are relocated to this checkout. External SDK
 binaries and private model assets are not covered by that source check. Input
 files are read only, and the report output must be outside the session directory.
 
-The `ziyang` integration imports the report from upstream commit `c387397` and
+This integration imports the report from upstream commit `c387397` and
 uses assembly-owned arm dimensions rather than a fixed seven-joint slice. The
 existing YAM environment can run the recorded-rollout report:
 
@@ -80,9 +80,8 @@ The report can attach completed upstream Pi05 pack-plate probe output with
 `--offline /path/to/probe-output`. It validates checkpoint/normalization pairing,
 completion metadata and speed-array shapes before displaying it. The collector
 is not imported here: this branch lacks the upstream pack-plate model contract
-and recipe, and they are unrelated to YAM coin/bottle evaluation. See the
-[upstream collector](https://github.com/SII-LiuLab/manimux/blob/c38739783011f38b2ad6d7f7144e965914ac1e8b/scripts/validation/pi05_pack_plate_chunk_speed.py)
-for that separate workflow. Offline predictions are not executed robot motion.
+and recipe, and they are unrelated to YAM coin/bottle evaluation. The collector for
+that separate workflow is not published. Offline predictions are not executed robot motion.
 
 ## Reading the comparison
 

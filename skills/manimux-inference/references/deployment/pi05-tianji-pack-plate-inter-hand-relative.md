@@ -14,7 +14,7 @@ The entry points are:
 - step 59999 experiment: `manimux/configs/experiments/{interhand-step59999-study}/pack_plate/rtc.yaml`
 - [step 20000 model recipe](../../../../manimux/configs/policy/pi05/tianji/pack_plate/inter-hand-relative-step20000.yaml)
 - [step 59999 model recipe](../../../../manimux/configs/policy/pi05/tianji/pack_plate/inter-hand-relative-step59999.yaml)
-- [frozen robot assembly and Home](../../../../manimux/configs/embodiment/robot/tianji_taccap_inter_hand_relative.yaml)
+- [robot assembly and pack-plate Home](../../../../manimux/configs/embodiment/robot/tianji_taccap_pack_plate.yaml)
 - Private station: `.local/tianji_pi05_pack_plate_inter_hand_relative.yaml`.
 
 The local station is already configured on this installation. It supplies device
@@ -27,9 +27,9 @@ Each experiment freezes its own RTC, adapter, executor and command safety
 settings. There are no references to an existing experiment, inference preset,
 control profile or executor preset. Both model recipes independently declare
 their base transforms and normalization identity. Device implementations and
-component geometry are shared. Home and assembly hardware settings are copied
-into the new assembly so edits to the older robot assemblies do not change this
-experiment's start pose or controller ratios.
+component geometry are shared. Both experiments select the pack-plate assembly
+`tianji_taccap_pack_plate.yaml`, so they share its Home and controller ratios rather
+than the shared `tianji_taccap.yaml` pass-ball Home.
 
 Initial values follow the requested guarded-live configuration's intent, using
 current field names: task `plate`, control 100 Hz, actions 30 Hz, horizon 32,

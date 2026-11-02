@@ -58,21 +58,25 @@ CUDA/Torch installation already validated for the YAM machine, while keeping
 OpenWAM's Transformers and deployment dependencies outside `envs/yam`:
 
 ```bash
-bash scripts/setup_openwam_local_env.sh
+bash scripts/setup/setup_openwam_local_env.sh
 ```
 
-The checked-in 30k put-bottles deployment is already bound to the local
-checkpoint and its artifact hashes. The policy trajectory remains 30 Hz, while
-ManiMux interpolates and commands YAM at 100 Hz. Arm and gripper limits are
+[`manimux/configs/policy/openwam/yam/finetune.yaml`](../../../../manimux/configs/policy/openwam/yam/finetune.yaml)
+is an unbound template. Copy it to a private recipe, set `ckpt_dir` to your export
+below `${paths.checkpoints}`, `task_name` and `default_instruction`, then bind it with
+`--bind-runtime-config` as described below; `{recipe}` is the resulting `-server.yaml`,
+which pins the checkpoint and normalization hashes. In the 30k put-bottles study the
+policy trajectory remains 30 Hz, while ManiMux interpolates and commands YAM at
+100 Hz. Arm and gripper limits are
 separate: arms use 0.25 rad/s and 0.5 rad/s^2; normalized grippers use 1.0/s and
 12.0/s^2. Its inference schedule is serial: ManiMux executes the committed tail,
 then requests the next chunk instead of sampling concurrently.
 
-Start the policy server:
+Start the policy server with the bound recipe:
 
 ```bash
 envs/openwam/.venv/bin/python manimux/servers/openwam.py \
-  --config manimux/configs/policy/openwam/yam/finetune-put-bottles-step30000.yaml
+  --config manimux/configs/policy/openwam/yam/{recipe}.yaml
 ```
 
 Then validate one real model forward plus the YAM IK boundary without touching
@@ -95,6 +99,7 @@ envs/yam/.venv/bin/manimux run \
 
 ```bash
 python manimux/servers/openwam.py --checkpoint /path/to/yam_run \
+  --runtime-template manimux/configs/experiments/{openwam-study}/put_bottles/manimux_step30000.yaml \
   --bind-runtime-config /path/to/deployment/openwam.yaml
 python manimux/servers/openwam.py \
   --config /path/to/deployment/openwam-server.yaml
@@ -145,8 +150,8 @@ training convergence, task success, or real-robot safety.
 
 `manimux/configs/lists/{openwam-latest300-study}.yaml` (station-local; build it like the [example study](../../../../manimux/configs/lists/example-yam-pi05.yaml)) contains five
 tasks with Serial/Async only, 20/32 source steps, compilation and native DiT
-cache enabled for default sampling. The policy recipe is
-`manimux/configs/policy/openwam/yam/latest300ep-step60000-cache-compile.yaml`;
+cache enabled for default sampling. Its policy recipe is a private, bound copy of
+`finetune.yaml` with `ckpt_dir` set to the 60k export and `dit_cache_modes: [default]`;
 use `envs/openwam/.venv/bin/python -m manimux.servers.policy --config-list ...`.
 Runtime and camera services use the same list with the YAM environment.
 Current chunk IK variants explicitly select `hold_last_valid` and use distinct

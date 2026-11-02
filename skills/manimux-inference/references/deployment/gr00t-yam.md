@@ -7,7 +7,7 @@
 
 The paired experiment is
 `manimux/configs/experiments/{groot-study}/pick_red_object/rtc_joint_step10000.yaml` (station-local; build it like the [example study](../../../../manimux/configs/lists/example-yam-pi05.yaml)).
-It selects `ziyang/gr00t-n17-yam-pick-red-ball-box-step10000`, not the robocurve
+It selects a private red-ball step-10000 GR00T N1.7 checkpoint, not the robocurve
 baseline described in the historical section below. The recipe uses the
 checkpoint's three RGB views, absolute joint/gripper actions, 16 output steps,
 four denoising iterations and a 1/30-second action interval.

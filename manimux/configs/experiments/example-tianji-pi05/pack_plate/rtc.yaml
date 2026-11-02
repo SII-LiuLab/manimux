@@ -1,0 +1,23 @@
+# Example study entry: RTC. Each chunk is conditioned on the rows still executing.
+_base_:
+- ../_base_.yaml
+- ../../../tasks/pack_plate.yaml
+robogui:
+  policy_label: Pi05 pack-plate (wrist only) - RTC
+inference:
+  algorithm: rtc
+  inference_schedule: single_inflight
+  chunk_policy_steps: null
+  action_start_mode: drop_infer_latency
+  max_plan_age_s: 2.0
+  blend_policy_steps: 2
+  handoff: blend
+  handoff_margin_s: 0.01
+  rtc:
+    min_execute_policy_steps: 24
+    initial_delay_policy_steps: 8
+    delay_buffer_size: 10
+    beta: 5.0
+experiment:
+  task: pack_plate
+  variant: rtc

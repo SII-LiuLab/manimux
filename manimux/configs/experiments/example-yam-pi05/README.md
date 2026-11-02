@@ -14,7 +14,9 @@ example-yam-pi05/
     ├── serial.yaml           # base + task, nothing else
     ├── rtc.yaml              # RTC, 100 Hz control
     ├── async10.yaml          # Async, 10 Hz playback, Smooth executor
-    └── rpent.yaml            # same model driven by the RPent agent
+    ├── rpent.yaml            # same model driven by the RPent agent
+    ├── chunktrust_ahs.yaml   # ChunkTrust adaptive horizon (not in the list)
+    └── chunktrust_ahs_rtc.yaml  # ChunkTrust adaptive horizon + RTC (not in the list)
 ../../lists/example-yam-pi05.yaml   # selects the four entries, trials and recording root
 ```
 
@@ -27,8 +29,11 @@ offline and Finish checks.
 First complete the [station setup](../../../../skills/manimux-station-setup/SKILL.md),
 including the YAM SDK, camera bindings and your private
 `manimux/configs/local/station.yaml`. Its `paths.checkpoints` is the root below which the
-[model recipe](../../policy/pi05/yam/put-bottles/joint-step30000.yaml) selects the
-checkpoint and normalization statistics. Install the Pi05 model environment as described in
+[model recipe](../../policy/pi05/yam/put-bottles/joint.yaml) selects the
+checkpoint and normalization statistics: it expects
+`<paths.checkpoints>/finetuned/pi05-yam-put-bottles-joint/` with openpi's `params/` and
+`assets/<repo_id>/`. Point `model_path` and `norm_stats_path` at your own export, and keep the
+task prompt identical to the training label (`put_bottles_into_the_bin`). Install the Pi05 model environment as described in
 the XPolicyLab Pi05 policy README (`third_party/XPolicyLab/policy/Pi_05/`).
 
 Start camera, model, RoboGUI and runtime together; Ctrl-C stops them all:
@@ -56,5 +61,6 @@ rollout**. Prepare moves the robot to its selected initial pose; warmup previews
 without dispatching them. Finish with **Finish & Home**.
 
 Any other entry runs the same way with its own `--config`. For counted, scored trials of all
-four, start the list with `--config-list manimux/configs/lists/example-yam-pi05.yaml`
-instead of `--config`.
+four, use the per-terminal commands with `--config-list manimux/configs/lists/example-yam-pi05.yaml`
+in place of `--config $CONFIG --local $LOCAL` for the camera, model and runtime services
+(RoboGUI is unchanged). `manimux up` manages a single `--config` only.

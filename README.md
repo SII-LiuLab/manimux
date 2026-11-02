@@ -97,14 +97,14 @@ RoboGUI provides the operator workspace.
         <ul>
           <li><a href="https://sii-liulab.github.io/manimux/guideline.html#support">XPolicyLab</a> ✅
             <ul>
-              <li><a href="https://github.com/Cuzyoung/XPolicyLab/tree/ziyang/policy/Pi_05">Pi05</a></li>
-              <li><a href="https://github.com/Cuzyoung/XPolicyLab/tree/ziyang/policy/LingBot_VLA2">LingBot-VLA2</a></li>
-              <li><a href="https://github.com/Cuzyoung/XPolicyLab/tree/ziyang/policy/Xiaomi_Robotics_1">Xiaomi Robotics 1</a></li>
-              <li><a href="https://github.com/Cuzyoung/XPolicyLab/tree/ziyang/policy/OpenWAM">OpenWAM</a></li>
-              <li><a href="https://github.com/Cuzyoung/XPolicyLab/tree/ziyang/policy/FastWAM">FastWAM</a></li>
-              <li><a href="https://github.com/Cuzyoung/XPolicyLab/tree/ziyang/policy/GR00T_N17">GR00T</a></li>
-              <li><a href="https://github.com/Cuzyoung/XPolicyLab/tree/ziyang/policy/DP">Diffusion Policy</a></li>
-              <li><a href="https://github.com/Cuzyoung/XPolicyLab/tree/ziyang#readme">More models →</a></li>
+              <li><a href="https://github.com/Cuzyoung/XPolicyLab/tree/main/policy/Pi_05">Pi05</a></li>
+              <li><a href="https://github.com/Cuzyoung/XPolicyLab/tree/main/policy/LingBot_VLA2">LingBot-VLA2</a></li>
+              <li><a href="https://github.com/Cuzyoung/XPolicyLab/tree/main/policy/Xiaomi_Robotics_1">Xiaomi Robotics 1</a></li>
+              <li><a href="https://github.com/Cuzyoung/XPolicyLab/tree/main/policy/OpenWAM">OpenWAM</a></li>
+              <li><a href="https://github.com/Cuzyoung/XPolicyLab/tree/main/policy/FastWAM">FastWAM</a></li>
+              <li><a href="https://github.com/Cuzyoung/XPolicyLab/tree/main/policy/GR00T_N17">GR00T</a></li>
+              <li><a href="https://github.com/Cuzyoung/XPolicyLab/tree/main/policy/DP">Diffusion Policy</a></li>
+              <li><a href="https://github.com/Cuzyoung/XPolicyLab/tree/main#readme">More models →</a></li>
             </ul>
           </li>
           <li><a href="https://sii-liulab.github.io/manimux/guideline.html#support">StarVLA</a> ✅</li>
@@ -161,7 +161,7 @@ Then open **http://127.0.0.1:8086** in your browser.
 
 | Flag | Meaning |
 | --- | --- |
-| `--robot yam` | Use the YAM RoboGUI preset (also: `piper`, `aloha`, `tianji`) |
+| `--robot yam` | Use the YAM RoboGUI preset (also `piper`, `aloha`, `franka_fr3_robotiq`; `--list-robots` lists all; `tianji` needs its vendor SDK) |
 | `--demo` | Drive the UI with synthetic joint/camera streams; no hardware I/O |
 | `--host` / `--port` | Bind address for the local web UI |
 
@@ -169,10 +169,34 @@ Other presets (same environment, different port if needed):
 
 ```bash
 uv run manimux-robogui --robot piper --demo --host 127.0.0.1 --port 8087
-uv run manimux-robogui --robot aloha --demo --host 127.0.0.1 --port 8087
+uv run manimux-robogui --robot aloha --demo --host 127.0.0.1 --port 8088
+```
+
+### Run a full trial loop offline
+
+The [hardware-free example study](manimux/configs/experiments/example-synthetic/README.md)
+adds the runtime: a synthetic robot and policy, so Prepare, Start, Finish, scoring, counted
+trials and recordings all work without a station file. Run the two commands in separate
+terminals (stop the demo above first; both use port 8086):
+
+```bash
+uv run manimux-robogui --robot yam --host 127.0.0.1 --port 8086
+uv run manimux run --config-list manimux/configs/lists/example-synthetic.yaml
 ```
 
 Model environments and checkpoints are needed only for real-robot deployment below.
+
+### Before the first robot run
+
+Real-robot commands read a private station file that binds CAN/IP addresses, camera serials,
+service endpoints and the checkpoint root. Create it once from the matching template, then
+fill it in ([station guide](skills/manimux-station-setup/references/station.md)):
+
+```bash
+cp manimux/configs/local/yam_example.yaml manimux/configs/local/station.yaml   # Git-ignored
+git submodule update --init third_party/XPolicyLab   # local XPolicyLab models (Pi05, DP, ...)
+uv run manimux inspect --config <experiment.yaml>     # read-only: resolved config, no hardware
+```
 
 ### Run on a robot: one command for all services
 
@@ -240,8 +264,11 @@ for external model/camera services, separate trial roots and Franka.
 ## Contributing & community
 
 Contributions to robot and policy integrations, inference strategies, RoboGUI,
-and documentation are welcome. Start with the [contribution guide](skills/manimux-development/references/README.md#contributing).
-For agent-assisted development, use the [development skill](skills/manimux-development/SKILL.md).
+and documentation are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md); we follow the
+[Code of Conduct](CODE_OF_CONDUCT.md), and security or robot-safety problems go through
+[SECURITY.md](SECURITY.md). For agent-assisted development, use the
+[development skill](skills/manimux-development/SKILL.md). Notable changes are listed in the
+[changelog](CHANGELOG.md).
 
 **Latest update · 2026-10-18:** The [ManiMux website](https://sii-liulab.github.io/manimux/) and dedicated [user guide](https://sii-liulab.github.io/manimux/guideline.html) are live.
 
@@ -275,7 +302,17 @@ If ManiMux supports your research, please cite this repository. The paper link i
 Please also cite the components, models and methods used in your work:
 [XPolicyLab](https://github.com/XPolicyLab/XPolicyLab), [StarVLA](https://github.com/starVLA/starVLA) and [PRM-as-a-Judge](https://github.com/YuyangLiu2003/PRM-as-a-Judge).
 
+## Safety
+
+ManiMux sends commands to physical robots. It is research software provided "as is",
+without warranty (see [LICENSE](LICENSE)); you are responsible for the safety of your
+station. Start every new configuration with `execute: false` and the read-only checks in
+its runbook, keep an emergency stop within reach, clear the workspace before Prepare,
+Warmup and Start, and never leave an executing robot unattended. Command bounds and motion
+limits in ManiMux reduce risk but do not replace the robot's own safety functions.
+
 ## License
 
 ManiMux is licensed under [MIT](LICENSE). Third-party frameworks, SDKs and assets
 retain their own licenses; see [third-party notices](licenses/THIRD_PARTY_NOTICES.md).
+Model weights and datasets are not distributed with ManiMux and keep their own terms.

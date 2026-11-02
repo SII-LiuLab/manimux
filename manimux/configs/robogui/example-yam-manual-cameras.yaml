@@ -1,0 +1,97 @@
+# Example display override for `python -m manimux.robogui.dashboard --config <this file>`.
+# It shows the three YAM RealSense streams as live camera panels (camera_mode: manual)
+# instead of following whichever images the policy consumes. Loading it never connects
+# hardware. Copy it to a private name in this folder for station-specific scenes.
+label: YAM
+model: ../embodiment/robot/yam_dual.yaml
+camera_mode: manual
+cameras:
+- source: d405_front
+  label: Top
+  slot: top
+- source: d405_left
+  label: Left wrist
+  slot: left
+- source: d405_right
+  label: Right wrist
+  slot: right
+camera_aliases:
+  d405_front: top
+  d405_left: left
+  d405_right: right
+  front_camera: top
+  front_camera_rgb: top
+  top_camera: top
+  top_camera_rgb: top
+  left_camera: left
+  left_camera_rgb: left
+  right_camera: right
+  right_camera_rgb: right
+groups:
+  left_arm:
+    label: Left arm
+    robogui_display_frame:
+      xyz:
+      - 0.0
+      - 0.32
+      - 0.0
+      rpy:
+      - 0.0
+      - 0.0
+      - 0.0
+    prediction_color:
+    - 52
+    - 111
+    - 255
+    trail_color:
+    - 33
+    - 180
+    - 106
+    initial:
+    - 0.0
+    - 0.8
+    - 1.25
+    - -0.35
+    - 0.1
+    - -0.2
+    - 0.7
+    aperture: gripper
+  right_arm:
+    label: Right arm
+    robogui_display_frame:
+      xyz:
+      - 0.0
+      - -0.32
+      - 0.0
+      rpy:
+      - 0.0
+      - 0.0
+      - 0.0
+    prediction_color:
+    - 255
+    - 94
+    - 87
+    trail_color:
+    - 255
+    - 170
+    - 0
+    initial:
+    - 0.0
+    - 0.75
+    - 1.2
+    - -0.25
+    - -0.1
+    - 0.2
+    - 0.4
+    aperture: gripper
+scene:
+  boxes:
+  - name: table
+    dimensions:
+    - 0.75
+    - 0.82
+    - 0.035
+    position:
+    - 0.38
+    - 0.0
+    - 0.02

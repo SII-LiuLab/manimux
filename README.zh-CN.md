@@ -61,7 +61,7 @@ uv run manimux-robogui --robot yam --demo --host 127.0.0.1 --port 8086
 
 | 参数 | 含义 |
 | --- | --- |
-| `--robot yam` | 使用 YAM 的 RoboGUI 预设（也可选 `piper`、`aloha`、`tianji`） |
+| `--robot yam` | 使用 YAM 的 RoboGUI 预设（也可选 `piper`、`aloha`、`franka_fr3_robotiq`；`--list-robots` 列出全部；`tianji` 需先安装厂商 SDK） |
 | `--demo` | 用合成关节/相机数据驱动界面，不访问真实硬件 |
 | `--host` / `--port` | 本地 Web UI 绑定地址 |
 
@@ -69,10 +69,31 @@ uv run manimux-robogui --robot yam --demo --host 127.0.0.1 --port 8086
 
 ```bash
 uv run manimux-robogui --robot piper --demo --host 127.0.0.1 --port 8087
-uv run manimux-robogui --robot aloha --demo --host 127.0.0.1 --port 8087
+uv run manimux-robogui --robot aloha --demo --host 127.0.0.1 --port 8088
+```
+
+### 离线跑通完整试验流程
+
+[无硬件示例 study](manimux/configs/experiments/example-synthetic/README.md) 在此基础上加上 runtime：
+用合成机器人和合成 policy，不需要 station 文件，也能完整走一遍 Prepare、Start、Finish、打分、
+试验计数和录制。在两个终端分别运行（先停掉上面的 demo，二者都用 8086 端口）：
+
+```bash
+uv run manimux-robogui --robot yam --host 127.0.0.1 --port 8086
+uv run manimux run --config-list manimux/configs/lists/example-synthetic.yaml
 ```
 
 模型环境与 checkpoint 仅在真实机器人部署时需要。
+
+### 第一次上真机前
+
+真机命令都会读取一份私有工位文件，里面绑定 CAN/IP、相机序列号、服务地址和 checkpoint 根目录。按机器人从模板复制一次再填写（[工位指南](skills/manimux-station-setup/references/station.md)）：
+
+```bash
+cp manimux/configs/local/yam_example.yaml manimux/configs/local/station.yaml   # 已被 Git 忽略
+git submodule update --init third_party/XPolicyLab   # 本机跑 XPolicyLab 模型（Pi05、DP 等）时需要
+uv run manimux inspect --config <experiment.yaml>     # 只读：打印解析后的配置，不连硬件
+```
 
 ### 真机一键启动全部服务
 
@@ -104,7 +125,7 @@ uv run manimux up --config <experiment.yaml> \
 
 ## 贡献与社区
 
-欢迎贡献机器人/策略集成、推理策略、RoboGUI 与文档。请从 [贡献指南](skills/manimux-development/references/README.md#contributing) 开始；Agent 辅助开发可使用 [development skill](skills/manimux-development/SKILL.md)。
+欢迎贡献机器人/策略集成、推理策略、RoboGUI 与文档。请从 [CONTRIBUTING.md](CONTRIBUTING.md) 开始，并遵守 [行为准则](CODE_OF_CONDUCT.md)；安全或机器人安全问题请按 [SECURITY.md](SECURITY.md) 私下报告。Agent 辅助开发可使用 [development skill](skills/manimux-development/SKILL.md)。重要变更见 [CHANGELOG](CHANGELOG.md)。
 
 ### 开发者微信群
 
@@ -131,6 +152,10 @@ uv run manimux up --config <experiment.yaml> \
 
 相关组件请另引：[XPolicyLab](https://github.com/XPolicyLab/XPolicyLab)、[StarVLA](https://github.com/starVLA/starVLA)、[PRM-as-a-Judge](https://github.com/YuyangLiu2003/PRM-as-a-Judge)。
 
+## 安全须知
+
+ManiMux 会向真实机器人发送指令。它是按"现状"提供的研究软件，不附带任何担保（见 [LICENSE](LICENSE)），站点安全由使用者负责。每个新配置都先用 `execute: false` 并完成对应 runbook 中的只读检查；急停按钮放在手边；Prepare、Warmup、Start 前清空工作空间；机器人执行时不要离开。ManiMux 的指令边界和运动限制只能降低风险，不能替代机器人自身的安全功能。
+
 ## 许可证
 
-ManiMux 采用 [MIT](LICENSE)。第三方框架、SDK 与资源保留各自许可证，见 [third-party notices](licenses/THIRD_PARTY_NOTICES.md)。
+ManiMux 采用 [MIT](LICENSE)。第三方框架、SDK 与资源保留各自许可证，见 [third-party notices](licenses/THIRD_PARTY_NOTICES.md)。模型权重和数据集不随 ManiMux 分发，遵循各自条款。

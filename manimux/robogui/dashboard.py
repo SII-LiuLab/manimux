@@ -2988,13 +2988,14 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--port", type=int, default=8086)
     parser.add_argument("--render-hz", type=float, default=30.0,
                         help="Live display refresh cap; independent of robot control Hz")
-    parser.add_argument("--bridge-endpoint", default="tcp://127.0.0.1:5568")
-    parser.add_argument("--control-endpoint", default="tcp://127.0.0.1:5569")
+    # Live defaults pair with the runtime; --demo binds free ports unless given.
+    parser.add_argument("--bridge-endpoint", help="default tcp://127.0.0.1:5568")
+    parser.add_argument("--control-endpoint", help="default tcp://127.0.0.1:5569")
     parser.add_argument("--reference-root", type=Path, default=DEFAULT_LAYOUT_ROOT)
     parser.add_argument(
         "--robot",
         default="tianji",
-        help="RoboGUI preset containing robogui.yaml (yam, tianji, piper or aloha)",
+        help="RoboGUI preset folder containing robogui.yaml; see --list-robots",
     )
     parser.add_argument(
         "--list-robots",
@@ -3027,6 +3028,11 @@ def main() -> None:
             )
         )
         return
+    live = not args.demo
+    args.bridge_endpoint = args.bridge_endpoint or (
+        "tcp://127.0.0.1:5568" if live else "tcp://127.0.0.1:*")
+    args.control_endpoint = args.control_endpoint or (
+        "tcp://127.0.0.1:5569" if live else "tcp://127.0.0.1:*")
     robogui_config = load_robogui_config(args.config, robot=args.robot)
     robot = load_robot_view(robogui_config)
     if args.replay_actions is not None:

@@ -101,6 +101,31 @@ logs/
 # Scratch/reference implementations are local; maintained algorithms live in manimux/.
 /reference_files/
 
+# Private checkpoint recipes, station-specific presets and one-off analyses. Each has a
+# published counterpart: example-* studies, the stepless policy recipes and scripts/README.md.
+/manimux/configs/policy/pi05/yam/put-bottles/joint-step30000.yaml
+/manimux/configs/policy/pi05/yam/finetune-pick-red-ball-box-step1000.yaml
+/manimux/configs/policy/pi05/yam/base.yaml
+/manimux/configs/policy/openwam/yam/latest300ep-step60000-cache-compile.yaml
+/manimux/configs/policy/openwam/yam/finetune-put-bottles-step30000.yaml
+/manimux/configs/policy/umi_dp/tianji/assembly.yaml
+/manimux/configs/embodiment/robot/tianji_taccap_pass_ball.yaml
+/manimux/configs/embodiment/robot/tianji_taccap_inter_hand_relative.yaml
+/manimux/configs/embodiment/robot/tianji_control_live.yaml
+/manimux/configs/embodiment/sensor/cameras/realsense_gemini_5_views.yaml
+/manimux/configs/tasks/stack_blocks_small.yaml
+/scripts/experiments/check_step_ratio.py
+/scripts/validation/pi05_pack_plate_chunk_speed.py
+/scripts/validation/compare_dp_chunk_overlap.py
+/scripts/validation/attribute_dp_overlap.py
+/scripts/validation/lingbot_vla2_yam_audit.py
+/scripts/validation/benchmark_parallel_ik.py
+/skills/manimux-experiments/references/dp-chunk-overlap.md
+# Station display overrides for `robogui.dashboard --config`; only example-* ships.
+/manimux/configs/robogui/*
+!/manimux/configs/robogui/README.md
+!/manimux/configs/robogui/example-*.yaml
+
 # Unused local scripts and private hosting metadata (files stay on disk).
 /scripts/media/orbbec_preview.py
 /scripts/validation/analyze_chunk_boundaries.py

@@ -94,7 +94,8 @@ Inputs for the remaining families (station-local experiments; build them like th
 - DP: `manimux/configs/experiments/{dp-study}/put_bottles/serial_eef_step100000.yaml`.
   H=6; example K=3. PAINT and AutoHorizon are reported as not generated.
 - OpenWAM: `manimux/configs/experiments/{openwam-study}/put_bottles/serial_step30000.yaml`.
-  Supply `--policy-server manimux/configs/policy/openwam/yam/finetune-put-bottles-step30000.yaml`.
+  Supply `--policy-server manimux/configs/policy/openwam/yam/{recipe}.yaml`, your bound copy of
+  [`finetune.yaml`](../../../manimux/configs/policy/openwam/yam/finetune.yaml).
   H=32; example K=12, d=4.
 
 These K/d values are smoke-test examples, not matched study settings. Keep

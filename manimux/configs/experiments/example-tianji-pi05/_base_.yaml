@@ -1,0 +1,96 @@
+# Shared baseline of the Tianji example study: the Pi05 pack-plate checkpoint
+# (wrist cameras only) on the dual-arm Tianji Marvin with TacCap grippers, Serial at 30 Hz
+# model rows and 100 Hz control. Runnable on its own with --config.
+# Actuation is off: the runtime reads state, runs the policy and IK, and records the plan
+# without sending commands. Enable it in a private variant only after the read-only checks
+# in README.md.
+control_profile: ../../embodiment/robot/tianji_control.yaml
+run:
+  task_prompt: plate
+robot:
+  type: tianji_taccap
+  # Pack-plate Home; tianji_taccap.yaml holds the shared Home for other tasks.
+  config: ../../embodiment/robot/tianji_taccap_pack_plate.yaml
+  control_hz: 100.0
+  options:
+    execute: false
+    end_effector_control: false
+    hardware:
+      stale_timeout_s: 0.1
+    component_hardware:
+      left_end_effector:
+        read_hz: 100.0
+        control_mode: force_position
+        grasp_torque_nm: 1.0
+        close_speed_radps: 1.1
+      right_end_effector:
+        read_hz: 100.0
+        control_mode: force_position
+        grasp_torque_nm: 1.0
+        close_speed_radps: 1.1
+sensors:
+- name: tianji_wrist_cameras
+  driver: manimux.embodiments.sensor.camera_server.timestamped:build_sensor
+  service: camera
+  options:
+    camera_names:
+    - taccap_left
+    - taccap_right
+    max_frame_age_sec: 0.15
+    clock_jump_tolerance_s: 0.02
+    output_names:
+      taccap_left: left_wrist_camera
+      taccap_right: right_wrist_camera
+camera_server:
+  config: ../../embodiment/sensor/cameras/taccap_2_views.yaml
+policy:
+  worker: xpolicylab_ws
+  service: policy
+  adapter:
+    type: manimux.policy_adapter.pi05.tianji:Pi05PackPlateTacCapAdapter
+    camera_map:
+      cam_left_wrist: left_wrist_camera
+      cam_right_wrist: right_wrist_camera
+    gripper_clip_tolerance: 0.1
+    ik_validation_dt_s: 0.004
+    ik_backend: diff
+    diff_ik:
+      config: ../../embodiment/arm/tianji_diff_ik.yaml
+  # Decode and IK run in a worker process so 100 Hz control is not blocked.
+  action_decoding: process
+  action_dt_s: 0.03333333333333333
+  horizon_policy_steps: 32
+  timeout_s: 120.0
+  startup_timeout_s: 180.0
+  options:
+    connect_timeout_s: 60.0
+    request_timeout_s: 120.0
+# The checkpoint, step and normalization hash are pinned by XPolicyLab's pack-plate
+# contract; the station's paths.checkpoints supplies the directory that holds them.
+policy_server:
+  config: ../../policy/pi05/tianji/pack_plate/wrist-only-step59999.yaml
+inference:
+  algorithm: serial
+  inference_schedule: serial
+  chunk_policy_steps: 32
+  action_start_mode: first_step_when_ready
+  max_plan_age_s: 5.0
+  blend_policy_steps: 0
+  expected_decode_s: 0.08
+  decode_forecast_size: 10
+  decode_forecast_mode: max
+  independent_group_decoding: false
+executor:
+  type: smooth
+  config: ../../executor/tianji_smooth_control_profile.yaml
+  smooth:
+    gripper:
+      mode: curve
+      deadzone: 0.05
+      exponent: 1.1
+robogui:
+  enabled: true
+  robot: tianji
+  policy_label: Pi05 pack-plate (wrist only) - Serial
+recording:
+  enabled: true
