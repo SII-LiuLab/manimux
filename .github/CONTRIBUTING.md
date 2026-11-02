@@ -1,20 +1,17 @@
 # Contributing to ManiMux
 
 Thanks for helping. ManiMux welcomes robot and policy integrations, inference strategies,
-RoboGUI work, examples and documentation. Please read the
-[Code of Conduct](CODE_OF_CONDUCT.md) first.
+RoboGUI work, examples and documentation.
 
 ## Before you start
 
 - **Bugs and questions:** open an [issue](https://github.com/SII-LiuLab/manimux/issues/new/choose).
   Include the command, the resolved config (`manimux inspect`) and the log.
 - **Larger changes** (a new robot, model framework or algorithm): open an issue first so the
-  owning layer can be agreed on. The [development guide](skills/manimux-development/SKILL.md)
+  owning layer can be agreed on. The [development guide](../skills/manimux-development/SKILL.md)
   describes the component protocols, and the
-  [contribution checklist](skills/manimux-development/references/README.md#contributing)
+  [contribution checklist](../skills/manimux-development/references/README.md#contributing)
   lists what a pull request should contain.
-- **Security or robot-safety problems:** do not open a public issue; follow
-  [SECURITY.md](SECURITY.md).
 
 ## Pull requests
 
@@ -48,5 +45,5 @@ Hardware validation is performed by an operator through RoboGUI.
 ## License
 
 By contributing, you agree that your contributions are licensed under the
-[MIT License](LICENSE). Third-party code or assets you add must keep their license and be
-recorded in [`licenses/THIRD_PARTY_NOTICES.md`](licenses/THIRD_PARTY_NOTICES.md).
+[MIT License](../LICENSE). Third-party code or assets you add must keep their license and be
+recorded in [`licenses/THIRD_PARTY_NOTICES.md`](../licenses/THIRD_PARTY_NOTICES.md).

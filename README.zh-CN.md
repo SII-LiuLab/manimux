@@ -124,7 +124,7 @@ uv run manimux up --config <experiment.yaml> \
 
 ## 贡献与社区
 
-欢迎贡献机器人/策略集成、推理策略、RoboGUI 与文档。请从 [CONTRIBUTING.md](CONTRIBUTING.md) 开始，并遵守 [行为准则](CODE_OF_CONDUCT.md)；安全或机器人安全问题请按 [SECURITY.md](SECURITY.md) 私下报告。Agent 辅助开发可使用 [development skill](skills/manimux-development/SKILL.md)。重要变更见 [CHANGELOG](CHANGELOG.md)。
+欢迎贡献机器人/策略集成、推理策略、RoboGUI 与文档。请从 [贡献指南](.github/CONTRIBUTING.md) 开始；Agent 辅助开发可使用 [development skill](skills/manimux-development/SKILL.md)。
 
 ### 开发者微信群
 

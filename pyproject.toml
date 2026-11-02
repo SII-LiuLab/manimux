@@ -63,7 +63,6 @@ dev = [
 Homepage = "https://github.com/SII-LiuLab/manimux"
 Documentation = "https://sii-liulab.github.io/manimux/guideline.html"
 Issues = "https://github.com/SII-LiuLab/manimux/issues"
-Changelog = "https://github.com/SII-LiuLab/manimux/blob/main/CHANGELOG.md"
 
 [project.scripts]
 manimux = "manimux.cli:main"
