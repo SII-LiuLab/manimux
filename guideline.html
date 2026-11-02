@@ -512,8 +512,21 @@ XLA_PYTHON_CLIENT_PREALLOCATE=false third_party/XPolicyLab/policy/Pi_05/openpi/.
   -m manimux.servers.pi05 --experiment "$MM_PI05_EXPERIMENT"
 envs/flexiv/.venv/bin/python -m manimux.robogui.dashboard \
   --config .local/flexiv/pi05_stack_cube_robogui.yaml
-envs/flexiv/.venv/bin/python -m manimux serve --config "$MM_PI05_EXPERIMENT"
+envs/flexiv/.venv/bin/python -m manimux run --config "$MM_PI05_EXPERIMENT"
 </code></pre>
+<p>The Pi05 experiment enables <code>run.warmup_before_start: true</code>.
+In RoboGUI use <strong>Prepare Run → Activate Warmup → Start</strong>.
+Warmup previews use the selected planner and Smooth executor without dispatching
+predicted commands; Prepare still connects the hardware. Start drains pending
+warmup requests and waits for backend reset before formal execution.</p>
+<p>The <code>flexiv_omnigripper</code> preset uses the shared left camera overlay:
+<code>gemini_main</code> above <code>gemini_left_wrist</code> and
+<code>gemini_right_wrist</code>. Copy its <code>cameras</code> and
+<code>camera_aliases</code> into private RoboGUI presets; keep
+<code>camera_mode: policy</code> to follow actual model inputs.
+After updating main, finish any active episode/recovery, restart runtime and
+RoboGUI, and refresh the browser to load the new interface. Existing processes
+retain old code; camera and model services can remain running for these changes.</p>
 <p>Real-weight synthetic-image inference and a temporary WebSocket round trip passed,
 including backend identity, RESET and (50,8) arrays for each arm. Local collection
 arrays match the training preparation hashes, and all normalization statistics

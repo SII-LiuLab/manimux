@@ -3,6 +3,7 @@ run:
   task_prompt: stack cube
   output_dir: ./data/experiments/pi05-flexiv-stack-cube-step29999/serial
   max_control_steps: 6000
+  warmup_before_start: true
   sensor_reading:
     mode: background
     poll_hz: 50.0
