@@ -64,8 +64,10 @@ The other entries differ only in layer 2: `serial.yaml` adds nothing, and `rtc.y
 `inference.algorithm: rtc`. `rpent.yaml` adds `agent: {config: ../../../agents/rpent_pi05_yam.yaml}`;
 that RPent recipe adds the planner and points to the private motion profile
 `local/rpent_yam_motion.yaml`.
-To try one variant, run `manimux up --config <variant>`; for scored, counted trials, run
-`manimux up --config-list lists/example-yam-pi05.yaml`. Build your own study the same way:
+To try one variant, run `manimux up --config <variant>`. For scored, counted trials, start
+camera, model, RoboGUI and runtime with the same `--config-list lists/example-yam-pi05.yaml`
+([commands](../../guideline.html#example-study)); `up` manages a single `--config` only.
+Build your own study the same way:
 a private list and variants that inherit a shared `_base_.yaml` and a task.
 
 ## Where each setting lives
@@ -107,6 +109,7 @@ Only the `example-*` studies and lists are published:
 | --- | --- |
 | [`example-yam-pi05`](experiments/example-yam-pi05/README.md) | Pi05 through XPolicyLab: Serial, RTC, Async 10 Hz + Smooth, RPent ([list](lists/example-yam-pi05.yaml)) |
 | [`example-yam-dream1`](experiments/example-yam-dream1/README.md) | Hosted Dream-1 API: Serial, RPent ([list](lists/example-yam-dream1.yaml)) |
+| [`example-yam-poke`](experiments/example-yam-poke/serial.yaml) | Hosted Poke API, Serial (single variant, no list) |
 | [`example-franka`](experiments/example-franka/_base_.yaml) | Franka FR3: Pi05-DROID through XPolicyLab, RPent |
 | [`example-rpent-synthetic`](experiments/example-rpent-synthetic/_base_.yaml) | Hardware-free dispatch and RPent GUI checks |
 

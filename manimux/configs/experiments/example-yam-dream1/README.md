@@ -69,6 +69,10 @@ Enable actuation in a private variant only after the RPent offline and Finish ch
 counted, scored trials of both entries, start the list instead:
 
 ```bash
-manimux up --config-list manimux/configs/lists/example-yam-dream1.yaml \
-  --runtime-python envs/yam/.venv/bin/python --open
+LIST=manimux/configs/lists/example-yam-dream1.yaml
+python -m manimux.servers.camera.server --config-list $LIST
+python -m manimux.robogui.dashboard --robot yam --host 127.0.0.1 --port 8086
+python -m manimux run --config-list $LIST   # in the terminal holding DREAM_API_KEY
 ```
+
+`manimux up` manages a single `--config`; a list always runs as these separate services.

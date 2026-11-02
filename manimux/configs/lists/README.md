@@ -29,7 +29,7 @@ differ, select an entry explicitly with `--experiment-id`; switching does not
 restart services automatically. `inspect --config-list` is read-only unless `--index`
 is supplied, which refreshes the derived inventory.
 
-Only the published Pi05 list and this README are allowlisted in Git. Other local
+Only the published `example-*` lists and this README are allowlisted in Git. Other local
 lists remain ignored unless deliberately published together with their variants.
 The former `collections/` directory is now `lists/`; YAML contents and recorded data
 are unchanged. Internal `manimux.collections` and saved `collection` metadata names

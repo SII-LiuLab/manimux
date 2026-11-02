@@ -161,7 +161,7 @@ Then open **http://127.0.0.1:8086** in your browser.
 
 | Flag | Meaning |
 | --- | --- |
-| `--robot yam` | Use the YAM RoboGUI preset (also: `piper`, `aloha`, `tianji`) |
+| `--robot yam` | Use the YAM RoboGUI preset (also `piper`, `aloha`, `franka_fr3_robotiq`; `--list-robots` lists all; `tianji` needs its vendor SDK) |
 | `--demo` | Drive the UI with synthetic joint/camera streams; no hardware I/O |
 | `--host` / `--port` | Bind address for the local web UI |
 
@@ -169,10 +169,22 @@ Other presets (same environment, different port if needed):
 
 ```bash
 uv run manimux-robogui --robot piper --demo --host 127.0.0.1 --port 8087
-uv run manimux-robogui --robot aloha --demo --host 127.0.0.1 --port 8087
+uv run manimux-robogui --robot aloha --demo --host 127.0.0.1 --port 8088
 ```
 
 Model environments and checkpoints are needed only for real-robot deployment below.
+
+### Before the first robot run
+
+Real-robot commands read a private station file that binds CAN/IP addresses, camera serials,
+service endpoints and the checkpoint root. Create it once from the matching template, then
+fill it in ([station guide](skills/manimux-station-setup/references/station.md)):
+
+```bash
+cp manimux/configs/local/yam_example.yaml manimux/configs/local/station.yaml   # Git-ignored
+git submodule update --init third_party/XPolicyLab   # local XPolicyLab models (Pi05, DP, ...)
+uv run manimux inspect --config <experiment.yaml>     # read-only: resolved config, no hardware
+```
 
 ### Run on a robot: one command for all services
 

@@ -60,7 +60,7 @@ uv run manimux-robogui --robot yam --demo --host 127.0.0.1 --port 8086
 
 | 参数 | 含义 |
 | --- | --- |
-| `--robot yam` | 使用 YAM 的 RoboGUI 预设（也可选 `piper`、`aloha`、`tianji`） |
+| `--robot yam` | 使用 YAM 的 RoboGUI 预设（也可选 `piper`、`aloha`、`franka_fr3_robotiq`；`--list-robots` 列出全部；`tianji` 需先安装厂商 SDK） |
 | `--demo` | 用合成关节/相机数据驱动界面，不访问真实硬件 |
 | `--host` / `--port` | 本地 Web UI 绑定地址 |
 
@@ -68,10 +68,20 @@ uv run manimux-robogui --robot yam --demo --host 127.0.0.1 --port 8086
 
 ```bash
 uv run manimux-robogui --robot piper --demo --host 127.0.0.1 --port 8087
-uv run manimux-robogui --robot aloha --demo --host 127.0.0.1 --port 8087
+uv run manimux-robogui --robot aloha --demo --host 127.0.0.1 --port 8088
 ```
 
 模型环境与 checkpoint 仅在真实机器人部署时需要。
+
+### 第一次上真机前
+
+真机命令都会读取一份私有工位文件，里面绑定 CAN/IP、相机序列号、服务地址和 checkpoint 根目录。按机器人从模板复制一次再填写（[工位指南](skills/manimux-station-setup/references/station.md)）：
+
+```bash
+cp manimux/configs/local/yam_example.yaml manimux/configs/local/station.yaml   # 已被 Git 忽略
+git submodule update --init third_party/XPolicyLab   # 本机跑 XPolicyLab 模型（Pi05、DP 等）时需要
+uv run manimux inspect --config <experiment.yaml>     # 只读：打印解析后的配置，不连硬件
+```
 
 ### 真机一键启动全部服务
 

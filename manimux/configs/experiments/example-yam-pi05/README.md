@@ -14,7 +14,9 @@ example-yam-pi05/
     ├── serial.yaml           # base + task, nothing else
     ├── rtc.yaml              # RTC, 100 Hz control
     ├── async10.yaml          # Async, 10 Hz playback, Smooth executor
-    └── rpent.yaml            # same model driven by the RPent agent
+    ├── rpent.yaml            # same model driven by the RPent agent
+    ├── chunktrust_ahs.yaml   # ChunkTrust adaptive horizon (not in the list)
+    └── chunktrust_ahs_rtc.yaml  # ChunkTrust adaptive horizon + RTC (not in the list)
 ../../lists/example-yam-pi05.yaml   # selects the four entries, trials and recording root
 ```
 
@@ -56,5 +58,6 @@ rollout**. Prepare moves the robot to its selected initial pose; warmup previews
 without dispatching them. Finish with **Finish & Home**.
 
 Any other entry runs the same way with its own `--config`. For counted, scored trials of all
-four, start the list with `--config-list manimux/configs/lists/example-yam-pi05.yaml`
-instead of `--config`.
+four, use the per-terminal commands with `--config-list manimux/configs/lists/example-yam-pi05.yaml`
+in place of `--config $CONFIG --local $LOCAL` for the camera, model and runtime services
+(RoboGUI is unchanged). `manimux up` manages a single `--config` only.
