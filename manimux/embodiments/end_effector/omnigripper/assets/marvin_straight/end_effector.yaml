@@ -1,0 +1,33 @@
+# TCP preserves the source tool0 frame; it is not a calibrated fingertip TCP.
+# Source flange already includes the -90 degree Z mounting rotation.
+# Increasing prismatic displacement closes the fingers.
+name: marvin_straight
+urdf: end_effector.urdf
+root_link: flange
+mount:
+  xyz:
+  - 0.0
+  - 0.0
+  - 0.0
+  rpy:
+  - 0.0
+  - 0.0
+  - 0.0
+tcp:
+  xyz:
+  - 0.0
+  - 0.0
+  - 0.0
+  rpy:
+  - 4.2638230494917354e-10
+  - -1.5707963000000003
+  - -3.1415926004263826
+inputs: 1
+rest_inputs:
+- 1.0
+aperture_input: 0
+joints:
+- joint: left_finger_joint
+  input: 0
+  at_0: 0.05
+  at_1: 0.0
