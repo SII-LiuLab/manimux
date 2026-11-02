@@ -1,16 +1,19 @@
-# Live physical cameras; DP temporal inputs are assembled separately.
+# Example display override for `python -m manimux.robogui.dashboard --config <this file>`.
+# It shows the three YAM RealSense streams as live camera panels (camera_mode: manual)
+# instead of following whichever images the policy consumes. Loading it never connects
+# hardware. Copy it to a private name in this folder for station-specific scenes.
 label: YAM
 model: ../embodiment/robot/yam_dual.yaml
 camera_mode: manual
 cameras:
 - source: d405_front
-  label: Top (live)
+  label: Top
   slot: top
 - source: d405_left
-  label: Left wrist (live)
+  label: Left wrist
   slot: left
 - source: d405_right
-  label: Right wrist (live)
+  label: Right wrist
   slot: right
 camera_aliases:
   d405_front: top

@@ -203,8 +203,6 @@ uses K=32; old K=16 records are archival and must not be supplied as new launch 
   continuous versus end-hold seams, eligibility and per-episode aggregation.
 - [PRM](references/prm.md): optional judge profile, video manifest and GPU evaluation.
 - [Records](references/records.md): recorded fields and evidence limitations.
-- [DP chunk overlap](references/dp-chunk-overlap.md): offline HTML comparison of
-  recorded H32 UMI-DP asynchronous rollouts against train-time RTC.
 - [Manipulation scope](../../manimux/evaluation/manipulation_scope/SKILL.md): only
   when drawing demonstration/inference coverage on camera frames.
 

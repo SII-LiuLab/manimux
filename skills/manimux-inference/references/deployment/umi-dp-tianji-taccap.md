@@ -27,7 +27,7 @@ separate Python environments; see [Python environments](../../../manimux-station
   entry point in a separate model environment:
 
 ```bash
-git submodule update --init --recursive XPolicyLab
+git submodule update --init --recursive third_party/XPolicyLab
 bash third_party/XPolicyLab/policy/UMI_DP/install.sh envs/umi_dp/.venv
 ```
 
@@ -75,9 +75,10 @@ switches. These remain in the assembly and experiment.
 
 ## Select and bind the experiment
 
-The following recipes all support the shared station file:
+The following station-local recipes all support the shared station file; the published
+model template is [`umi_dp/tianji/pass_ball/default.yaml`](../../../../manimux/configs/policy/umi_dp/tianji/pass_ball/default.yaml):
 
-| Experiment under `manimux/configs/experiments/pass_ball/umi_dp/` | Scheduling |
+| Experiment under `manimux/configs/experiments/{umi-dp-study}/pass_ball/` | Scheduling |
 | --- | --- |
 | `tianji_taccap_umi_dp.yaml` | Component-based experiment with `manimux` scheduling |
 | `tianji_taccap_umi_dp_diff.yaml` | Component-based `manimux` experiment using differential IK |
@@ -113,9 +114,11 @@ envs/umi_dp/.venv/bin/python -m manimux.servers.umi_dp \
   --bind-runtime-config manimux/configs/local/deployments/{deployment}.yaml
 ```
 
-The live recipe selects `tianji_control_live.yaml`, enables arm and end-effector commands,
-and enables RoboGUI-controlled rollouts. It does not copy controller addresses, serials or
-checkpoint paths out of the private station. The non-live recipes remain read-only defaults.
+The live recipe selects a private copy of `tianji_control.yaml` whose only change is
+`robot.options.execute` and `robot.options.end_effector_control` set to `true`; create that
+copy only after the read-only checks. The recipe also enables RoboGUI-controlled rollouts.
+It does not copy controller addresses, serials or checkpoint paths out of the private
+station. The non-live recipes remain read-only defaults.
 
 Binding reads the actual artifacts and records checkpoint identity, horizon, observation
 period, first-action offset and preprocessing conventions. The checkpoint action interval
@@ -152,7 +155,7 @@ Set `paths.checkpoint` in the selected private station to the prefix-trained
 checkpoint, then validate and export the paired configs without starting services:
 
 ```bash
-PYTHONPATH="$PWD:$PWD/XPolicyLab" envs/umi_dp/.venv/bin/python -m manimux.servers.umi_dp \
+PYTHONPATH="$PWD:$PWD/third_party/XPolicyLab" envs/umi_dp/.venv/bin/python -m manimux.servers.umi_dp \
   --experiment manimux/configs/experiments/{pack-plate-study}/pack_plate/train_time_rtc.yaml \
   --local manimux/configs/local/station.yaml \
   --bind-runtime-config manimux/configs/local/deployments/{pack-plate-deployment}.yaml

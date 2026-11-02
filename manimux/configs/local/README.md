@@ -9,6 +9,7 @@ service addresses, checkpoint paths and configuration inspection.
 - `piper_example.yaml`: standard PiPER CAN and measured width calibration.
 - `arx_x5_example.yaml`: X5 (2023) CAN, separate encoder/command calibration and
   explicit SDK polling selection. See [SDK adapter limits](../../../skills/manimux-station-setup/references/can-arms.md).
+- `synthetic.yaml`: empty station used by the hardware-free `example-synthetic` study; not a template.
 - Copy the matching template to `station.yaml`, the default private station file.
 
 Template names use underscores; retain the `.yaml` extension. Additional private

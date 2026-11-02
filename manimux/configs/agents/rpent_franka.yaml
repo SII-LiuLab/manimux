@@ -1,3 +1,5 @@
+# RPent recipe for experiments/example-franka/pick_yellow_block/rpent.yaml.
+# Copy rpent_franka_motion.example.yaml to ../local/rpent_franka_motion.yaml first.
 agent: rpent
 experiment: ../experiments/example-franka/pick_yellow_block/rpent.yaml
 motion: ../local/rpent_franka_motion.yaml

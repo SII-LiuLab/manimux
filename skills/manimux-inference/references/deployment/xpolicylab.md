@@ -12,7 +12,7 @@ runbook:
 - [LingBot-VLA2 + YAM](lingbot-vla2-yam.md)
 - [ABC-DiT + YAM](abc-dit-yam.md)
 - [SAPolicy + YAM](sapolicy-yam.md)
-- [Pi05 zero-pose + Tianji–TacCap pass ball](pi05-tianji-taccap.md)
+- [Pi05 zero-pose + Tianji–TacCap (example study)](pi05-tianji-taccap.md)
 - [Pi05 pack-plate + Tianji–TacCap](pi05-tianji-pack-plate.md)
 - [Pi05 pack-plate inter-hand-relative + Tianji–TacCap](pi05-tianji-pack-plate-inter-hand-relative.md)
 - [Cosmos3 DROID offline inference](cosmos3-offline.md)

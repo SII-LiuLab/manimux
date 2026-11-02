@@ -105,9 +105,9 @@ to the left, right and both arm groups. The idle recovery entry points
 `recover_home(stop)` and `recover_drag()` clear latched faults first, because `connect()`
 rejects faulted arms. Idle Home restores grippers within the assembly, without changing
 the caller's configuration. The stop event cancels trajectory, settling and gripper waits;
-the owned components are stopped and closed before recovery returns. Task experiments
-select `tianji_taccap_pass_ball.yaml` or `tianji_taccap_pack_plate.yaml`; the shared
-`tianji_taccap.yaml` preserves the original pass-ball Home.
+the owned components are stopped and closed before recovery returns. Pack-plate
+experiments select `tianji_taccap_pack_plate.yaml`; the shared `tianji_taccap.yaml`
+preserves the original pass-ball Home.
 
 RoboGUI's **Release** button opens a choice of **Continuous release** or **Release 5s**,
 with an A / B / AB arm selector. Both call the assembly's `recover_release()` through

@@ -29,6 +29,11 @@ differ, select an entry explicitly with `--experiment-id`; switching does not
 restart services automatically. `inspect --config-list` is read-only unless `--index`
 is supplied, which refreshes the derived inventory.
 
+Published lists: [`example-synthetic`](example-synthetic.yaml) (no hardware; its `local`
+selects the empty `local/synthetic.yaml` station), [`example-yam-pi05`](example-yam-pi05.yaml),
+[`example-yam-dream1`](example-yam-dream1.yaml) and
+[`example-tianji-pi05`](example-tianji-pi05.yaml).
+
 Only the published `example-*` lists and this README are allowlisted in Git. Other local
 lists remain ignored unless deliberately published together with their variants.
 The former `collections/` directory is now `lists/`; YAML contents and recorded data

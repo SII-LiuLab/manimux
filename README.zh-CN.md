@@ -71,6 +71,17 @@ uv run manimux-robogui --robot piper --demo --host 127.0.0.1 --port 8087
 uv run manimux-robogui --robot aloha --demo --host 127.0.0.1 --port 8088
 ```
 
+### 离线跑通完整试验流程
+
+[无硬件示例 study](manimux/configs/experiments/example-synthetic/README.md) 在此基础上加上 runtime：
+用合成机器人和合成 policy，不需要 station 文件，也能完整走一遍 Prepare、Start、Finish、打分、
+试验计数和录制。在两个终端分别运行（先停掉上面的 demo，二者都用 8086 端口）：
+
+```bash
+uv run manimux-robogui --robot yam --host 127.0.0.1 --port 8086
+uv run manimux run --config-list manimux/configs/lists/example-synthetic.yaml
+```
+
 模型环境与 checkpoint 仅在真实机器人部署时需要。
 
 ### 第一次上真机前

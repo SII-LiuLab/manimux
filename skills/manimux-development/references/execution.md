@@ -87,16 +87,8 @@ communication and polling delay. `observation_to_commit_ms` includes the full
 observation/model/decode/commit path. Neither compute metric is a control frequency
 or a task-success measure.
 
-```bash
-envs/yam/.venv/bin/python scripts/validation/benchmark_parallel_ik.py \
-  /path/to/saved/direct/diagnostics --output /tmp/parallel-ik
-```
-
-This consumes `offline-ik-profile.npz`, `offline-ik-profile.json` and `signals.npz`
-from the existing recorded-observation diagnostic. It performs no robot I/O or
-model-server calls. Every output joint and failed-solve status is compared against
-serial full IK. IPC can outweigh the parallel speedup for already-cheap targets;
-the most reliable benefit is removing full IK from the control thread.
+IPC can outweigh the parallel speedup for already-cheap targets; the most reliable
+benefit is removing full IK from the control thread.
 
 Integration tests also inject 250 ms of CPU-bound decoding while a mock runtime
 continues issuing commands, check expiry and pause invalidation, exercise failed
