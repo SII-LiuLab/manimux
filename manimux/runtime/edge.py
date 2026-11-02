@@ -530,6 +530,11 @@ class EdgeRuntime:
                     adapter=self._build_adapter(), session_id=self._session_id, clock=self._clock,
                 )
             sensor_reader.start()
+            # Preflight cameras before connecting hardware, but do not leave
+            # background requests in flight across blocking SDK initialization.
+            # Native calls can hold the GIL long enough to age a queued reply.
+            if sensor_reader.mode == "background":
+                sensor_reader.close()
             self._worker.start()
             logger.info("policy_worker_ready session=%s", self._session_id)
             if self._decoder is not None:
@@ -564,6 +569,8 @@ class EdgeRuntime:
             )
             previous_command = copy_group_vector(initial_state.groups)
             self._execution.warmup(initial_state.groups)
+            if sensor_reader.mode == "background":
+                sensor_reader.start()
             last_command = copy_group_vector(initial_state.groups)
             self._state = RuntimeState.RUNNING
             robogui_episode_metadata = {
