@@ -1,0 +1,10 @@
+# Official nominal 2F-85 linkage. Input remains measured normalized motor travel,
+# not a calibrated finger-pad distance. Assembly owns mounting and measured TCP.
+name: robotiq_2f_85
+urdf: end_effector.urdf
+root_link: robotiq_85_base_link
+inputs: 1
+rest_inputs: [1.0]
+aperture_input: 0
+joints:
+  - {joint: robotiq_85_left_knuckle_joint, input: 0, at_0: 0.7929, at_1: 0.0}

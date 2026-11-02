@@ -1,0 +1,157 @@
+<?xml version='1.0' encoding='utf-8'?>
+<robot name="fr3v2_1">
+  <!--Derived from franka_description 7aeeddc449edf8d62b594f9e36a81da53e7796f9 (Apache-2.0). Official visual meshes are converted to glTF; collision meshes and joint geometry are unchanged. No dynamics or collision planner is provided.-->
+  <link name="link0">
+    <visual>
+      <geometry>
+        <mesh filename="meshes/visual/link0.glb" />
+      </geometry>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="meshes/link0.stl" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="link1">
+    <visual>
+      <geometry>
+        <mesh filename="meshes/visual/link1.glb" />
+      </geometry>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="meshes/link1.stl" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="joint1" type="revolute">
+    <parent link="link0" />
+    <child link="link1" />
+    <origin xyz="0 0 0.333" rpy="0 0 0" />
+    <axis xyz="0 0 1" />
+    <limit lower="-2.9007400166666666" upper="2.9007400166666666" velocity="2.62" effort="87.0" />
+  </joint>
+  <link name="link2">
+    <visual>
+      <geometry>
+        <mesh filename="meshes/visual/link2.glb" />
+      </geometry>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="meshes/link2.stl" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="joint2" type="revolute">
+    <parent link="link1" />
+    <child link="link2" />
+    <origin xyz="0 0 0" rpy="-1.570796326794897 0 0" />
+    <axis xyz="0 0 1" />
+    <limit lower="-1.8360900166666667" upper="1.8360900166666667" velocity="2.62" effort="87.0" />
+  </joint>
+  <link name="link3">
+    <visual>
+      <geometry>
+        <mesh filename="meshes/visual/link3.glb" />
+      </geometry>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="meshes/link3.stl" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="joint3" type="revolute">
+    <parent link="link2" />
+    <child link="link3" />
+    <origin xyz="0 -0.316 0" rpy="1.570796326794897 0 0" />
+    <axis xyz="0 0 1" />
+    <limit lower="-2.9007400166666666" upper="2.9007400166666666" velocity="2.62" effort="87.0" />
+  </joint>
+  <link name="link4">
+    <visual>
+      <geometry>
+        <mesh filename="meshes/visual/link4.glb" />
+      </geometry>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="meshes/link4.stl" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="joint4" type="revolute">
+    <parent link="link3" />
+    <child link="link4" />
+    <origin xyz="0.0825 0 0" rpy="1.570796326794897 0 0" />
+    <axis xyz="0 0 1" />
+    <limit lower="-3.077020016666667" upper="-0.11693708333333333" velocity="2.62" effort="87.0" />
+  </joint>
+  <link name="link5">
+    <visual>
+      <geometry>
+        <mesh filename="meshes/visual/link5.glb" />
+      </geometry>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="meshes/link5.stl" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="joint5" type="revolute">
+    <parent link="link4" />
+    <child link="link5" />
+    <origin xyz="-0.0825 0.384 0" rpy="-1.570796326794897 0 0" />
+    <axis xyz="0 0 1" />
+    <limit lower="-2.87630335" upper="2.87630335" velocity="5.26" effort="12.0" />
+  </joint>
+  <link name="link6">
+    <visual>
+      <geometry>
+        <mesh filename="meshes/visual/link6.glb" />
+      </geometry>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="meshes/link6.stl" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="joint6" type="revolute">
+    <parent link="link5" />
+    <child link="link6" />
+    <origin xyz="0 0 0" rpy="1.570796326794897 0 0" />
+    <axis xyz="0 0 1" />
+    <limit lower="0.43982265" upper="4.62163335" velocity="4.18" effort="12.0" />
+  </joint>
+  <link name="link7">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0.7853981633974483" />
+      <geometry>
+        <mesh filename="meshes/visual/link7.glb" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0.7853981633974483" />
+      <geometry>
+        <mesh filename="meshes/link7.stl" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="joint7" type="revolute">
+    <parent link="link6" />
+    <child link="link7" />
+    <origin xyz="0.088 0 0" rpy="1.570796326794897 0 0" />
+    <axis xyz="0 0 1" />
+    <limit lower="-3.05083335" upper="3.05083335" velocity="5.26" effort="12.0" />
+  </joint>
+  <link name="link8" />
+  <joint name="joint8" type="fixed">
+    <parent link="link7" />
+    <child link="link8" />
+    <origin xyz="0 0 0.107" rpy="0 0 0" />
+  </joint>
+</robot>

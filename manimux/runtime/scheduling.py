@@ -7,8 +7,8 @@ import math
 from manimux.runtime.safety import RuntimeState
 
 _CHUNK_STRATEGIES = {"async", "serial", "bid_backward"}
-_SINGLE = {"train_time_rtc", "rtc", "paint", "act_temporal_ensemble"}
-_ADAPTIVE = {"aac", "autohorizon"}
+_SINGLE = {"train_time_rtc", "rtc", "paint", "act_temporal_ensemble", "chunktrust_ahs_rtc"}
+_ADAPTIVE = {"aac", "autohorizon", "chunktrust_ahs"}
 _STREAMING = {
     "async", "rtc", "act_temporal_ensemble", "bid_backward",
     "paint", "aac", "autohorizon",
@@ -40,6 +40,11 @@ def validate_request_schedule(values: dict, *, provided=frozenset()) -> None:
         raise ValueError(f"unknown inference_schedule: {schedule!r}")
     if trigger not in {"refill", "continuous", "algorithm", "progress"}:
         raise ValueError(f"unknown inference.request_trigger: {trigger!r}")
+    chunktrust_schedule = {"chunktrust_ahs": "serial", "chunktrust_ahs_rtc": "single_inflight"}
+    if algorithm in chunktrust_schedule and schedule != chunktrust_schedule[algorithm]:
+        raise ValueError(
+            f"{algorithm} requires inference_schedule={chunktrust_schedule[algorithm]}"
+        )
     if values["strategy"] is not None and (
         schedule == "multi_inflight" or trigger == "continuous"
     ):
@@ -60,19 +65,22 @@ def validate_request_schedule(values: dict, *, provided=frozenset()) -> None:
         if (
             algorithm != "async" or schedule != "single_inflight"
             or values["strategy"] is not None
-            or values["action_start_mode"] != "drop_infer_latency"
-            or values["handoff"] != "blend" or values["handoff_skip_steps"]
+            or values["action_start_mode"] not in {"drop_infer_latency", "first_step_when_ready"}
+            or values["handoff"] != "blend"
             or values["max_chunk_policy_steps"] is not None
         ):
             raise ValueError(
-                "progress trigger requires built-in single_inflight Async, drop_infer_latency, "
-                "blend handoff, no handoff skip and no source-prefix cap"
+                "progress trigger requires built-in single_inflight Async, "
+                "drop_infer_latency or first_step_when_ready, "
+                "blend handoff and no source-prefix cap"
             )
         steps = values["chunk_policy_steps"]
         if type(steps) is not int or steps < 1:
             raise ValueError("progress trigger requires positive integer chunk_policy_steps")
     if ordinary_async and trigger not in {"refill", "continuous", "progress"}:
-        raise ValueError("ordinary asynchronous requests require refill, continuous or progress trigger")
+        raise ValueError(
+            "ordinary asynchronous requests require refill, continuous or progress trigger"
+        )
     if not ordinary_async and trigger != "algorithm":
         raise ValueError(f"{algorithm} with {schedule} requires request_trigger=algorithm")
     if trigger != "refill" and "refill_threshold_s" in provided:
@@ -82,6 +90,13 @@ def validate_request_schedule(values: dict, *, provided=frozenset()) -> None:
         math.isfinite(threshold) and threshold >= 0
     ):
         raise ValueError("refill_threshold_s must be finite and non-negative")
+    if trigger == "refill":
+        threshold_ns = threshold * 1e9
+        if not math.isfinite(threshold_ns) or round(threshold_ns) <= 0:
+            raise ValueError(
+                "refill_threshold_s must round to a positive, finite nanosecond duration "
+                "for request_trigger=refill"
+            )
     rate = values["observation_hz"]
     if rate is None:
         if schedule == "multi_inflight":
@@ -97,7 +112,7 @@ class RequestScheduler:
 
     This object never prepares actions or advances algorithm state. Call
     on_submitted only after the worker accepts the submission into its queue.
-    Warmup deliberately bypasses it and uses its own reset-fenced lifecycle.
+    Warmup uses the same admission rules with an isolated preview timeline.
     """
 
     def __init__(self, settings: dict) -> None:

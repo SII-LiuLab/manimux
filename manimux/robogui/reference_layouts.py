@@ -6,6 +6,9 @@ import hashlib
 import io
 import re
 import tempfile
+import threading
+from collections import OrderedDict
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +21,8 @@ DEFAULT_LAYOUT_ROOT = Path("data/evaluation_layouts")
 class ReferenceLayouts:
     def __init__(self, root: Path = DEFAULT_LAYOUT_ROOT) -> None:
         self.root = root
+        self._cache = OrderedDict()
+        self._lock = threading.RLock()
 
     def task_path(self, task: str) -> Path:
         if not re.fullmatch(r"[\w-]{1,100}", task, flags=re.UNICODE):
@@ -57,13 +62,22 @@ class ReferenceLayouts:
     def load(self, task: str, slot: str) -> np.ndarray:
         return self.snapshot(task, slot)[0]
 
-    def snapshot(self, task: str, slot: str) -> tuple[np.ndarray, dict[str, Any]]:
+    def snapshot(
+        self, task: str, slot: str, *, refresh: bool = False,
+    ) -> tuple[np.ndarray, dict[str, Any]]:
         """Decode and fingerprint the same file bytes, even during atomic replacement."""
         path = self.image_path(task, slot).resolve()
+        stat = path.stat()
+        key = (str(path), stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+        with self._lock:
+            if not refresh and key in self._cache:
+                pixels, identity = self._cache[key]
+                self._cache.move_to_end(key)
+                return pixels.copy(), deepcopy(identity)
         content = path.read_bytes()
         with Image.open(io.BytesIO(content)) as image:
             pixels = np.array(image.convert("RGB"))
-        return pixels, {
+        identity = {
             "layout_id": slot,
             "reference_layout": {
                 "task": task,
@@ -71,6 +85,11 @@ class ReferenceLayouts:
                 "sha256": hashlib.sha256(content).hexdigest(),
             },
         }
+        with self._lock:
+            self._cache[key] = (pixels, identity)
+            while len(self._cache) > 16:
+                self._cache.popitem(last=False)
+        return pixels.copy(), deepcopy(identity)
 
     def save(self, task: str, slot: str, image: np.ndarray) -> None:
         if image.ndim != 3 or image.shape[2] != 3 or image.dtype != np.uint8:

@@ -12,7 +12,8 @@ from numpy.typing import ArrayLike
 
 from manimux.clock import Clock, SystemClock
 from manimux.embodiments.arm._calibration import JointGripperCalibration
-from manimux.embodiments.arm.base import ArmController, ArmState
+from manimux.embodiments.arm._home import CalibratedHomeController
+from manimux.embodiments.arm.base import ArmState
 from manimux.types import FloatArray
 
 if TYPE_CHECKING:
@@ -76,7 +77,7 @@ class _CanTransport:
             self.bus = None
 
 
-class PiperController(ArmController):
+class PiperController(CalibratedHomeController):
     """One standard PiPER with its integrated width-controlled gripper.
 
     execute=False opens a receive-only session. Motors are enabled on connect
@@ -141,8 +142,11 @@ class PiperController(ArmController):
         self._state: ArmState | None = None
         self._read_error: Exception | None = None
         self._sequence = 0
+        self._home_monitor = None
+        self._control_owned = False
 
     def connect(self) -> None:
+        self.require_home_configuration()
         if self._driver is not None:
             if self._thread is not None and self._thread.is_alive() and self._read_error is None:
                 return
@@ -165,6 +169,10 @@ class PiperController(ArmController):
             transport = _CanTransport(self.channel)
             self._transport = transport
             transport.connect()
+            self._control_owned = self.execute
+            if self._home_monitor is not None:
+                self._home_monitor.invalidate()
+                self._home_monitor.supported_release = False
             context = self._driver.get_context()
             # Keep the pinned driver/parser contract; do not start SDK-owned threads.
             context.comm = transport
@@ -284,9 +292,6 @@ class PiperController(ArmController):
                 raise RuntimeError("PiPER feedback is stale or its clock does not match")
             return {self.channel: self._state}
 
-    def validate_commands(self, targets: Mapping[str, FloatArray]) -> None:
-        self.calibration.validate(targets)
-
     def _require_enabled_motors(self) -> None:
         if self._driver is None:
             raise RuntimeError("PiPER is not connected")
@@ -326,7 +331,13 @@ class PiperController(ArmController):
             raise PermissionError("PiPER session is receive-only")
         with self._lock:
             self.get_states()
+            self._home_monitor.invalidate()
             self._submit(q)
+
+    def validate_motion_ready(self) -> None:
+        with self._lock:
+            self.get_states()
+            self._require_enabled_motors()
 
     def stop(self) -> None:
         """Attempt both measured holds without the normal motion readiness gate.
@@ -357,6 +368,7 @@ class PiperController(ArmController):
             raise ExceptionGroup("PiPER stop incomplete", errors)
 
     def close(self) -> None:
+        self.await_release_permission()
         self._stop_read.set()
         if self._thread is not None:
             self._thread.join(timeout=1.0)
@@ -374,6 +386,7 @@ class PiperController(ArmController):
         self._transport = None
         self._thread = None
         self._state = None
+        self._control_owned = False
 
     def runtime_metadata(self) -> dict[str, object]:
         return {

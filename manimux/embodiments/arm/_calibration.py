@@ -47,10 +47,17 @@ class JointGripperCalibration:
         q = np.asarray(targets[self.channel], dtype=float)
         if q.shape != (7,) or not np.isfinite(q).all():
             raise ValueError("command must contain six finite radians and one opening")
-        if np.any(q[:6] < self.bounds[:, 0]) or np.any(q[:6] > self.bounds[:, 1]):
-            raise ValueError("joint target is outside configured device bounds")
+        outside = (q[:6] < self.bounds[:, 0]) | (q[:6] > self.bounds[:, 1])
+        if np.any(outside):
+            index = int(np.flatnonzero(outside)[0])
+            raise ValueError(
+                f"{self.channel}: joint {index + 1} target {q[index]:.9g} rad is outside "
+                f"configured device bounds {self.bounds[index].tolist()} rad"
+            )
         if not 0.0 <= q[6] <= 1.0:
-            raise ValueError("gripper target must be in [0, 1]")
+            raise ValueError(
+                f"{self.channel}: gripper target {q[6]:.9g} must be in [0, 1] normalized travel"
+            )
         return q.copy()
 
     def opening(self, raw: float) -> float:

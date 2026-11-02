@@ -29,6 +29,7 @@ class Capture:
     monotonic_ns: int
     sequence: int
     metadata: dict | None = None
+    camera_meta: dict | None = None
 
 
 def read_frame_metadata(color):
@@ -50,7 +51,9 @@ def read_frame_metadata(color):
         ("sensor_timestamp_us", rs.frame_metadata_value.sensor_timestamp),
         ("sdk_arrival_unix_ms", rs.frame_metadata_value.time_of_arrival),
     ):
-        result[key] = int(color.get_frame_metadata(value)) if color.supports_frame_metadata(value) else None
+        result[key] = (
+            int(color.get_frame_metadata(value)) if color.supports_frame_metadata(value) else None
+        )
     return result
 
 
@@ -171,12 +174,36 @@ class RealSenseSensor(SensorBase):
             unix_s, monotonic_ns = time.time(), self.clock.now_ns()
             # Keep the host receipt timestamp before optional diagnostic work.
             metadata = read_frame_metadata(color) if self.collect_metadata else None
+            camera_meta = None
+            if self.enable_depth and self.align_depth:
+                intr = color.profile.as_video_stream_profile().get_intrinsics()
+                camera_meta = {
+                    "height": intr.height,
+                    "width": intr.width,
+                    "intrinsic_K": [
+                        [intr.fx, 0.0, intr.ppx],
+                        [0.0, intr.fy, intr.ppy],
+                        [0.0, 0.0, 1.0],
+                    ],
+                    "distortion_model": str(intr.model).split(".")[-1],
+                    "distortion_coeffs": list(intr.coeffs),
+                    "depth_aligned_to_color": bool(self.align_depth),
+                    "depth_unit": "metres",
+                    "flipped": bool(self.flip),
+                }
             if self.flip:
                 image = image[::-1, ::-1].copy()
                 if depth is not None:
                     depth = depth[::-1, ::-1].copy()
             return Capture(
-                image, depth, self._depth_scale, unix_s, monotonic_ns, int(color.get_frame_number()), metadata
+                image,
+                depth,
+                self._depth_scale,
+                unix_s,
+                monotonic_ns,
+                int(color.get_frame_number()),
+                metadata,
+                camera_meta,
             )
 
     def _capture_loop(self):
@@ -210,6 +237,21 @@ class RealSenseSensor(SensorBase):
     def read(self):
         frame = self._read_capture()
         return SensorFrame(self.name, frame.image, frame.monotonic_ns, frame.sequence)
+
+    def read_rgbd(self):
+        frame = self._read_capture()
+        if frame.depth is None or frame.depth_scale is None or not self.align_depth:
+            raise RuntimeError("RGB-D snapshots require enable_depth=true and align_depth=true")
+        if self.flip:
+            raise ValueError("RGB-D snapshots require flip=false to retain camera intrinsics")
+        return SensorFrame(
+            self.name,
+            frame.image,
+            frame.monotonic_ns,
+            frame.sequence,
+            depth=frame.depth.astype(np.float64) * frame.depth_scale,
+            camera_meta=dict(frame.camera_meta),
+        )
 
     def read_capture(self):
         """Return a coherent latest RGB/depth/host-time/metadata diagnostic snapshot."""

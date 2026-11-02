@@ -15,13 +15,14 @@ from numpy.typing import ArrayLike
 
 from manimux.clock import Clock, SystemClock
 from manimux.embodiments.arm._calibration import JointGripperCalibration
-from manimux.embodiments.arm.base import ArmController, ArmState
+from manimux.embodiments.arm._home import CalibratedHomeController
+from manimux.embodiments.arm.base import ArmState
 from manimux.types import FloatArray
 
 from .session import JointGripperTarget, SDKSample, SessionOperation, run_session
 
 
-class ArxX5Controller(ArmController):
+class ArxX5Controller(CalibratedHomeController):
     """Isolate a binding without close(); PROTECT stops owned position control.
 
     The vendor getter provides no device identity or receipt time. SDK polling
@@ -90,8 +91,11 @@ class ArxX5Controller(ArmController):
         # A timeout/startup failure requires cleanup; late replies cannot be reused.
         self._failed = False
         self._lock = threading.RLock()
+        self._home_monitor = None
+        self._control_owned = False
 
     def connect(self) -> None:
+        self.require_home_configuration()
         with self._lock:
             if self._process is not None:
                 if self._process.is_alive() and not self._failed:
@@ -119,6 +123,9 @@ class ArxX5Controller(ArmController):
             )
             try:
                 self._process.start()
+                self._control_owned = True
+                self._home_monitor.invalidate()
+                self._home_monitor.supported_release = False
                 child.close()
                 self._receive(connection, self.connect_timeout_s)
                 self.get_states()
@@ -166,17 +173,20 @@ class ArxX5Controller(ArmController):
                 raise RuntimeError("X5 SDK polling is stale or its clock does not match")
             return {self.channel: ArmState(q, poll_completed_ns, sequence)}
 
-    def validate_commands(self, targets: Mapping[str, FloatArray]) -> None:
-        self.calibration.validate(targets)
-
     def send_commands(self, targets: Mapping[str, FloatArray]) -> None:
         q = self.calibration.validate(targets)
         if not self.execute:
             raise PermissionError("X5 commands require execute=True")
         with self._lock:
             self.get_states()
+            self._home_monitor.invalidate()
             grip = self.command_closed + q[6] * (self.command_open - self.command_closed)
             self._rpc("send", (q[:6].tolist(), grip))
+
+    def validate_motion_ready(self) -> None:
+        # sdk_poll confirms the owned process responds; the vendor API exposes
+        # no motor sample identity, so this is not a device-freshness guarantee.
+        self.get_states()
 
     def stop(self) -> None:
         with self._lock:
@@ -184,6 +194,7 @@ class ArxX5Controller(ArmController):
                 self._rpc("stop")
 
     def close(self) -> None:
+        self.await_release_permission()
         with self._lock:
             if self._process is None:
                 return
@@ -215,6 +226,7 @@ class ArxX5Controller(ArmController):
             self._process = None
             self._connection = None
             self._failed = False
+            self._control_owned = False
             if error is not None:
                 raise error
 

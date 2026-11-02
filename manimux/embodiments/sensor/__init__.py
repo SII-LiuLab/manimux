@@ -50,14 +50,14 @@ def build_sensor(config: dict, clock: Clock) -> SensorBase:
 
 def sensor_parameters(**options) -> dict:
     """Fill in data-source defaults without opening cameras or connecting network services."""
-    return {
+    from manimux.config_validation import merge_parameters
+    return merge_parameters({
         "service": None,
         "width": 64,
         "height": 48,
         "fps": 30.0,
         "options": {},
-        **options,
-    }
+    }, options, "sensor", extra=("name", "driver"))
 
 
 __all__ = ["SensorBase", "SensorRead", "SensorFactory", "build_sensor", "build_camera", "sensor_parameters"]

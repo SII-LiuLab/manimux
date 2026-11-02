@@ -1,12 +1,11 @@
 # Camera service recipes
 
 Use one schema for both `camera_server.config` in an experiment and camera-server
-`--config`. Keep exactly these four combinations:
+`--config`. Keep exactly these three combinations:
 
 - `realsense_3_views.yaml`: `d405_left`, `d405_front`, `d405_right`.
 - `gemini_2_views.yaml`: `gemini305`, `gemini335`; uses `services.external_camera`.
 - `taccap_2_views.yaml`: `taccap_left`, `taccap_right`.
-- `realsense_gemini_5_views.yaml`: all three D405 and both Gemini streams, in one service.
 
 The RealSense recipes describe D405 devices. Each stream references its driver
 component YAML and lists all public capture options supported by that ManiMux
@@ -91,19 +90,16 @@ Both entry points use `--local`, or the default private
 
 ```bash
 envs/yam/.venv/bin/python -m manimux.servers.camera.server \
-  --config manimux/configs/embodiment/sensor/cameras/realsense_3_views.yaml
+  --camera-config manimux/configs/embodiment/sensor/cameras/realsense_3_views.yaml
 
 envs/yam/.venv/bin/python -m manimux.servers.camera.server \
-  --experiment manimux/configs/experiments/put_bottles/pi05/yam_pi05_rtc_joint_step30000.yaml
+  --config-list manimux/configs/lists/example-yam-pi05.yaml --experiment-id put_bottles_rtc
 ```
 
 Use one of these commands, not both on the same ports/devices. The station template
 includes optional Gemini bindings; fill in their physical serials before using a
 Gemini recipe. For historical SAPolicy configurations that select a separate
 `external_camera` service, start RealSense and Gemini recipes as separate services.
-The five-view recipe instead serves all five on `services.camera`; clients must
-select that service explicitly. Selecting the recipe alone does not change existing
-experiment topology.
 
 The old RGBD standalone recipe was removed. Workflows requiring depth must explicitly
 set `enable_depth: true` and `align_depth: true` on the required D405 streams.

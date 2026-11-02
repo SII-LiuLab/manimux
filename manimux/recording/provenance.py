@@ -152,7 +152,7 @@ def capture_source_provenance(repository_root: Path, *, policy_name: str | None 
     }
     if policy_name is not None and re.fullmatch(r"[A-Za-z0-9_]+", policy_name):
         roots["xpolicylab"] = _repository_source(
-            repository_root / "XPolicyLab",
+            repository_root / "third_party" / "XPolicyLab",
             [
                 "client_server",
                 "utils",

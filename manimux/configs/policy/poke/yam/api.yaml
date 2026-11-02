@@ -1,0 +1,28 @@
+# Poke-Aurora stateless completions. No local policy server or extra SDK needed.
+worker: poke_api
+service: poke_api
+action_dt_s: 0.03333333333333333
+horizon_policy_steps: 40
+timeout_s: 65.0
+startup_timeout_s: 130.0
+expected_backend:
+  server: poke_api
+  model:
+    checkpoint: poke-aurora-preview
+    action_semantics: absolute_model_flange_xyz_xyzw
+options:
+  model: poke-aurora-preview
+  base_url: https://api.pokebot.com/v1
+  api_key_env: PLATFORM_API_KEY
+  request_timeout_s: 60.0
+  image_max_size: [640, 360]
+  response_log_dir: data/diagnostics/poke-api
+adapter:
+  type: manimux.policy_adapter.poke:PokePoseAdapter
+  controlled_group: right_arm
+  camera: d405_right
+  # Required station transforms, each [x, y, z, qw, qx, qy, qz].
+  # model_T_tool = model_T_base @ base_T_tcp @ inv(flange_T_tcp) @ flange_T_model_tool
+  model_from_base: null
+  flange_from_tcp: null
+  flange_from_model_tool: null  # Rotation only; no translation of the flange centre.

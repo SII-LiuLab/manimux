@@ -329,6 +329,21 @@ class EpisodeRecorder:
 
     def abort(self, reason: str, *, detail: str = "") -> None:
         if self._events.closed:
+            # A late publisher/cleanup error can follow finish(), or finish may
+            # fail after closing events. Preserve existing data and correct the
+            # terminal outcome without joining encoders or writing Zarr twice.
+            directory = self._final_dir if self._final_dir.exists() else self._partial_dir
+            result_path = directory / "result.json"
+            result = json.loads(result_path.read_text()) if result_path.exists() else {}
+            result.update(
+                run_completed=False, terminal_reason=reason, detail=detail,
+                steps=len(self._ticks), incomplete=True,
+            )
+            self._write_json(result_path, result)
+            with (directory / "events.jsonl").open("a", encoding="utf-8") as events:
+                events.write(json.dumps({
+                    "kind": "episode_aborted", "terminal_reason": reason, "detail": detail,
+                }, ensure_ascii=False, sort_keys=True) + "\n")
             return
         timing_status = self._save_control_timing()
         self.event("episode_aborted", terminal_reason=reason, detail=detail)

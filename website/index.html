@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111610">
+  <meta name="description" content="ManiMux is an open-source harness for real-world manipulation inference and experiment management. Explore RoboGUI, model deployment, and reproducible robot experiments.">
+  <title>ManiMux — From policy to possibility.</title>
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="assets/Manrope.ttf" as="font" type="font/ttf" crossorigin>
+  <link rel="stylesheet" href="styles.css">
+  <script src="guide-redirect.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="nav">
+    <a class="wordmark" href="#" aria-label="ManiMux home"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M3 25V7l13 12L29 7v18M3 7l13 12L29 7"/></svg>ManiMux<span class="wordmark-dot">.</span></a>
+    <nav aria-label="Main navigation"><a href="#architecture">Architecture</a><a href="#workflow">Workflow</a><a href="#recordings">Recordings</a><a href="guideline.html">Guide</a></nav>
+    <a class="nav-code" href="https://github.com/SII-LiuLab/manimux" target="_blank" rel="noreferrer">GitHub <span aria-hidden="true">↗</span></a>
+  </header>
+  <main id="main">
+    <section class="hero cinema-hero" aria-labelledby="hero-title" id="hero-stage">
+      <video id="hero-video" muted loop playsinline preload="none" poster="assets/hero-poster.jpg" aria-label="Continuous RoboGUI orbit from a synthetic preview. No hardware execution."><source data-src="assets/hero-robogui.mp4" type="video/mp4"></video>
+      <div class="cinema-shade" aria-hidden="true"></div>
+      <div class="cinema-top wrap"><p class="eyebrow"><span class="status-dot"></span> From policy to possibility</p><button id="motion-toggle" class="motion-toggle" aria-pressed="false">Pause motion Ⅱ</button></div>
+      <div class="cinema-copy wrap"><h1 id="hero-title">Real robot experiments.<br><span>One inference harness.</span></h1><p>Deploy policies, explore supported inference strategies,<br>and turn real-world runs into reproducible experiments.</p></div>
+      <div class="cinema-bottom wrap">
+        <div class="actions"><button class="button light" data-film="product"><span aria-hidden="true">▶</span> Watch the film <span class="duration">1:32</span></button><a class="text-link" href="#architecture">Explore ManiMux ↓</a></div>
+        <p class="cinema-disclosure">Product animation · Synthetic RoboGUI footage<br>Recorded UI preview · No hardware execution</p>
+      </div>
+    </section>
+
+    <section class="architecture paper" id="architecture" aria-labelledby="architecture-title">
+      <div class="wrap">
+        <div class="section-top"><p class="eyebrow">01 / Built to connect</p><span class="section-note">Policy × Runtime × Embodiment</span></div>
+        <div class="section-heading"><h2 id="architecture-title">Your stack.<br><span class="ink-green">Without the silos.</span></h2><p>Connect supported embodiments, policies, and inference strategies in one experiment workflow.</p></div>
+        <div class="axes" id="axes">
+          <article class="axis" style="--axis-index:0"><div class="axis-top"><span class="axis-number">01</span><svg viewBox="0 0 48 48" aria-hidden="true"><path d="M8 40h32M17 40V29l12-10-6-9M16 8l10-3 6 10-10 9M29 19l7 5 5-5M10 35h14"/><circle cx="17" cy="29" r="4"/></svg></div><h3>Embodiment</h3><p>The physical connection.</p><div class="chips" aria-label="Explore embodiments"><button data-axis="embodiment" data-value="yam" aria-pressed="true">YAM</button><button data-axis="embodiment" data-value="tianji" aria-pressed="false">Tianji–TacCap</button><button data-axis="embodiment" data-value="arx" aria-pressed="false">ARX X5 <small>EXP.</small></button><button data-axis="embodiment" data-value="piper" aria-pressed="false">PiPER <small>EXP.</small></button></div><p class="axis-detail" id="embodiment-detail" aria-live="polite">Dual-arm integration with deployment recipes and RoboGUI visualization.</p></article>
+          <article class="axis" style="--axis-index:1"><div class="axis-top"><span class="axis-number">02</span><svg viewBox="0 0 48 48" aria-hidden="true"><path d="m24 5 18 10-18 10L6 15 18-10ZM6 24l18 10 18-10M6 33l18 10 18-10"/></svg></div><h3>Policy</h3><p>The model behind the motion.</p><div class="chips" aria-label="Explore policies"><button data-axis="policy" data-value="pi05" aria-pressed="true">π₀.₅</button><button data-axis="policy" data-value="xr1" aria-pressed="false">XR-1</button><button data-axis="policy" data-value="lingbot" aria-pressed="false">LingBot-VLA2</button><button data-axis="policy" data-value="dp" aria-pressed="false">Diffusion Policy</button><button data-axis="policy" data-value="openwam" aria-pressed="false">OpenWAM</button><button data-axis="policy" data-value="abc" aria-pressed="false">ABC-DiT</button></div><p class="axis-detail" id="policy-detail" aria-live="polite">Pi05 deployment recipes, with model serving separate from robot execution.</p></article>
+          <article class="axis" style="--axis-index:2"><div class="axis-top"><span class="axis-number">03</span><svg viewBox="0 0 48 48" aria-hidden="true"><path d="M5 36h8l6-24 9 28 7-20h8M5 8h6M38 40h5"/></svg></div><h3>Inference</h3><p>The rhythm of execution.</p><div class="chips" aria-label="Explore inference strategies"><button data-axis="inference" data-value="async" aria-pressed="true">Async</button><button data-axis="inference" data-value="rtc" aria-pressed="false">RTC</button><button data-axis="inference" data-value="paint" aria-pressed="false">PAINT</button><button data-axis="inference" data-value="aac" aria-pressed="false">AAC</button><button data-axis="inference" data-value="autohorizon" aria-pressed="false">AutoHorizon</button><button data-axis="inference" data-value="bid" aria-pressed="false">BID</button></div><p class="axis-detail" id="inference-detail" aria-live="polite">Overlap inference and execution with asynchronous action chunking.</p></article>
+        </div>
+        <div class="harness-line" aria-hidden="true"><span></span><b>ManiMux runtime</b><span></span></div>
+        <div class="architecture-foot"><p>Explore each integration above. Availability depends on the model, adapter, and local station; selections do not certify a compatible combination. Experimental hardware awaits physical validation.</p><a class="text-link" href="guideline.html#support">View support catalog ↗</a></div>
+      </div>
+    </section>
+
+    <section class="workflow" id="workflow" aria-labelledby="workflow-title">
+      <div class="wrap"><div class="section-top"><p class="eyebrow">02 / Close the loop</p><span class="section-note">From intention to a saved experiment</span></div>
+        <div class="section-heading"><h2 id="workflow-title">A run is just<br>the beginning.</h2><p>Bring deployment, robot execution, and human judgment into the same experiment workflow.</p></div>
+        <div class="workflow-layout">
+          <div class="step-list" role="tablist" aria-label="Experiment workflow" aria-orientation="vertical">
+            <button id="tab-deploy" role="tab" aria-selected="true" aria-controls="workflow-panel" data-step="deploy"><span>01</span><strong>Deploy</strong><small>Choose a policy. Connect your station.</small><b aria-hidden="true">↗</b></button>
+            <button id="tab-run" role="tab" aria-selected="false" aria-controls="workflow-panel" tabindex="-1" data-step="run"><span>02</span><strong>Run</strong><small>Watch inference become motion.</small><b aria-hidden="true">↗</b></button>
+            <button id="tab-review" role="tab" aria-selected="false" aria-controls="workflow-panel" tabindex="-1" data-step="review"><span>03</span><strong>Review</strong><small>Inspect the recorded trajectory.</small><b aria-hidden="true">↗</b></button>
+            <button id="tab-score" role="tab" aria-selected="false" aria-controls="workflow-panel" tabindex="-1" data-step="score"><span>04</span><strong>Score & save</strong><small>Keep the outcome with the evidence.</small><b aria-hidden="true">↗</b></button>
+          </div>
+          <div class="workflow-panel" id="workflow-panel" role="tabpanel" aria-labelledby="tab-deploy" tabindex="0">
+            <div class="panel-top"><span id="panel-label">AGENT-ASSISTED DEPLOYMENT</span><span class="panel-dots" aria-hidden="true">● ● ●</span></div>
+            <div id="step-content"></div>
+            <div class="panel-footer"><span>Illustrative workflow</span><a href="guideline.html#experiments">Read the workflow ↗</a></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="recordings paper" id="recordings" aria-labelledby="recordings-title"><div class="wrap">
+      <div class="section-top"><p class="eyebrow">03 / See it in context</p><span class="section-note">Visible robots. Visible execution.</span></div>
+      <div class="section-heading"><h2 id="recordings-title">The interface<br>meets the world.</h2><p>Physical camera views, robot visualization, and execution information, brought together in RoboGUI.</p></div>
+      <div class="recording-grid">
+        <button class="recording-card" data-film="archive"><div class="recording-image"><img src="assets/execution-poster.jpg" loading="lazy" width="1280" height="720" alt="Archived RoboGUI showing physical robot cameras and the robot visualization"><span class="play-icon" aria-hidden="true">↗</span><span class="media-badge">ARCHIVED RECORDING</span></div><div class="recording-meta"><h3>RoboGUI in the real world</h3><span>00:12</span></div><p>Excerpt from the repository’s real-robot demo. Full model and inference provenance was not supplied with this archive.</p></button>
+        <button class="recording-card" data-film="product"><div class="recording-image"><img src="assets/product-poster.jpg" loading="lazy" width="1280" height="720" alt="ManiMux title over the execution-wall product animation"><span class="play-icon" aria-hidden="true">↗</span><span class="media-badge">PRODUCT WALKTHROUGH</span></div><div class="recording-meta"><h3>From a request to an experiment</h3><span>01:32</span></div><p>The complete product film. Includes synthetic RoboGUI footage and an illustrative evaluation sequence.</p></button>
+      </div>
+      <div class="contribute"><div><span class="status-dot"></span><strong>Different stations. Shared evidence.</strong><p>We’re collecting continuous recordings with the physical robot, model identity, and live inference visible together.</p></div><a class="button outline" href="https://github.com/SII-LiuLab/manimux" target="_blank" rel="noreferrer">Explore the project ↗</a></div>
+    </div></section>
+
+    <section class="research" id="research" aria-labelledby="research-title"><div class="wrap"><p class="eyebrow">Open source. Open possibilities.</p><h2 id="research-title">Let’s make<br><span>the next move.</span></h2><div class="research-bottom"><div><h3>ManiMux</h3><p>An open-source harness for real-world<br>manipulation inference and experiment management</p><span class="paper-status">Paper link forthcoming</span></div><div class="actions"><a class="button dark" href="https://github.com/SII-LiuLab/manimux" target="_blank" rel="noreferrer">Explore GitHub ↗</a><a class="button outline" href="guideline.html">Documentation ↗</a></div></div></div></section>
+  </main>
+  <footer class="wrap"><a class="wordmark" href="#">ManiMux<span class="wordmark-dot">.</span></a><span>Built for real-world manipulation.</span><a href="https://github.com/SII-LiuLab/manimux/blob/main/LICENSE" target="_blank" rel="noreferrer">MIT licensed ↗</a></footer>
+  <dialog id="film-dialog" aria-labelledby="film-title"><div class="dialog-top"><h2 id="film-title">ManiMux product film</h2><button id="close-film" aria-label="Close video">✕</button></div><video id="film-video" controls playsinline preload="none"></video><p id="film-caption"></p></dialog>
+</body>
+</html>

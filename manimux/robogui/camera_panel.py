@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import html
 import io
+import time
 from collections.abc import Callable, Mapping
 from typing import Any
 
@@ -15,16 +16,20 @@ PANEL_SLOTS = ("top", "left", "right")
 
 CAMERA_STATUS_STYLE = """
 <style>
-.mm-camera-status { font: 12px/1.45 system-ui, sans-serif; color: var(--mantine-color-text, #263445); }
+.mm-camera-status { --mm-camera-muted: #59636f; box-sizing: border-box;
+  min-width: 0; padding: 8px 12px; font: 12px/1.55 system-ui, sans-serif;
+  color: var(--mantine-color-text, #263445); }
+[data-mantine-color-scheme="dark"] .mm-camera-status { --mm-camera-muted: #b1bac6; }
 .mm-camera-status .mm-camera-caption { margin: 0 0 8px; font-size: 11px;
-  color: var(--mantine-color-dimmed, #758195); overflow-wrap: anywhere; }
+  color: var(--mm-camera-muted); overflow-wrap: anywhere; }
 .mm-camera-status .mm-camera-row { display: flex; align-items: center; gap: 10px;
-  padding: 9px 0; border-top: 1px solid var(--mantine-color-default-border, #e8edf2); }
+  flex-wrap: wrap; padding: 12px 0;
+  border-top: 1px solid var(--mantine-color-default-border, #e8edf2); }
 .mm-camera-status .mm-camera-route { flex: 1; min-width: 0; }
 .mm-camera-status .mm-camera-name { display: block; font-weight: 600;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mm-camera-status .mm-camera-source { display: block; margin-top: 2px;
-  font: 11px/1.45 ui-monospace, monospace; color: var(--mantine-color-dimmed, #758195);
+.mm-camera-status .mm-camera-source { display: block; margin-top: 4px;
+  font-size: 11px; color: var(--mm-camera-muted);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mm-camera-status .mm-camera-badge { display: inline-flex; align-items: center;
   gap: 5px; flex-shrink: 0; padding: 3px 7px; border-radius: 6px;
@@ -33,20 +38,24 @@ CAMERA_STATUS_STYLE = """
   border-radius: 50%; background: currentColor; }
 .mm-camera-status .mm-camera-live { color: #168057; background: rgba(30,160,105,.10); }
 .mm-camera-status .mm-camera-waiting { color: #a36a13; background: rgba(208,146,36,.10); }
-.mm-camera-status .mm-camera-muted { color: #7a8493; background: rgba(128,140,157,.10); }
+.mm-camera-status .mm-camera-muted { color: var(--mm-camera-muted);
+  background: rgba(128,140,157,.10); }
 .mm-camera-status .mm-camera-temporal { color: #4978b8; background: rgba(75,128,204,.10); }
 .mm-camera-status .mm-camera-note { margin: 8px 0 0; font-size: 11px;
-  color: var(--mantine-color-dimmed, #758195); overflow-wrap: anywhere; }
+  color: var(--mm-camera-muted); overflow-wrap: anywhere; }
 </style>
 """
 
 
 def _camera_status_row(name: str, source: str, status: str, kind: str, detail: str) -> str:
+    source_html = (
+        f'<span class="mm-camera-source" title="{html.escape(source)}">'
+        f'{html.escape(source)}</span>'
+    ) if source and source.casefold() != name.casefold() else ""
     return (
         '<div class="mm-camera-row"><div class="mm-camera-route">'
         f'<span class="mm-camera-name" title="{html.escape(name)}">{html.escape(name)}</span>'
-        f'<span class="mm-camera-source" title="{html.escape(source)}">'
-        f'{html.escape(source)}</span></div>'
+        f'{source_html}</div>'
         f'<span class="mm-camera-badge mm-camera-{kind}" title="{html.escape(detail)}">'
         f'{html.escape(status)}</span></div>'
     )
@@ -182,10 +191,12 @@ def _camera_panel_html(
       position: static; width: auto; height: auto; margin: 8px 0; padding: 0;
       overflow: visible;
     }
-    .manimux-camera-panel, .manimux-camera-label,
+    .manimux-camera-panel, .manimux-camera-label { display: none; }
     div:has(> .manimux-camera-anchor) + div,
     div:has(> .manimux-camera-anchor) + div + div,
-    div:has(> .manimux-camera-anchor) + div + div + div { display: none; }
+    div:has(> .manimux-camera-anchor) + div + div + div {
+      position: static; width: 100%; height: auto; margin: 6px 0; aspect-ratio: 16 / 9;
+    }
   }
 </style>
 <div class="manimux-left-overlay-root"></div>
@@ -235,7 +246,7 @@ def _camera_panel_html(
             rules.append(f"{selector} {{{geometry}}}")
         if "top" not in slots:
             rules.append(".manimux-camera-label-left,.manimux-camera-label-right {top:10px;}")
-        style += "<style>" + "".join(rules) + "</style>"
+        style += "<style>@media (min-width: 901px) {" + "".join(rules) + "}</style>"
     return style + "".join(
         f'<span class="manimux-camera-label manimux-camera-label-{slot}" '
         f'title="{html.escape(name)}"><strong>{html.escape(name)}</strong></span>'
@@ -282,6 +293,9 @@ class CameraPanel:
         ]
         self._views: list[tuple[str, str] | None] = list(self._configured)
         self._received: set[int] = set()
+        self._frame_times: dict[int, float] = {}
+        self._frame_keys: dict[int, object] = {}
+        self._frozen = False
         self._sources: dict[int, str] = {}
         self._placeholder = np.zeros((90, 160, 3), dtype=np.uint8)
         self.display_container = gui.add_folder("")
@@ -318,8 +332,32 @@ class CameraPanel:
     def _clear_image(self, index: int) -> None:
         self.images[index].image = self._placeholder
         self._received.discard(index)
+        self._frame_times.pop(index, None)
+        self._frame_keys.pop(index, None)
         if self._slots and self._slots[0] == "top" and index == 0:
             self._on_main_image(None)
+
+    def freeze_images(self) -> None:
+        """Keep the last task image as evidence, never label it as live."""
+        self._frozen = True
+        self._render()
+
+    def refresh_freshness(self) -> None:
+        self._render()
+
+    def _image_status(self, index: int) -> tuple[str, str]:
+        if index not in self._received:
+            return "Waiting", "waiting"
+        if self._frozen:
+            return "Frozen · task ended", "muted"
+        age = max(0.0, time.monotonic() - self._frame_times.get(index, 0.0))
+        if age > 1.0:
+            return f"Stale · {age:.0f}s since new frame", "waiting"
+        return "Live", "live"
+
+    @property
+    def main_status(self) -> str:
+        return self._image_status(0)[0]
 
     def clear_images(self) -> None:
         for index in range(len(self.images)):
@@ -390,7 +428,8 @@ class CameraPanel:
             self._clear_image(index)
         self._render()
 
-    def update_images(self, payloads: Mapping[str, str]) -> None:
+    def update_images(self, payloads: Mapping[str, str],
+                      metadata: Mapping[str, dict] | None = None) -> None:
         # Normal state heartbeats omit images between camera updates.
         if not payloads:
             return
@@ -426,6 +465,12 @@ class CameraPanel:
             )
             self.images[index].image = image
             self._received.add(index)
+            self._frozen = False
+            info = (metadata or {}).get(selected, {})
+            key = (info.get("sequence"), info.get("timestamp_ns"))
+            if key == (None, None) or key != self._frame_keys.get(index):
+                self._frame_times[index] = time.monotonic()
+                self._frame_keys[index] = key
             if self._slots and self._slots[0] == "top" and index == 0:
                 self._on_main_image(image)
         self._render()
@@ -433,7 +478,8 @@ class CameraPanel:
     def _render(self) -> None:
         labels = {
             self._slots[index]: (
-                self._configured[index][0] if self._slots[index] != "top" else view[0],
+                (self._configured[index][0] if self._slots[index] != "top" else view[0])
+                + " · " + self._image_status(index)[0],
                 self._sources.get(index, view[1]),
             )
             for index, view in enumerate(self._views[: len(self._slots)])
@@ -445,31 +491,36 @@ class CameraPanel:
         if self._config.get("camera_mode", "policy") == "manual":
             title = "Manual preview · Model inputs unchanged"
         elif self._policy_map:
-            title = "Model input cameras · Live preview"
+            title = "Model input cameras"
         elif self._invalid_map:
             title = "Default preview · Invalid model input mapping"
         else:
             title = "Default preview · Waiting for model input configuration"
+        if self._frozen and self._received:
+            title += " · Last recorded frames"
         rows = []
         for index, view in enumerate(self._views):
             if view is None:
                 rows.append(
-                    _camera_status_row(self._slots[index], "—", "Unassigned", "muted", "Not configured")
+                    _camera_status_row(
+                        self._slots[index], "—", "Unassigned", "muted", "Not configured"
+                    )
                 )
                 continue
             name, source = view
             source = self._sources.get(index, source)
-            status = "Live" if index in self._received else "Waiting for image"
+            status, kind = self._image_status(index)
             rows.append(
                 _camera_status_row(
-                    name, source, "Live" if index in self._received else "Waiting",
-                    "live" if index in self._received else "waiting", status,
+                    name, source, status, kind, status,
                 )
             )
             if len(self._slots) <= index < len(self.images):
                 self.images[index].label = f"{name} ← {source} · {status}"
         rows.extend(
-            _camera_status_row(name, source, "Temporal", "temporal", "Temporal input · Shared physical camera")
+            _camera_status_row(
+                name, source, "Temporal", "temporal", "Temporal input · Shared physical camera"
+            )
             for name, source in self._temporal_views
         )
         details = (
@@ -481,7 +532,10 @@ class CameraPanel:
                 f"{html.escape(name)} ← {html.escape(source)}"
                 for name, source in self._policy_map.items()
             )
-            details += f'<p class="mm-camera-note">Model inputs: {inputs or "Waiting for configuration"}</p>'
+            details += (
+                '<p class="mm-camera-note">Model inputs: '
+                f'{inputs or "Waiting for configuration"}</p>'
+            )
         details += "</section>"
         if self.details is not None and self.details.content != details:
             self.details.content = details

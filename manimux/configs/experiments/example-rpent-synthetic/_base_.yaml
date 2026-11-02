@@ -1,0 +1,37 @@
+# Hardware-free transport/runtime check. No camera, checkpoint or robot SDK is used.
+run:
+  task_prompt: Synthetic policy dispatch demonstration.
+  output_dir: ./data/policy-dispatch-demo
+  max_control_steps: 100000
+
+robot:
+  type: manimux.dispatch.demo:build_robot
+  group_dims: {left_arm: 7, right_arm: 7}
+  control_hz: 100.0
+  options:
+    execute: false
+    home_on_close: false
+
+sensors: []
+policy:
+  worker: fake
+  adapter:
+    type: manimux.policies.fake:FakePolicyAdapter
+  action_dt_s: 0.05
+  horizon_policy_steps: 10
+  inference_delay_s: 0.01
+  timeout_s: 5.0
+  # Allow spawned workers to import dependencies from a shared filesystem.
+  startup_timeout_s: 180.0
+
+inference:
+  algorithm: serial
+  action_start_mode: first_step_when_ready
+  blend_policy_steps: 0
+
+executor:
+  type: direct
+robogui:
+  enabled: false
+recording:
+  video_fps: 0

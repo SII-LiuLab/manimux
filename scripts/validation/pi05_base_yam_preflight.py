@@ -85,9 +85,9 @@ def main() -> int:
         frames = sensor.read()
         snapshot = ObservationSnapshot(state=state, frames=frames)
 
-        first_request = _request(session_id, 1, snapshot, config["run"]["task"])
+        first_request = _request(session_id, 1, snapshot, config["run"]["task_prompt"])
         first_chunk, compile_latency_s = _decode(model, adapter, first_request)
-        second_request = _request(session_id, 2, snapshot, config["run"]["task"])
+        second_request = _request(session_id, 2, snapshot, config["run"]["task_prompt"])
         steady_chunk, steady_latency_s = _decode(model, adapter, second_request)
 
         rows = np.concatenate(
@@ -147,7 +147,7 @@ def main() -> int:
                 observation_time_ns=state.monotonic_ns,
                 deadline_ns=time.monotonic_ns() + 120_000_000_000,
                 observation=snapshot,
-                instruction=config["run"]["task"],
+                instruction=config["run"]["task_prompt"],
                 action_condition=condition.astype(np.float64),
                 condition_weights=weights.astype(np.float64),
                 rtc_beta=config["inference"]["rtc"]["beta"],

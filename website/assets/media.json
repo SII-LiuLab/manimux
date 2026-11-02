@@ -1,0 +1,74 @@
+{
+  "wall": {
+    "tiles": 36,
+    "playback": "Single precomposed video; repeated synthetic recording."
+  },
+  "film": {
+    "source": "recordings/agent-demo-v6-hook/manimux-product-demo-hook-1440p30.mp4",
+    "duration_seconds": 92,
+    "width": 2560,
+    "height": 1440,
+    "fps": 30,
+    "evidence": "Product demonstration with synthetic RoboGUI, repeated wall footage and illustrative evaluation.",
+    "source_intervals_seconds": [
+      [
+        74,
+        85
+      ],
+      [
+        0,
+        74
+      ],
+      [
+        85,
+        92
+      ]
+    ]
+  },
+  "files": {
+    "execution.mp4": {
+      "bytes": 445293,
+      "sha256": "020ae963ab6bca76068744fce883badef55d1506072c8f947b4d3d0cd8e5fd09"
+    },
+    "hero-poster.jpg": {
+      "bytes": 77146,
+      "sha256": "487e38ac6d6aeee56c73fc2713012d416c8e68d9a286bc6f34b961b76d1d4b40"
+    },
+    "product-poster.jpg": {
+      "bytes": 102261,
+      "sha256": "92cb0ed1cadbd4426a7a020788c30501d74b014c0a065499aedb911162c7e316"
+    },
+    "execution-poster.jpg": {
+      "bytes": 66154,
+      "sha256": "9de1ca823478bdb96745af59b2c348461e3d8265064bb6a02c9a3a9bc9ffdd94"
+    },
+    "product-demo-hook.mp4": {
+      "bytes": 9645983,
+      "sha256": "e7c33be84565e7925e02b89b27c70ca771c52b464f472ad0e012d6edbd15c343"
+    },
+    "hero-robogui.mp4": {
+      "bytes": 1220661,
+      "sha256": "85a119a245f68bf4e548c6262163aa3f20141a2a36be53dc0efb50defab96ef6"
+    }
+  },
+  "archive": {
+    "source": "assets/manimux_2026-09-05_23-17-35-00.00.03.144-00.00.34.914-seg1-00.00.02.596-00.00.34.966.mp4",
+    "trim_start_seconds": 3,
+    "duration_seconds": 12,
+    "width": 1280,
+    "height": 720,
+    "fps": 30,
+    "speed": 1,
+    "evidence": "Repository labels the source a real-robot demo; full model/checkpoint/inference provenance is unavailable."
+  },
+  "hero": {
+    "source": "skills/manimux-demo-video/assets/inputs/robogui-live.mp4",
+    "duration_seconds": 23.2,
+    "width": 1280,
+    "height": 720,
+    "fps": 30,
+    "seam_dissolve_seconds": 0.8,
+    "speed": 1,
+    "evidence": "Synthetic RoboGUI preview orbit. Not physical robot execution or model inference."
+  }
+}

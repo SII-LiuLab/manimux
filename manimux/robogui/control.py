@@ -50,6 +50,8 @@ class RuntimeControlClient:
         self._reply_rtt_ms: float | None = None
         self._server_timing: dict = {}
         self._episode_control: dict = {}
+        self._seen_home: tuple | None = None
+        self._request_ids: dict = {}
         self._thread = threading.Thread(
             target=self._run, name="runtime-robogui-controls", daemon=True,
         )
@@ -67,15 +69,33 @@ class RuntimeControlClient:
                 "control_run_dir": state.get("control_run_dir", ""),
                 "warmup_requested": state.get("warmup_requested") is True,
                 "start_identity": deepcopy(state.get("start_identity")),
+                "control_revision": state.get("control_revision", ""),
             }
             self._paused = paused
             self._pause_pending |= paused
-            self._home |= state.get("home_requested") is True
+            received_request = False
+            home_id = str(state.get("home_request_id", ""))
+            home_key = (state.get("control_run_dir"), state.get("episode_id"), home_id)
+            if state.get("home_requested") is True and (
+                not home_id or home_key != self._seen_home
+            ):
+                received_request = True
+                self._home = True
+                self._seen_home = home_key
+                self._request_ids["home_request_id"] = home_id
             if state.get("finish_requested") is True:
+                received_request = True
                 self._finish = True
                 self._finished = True
                 value = state.get("finish_home")
                 self._finish_home = value if isinstance(value, bool) else None
+                self._request_ids["finish_request_id"] = state.get("finish_request_id", "")
+            # Keep the request's identity even if a later transport sample is stale.
+            if received_request:
+                self._request_ids.update(
+                    episode_id=state.get("episode_id", ""),
+                    control_run_dir=state.get("control_run_dir", ""),
+                )
             # Conservatively date the sample to request time, not a delayed receipt.
             self._updated_at = time.monotonic() if sampled_at is None else sampled_at
             self._transport_status = "ok"
@@ -105,8 +125,11 @@ class RuntimeControlClient:
                 "home_requested": self._home and not self._finished,
                 "finish_requested": self._finish,
                 "finish_home": self._finish_home if self._finish else None,
+                **(dict(self._request_ids) if self._home or self._finish else {}),
                 **(deepcopy(self._episode_control)
                    if reason in {"running", "robogui_pause"} else {}),
+                **({"start_identity": deepcopy(self._episode_control.get("start_identity"))}
+                   if reason == "finish" else {}),
                 "diagnostics": {
                     "reason": reason, "transport_status": self._transport_status,
                     "control_age_ms": None if age is None else age * 1000,

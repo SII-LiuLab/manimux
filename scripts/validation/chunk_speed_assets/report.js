@@ -326,7 +326,7 @@ function renderHeader() {
   $("evidence").innerHTML =
     `<p>session: <code>${esc(DATA.session)}</code></p><p>checkpoint: <code>${esc(DATA.identity.model?.checkpoint_source || "unknown")}</code><br>backend revision: <code>${esc(DATA.identity.server_revision || "unknown")}</code></p>
   <p>FK source/configuration fingerprints compared with recording time: ${DATA.fk_source_check.checked_files} files, ${DATA.fk_source_check.mismatches.length} mismatches. External SDKs and model assets are outside this check. Evidence summaries, per-chunk data and SHA-256 hashes are in analysis.json in the same directory.</p>
-  <p>Reproduce with <code>scripts/validation/plot_chunk_speed.py --session SESSION --out OUTPUT [--offline OFFLINE]</code>; see <code>.agents/skills/manimux-experiments/references/chunk-speed.md</code>.</p>
+  <p>Reproduce with <code>scripts/validation/plot_chunk_speed.py --session SESSION --out OUTPUT [--offline OFFLINE]</code>; see <code>skills/manimux-experiments/references/chunk-speed.md</code>.</p>
   <pre>${esc(JSON.stringify(c, null, 2))}</pre><p>${DATA.exclusions.length} exclusions: ${esc(DATA.exclusions.map((x) => (x.plan || x.episode) + " → " + x.reason).join("; "))}</p>`;
 }
 function renderStats() {

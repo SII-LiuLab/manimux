@@ -14,7 +14,7 @@ from typing import Any
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-XPOLICY_ROOT = REPO_ROOT / "XPolicyLab"
+XPOLICY_ROOT = REPO_ROOT / "third_party" / "XPolicyLab"
 GR00T_ROOT = XPOLICY_ROOT / "policy/GR00T_N17/gr00t_n17"
 DEFAULT_CONFIG = REPO_ROOT / "manimux/configs/policy/groot/yam/finetune.yaml"
 
@@ -33,7 +33,7 @@ REQUIRED_RUNTIME_DISTRIBUTIONS = ("torch", "transformers", "flash_attn", "xpolic
 
 
 def _prepare_imports() -> None:
-    for path in (REPO_ROOT, XPOLICY_ROOT, GR00T_ROOT):
+    for path in (REPO_ROOT, XPOLICY_ROOT.parent, XPOLICY_ROOT, GR00T_ROOT):
         value = str(path)
         if value not in sys.path:
             sys.path.insert(0, value)
@@ -275,7 +275,8 @@ def main() -> int:
             str(args.local.resolve()) if args.local is not None else "",
         )
     else:
-        config = _load_config(args.config.resolve())
+        from manimux.policies.recipe import read_policy_recipe
+        config = read_policy_recipe(args.config.resolve())
         config.pop("backend_identity", None)
     model_dir, horizon = _validate_checkpoint(config)
     contract = {

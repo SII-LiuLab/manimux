@@ -11,7 +11,7 @@ num_envs: 1
 action_type: joint
 eval_batch: false
 
-model_dir: /home/ubuntu/manimux/checkpoints/finetuned/robocurve/gr00t-n1.7-yam-molmoact2
+model_dir: ${paths.checkpoints}/finetuned/robocurve/gr00t-n1.7-yam-molmoact2
 checkpoint_source: robocurve/gr00t-n1.7-yam-molmoact2
 checkpoint_num: null
 embodiment_tag: NEW_EMBODIMENT

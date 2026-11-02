@@ -1,0 +1,21 @@
+# Example config list: hosted Dream-1 on one task, direct and with the RPent agent.
+# The model is hosted, so only camera, RoboGUI and runtime run locally, all on this list:
+#   LIST=manimux/configs/lists/example-yam-dream1.yaml
+#   python -m manimux.servers.camera.server --config-list $LIST
+#   python -m manimux.robogui.dashboard --robot yam --port 8086
+#   export DREAM_API_KEY=...   # in the runtime terminal only
+#   python -m manimux run --config-list $LIST
+id: example-yam-dream1
+recording:
+  root: ../../../data/experiments
+experiments:
+- id: put_bottles_serial
+  label: Dream-1 - Serial
+  config: ../experiments/example-yam-dream1/put_bottles/serial.yaml
+  trials:
+    repeats: 3
+- id: put_bottles_rpent
+  label: Dream-1 + RPent
+  config: ../experiments/example-yam-dream1/put_bottles/rpent.yaml
+  trials:
+    repeats: 3

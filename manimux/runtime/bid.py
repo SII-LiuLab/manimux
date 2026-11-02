@@ -221,10 +221,11 @@ class BidBackwardStrategy(SynchronousChunkStrategy):
 
 
 def bid_parameters(**options) -> dict:
-    values = {
+    from manimux.config_validation import merge_parameters
+    values = merge_parameters({
         "num_samples": 16, "rho": 0.9, "replan_policy_steps": 5,
-        "execution_horizon": "fixed", **options,
-    }
+        "execution_horizon": "fixed",
+    }, options, 'inference.bid', extra=())
     if set(values) != {"num_samples", "rho", "replan_policy_steps", "execution_horizon"}:
         raise ValueError("unsupported BID parameter")
     if values["execution_horizon"] not in {"fixed", "aac"}:

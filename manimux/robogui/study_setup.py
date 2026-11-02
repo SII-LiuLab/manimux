@@ -17,6 +17,7 @@ def reference_task(task: str, available: tuple[str, ...]) -> str:
 
 def completed_repeats(
     root: Path | None, task: str, defaults: dict[str, Any],
+    *, history_sessions: tuple[Path, ...] = (),
 ) -> dict[tuple[str, str], set[int]]:
     """Read finalized, human-scored trials across sessions of this method's output root.
 
@@ -24,9 +25,7 @@ def completed_repeats(
     keep a replaced layout from inheriting trials from the previous image.
     """
     result: dict[tuple[str, str], set[int]] = {}
-    if root is None or not root.is_dir():
-        return result
-    for path in root.glob("session-*/rollout-*/evaluation/human-label.json"):
+    for path in _record_files(root, history_sessions, "evaluation/human-label.json"):
         episode = path.parent.parent
         if episode.name.endswith(".partial") or not (episode / "result.json").is_file():
             continue
@@ -49,6 +48,34 @@ def completed_repeats(
     return result
 
 
+def remaining_trials(
+    choices: list[dict[str, Any]], task: str, reference_sha: dict[str, str],
+) -> list[dict[str, Any]]:
+    """Unscored layout/repeat slots for every method of one task in a config list.
+
+    A slot counts as done exactly when Prepare would skip it: the same layout, the
+    current reference image and a scored repeat within the template limit.
+    """
+    rows = []
+    for choice in choices:
+        study = choice.get("study") or {}
+        template = study.get("experiment_template") or {}
+        layouts, repeats = template.get("layout_ids") or [], template.get("repeats")
+        if choice.get("task") != task or not layouts or not repeats:
+            continue
+        history = completed_repeats(
+            Path(study["output_dir"]), task, study.get("research_defaults", {}),
+            history_sessions=tuple(Path(p) for p in study.get("history_sessions", [])),
+        )
+        missing = [
+            (layout, repeat) for layout in layouts for repeat in range(1, repeats + 1)
+            if repeat not in history.get((layout, reference_sha.get(layout, "")), set())
+        ]
+        rows.append({"id": choice["id"], "label": choice["label"],
+                     "total": len(layouts) * repeats, "missing": missing})
+    return rows
+
+
 def next_repeat(used: set[int], limit: int | None) -> int:
     repeat = 1
     while repeat in used:
@@ -58,12 +85,22 @@ def next_repeat(used: set[int], limit: int | None) -> int:
     return repeat
 
 
-def unscored_experiments(root: Path | None, task: str) -> dict[str, Path]:
+def _record_files(root: Path | None, history_sessions, suffix: str):
+    sessions = list(root.glob("session-*")) if root is not None and root.is_dir() else []
+    sessions.extend(history_sessions)
+    seen = set()
+    for session in sessions:
+        for path in session.glob("rollout-*/" + suffix):
+            canonical = path.resolve()
+            if canonical not in seen:
+                seen.add(canonical)
+                yield canonical
+
+
+def unscored_experiments(root: Path | None, task: str, *, history_sessions: tuple[Path, ...] = ()) -> dict[str, Path]:
     """Find completed, started study trials awaiting a human label in this method directory."""
     choices: dict[str, Path] = {}
-    if root is None or not root.is_dir():
-        return choices
-    for path in sorted(root.glob("session-*/rollout-*/meta.json"), reverse=True):
+    for path in sorted(_record_files(root, history_sessions, "meta.json"), reverse=True):
         episode = path.parent
         if episode.name.endswith(".partial") or (episode / "evaluation/human-label.json").exists():
             continue

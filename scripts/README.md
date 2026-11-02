@@ -6,7 +6,15 @@ model implementations remain in the separate XPolicyLab repository.
 
 The scripts are grouped by responsibility:
 
+- `setup/`: SDK installation checks, DLS-gate calibration and ChunkTrust backend export
+  ([README](setup/README.md)).
+- `assets/`: build robot description assets for PiPER, X5 and ALOHA
+  ([README](assets/README.md)).
 - `datasets/`: prepare assets and statistics consumed by runtime inference.
+- `experiments/`: generate inference-comparison variants from one task and checkpoint
+  ([inference matrix](../skills/manimux-inference/references/inference-matrix.md)).
+- `evaluation/`: PRM-as-a-Judge scoring of recorded rollouts
+  ([evaluation](../skills/manimux-experiments/references/evaluation.md)).
 - `validation/`: offline probes, configuration checks, and diagnostic audits.
 - `media/`: robogui recording and other presentation helpers.
 
@@ -24,4 +32,4 @@ envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py --h
 
 For self-contained chunk speed reports with online execution, offline Pi05
 predictions, wrist images and inference latency, see the
-[chunk speed diagnostics guide](../.agents/skills/manimux-experiments/references/chunk-speed.md).
+[chunk speed diagnostics guide](../skills/manimux-experiments/references/chunk-speed.md).

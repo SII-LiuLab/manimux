@@ -20,5 +20,5 @@ services:
     request_endpoint: tcp://127.0.0.1:5555
   policy:
     endpoint: ws://127.0.0.1:8560
-# Example keys: checkpoint, norm_stats, vlm_processor, output_dir.
+# Example keys: checkpoint, norm_stats, vlm_processor. Study storage belongs to collection recording.root.
 paths: {}

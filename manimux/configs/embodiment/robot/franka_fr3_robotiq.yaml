@@ -1,0 +1,16 @@
+name: franka_fr3_robotiq
+components:
+  arm:
+    config: ../arm/franka_fr3.yaml
+  gripper:
+    config: ../end_effector/robotiq_2f.yaml
+    parent: arm.flange
+    mount: {xyz: [0, 0, 0], rpy: [0, 0, 0]}
+    options:
+      visual_model: 2f_85
+      # Example controller EE frame, not a universal Robotiq finger TCP.
+      # Select an assembly with the actual station's flange-to-TCP transform.
+      tcp_transform: [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0.174], [0, 0, 0, 1]]
+groups:
+  arm: {arm: arm, end_effector: gripper}
+hardware: {stale_timeout_s: 0.2}

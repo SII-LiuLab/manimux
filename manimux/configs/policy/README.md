@@ -4,16 +4,30 @@ These recipes select the model artifacts and inference settings for a ManiMux
 experiment. XPolicyLab consumes their model parameters and owns model loading,
 preprocessing, normalization, sampling and the shared policy server.
 
-```text
-policy/
-├── pi05/yam/
-│   ├── base.yaml
-│   └── put-bottles/joint-step30000.yaml
-├── umi_dp/tianji/
-│   ├── assembly.yaml
-│   └── pass_ball/default.yaml
-└── <model>/<embodiment>/<recipe>.yaml
-```
+Recipes are named `<model>/<embodiment>/[<task>/]<recipe>.yaml`. Published recipes:
+
+| Recipe | Model and checkpoint | Used by |
+| --- | --- | --- |
+| [`pi05/yam/put-bottles/joint.yaml`](pi05/yam/put-bottles/joint.yaml) | Pi05 finetuned on YAM put-bottles, joint actions, 50 rows | [`example-yam-pi05`](../experiments/example-yam-pi05/README.md) |
+| [`pi05/yam/finetune.yaml`](pi05/yam/finetune.yaml) | Pi05 YAM finetune `robocurve/pi05-yam-molmoact2`, 16 rows | `servers.pi05` default, algorithm reproductions |
+| [`pi05/droid/jointpos.yaml`](pi05/droid/jointpos.yaml) | openpi `pi05_droid_jointpos`, Franka joint positions | [`example-franka`](../experiments/example-franka/_base_.yaml) |
+| [`pi05/tianji/pack_plate/wrist-only-step59999.yaml`](pi05/tianji/pack_plate/wrist-only-step59999.yaml) | Pi05 Tianji pack-plate, wrist cameras, EE poses | [`example-tianji-pi05`](../experiments/example-tianji-pi05/README.md) |
+| [`pi05/tianji/pack_plate/inter-hand-relative-step{20000,59999}.yaml`](pi05/tianji/pack_plate/) | Pi05 Tianji pack-plate, inter-hand-relative state | [runbook](../../../skills/manimux-inference/references/deployment/pi05-tianji-pack-plate-inter-hand-relative.md) |
+| [`openwam/yam/finetune.yaml`](openwam/yam/finetune.yaml) | OpenWAM YAM finetune template; set `ckpt_dir` | [runbook](../../../skills/manimux-inference/references/deployment/openwam-yam.md) |
+| [`lingbot-vla2/yam/base.yaml`](lingbot-vla2/yam/base.yaml) | LingBot-VLA2 6B base with YAM projection stats | [runbook](../../../skills/manimux-inference/references/deployment/lingbot-vla2-yam.md) |
+| [`lingbot-vla2/yam/finetune.yaml`](lingbot-vla2/yam/finetune.yaml) | LingBot-VLA2 finetune template; set the artifact paths | same runbook |
+| [`xiaomi-xr1/yam/base.yaml`](xiaomi-xr1/yam/base.yaml) | Xiaomi Robotics 1 5B base with YAM projection stats | `servers.xr1` default |
+| [`xiaomi-xr1/tianji/pass_ball/step50000.yaml`](xiaomi-xr1/tianji/pass_ball/step50000.yaml) | Xiaomi Robotics 1 Tianji pass-ball post-train | [runbook](../../../skills/manimux-inference/references/deployment/xiaomi-xr1-tianji-taccap.md) |
+| [`abc_dit/yam/put-bottles/pretrained-200k.yaml`](abc_dit/yam/put-bottles/pretrained-200k.yaml) | ABC-DiT XL 200k pretrain, zero-shot | [runbook](../../../skills/manimux-inference/references/deployment/abc-dit-yam.md) |
+| [`groot/yam/finetune.yaml`](groot/yam/finetune.yaml) | GR00T N1.7 YAM finetune | [runbook](../../../skills/manimux-inference/references/deployment/gr00t-yam.md) |
+| [`umi_dp/tianji/pass_ball/default.yaml`](umi_dp/tianji/pass_ball/default.yaml) | UMI Diffusion Policy template for Tianji; set the checkpoint | `servers.umi_dp` default |
+| [`isaac05/libero/base.yaml`](isaac05/libero/base.yaml) | Isaac-0.5 LIBERO, offline forward check | [runbook](../../../skills/manimux-inference/references/deployment/isaac05-offline.md) |
+| [`poke/yam/api.yaml`](poke/yam/api.yaml) | Hosted Poke API; no local server | [`example-yam-poke`](../experiments/example-yam-poke/serial.yaml) |
+
+To serve your own checkpoint, copy the closest recipe, point its artifact paths at your
+export below the station's `paths.checkpoints`, rename `checkpoint_variant` (it is recorded
+with every trial) and keep the training task label in `task_name`. Recipes for checkpoints
+you do not publish stay private: list them in `.gitignore` next to the existing entries.
 
 An experiment references one recipe through `policy_server.config`; inline
 experiment values override that recipe. Several inference algorithms can reuse
@@ -62,4 +76,13 @@ not packing order, action semantics, FK/IK, timing or execution behavior.
 XPolicyLab's shared LeRobot converters accept `--model-config <recipe> --fps <source-rate>`.
 Pi05/DP/LingBot conversion scripts also accept the recipe via `--model-config` or
 `XPOLICYLAB_MODEL_CONFIG` in their shell wrappers. See the
-[framework guide](../../../XPolicyLab/README.md#explicit-deployment-layout).
+[framework guide](../../../third_party/XPolicyLab/README.md#explicit-deployment-layout).
+
+## Portable artifact roots
+
+Recipes may use `${paths.checkpoints}/...` or another named `paths` root from
+`local/station.yaml`; `${repo}/...` names a checked-in resource. The collection
+loader and standalone recipe reader resolve these identically. Missing station
+roots fail explicitly. Paths inside `paths:` are relative to the station file.
+Keep user names and machine-specific absolute directories out of shared recipes.
+See the [configuration guide](../../../guideline.html#experiment-config-locations).

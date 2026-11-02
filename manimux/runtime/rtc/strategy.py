@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 class RtcInferenceStrategy:
     """Pi-guided RTC request scheduling and chunk conditioning."""
 
+    warmup_required_calls = {"ordinary": 1, "conditioned": 2}
     discard_plans_while_paused = True
     ensemble_scope: EnsembleScope = "execution_prefix"
 
@@ -44,6 +45,13 @@ class RtcInferenceStrategy:
         self._condition_source = rtc.get("condition_source", "canonical")
         self._condition_predictor = None
         self._min_execute_steps = rtc["min_execute_policy_steps"]
+        buffered = config["inference"].get("min_plan_hold_policy_steps", 0) > 0
+        self._check_reference = (
+            config["inference"]["inference_schedule"] == "multi_inflight" or buffered
+        )
+        self._time_aligned = buffered or (
+            config["inference"].get("temporal_ensemble") or {}
+        ).get("enabled", False)
         initial_delay = rtc["initial_delay_policy_steps"]
         self._initial_delay_steps = None if initial_delay is None else int(initial_delay)
         self._delay_buffer_size = int(rtc["delay_buffer_size"])
@@ -146,7 +154,7 @@ class RtcInferenceStrategy:
             observation_time_ns=snapshot.state.monotonic_ns,
             deadline_ns=now_ns + int(self._config["policy"]["timeout_s"] * 1_000_000_000),
             observation=adapter.build_observation(snapshot),
-            instruction=self._config["run"]["task"],
+            instruction=self._config["run"]["task_prompt"],
             action_condition=None if condition is None else condition.astype(np.float64),
             condition_weights=None if weights is None else weights.astype(np.float64),
             rtc_beta=self._rtc_beta,
@@ -202,12 +210,9 @@ class RtcInferenceStrategy:
                         delay_steps=delay,
                     )
                     forecast_used = delay
-                    ensemble = (self._config["inference"].get("temporal_ensemble") or {}).get(
-                        "enabled", False,
-                    )
-                    if self._condition_source != "canonical" or ensemble:
-                        # ACT compositions condition the accepted fused timeline on
-                        # the new observation grid, including fractional intervals.
+                    if self._condition_source != "canonical" or self._time_aligned:
+                        # Condition the executing timeline on the observation grid,
+                        # including fractional intervals and optional ACT fusion.
                         arguments = dict(origin_ns=snapshot.state.monotonic_ns,
                             dt_ns=int(action_interval(self._config["policy"]) * 1e9),
                             steps=horizon, group_order=self._group_order)
@@ -235,7 +240,7 @@ class RtcInferenceStrategy:
             observation_time_ns=snapshot.state.monotonic_ns,
             deadline_ns=deadline_ns,
             observation=adapter.build_observation(snapshot),
-            instruction=self._config["run"]["task"],
+            instruction=self._config["run"]["task_prompt"],
             action_condition=None if condition is None else condition.astype(np.float64),
             condition_weights=None if weights is None else weights.astype(np.float64),
             action_condition_space=timeline.action_space,
@@ -246,7 +251,7 @@ class RtcInferenceStrategy:
         self._request_started_ns[request_seq] = now_ns
         self._request_observation_ns[request_seq] = snapshot.state.monotonic_ns
         self._request_forecast[request_seq] = forecast_used
-        if request_state.multi_flight:
+        if self._check_reference:
             self._request_reference_seq[request_seq] = timeline.accepted_request_seq
         return InferenceSubmission(
             request=request,
@@ -298,7 +303,7 @@ class RtcInferenceStrategy:
         now_ns: int,
     ) -> ActionChunk:
         del now_ns
-        if self._config["inference"]["inference_schedule"] == "multi_inflight" and (
+        if self._check_reference and (
             self._request_reference_seq.get(response.request_seq) != self._active_request_seq
         ):
             raise ValueError("rtc_condition_plan_replaced")
@@ -410,18 +415,18 @@ class RtcInferenceStrategy:
 
 def rtc_parameters(**options) -> dict:
     """RTC changes only inference and chunk timing; shared runtime still manages executor limits."""
+    from manimux.config_validation import merge_parameters
 
     unsupported = {"min_execute_steps", "initial_delay_steps"}.intersection(options)
     if unsupported:
         raise ValueError(f"unsupported RTC fields: {sorted(unsupported)}")
-    values = {
+    values = merge_parameters({
         "min_execute_policy_steps": None,
         "initial_delay_policy_steps": 4,
         "delay_buffer_size": 10,
         "beta": 5.0,
         "condition_source": "canonical",
-        **options,
-    }
+    }, options, 'inference.rtc', extra=())
     if values["condition_source"] not in {"canonical", "timeline", "executor"}:
         raise ValueError("rtc.condition_source must be canonical, timeline, or executor")
     return values

@@ -1,0 +1,9 @@
+# Example study entry: direct Dream-1, Serial. Listed in ../../../lists/example-yam-dream1.yaml.
+_base_:
+- ../_base_.yaml
+- ../../../tasks/put_bottles.yaml
+run:
+  task_prompt: Put the bottles into the bin.
+experiment:
+  task: put_bottles
+  variant: serial

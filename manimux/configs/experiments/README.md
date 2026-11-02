@@ -1,62 +1,72 @@
-# Experiment entry points
+# Experiment variants
 
-Current experiments use `executor.type: direct`, independently of the inference
-algorithm. Keep that choice explicit in new experiment YAMLs. Direct removes the
-Smooth executor; timeline blending, adapter/IK behavior, explicitly configured
-motion limits and robot SDK processing remain separate settings.
+Only the `example-*` studies are published; they are also the runtime examples:
 
-## Active tasks
+| Study | Base | Variants |
+| --- | --- | --- |
+| [`example-synthetic/`](example-synthetic/README.md) | Synthetic robot and fake policy, no hardware or station file | `demo/{serial,async}` |
+| [`example-yam-pi05/`](example-yam-pi05/README.md) | Pi05 through XPolicyLab, YAM, Serial 30 Hz | `put_bottles/{serial,rtc,async10,rpent,chunktrust_ahs,chunktrust_ahs_rtc}` |
+| [`example-yam-dream1/`](example-yam-dream1/README.md) | Hosted Dream-1 API, YAM, Serial 30 Hz | `put_bottles/{serial,rpent}` |
+| [`example-yam-poke/`](example-yam-poke/serial.yaml) | Hosted Poke API, YAM | `serial` |
+| [`example-tianji-pi05/`](example-tianji-pi05/README.md) | Pi05 pack-plate through XPolicyLab, Tianji Marvin + TacCap, actuation off | `pack_plate/{serial,async,rtc}` |
+| [`example-franka/`](example-franka/_base_.yaml) | Franka FR3, XPolicyLab joint policy, read-only | `pick_yellow_block/{pi05_droid,rpent}` |
+| [`example-rpent-synthetic/`](example-rpent-synthetic/_base_.yaml) | Synthetic robot and tool policy, no hardware | `demo/{rpent,rpent_gui,rpent_gui_debug,rpent_gui_primitives}` |
 
-| Task directory | Current entries |
-| --- | --- |
-| `put_bottles/` | Existing bottle experiments, all using Direct |
-| `coin/pi05/` | 50k: Serial, RTC, Async, PAINT |
-| `stack_blocks/pi05/` | 50k: Serial, RTC, Async, PAINT |
-| `stack_blocks_small/pi05/` | 50k: Serial, RTC, Async, PAINT |
+Your own experiment directories and their config list entries are local and ignored by
+Git. Creating a local study does not publish it; explicitly update the allowlist in
+`.gitignore` when another study is intended for sharing.
 
-The previous screwdriver, red-object, pass-ball and offline experiment entries
-were removed on 2026-10-09. Recorded rollouts and model/component implementations
-are retained. Diagnostic scripts requiring an experiment now take an explicit
-`--config`, `--infra-config` or `--experiment` instead of a retired default.
+Store variants under `<study>/<task>/<variant>.yaml`. The study `_base_.yaml` is a
+runnable baseline (robot, cameras, policy client and model recipe, timing, RoboGUI); each
+variant inherits it and a task from `../../tasks/`, then sets only what its method
+changes, as the example variants do. Component references stay in
+`policy/`, `inference/`, `embodiment/` and `executor/`. Scoring lives inline
+in the shared task YAML.
 
-New Pi05 tasks share 30 Hz model actions, 100 Hz control, 50-step predictions,
-10 denoising steps, seed 0 and Direct. Serial/Async use a 16-step prefix, RTC
-uses the aligned min-16 preset, and PAINT uses its existing 12-step preset.
-These are starting settings, not an equal-execution-budget claim or a new
-hardware validation. Each entry declares ten layouts and three repeats;
-layout references and task-specific success criteria still need to be frozen.
-New tasks use the generic manual completion label until a task rubric is defined.
+The task YAML also owns `run.max_control_steps`. Model bases and concrete methods
+inherit that limit; do not copy it into each variant. Chunk execution windows
+remain inference settings and are independent of the total rollout budget.
 
-Policy recipes hold checkpoint and matching normalization paths. Coin uses the
-existing local Pi05 checkpoint; block recipes select the verified export on the
-mounted T7 drive. The drive must be mounted at the path declared in the recipe.
-Xiaomi/LingBot coin and block runtime entries are not yet bound; their new
-checkpoint contracts and artifact completeness need validation first. Do not
-substitute a bottle checkpoint or point inference at `.partial` downloads.
+Variants used in formal studies declare `experiment.task` and `experiment.variant`,
+without an output root or repeat budget. A file in `../lists/` selects variants,
+trials and `recording.root`; launch all services with that same `--config-list`.
 
-Example (the same experiment config is used for model server and runtime):
+The same variant can be tried directly with `run --config <variant>`. Camera and
+generic policy services also accept that `--config`. This route offers Prepare Run
+only and saves separate trial records; it never consumes the study repeat budget.
+A new standalone runtime config needs no experiment identity, layouts or scoring.
 
-```bash
-envs/yam/.venv/bin/python -m manimux serve \
-  --config manimux/configs/experiments/coin/pi05/yam_pi05_rtc_joint_step50000.yaml
-```
+Example lists: [`example-synthetic`](../lists/example-synthetic.yaml),
+[`example-yam-pi05`](../lists/example-yam-pi05.yaml),
+[`example-yam-dream1`](../lists/example-yam-dream1.yaml),
+[`example-tianji-pi05`](../lists/example-tianji-pi05.yaml).
+See the [complete protocol and commands](../../../guideline.html#experiment-lists).
 
-The CLI manages runtime/RoboGUI; start the model and camera services using the
-existing deployment guide. Configuration checking does not launch any services.
-Outputs are `data/experiments/pi05-<task>-joint-step50000/<method>/session-*/`.
+## Start your own study
 
-## Model-side algorithm support on YAM
+1. Run [`example-synthetic`](example-synthetic/README.md) once to learn the RoboGUI loop.
+2. Copy the closest example study to a new name (without the `example-` prefix, so it stays
+   private): `cp -r example-yam-pi05 my-study`.
+3. Edit `my-study/_base_.yaml`: robot assembly, cameras, `policy_server.config` (copy a
+   recipe from [`../policy/`](../policy/README.md) for your checkpoint) and the baseline timing.
+   Run it alone first: `manimux inspect --config my-study/_base_.yaml`.
+4. Add or copy a task in [`../tasks/`](../tasks/README.md): prompt (the training label),
+   layouts and score options. Rename `rubric_id` whenever the options change.
+5. Write one file per method under `my-study/<task>/`. Each inherits `../_base_.yaml` and the
+   task, sets `experiment: {task, variant}` and only what the method changes.
+6. Copy a list from [`../lists/`](../lists/README.md), point its entries at your variants,
+   set `trials` and `recording.root`, and validate:
+   `manimux inspect --config-list manimux/configs/lists/my-study.yaml`.
+7. Start camera, model, RoboGUI and runtime with that `--config-list` (the command block in
+   each example README), then Prepare Experiment in RoboGUI.
 
-The current experiment register contains four YAM tasks: coin, block stacking,
-rotating clock and bottles. Each task has paired metric/PRM tables with a single
-`Method` column containing the model and inference method. Existing small-block
-configs are an alternative dataset setting, not a separate task or a pooled cohort.
+To change a method after trials were recorded, give it a new `variant` ID; the old
+recordings keep their saved conditions.
 
-Use the maintained [sampling matrix](../../../.agents/skills/manimux-inference/references/inference-matrix.md)
-for current implementation support and conditions; the older capability summary
-is superseded. The seven methods are Serial, Async, ACT temporal ensemble, RTC,
-PAINT, AAC and AutoHorizon. DP PAINT/AutoHorizon are not applicable. A table row
-is a planned comparison, not evidence of a ready checkpoint or successful robot run.
-
-Shared values stay in policy/inference/embodiment YAMLs through `config:`;
-station files hold device bindings. The actual loader is `manimux.cli.load_config`.
+Raw historical sessions retain their saved parameters and paths. Their config list
+`history` inputs require compatible conditions. A change only to the stop budget
+retains progress without renaming variants or rewriting sessions; each session's
+saved budget and condition fingerprint remain authoritative for analysis.
+Sessions containing only a startup manifest and no `rollout-*` records do not
+block a corrected configuration. Their manifests remain unchanged; even a partial
+rollout keeps the normal compatibility check.

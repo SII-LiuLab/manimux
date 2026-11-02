@@ -96,6 +96,7 @@ class RobotBase(ABC):
         self._execute = execute is True
         self._end_effector_control = end_effector_control is True
         self._lock = threading.RLock()
+        self._command_status: dict = {}
 
     @property
     def arm_components(self) -> Mapping[str, ArmBase]:
@@ -118,6 +119,30 @@ class RobotBase(ABC):
         """Solve per-arm-base TCP targets; fixed tool coordinates include aperture."""
         return self.kinematics.ik(targets, seed, fixed_coordinates=fixed_coordinates)
 
+    def command_bounds(self) -> dict[str, FloatArray]:
+        """Map controller limits into the same grouped coordinates as commands."""
+        bounds = {controller: controller.command_bounds() for controller in self._controllers}
+        grouped = {}
+        for name, arm in self.arm_components.items():
+            if arm.channel in bounds[arm.controller]:
+                rows = np.array(bounds[arm.controller][arm.channel], dtype=float, copy=True)
+                if rows.shape != (arm.num_joints, 2):
+                    raise ValueError(f"{name}: controller command bounds do not match arm layout")
+                grouped[name] = (
+                    np.vstack((rows, [0.0, 1.0])) if name in self.end_effectors else rows
+                )
+        return grouped
+
+    def command_status(self) -> dict:
+        """Last submission attempt; a failed controller batch may be partly sent."""
+        return {
+            **{
+                key: list(value) if isinstance(value, list) else value
+                for key, value in self._command_status.items()
+            },
+            "group_channels": {name: arm.channel for name, arm in self.arm_components.items()},
+        }
+
     def connect(self) -> None:
         with self._lock:
             if self._ready:
@@ -127,7 +152,9 @@ class RobotBase(ABC):
             try:
                 for controller in self._controllers:
                     self._controller_open.append(controller)
-                    controller.connect()
+                    from manimux.failures import failure_context
+                    with failure_context("robot", "controller connection", str(getattr(controller, "channel", type(controller).__name__))):
+                        controller.connect()
                 for name, tool in self.end_effectors.items():
                     self._end_effector_open.add(name)
                     tool.connect()
@@ -158,7 +185,7 @@ class RobotBase(ABC):
                     timing_scope(name),
                 ):
                     feedback[controller] = controller.get_states()
-            groups, timestamps = {}, []
+            groups, timestamps, grippers = {}, [], {}
             for name, arm in self.arm_components.items():
                 state = feedback[arm.controller][arm.channel]
                 if state.joints.shape != (arm.num_joints,):
@@ -173,13 +200,18 @@ class RobotBase(ABC):
                     if not 0 <= self._clock.now_ns() - tool_ns <= self._stale_ns:
                         raise RuntimeError(f"{name}: stale gripper feedback or clock mismatch")
                     groups[name] = np.r_[groups[name], tool_state.opening]
+                    grippers[name] = tool_state
                     timestamps.append(tool_ns)
             self._sequence += 1
-            return RobotState(groups, min(timestamps), self._sequence)
+            return RobotState(groups, min(timestamps), self._sequence, grippers=grippers)
 
     @timed("robot_send_command")
     def send_command(self, command: RobotCommand) -> None:
         with timing_scope("robot_send_command"), timed_lock(self._lock, "assembly_lock_wait"):
+            self._command_status = {
+                "stage": "robot_validation", "submitted_channels": [],
+                "attempting_channels": [], "dispatch_attempted": False,
+            }
             self._require_ready()
             if set(command.groups) != set(self.arm_components):
                 raise ValueError("command must contain all configured groups, without extras")
@@ -195,24 +227,38 @@ class RobotBase(ABC):
                 batches[arm.controller][arm.channel] = q[: arm.num_joints]
                 if name in self.end_effectors:
                     tool_commands[name] = GripperCommand(float(q[arm.num_joints]))
-            # A read-only experiment still checks action shapes, but never enables
-            # an arm or end effector. FK/IK and measured observations remain usable.
-            if not self._execute:
-                return
             for controller, batch in batches.items():
                 controller.validate_commands(batch)
+            # Pure device validation is identical in receive-only and executing
+            # runs. Motor readiness and physical submission remain execution-only.
+            if not self._execute:
+                self._command_status["stage"] = "validated_only"
+                return
             try:
+                self._command_status["stage"] = "feedback_validation"
                 self.get_state()
                 for index, (controller, batch) in enumerate(batches.items()):
+                    self._command_status.update(
+                        stage="controller_dispatch", attempting_channels=list(batch),
+                        dispatch_attempted=True,
+                    )
                     name = f"controller_{index}.send_commands"
                     with (
                         stage(name, controller_type=type(controller).__name__),
                         timing_scope(name),
                     ):
                         controller.send_commands(batch)
+                    self._command_status["submitted_channels"].extend(batch)
+                    self._command_status["attempting_channels"] = []
                 if self._end_effector_control:
                     for name, tool_command in tool_commands.items():
+                        self._command_status.update(
+                            stage="tool_dispatch", attempting_channels=[f"{name}.gripper"],
+                        )
                         self.end_effectors[name].send_command(tool_command)
+                        self._command_status["submitted_channels"].append(f"{name}.gripper")
+                        self._command_status["attempting_channels"] = []
+                self._command_status["stage"] = "submitted"
             except Exception as error:
                 try:
                     self.stop()
@@ -222,6 +268,14 @@ class RobotBase(ABC):
 
     def home(self) -> None:
         raise NotImplementedError("home trajectory not configured; use the runtime motion planner")
+
+    def home_targets(self, state: RobotState) -> dict[str, FloatArray] | None:
+        """Final Home targets in command coordinates; None means unspecified.
+
+        This is evidence only, with no hardware I/O. Initial rollout targets do
+        not define Home. Assemblies with a defined Home override this method.
+        """
+        return None
 
     # Idle recovery: RoboGUI may request these between rollouts. Each request builds
     # a fresh, disconnected assembly and calls the matching method below.
@@ -376,7 +430,22 @@ class RobotBase(ABC):
 
     def close(self) -> None:
         with self._lock:
-            self._ready = False
+            # Validate every controller before releasing the first arm, including
+            # partial-connect cleanup. A raised peer must not lose support first.
+            while True:
+                release_errors = []
+                for controller in self._controller_open:
+                    try:
+                        controller.validate_release()
+                    except Exception as error:
+                        release_errors.append(error)
+                if not release_errors:
+                    break
+                from .release import ReleaseDecision, require_supported_release
+                if require_supported_release("; ".join(str(e) for e in release_errors)) is ReleaseDecision.SUPPORTED_RELEASE:
+                    for controller in self._controller_open:
+                        controller.confirm_supported_release()
+                    break
             errors = []
             try:
                 self.stop()
@@ -392,8 +461,14 @@ class RobotBase(ABC):
                 try:
                     controller.close()
                     self._controller_open.remove(controller)
+                    # Keep a fully connected assembly usable for a Home retry
+                    # while the first controller is still in its release gate.
+                    # Once any controller closes, whole-robot motion is invalid.
+                    self._ready = False
                 except Exception as error:
                     errors.append(error)
+            if not self._controller_open:
+                self._ready = False
             try:
                 self.close_sensors()
             except Exception as error:
@@ -560,18 +635,20 @@ class RobotModel:
                 raise ValueError("home.joints_deg must contain every configured arm group")
             for group_name, group in groups.items():
                 q = np.asarray(targets[group_name], dtype=np.float64)
+                coordinates = group.arm.coordinates
+                # Integrated grippers are normalized coordinates, not angles.
+                arm_dofs = components[group.arm_name].get("action_layout", {}).get(
+                    "arm_dofs", len(coordinates)
+                )
                 if (
-                    q.shape != (len(group.arm.coordinates),)
+                    q.shape != (arm_dofs,)
                     or not np.isfinite(q).all()
-                    or any(coordinate.unit != "rad" for coordinate in group.arm.coordinates)
+                    or any(coordinate.unit != "rad" for coordinate in coordinates[:arm_dofs])
                 ):
                     raise ValueError(f"home.joints_deg.{group_name}: invalid joint angles")
                 q = np.radians(q)
-                limits = components[group.arm_name]["hardware"].get("joint_limits")
-                if limits is not None and (
-                    np.any(q < np.asarray(limits[0])) or np.any(q > np.asarray(limits[1]))
-                ):
-                    raise ValueError(f"home.joints_deg.{group_name}: outside joint limits")
+                # Station-calibrated bounds belong to the selected controller;
+                # their layout differs between SDKs and is validated by it.
                 q.setflags(write=False)
                 home_joints[group_name] = q
         kin = RobotKinematics({key: value.kinematics for key, value in groups.items()})

@@ -6,7 +6,8 @@ arm base frame), one physical gripper pose has base-frame translation
 ``p_robot = p_model - offset``. Requests convert measured joints and RTC/PAINT rows
 robot -> model; decoded actions convert model -> robot. Each conversion is FK, the
 translation, then IK seeded at the input joints, so identical rows map identically and
-orientation and gripper are unchanged. An IK failure rejects the request or chunk.
+orientation and gripper are unchanged. Observation conversion errors reject the request;
+action IK failures follow execution.ik.failure_policy.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from dataclasses import replace
 
 import numpy as np
 
+from manimux.kinematics.failure import IKConvergenceError
 from manimux.policy_adapter.joint import JointAdapter
 from manimux.policy_adapter.pose_output import pose_chunk, target_rows
 from manimux.types import ActionChunk, ActionContext, InferenceRequest
@@ -58,7 +60,7 @@ class MountOffsetJointAdapter(JointAdapter):
         target[:3, 3] += sign * self._offsets[group]
         result = model.ik(target, q, fixed_coordinates={model.coordinates[-1].name: float(q[-1])})
         if not result.converged:
-            raise ValueError(f"mount offset IK failed for {group}: {result.reason}")
+            raise IKConvergenceError(f"mount offset IK failed for {group}: {result.reason}")
         return np.asarray(result.joints, dtype=float)
 
     def _shift_rows(self, rows: np.ndarray, sign: float, active=None) -> np.ndarray:
@@ -102,10 +104,15 @@ class MountOffsetJointAdapter(JointAdapter):
                     pose[:3, 3] -= self._offsets[group]
                     targets[group].append((pose, float(row[-1])))
             return pose_chunk(context, target_rows(targets), chunk.dt_ns)
-        groups = {
-            group: np.stack([self._shift(group, row, -1.0) for row in rows])
-            for group, rows in chunk.groups.items()
-        }
-        metadata = dict(chunk.metadata or {})
+        if context.ik_seed is None:
+            raise ValueError("Mount-offset action IK requires a runtime-selected seed")
+        groups, diagnostics = {}, {}
+        for group, rows in chunk.groups.items():
+            sequence = self.ik_sequence(group, context.ik_seed.groups[group])
+            groups[group] = np.stack([
+                sequence.solve(lambda group=group, row=row: self._shift(group, row, -1.0)) for row in rows
+            ])
+            diagnostics[group] = sequence.metadata()
+        metadata = {**(chunk.metadata or {}), "ik": diagnostics}
         metadata["mount_offset_m"] = {group: offset.tolist() for group, offset in self._offsets.items()}
         return replace(chunk, groups=groups, metadata=metadata)

@@ -13,23 +13,28 @@ from pathlib import Path
 import numpy as np
 
 from manimux.clock import Clock, SystemClock
+from manimux.configuration import initial_pose_metadata, initial_pose_targets
 from manimux.embodiments.robot import RobotBase, build_robot
+from manimux.embodiments.robot.release import observe_release
 from manimux.embodiments.sensor import build_sensor
 from manimux.embodiments.sensor.reader import SensorReader
 from manimux.evaluation.identity import rollout_identity, start_identity
 from manimux.evaluation.rubric import evaluation_parameters
+from manimux.failures import failure_context
 from manimux.policies import ActionDecoderClient, PolicyCapabilities, metadata_mismatches
 from manimux.policies.base import action_interval
+from manimux.policies.response_log import response_log_path
 from manimux.policies.worker import PolicyWorkerClient
 from manimux.policy_adapter import build_policy_adapter
-from manimux.policy_adapter.pose_output import POSE_SPACE
 from manimux.recording import EpisodeRecorder
 from manimux.recording.provenance import state_evidence
 from manimux.robogui import RoboGUIBridge
 from manimux.runtime.decode_forecast import DecodeForecast
 from manimux.runtime.diagnostics import build_plan_boundary_payload
+from manimux.runtime.dispatch import DispatchStrategy, DispatchWarmupStrategy, PolicyDispatch
 from manimux.runtime.execution import ExecutionPipeline
 from manimux.runtime.executors import DirectExecutor, Executor, MPCExecutor, SmoothExecutor
+from manimux.runtime.feedback import notify_command_feedback
 from manimux.runtime.ik import step_ik_enabled, validate_ik_config
 from manimux.runtime.inference import (
     DefaultChunkStrategy,
@@ -41,13 +46,14 @@ from manimux.runtime.inference import (
     prepare_strategy_chunk,
     seed_strategy_warmup,
 )
+from manimux.runtime.lifecycle import OperationStatus, ShutdownStatus
+from manimux.runtime.planning import PlanningContext, condition_overlap_fields
 from manimux.runtime.safety import RuntimeState, SafetyGuard
 from manimux.runtime.scheduling import RequestScheduler
-from manimux.runtime.timeline import ActionTimeline, CommitResult
+from manimux.runtime.timeline import CommitResult
 from manimux.runtime.warmup import PolicyWarmup
 from manimux.timing import LoopTiming, stage
 from manimux.types import (
-    ActionContext,
     GroupVector,
     ObservationSnapshot,
     RobotCommand,
@@ -111,6 +117,10 @@ def _exception_detail(exc: BaseException, *, depth: int = 3) -> str:
     nothing about what actually went wrong.
     """
     text = f"{type(exc).__name__}: {exc}"
+    origin = getattr(exc, "manimux_failure", None)
+    if origin:
+        location = " / ".join(str(origin[key]) for key in ("source", "stage", "target") if origin.get(key))
+        text = f"[{location}] {text}"
     if depth <= 0:
         return text
     if isinstance(exc, BaseExceptionGroup):
@@ -139,7 +149,7 @@ class RunResult:
 
 def _next_rollout_id(run_dir: Path) -> str:
     highest = 0
-    pattern = re.compile(r"^rollout-(\d+)(?:\.partial)?$")
+    pattern = re.compile(r"^rollout-(\d+)(?:\.partial|\.deleted)?$")
     if not run_dir.exists():
         return "rollout-001"
     for path in run_dir.iterdir():
@@ -149,7 +159,7 @@ def _next_rollout_id(run_dir: Path) -> str:
     return f"rollout-{highest + 1:03d}"
 
 
-class EdgeRuntime:
+class EdgeRuntime(PlanningContext):
     """One real-robot control loop with a replaceable inference strategy."""
 
     def __init__(
@@ -160,7 +170,16 @@ class EdgeRuntime:
         clock: Clock | None = None,
         strategy: InferenceStrategy | None = None,
         launch_mode: str = "run",
+        dispatch: PolicyDispatch | None = None,
     ) -> None:
+        self._dispatch = dispatch
+        if dispatch is not None:
+            dispatch.validate_config(config)
+            if not dispatch.policy_enabled and config["run"].get("warmup_before_start"):
+                raise ValueError("primitive-only dispatch does not support policy warmup")
+            if strategy is not None:
+                raise ValueError("dispatch owns the inference strategy")
+            strategy = DispatchStrategy(config, dispatch)
         self._rollout_identity = rollout_identity(config["run"])
         self._evaluation = evaluation_parameters(config.get("evaluation"))
         self._config = config
@@ -188,6 +207,7 @@ class EdgeRuntime:
             raise ValueError("inference composition requires complete absolute-joint decoding")
         self._scheduler = RequestScheduler(config["inference"])
         self._multi_inflight = self._scheduler.multi_inflight
+        self._min_execute_steps = config["inference"].get("min_plan_hold_policy_steps", 0)
         if self._multi_inflight and not getattr(self._adapter, "supports_multi_inflight", False):
             raise ValueError("multi_inflight requires an adapter with streaming-safe decoding")
         self._decode_seed_source = getattr(
@@ -236,25 +256,16 @@ class EdgeRuntime:
             mode=config["inference"]["decode_forecast_mode"],
         )
         self._session_id = f"session-{uuid.uuid4().hex}"
-        self._worker = PolicyWorkerClient(
-            config["policy"], self._session_id, multi_inflight=self._multi_inflight,
+        self._worker = (
+            None
+            if dispatch is not None and not dispatch.policy_enabled
+            else PolicyWorkerClient(
+                config["policy"],
+                self._session_id,
+                multi_inflight=self._multi_inflight,
+            )
         )
         self._timeline = self._build_timeline()
-        self._executor = self._build_executor()
-        self._execution = ExecutionPipeline(
-            self._executor,
-            kinematics=self._robot.kinematics,
-            ik_options=config.get("execution", {}).get("ik"),
-            control_dt_ns=self._control_dt_ns,
-        )
-        if (config["inference"].get("rtc") or {}).get("condition_source") == "executor":
-            predictor = getattr(self._executor, "predict_commands", None)
-            setter = getattr(self._strategy, "set_condition_predictor", None)
-            if not callable(predictor) or not callable(setter):
-                raise ValueError(
-                    "RTC executor conditions require a forecast-capable executor and strategy"
-                )
-            setter(predictor)
         self._launch_mode = launch_mode
         position_limit_abs = None
         if config["executor"]["type"] == "smooth":
@@ -270,12 +281,28 @@ class EdgeRuntime:
             max_velocity=command_safety["max_velocity"],
             max_acceleration=command_safety["max_acceleration"],
             control_dt_s=self._control_dt_ns / 1_000_000_000,
+            device_bounds=getattr(self._robot, "command_bounds", lambda: {})() or {},
         )
+        self._executor = self._build_executor()
+        self._execution = ExecutionPipeline(
+            self._executor,
+            kinematics=self._robot.kinematics,
+            ik_options=config.get("execution", {}).get("ik"),
+            control_dt_ns=self._control_dt_ns,
+        )
+        if (config["inference"].get("rtc") or {}).get("condition_source") == "executor":
+            predictor = getattr(self._executor, "predict_commands", None)
+            setter = getattr(self._strategy, "set_condition_predictor", None)
+            if not callable(predictor) or not callable(setter):
+                raise ValueError(
+                    "RTC executor conditions require a forecast-capable executor and strategy"
+                )
+            setter(predictor)
         self._robogui = RoboGUIBridge(
             enabled=config["robogui"]["enabled"],
             robot=config["robogui"]["robot"],
             policy=config["robogui"]["policy_label"] or "manimux-local",
-            instruction=config["run"]["task"] if config["robogui"]["policy_label"] else "",
+            instruction=config["run"]["task_prompt"],
             camera_hz=config["robogui"]["camera_hz"],
             control=config["robogui"].get("control", {}),
         )
@@ -298,9 +325,11 @@ class EdgeRuntime:
 
     def _build_adapter(self):
         adapter = build_policy_adapter(
-            self._config["robot"], self._config["policy"],
+            self._config["robot"],
+            self._config["policy"],
             kinematics=self._robot.kinematics,
             motion_limits=self._config["executor"]["motion_limits"],
+            ik_options=self._config["execution"]["ik"],
         )
         adapter.decode_pose_only = step_ik_enabled(self._config)
         adapter.validate(self._config["robot"], self._config["policy"])
@@ -311,7 +340,10 @@ class EdgeRuntime:
         if self._config["executor"]["type"] == "direct":
             return DirectExecutor(self._config["executor"]["motion_limits"], control_dt_s)
         if self._config["executor"]["type"] == "smooth":
-            return SmoothExecutor(self._config["executor"]["smooth"], control_dt_s)
+            return SmoothExecutor(
+                self._config["executor"]["smooth"], control_dt_s,
+                command_limits=self._safety.execution_limits(),
+            )
         if self._config["executor"]["type"] == "mpc":
             if self._config["executor"]["motion_limits"] is not None:
                 raise ValueError(
@@ -320,25 +352,6 @@ class EdgeRuntime:
             return MPCExecutor(self._config["executor"]["mpc"], control_dt_s)
         raise ValueError(f"unknown executor type: {self._config['executor']['type']!r}")
 
-    def _build_timeline(self) -> ActionTimeline:
-        return ActionTimeline(
-            ({name: 8 for name in self._config["robot"]["group_dims"]}
-             if self._step_ik else self._config["robot"]["group_dims"]),
-            action_space=POSE_SPACE if self._step_ik else "joint_position",
-            max_source_steps=self._config["inference"]["max_chunk_policy_steps"],
-            blend_mode=self._config["inference"].get("blend_mode", "linear"),
-            gripper_indices=((self._config["executor"].get("smooth") or {}).get(
-                "gripper") or {}).get("group_indices", {}),
-            action_start_mode=self._config["inference"]["action_start_mode"],
-            hold_last_step=(
-                (
-                    self._config["inference"]["inference_schedule"] == "serial"
-                    and self._config["inference"]["algorithm"] in {"async", "serial"}
-                )
-                or getattr(self._strategy, "hold_last_step", False)
-            ),
-        )
-
     def _hold_command(self, now_ns: int, groups: GroupVector) -> RobotCommand:
         return RobotCommand(
             groups=copy_group_vector(groups),
@@ -346,88 +359,9 @@ class EdgeRuntime:
             plan_id=self._timeline.active_plan_id,
         )
 
-    def _decode_seed(
-        self,
-        state: RobotState,
-        now_ns: int,
-        observation_state: RobotState | None = None,
-        *,
-        seed_time_ns: int | None = None,
-    ) -> tuple[int, RobotState, str]:
-        """Expected plan start and IK seed for a process decode.
-
-        The adapter may declare an exact seed time independently of its source.
-        Complete Tianji chunks use observation time; waypoint suffixes use the
-        aligned handoff time. Neither choice changes the request observation.
-        """
-        if self._step_ik:
-            return now_ns, state, "measured_state"
-        expected_decode_s = self._decode_forecast.seconds
-        start_ns = now_ns + int(expected_decode_s * 1e9)
-        if self._decode_seed_source == "observation_state":
-            if observation_state is None:
-                raise ValueError("request observation state is unavailable for action decoding")
-            return start_ns, observation_state, "observation_state"
-        if seed_time_ns is not None:
-            groups = self._timeline.sample_runtime(seed_time_ns)
-            if groups is not None:
-                seed = RobotState(groups, seed_time_ns, state.sequence)
-                return start_ns, seed, "active_reference"
-            if (
-                observation_state is not None
-                and seed_time_ns == observation_state.monotonic_ns
-            ):
-                return start_ns, observation_state, "observation_state"
-            raise ValueError("no reference covers the requested IK seed time")
-        remaining_ns = self._timeline.remaining_ns(now_ns)
-        if expected_decode_s > 0 and remaining_ns > 0:
-            reference = self._timeline.sample(min(start_ns, now_ns + remaining_ns))
-            if reference is not None:
-                return start_ns, RobotState(reference, start_ns, state.sequence), "active_reference"
-        return start_ns, state, "measured_state"
-
-    def _decode_context(self, response, state, now_ns, observation_state) -> ActionContext:
-        """Keep observations intact and resolve the final IK seed once, before decoding."""
-        start_ns = now_ns + int(self._decode_forecast.seconds * 1e9)
-        handoff_reference = None
-        if self._config["inference"]["handoff"] == "waypoint" and self._strategy.decode_handoff(
-            response=response
-        ):
-            start_ns += int(self._config["inference"]["handoff_margin_s"] * 1e9)
-            handoff_reference = self._timeline.handoff_reference(
-                start_ns, round(action_interval(self._config["policy"]) * 1e9)
-            )
-        context = ActionContext(
-            request_seq=response.request_seq,
-            observation_time_ns=response.observation_time_ns,
-            created_time_ns=response.finished_time_ns,
-            execution_time_ns=(
-                start_ns
-                if self._config["inference"]["action_start_mode"] == "drop_infer_latency"
-                and (self._decoder is not None
-                     or self._strategy.name in {"async", "serial", "rtc", "train_time_rtc"})
-                else None
-            ),
-            observation_state=observation_state,
-            decode_reference=(
-                self._timeline.active_horizon()
-                if getattr(self._adapter, "uses_decode_reference", False) else None
-            ),
-            handoff_reference=handoff_reference,
-            max_source_steps=self._config["inference"]["max_chunk_policy_steps"],
-            independent_groups=self._config["inference"]["independent_group_decoding"],
-            decode_budget_ms=(
-                self._config["inference"]["decode_budget_ms"]
-                if self._config["inference"]["independent_group_decoding"] else None
-            ),
-        )
-        _, seed, source = self._decode_seed(
-            state, now_ns, observation_state,
-            seed_time_ns=self._adapter.decode_seed_time_ns(context),
-        )
-        return replace(context, ik_seed=seed, ik_seed_source=source)
-
     def _validate_policy_capabilities(self) -> None:
+        if self._worker is None:
+            return
         capabilities = getattr(self._worker, "capabilities", PolicyCapabilities())
         missing = self._strategy.required_sampling_modes.difference(capabilities.sampling_modes)
         if missing:
@@ -435,6 +369,9 @@ class EdgeRuntime:
                 f"execution strategy {self._strategy.name!r} requires sampling modes "
                 f"{sorted(missing)} that the policy server does not advertise"
             )
+        validator = getattr(self._strategy, "validate_capabilities", None)
+        if callable(validator):
+            validator(capabilities)
         expected = self._config["policy"]["expected_backend"]
         if expected is None:
             return
@@ -446,10 +383,69 @@ class EdgeRuntime:
             details = "; ".join(mismatches)
             raise RuntimeError(f"policy backend identity mismatch: {details}")
 
+    def _send_command(
+        self, command: RobotCommand, state: RobotState, recorder: EpisodeRecorder, *, step: int,
+        reference_plan_id: str | None = None,
+    ) -> None:
+        """Validate and dispatch; retain a failed attempt outside successful tick data."""
+        failure_stage = "safety_validation"
+        try:
+            with stage("safety_command"), failure_context("action", "command safety validation"):
+                self._safety.validate_command(command)
+            failure_stage = "robot_dispatch"
+            with failure_context("robot", "command dispatch"):
+                self._robot.send_command(command)
+        except Exception as exc:
+            # A controller can fail after submitting only part of its batch.
+            # Never label such a failure as a successfully sent command.
+            try:
+                fields = dict(
+                    step=step, monotonic_ns=command.monotonic_ns, stage=failure_stage,
+                    plan_id=command.plan_id, request_seq=self._timeline.accepted_request_seq,
+                    attempted_command={
+                        name: np.asarray(q).tolist() for name, q in command.groups.items()
+                    },
+                    measured_state={
+                        name: np.asarray(q).tolist() for name, q in state.groups.items()
+                    },
+                    measured_time_ns=state.monotonic_ns,
+                    limits=self._safety.execution_limits(), error=_exception_detail(exc),
+                    dispatch={"dispatch_attempted": False}
+                    if failure_stage == "safety_validation" else {},
+                )
+                try:
+                    dispatch = dict(getattr(self._robot, "command_status", lambda: {})() or {})
+                    fields["channels"] = dispatch.pop("group_channels", {})
+                    if failure_stage == "robot_dispatch":
+                        fields.update(stage=dispatch.get("stage", failure_stage), dispatch=dispatch)
+                    fields["coordinates"] = {
+                        name: [{"name": c.name, "unit": c.unit} for c in model.coordinates]
+                        for name, model in getattr(self._robot.kinematics, "models", {}).items()
+                    }
+                except Exception as diagnostic_error:
+                    fields["diagnostic_error"] = _exception_detail(diagnostic_error)
+                recorder.event("command_rejected", **fields)
+            except Exception:
+                logger.exception("failed to record rejected command")
+            logger.exception("command_rejected stage=%s plan=%s", failure_stage, command.plan_id)
+            raise
+        notify_command_feedback(
+            self._strategy,
+            command=command,
+            reference_plan_id=reference_plan_id,
+            source=(
+                "submitted"
+                if self._config["robot"]["options"].get("execute") is True
+                else "validated_only"
+            ),
+        )
+
     def run(self) -> RunResult:  # noqa: C901 - the safety-critical loop stays linear
         started_wall = time.perf_counter()
         sensor_reader = SensorReader(
-            self._sensors, self._clock, **self._config["run"].get("sensor_reading", {}),
+            self._sensors,
+            self._clock,
+            **self._config["run"].get("sensor_reading", {}),
         )
         episode_id = _next_rollout_id(self._run_dir)
         timing = LoopTiming(
@@ -465,7 +461,9 @@ class EdgeRuntime:
             metadata={
                 "episode_id": episode_id,
                 "session_id": self._session_id,
-                "task": self._config["run"]["task"],
+                "task": self._config["run"]["task_prompt"],
+                "initial_pose": initial_pose_metadata(self._config),
+                "collection": deepcopy(self._config.get("collection")),
                 "evaluation": dict(self._evaluation),
                 "executor_kind": self._config["executor"]["type"],
                 "execution_ik": self._config.get("execution", {}).get("ik", {"mode": "chunk"}),
@@ -478,6 +476,8 @@ class EdgeRuntime:
                 "inference_schedule": self._scheduler.mode,
                 "request_trigger": self._scheduler.trigger,
                 "observation_hz": self._config["inference"]["observation_hz"],
+                "min_plan_hold_policy_steps": self._min_execute_steps,
+                "command_limits": self._safety.execution_limits(),
                 "policy_label": self._config["robogui"]["policy_label"],
                 "policy_worker": self._config["policy"]["worker"],
                 "policy_adapter": self._config["policy"]["adapter"]["type"],
@@ -491,6 +491,9 @@ class EdgeRuntime:
                 **self._rollout_identity,
                 "identity_frozen": False,
                 "launch_mode": self._launch_mode,
+                "execution_mode": "rpent" if self._dispatch is not None else "vla",
+                "policy_enabled": self._worker is not None,
+                "agent_run_dir": self._config["run"].get("agent_run_dir", ""),
                 "policy_backend": {},
             },
             video_fps=self._config["recording"]["video_fps"],
@@ -508,6 +511,42 @@ class EdgeRuntime:
         discard_responses_through = -1
         pending_visuals: dict[int, dict[str, object]] = {}
         pending_observation_states: dict[int, RobotState] = {}
+        pending_response = None
+
+        def rejected_response(response, reason):
+            evidence = response_log_path(
+                self._config["policy"]["options"].get("response_log_dir"),
+                response.session_id, response.request_seq,
+            )
+            if evidence is not None and "response_artifacts=" not in reason:
+                reason += f"; response_artifacts={evidence}"
+            return replace(response, error=reason)
+
+        def reject_response(response, reason):
+            nonlocal rejected_plans
+            logger.warning("inference_rejected seq=%d reason=%s", response.request_seq, reason)
+            detail = reason
+            if reason == "inference_deadline_exceeded":
+                deadline = response.deadline_ns or last_request_deadline_ns
+                detail += (
+                    f": finished_time_ns={response.finished_time_ns}, deadline_ns={deadline}, "
+                    f"late_ms={(response.finished_time_ns - deadline) / 1e6:.3f}"
+                )
+            rejected = rejected_response(response, detail)
+            self._strategy.on_response_rejected(rejected)
+            rejected_plans += 1
+            recorder.event(
+                "inference_rejected", request_seq=response.request_seq,
+                reason=reason, detail=rejected.error,
+            )
+            with stage("robogui_publish_event"):
+                self._robogui.publish_event(
+                    "inference_rejected", step=steps, chunk_id=response.request_seq,
+                    metadata={"reason": reason, "detail": rejected.error},
+                )
+            pending_visuals.pop(response.request_seq, None)
+            pending_observation_states.pop(response.request_seq, None)
+
         worker_failure_reported = False
         last_dispatch_log_ns = 0
         last_dispatch_plan_id: object = object()
@@ -515,36 +554,128 @@ class EdgeRuntime:
         steps = 0
         formal_start_recorded = False
         identity_frozen = False
+        operator_started = False
         last_control_status = None
         completed = False
         terminal_reason = "completed"
         abort_reason = "runtime_exception"
         abort_detail = ""
-        home_on_close = bool(self._config["robot"]["options"].get("home_on_close", False))
         warmup = None
+        shutdown_attempted = False
+        home = getattr(self._robot, "home", None)
+        # The base method explicitly rejects Home. Do not offer or call it on
+        # assemblies such as Franka that have no implemented Home trajectory.
+        can_home = callable(home) and getattr(home, "__func__", None) is not RobotBase.home
+        home_available = shutdown_home = can_home
+        shutdown_status = ShutdownStatus(
+            enabled=self._config["robogui"]["enabled"],
+            robot=self._config["robogui"]["robot"],
+            policy=self._config["robogui"]["policy_label"],
+            run_dir=str(self._run_dir.resolve()), episode_id=episode_id,
+            home=(home if shutdown_home
+                  and self._config["robot"]["options"].get("execute", False) else None),
+        )
+
+        preparation = OperationStatus(
+            enabled=self._config["robogui"]["enabled"],
+            robot=self._config["robogui"]["robot"],
+            policy=self._config["robogui"]["policy_label"], event="runtime_preparing",
+            identity={"run_dir": str(self._run_dir.resolve()), "episode_id": episode_id},
+        )
+
+        def shutdown_runtime(*, faulted: bool) -> list[BaseException]:
+            """Release control resources before waiting for recording I/O."""
+            nonlocal shutdown_attempted
+            if shutdown_attempted:
+                return []
+            shutdown_attempted = True
+            preparation.close()
+            shutdown_status.update("stopping")
+            self._state = RuntimeState.IDLE
+            errors: list[BaseException] = []
+            # Fence agent admission before Home or a release gate can block.
+            # Failed pending calls do not acknowledge physical hold or arrival.
+            if self._dispatch is not None:
+                self._dispatch.close(abort_reason if faulted else terminal_reason)
+            if self._worker is not None:
+                try:
+                    self._worker.request_stop()
+                except BaseException as exc:
+                    errors.append(exc)
+            # The dispatch loop has stopped. Home while actuator control is
+            # still owned: some SDK stop() calls disable position control.
+            # Robot.close() performs stop only after its measured release gate.
+            if robot_connected and shutdown_home:
+                try:
+                    logger.warning("shutdown_home_started faulted=%s", faulted)
+                    shutdown_status.update("homing")
+                    self._robot.home()
+                    logger.info("shutdown_home_completed")
+                except BaseException as exc:
+                    logger.error("shutdown_home_failed: %s", _exception_detail(exc))
+                    errors.append(exc)
+            closers = [self._robot.close]
+            if self._worker is not None:
+                closers.append(self._worker.close)
+            if self._decoder is not None:
+                closers.append(self._decoder.close)
+            closers.append(sensor_reader.close)
+            for closer in closers:
+                try:
+                    shutdown_status.update("closing")
+                    with observe_release(shutdown_status.update, recover=shutdown_status.wait_for_release):
+                        closer()
+                except BaseException as exc:
+                    errors.append(exc)
+            shutdown_status.update("finalizing")
+            return errors
+
         try:
             if self._config["run"].get("warmup_before_start", False):
+                assert self._worker is not None
                 warmup = PolicyWarmup(
-                    self._config, worker=self._worker,
-                    strategy=build_inference_strategy(self._config),
+                    self._config,
+                    worker=self._worker,
+                    strategy=(
+                        DispatchWarmupStrategy(self._config, self._dispatch.motion_tools)
+                        if self._dispatch is not None
+                        else build_inference_strategy(self._config)
+                    ),
                     adapter=self._build_adapter(), session_id=self._session_id, clock=self._clock,
+                    executor=self._build_executor(), kinematics=self._robot.kinematics,
+                    safety=deepcopy(self._safety), decoder=self._decoder,
                 )
-            sensor_reader.start()
-            # Preflight cameras before connecting hardware, but do not leave
-            # background requests in flight across blocking SDK initialization.
-            # Native calls can hold the GIL long enough to age a queued reply.
-            if sensor_reader.mode == "background":
-                sensor_reader.close()
-            self._worker.start()
-            logger.info("policy_worker_ready session=%s", self._session_id)
+            preparation.update("Starting cameras")
+            with failure_context("camera", "sensor startup"):
+                sensor_reader.start()
+            if self._worker is not None:
+                preparation.update("Connecting policy backend")
+                with failure_context("model", "model connection", str(self._config["policy"].get("options", {}).get("server", ""))):
+                    self._worker.start()
+            logger.info("runtime_input_ready session=%s", self._session_id)
             if self._decoder is not None:
-                self._decoder.start()
+                with failure_context("action", "decoder startup"):
+                    self._decoder.start()
             self._validate_policy_capabilities()
             capabilities = getattr(self._worker, "capabilities", PolicyCapabilities())
             recorder.update_metadata(
                 policy_backend=dict(capabilities.backend_metadata),
             )
-            self._robot.connect()
+            # Policy startup can be slow; recheck sensors before enabling hardware.
+            preparation.update("Checking fresh camera frames")
+            with failure_context("camera", "fresh frame check before robot connection"):
+                sensor_reader.read()
+            # Do not leave background requests queued across blocking SDK calls.
+            # Preserve the fresh-camera preflight before connecting the robot.
+            if sensor_reader.mode == "background":
+                with failure_context("camera", "pausing camera polling for robot connection"):
+                    sensor_reader.close()
+            preparation.update("Connecting robot and moving to the selected initial pose")
+            with observe_release(shutdown_status.update, recover=shutdown_status.wait_for_release):
+                channels = self._config["robot"].get("options", {}).get("component_hardware", {})
+                target = ", ".join(f"{name}: {binding['channel']}" for name, binding in channels.items() if "channel" in binding)
+                with failure_context("robot", "robot connection", target):
+                    self._robot.connect()
             robot_connected = True
             initial_state = self._robot.get_state()
             logger.info(
@@ -563,23 +694,30 @@ class EdgeRuntime:
                 robot_backend=self._robot.runtime_metadata(),
                 initial_state=state_evidence(
                     initial_state,
-                    targets=self._config["robot"]["options"].get("start_joints"),
+                    targets=initial_pose_targets(self._config),
                 ),
                 inference_seed=capabilities.backend_metadata.get("model", {}).get("inference_seed"),
             )
             previous_command = copy_group_vector(initial_state.groups)
+            preparation.update("Preparing action execution")
             self._execution.warmup(initial_state.groups)
             if sensor_reader.mode == "background":
-                sensor_reader.start()
+                with failure_context("camera", "restarting camera polling after robot connection"):
+                    sensor_reader.start()
             last_command = copy_group_vector(initial_state.groups)
+            # Position hold is latched, not a measured-position follower. Seed
+            # it after Prepare so waiting/Warmup cannot ratchet external motion
+            # or gravity-compensation error into a new target every tick.
+            hold_target = copy_group_vector(initial_state.groups)
             self._state = RuntimeState.RUNNING
             robogui_episode_metadata = {
                 "episode_active": True,
                 "identity_frozen": False,
+                "operator_started": False,
                 "episode_id": episode_id,
                 "episode_dir": str(recorder.final_dir.resolve()),
                 "run_dir": str(self._run_dir.resolve()),
-                "instruction": self._config["run"]["task"],
+                "instruction": self._config["run"]["task_prompt"],
                 "evaluation": dict(self._evaluation),
                 "max_steps": self._config["run"]["max_control_steps"],
                 "control_mode": self._strategy.control_mode,
@@ -589,16 +727,27 @@ class EdgeRuntime:
                 **self._rollout_identity,
                 "camera_map": self._config["policy"]["adapter"].get("camera_map", {}),
                 "launch_mode": self._launch_mode,
+                "execution_mode": "rpent" if self._dispatch is not None else "vla",
+                "policy_enabled": self._worker is not None,
+                "agent_run_dir": self._config["run"].get("agent_run_dir", ""),
                 **({"warmup": warmup.metadata()} if warmup is not None else {}),
             }
             # The current robot does not offer manual-drag recovery; RoboGUI does
             # not expose retired driver capabilities.
             robogui_episode_metadata["recovery_available"] = False
             # The active runtime owns Home; idle recovery remains service-owned.
-            robogui_episode_metadata["home_available"] = (
-                "home" in self._robot.recovery_actions
-            )
+            robogui_episode_metadata["home_available"] = home_available
+            preparation.close()
             self._robogui.set_state_metadata(robogui_episode_metadata)
+            if self._dispatch is not None:
+                self._dispatch.start(
+                    episode_id=episode_id,
+                    episode_dir=str(recorder.final_dir.resolve()),
+                    run_dir=str(self._run_dir.resolve()),
+                    task=self._config["run"]["task_prompt"],
+                    policy_worker=self._config["policy"]["worker"],
+                    policy_backend=dict(capabilities.backend_metadata),
+                )
             with stage("robogui_publish_event"):
                 self._robogui.publish_event(
                     "episode_started",
@@ -606,73 +755,40 @@ class EdgeRuntime:
                 )
             next_tick_ns = self._clock.now_ns()
 
-            while steps < self._config["run"]["max_control_steps"]:
+            # Zero disables only the tick budget; Finish/Home and faults still exit.
+            while (
+                self._config["run"]["max_control_steps"] == 0
+                or steps < self._config["run"]["max_control_steps"]
+            ):
                 timing.begin(
                     scheduled_start_ns=next_tick_ns,
                     phase=(
                         f"warmup_{warmup.phase}"
-                        if warmup is not None and not warmup.complete else self._state.value.lower()
+                        if warmup is not None and not warmup.complete
+                        else self._state.value.lower()
                     ),
                     step=steps,
                 )
                 loop_start_ns = self._clock.now_ns()
                 now_ns = loop_start_ns
-                state = self._robot.get_state()
+                with failure_context("robot", "robot feedback"):
+                    state = self._robot.get_state()
                 with stage("safety_state"):
                     self._safety.validate_state(state)
-                with stage("camera_read", mode=sensor_reader.mode):
+                with stage("camera_read", mode=sensor_reader.mode), failure_context("camera", "frame acquisition"):
                     frames = sensor_reader.read()
-
                 with stage("robogui_control"):
                     robogui_control = self._robogui.poll_control()
-                control_diagnostics = getattr(robogui_control, "diagnostics", None)
-                if control_diagnostics is not None:
-                    control_status = (
-                        robogui_control.paused, control_diagnostics.get("reason"),
-                        control_diagnostics.get("timeout_count"),
-                        control_diagnostics.get("error_count"),
-                        control_diagnostics.get("transport_status"),
-                    )
-                    if control_status != last_control_status:
-                        recorder.event(
-                            "robogui_control_state", step=steps,
-                            monotonic_ns=self._clock.now_ns(),
-                            paused=robogui_control.paused, **control_diagnostics,
-                        )
-                        last_control_status = control_status
-                if robogui_control.finish_requested:
-                    timing.set_phase("stopped")
-                    # Stop model requests before Home/recording cleanup can take time.
-                    self._worker.request_stop()
-                    if robogui_control.finish_home is not None:
-                        home_on_close = robogui_control.finish_home
-                    terminal_reason = "robogui_finish_requested"
-                    recorder.event("robogui_finish_requested", step=steps, home=home_on_close)
-                    break
-                if robogui_control.home_requested:
-                    timing.set_phase("homing")
-                    self._robot.home()
-                    state = self._robot.get_state()
-                    self._safety.reset(state)
-                    self._timeline = self._build_timeline()
-                    self._executor.reset(state)
-                    self._strategy.reset()
-                    self._scheduler.reset()
-                    previous_command = copy_group_vector(state.groups)
-                    last_command = copy_group_vector(state.groups)
-                    discard_responses_through = max(discard_responses_through, request_seq)
-                    pending_observation_states.clear()
-                    self._state = RuntimeState.PAUSED
-                    recorder.event(
-                        "robogui_home_requested", step=steps,
-                        state=state_evidence(
-                            state, targets=self._config["robot"]["options"].get("start_joints")
-                        ),
-                    )
-                    next_tick_ns = self._clock.now_ns()
-                    timing.end()
-                    continue
-                if not identity_frozen and not robogui_control.paused:
+                # RPent may hold while deciding its first tool. Remember the
+                # operator's Start independently of task action dispatch.
+                if (getattr(robogui_control, "episode_id", "") == episode_id
+                        and getattr(robogui_control, "control_run_dir", "")
+                        == robogui_episode_metadata["run_dir"]
+                        and getattr(robogui_control, "start_identity", None) is not None):
+                    operator_started = True
+                    robogui_episode_metadata["operator_started"] = True
+                if (not identity_frozen and (operator_started or (
+                        not robogui_control.finish_requested and not robogui_control.paused))):
                     if self._config["robogui"].get("enabled", False):
                         if (robogui_control.episode_id != episode_id
                                 or robogui_control.control_run_dir
@@ -687,7 +803,140 @@ class EdgeRuntime:
                     recorder.update_metadata(**self._rollout_identity, identity_frozen=True)
                     recorder.event("rollout_identity_frozen", **self._rollout_identity)
                     robogui_episode_metadata.update(self._rollout_identity, identity_frozen=True)
+                operator_paused = robogui_control.paused
+                if self._dispatch is not None:
+                    dispatch_hold = self._dispatch.before_tick(
+                        ObservationSnapshot(state=state, frames=frames),
+                        # Keep native planner admission closed through reset
+                        # acknowledgement; the next tick acquires fresh inputs.
+                        paused=(
+                            operator_paused or robogui_control.finish_requested
+                            or (warmup is not None and not warmup.complete)
+                        ),
+                        home=robogui_control.home_requested,
+                        reference=last_command,
+                    )
+                    robogui_control = replace(
+                        robogui_control,
+                        paused=robogui_control.paused or dispatch_hold,
+                        finish_requested=(
+                            robogui_control.finish_requested or self._dispatch.stop_requested
+                        ),
+                    )
+                control_diagnostics = getattr(robogui_control, "diagnostics", None)
+                if control_diagnostics is not None:
+                    control_status = (
+                        robogui_control.paused,
+                        control_diagnostics.get("reason"),
+                        control_diagnostics.get("timeout_count"),
+                        control_diagnostics.get("error_count"),
+                        control_diagnostics.get("transport_status"),
+                    )
+                    if control_status != last_control_status:
+                        recorder.event(
+                            "robogui_control_state",
+                            step=steps,
+                            monotonic_ns=self._clock.now_ns(),
+                            paused=robogui_control.paused,
+                            **control_diagnostics,
+                        )
+                        last_control_status = control_status
+                request_matches = (
+                    getattr(robogui_control, "episode_id", "") == episode_id
+                    and getattr(robogui_control, "control_run_dir", "")
+                    == robogui_episode_metadata["run_dir"]
+                )
+                robogui_episode_metadata["control_status"] = {
+                    "paused": robogui_control.paused,
+                    "revision": getattr(robogui_control, "control_revision", ""),
+                    "reason": (control_diagnostics or {}).get("reason", "unknown"),
+                }
+                if self._dispatch is not None:
+                    robogui_episode_metadata["agent_decisions"] = self._dispatch.agent_decisions()
+                    robogui_episode_metadata["agent_messages"] = self._dispatch.agent_messages()
+                    robogui_episode_metadata["agent_status"] = self._dispatch.agent_status()
+                self._robogui.set_state_metadata(robogui_episode_metadata)
+                if robogui_control.finish_requested and (
+                    not getattr(robogui_control, "finish_request_id", "") or request_matches
+                ):
+                    timing.set_phase("stopped")
+                    # Stop model requests before Home/recording cleanup can take time.
+                    if self._worker is not None:
+                        self._worker.request_stop()
+                    terminal_reason = "robogui_finish_requested"
+                    if (self._config["robogui"]["enabled"]
+                            and not identity_frozen and not operator_started):
+                        terminal_reason = "preparation_cancelled"
+                        recorder.update_metadata(
+                            preparation_cancelled=True, experiment_mode=False,
+                            prepared_identity=deepcopy(self._rollout_identity),
+                        )
+                    recorder.event("robogui_finish_requested", step=steps, home=bool(shutdown_home))
+                    break
+                if robogui_control.home_requested and home_available and (
+                    not getattr(robogui_control, "home_request_id", "") or request_matches
+                ):
+                    timing.set_phase("homing")
+                    if pending_response is not None:
+                        reject_response(pending_response, "invalidated_by_pause_or_home")
+                        pending_response = None
+                    home_status = OperationStatus(
+                        enabled=self._config["robogui"]["enabled"],
+                        robot=self._config["robogui"]["robot"],
+                        policy=self._config["robogui"]["policy_label"],
+                        event="runtime_home", identity={
+                            "run_dir": str(self._run_dir.resolve()), "episode_id": episode_id,
+                            "home_request_id": getattr(robogui_control, "home_request_id", ""),
+                        },
+                    )
+                    home_status.update("Returning Home and verifying arrival")
+                    try:
+                        self._robot.home()
+                    finally:
+                        home_status.close()
+                    robogui_episode_metadata["home_ack"] = getattr(
+                        robogui_control, "home_request_id", ""
+                    )
                     self._robogui.set_state_metadata(robogui_episode_metadata)
+                    state = self._robot.get_state()
+                    self._safety.reset(state)
+                    self._timeline = self._build_timeline()
+                    self._executor.reset(state)
+                    self._strategy.reset()
+                    self._scheduler.reset()
+                    previous_command = copy_group_vector(state.groups)
+                    last_command = copy_group_vector(state.groups)
+                    hold_target = copy_group_vector(state.groups)
+                    discard_responses_through = max(discard_responses_through, request_seq)
+                    pending_observation_states.clear()
+                    self._state = RuntimeState.PAUSED
+                    recorder.event(
+                        "robogui_home_requested",
+                        step=steps,
+                        state=state_evidence(
+                            state, targets=self._robot.home_targets(state)
+                        ),
+                    )
+                    next_tick_ns = self._clock.now_ns()
+                    timing.end()
+                    continue
+                holding = robogui_control.paused or (warmup is not None and not warmup.complete)
+                if holding:
+                    if hold_target is None:
+                        # Capture once on entry to Pause (including control-loss
+                        # and agent holds), without pulling back to an old plan.
+                        hold_target = copy_group_vector(state.groups)
+                        recorder.event(
+                            "position_hold_latched", step=steps,
+                            targets={name: values.tolist() for name, values in hold_target.items()},
+                        )
+                    hold_state = RobotState(
+                        copy_group_vector(hold_target), state.monotonic_ns, state.sequence,
+                    )
+                else:
+                    # The next Pause must latch its own position, not reuse the
+                    # Prepare or previous Pause target.
+                    hold_target = None
                 if warmup is not None and not warmup.complete:
                     self._state = RuntimeState.PAUSED
                     before = warmup.metadata()
@@ -699,7 +948,7 @@ class EdgeRuntime:
                         warmup.activate()
                     with stage("warmup_advance"):
                         warmup.advance(
-                            paused=robogui_control.paused,
+                            paused=operator_paused,
                             snapshot=ObservationSnapshot(state=state, frames=frames),
                         )
                     status = warmup.metadata()
@@ -709,7 +958,8 @@ class EdgeRuntime:
                         preview_chunk, preview_inference_ms, preview_metadata = preview
                         with stage("robogui_publish_plan"):
                             self._robogui.publish_plan(
-                                preview_chunk, preview_inference_ms,
+                                preview_chunk,
+                                preview_inference_ms,
                                 metadata={
                                     **preview_metadata,
                                     "episode_id": episode_id,
@@ -727,16 +977,19 @@ class EdgeRuntime:
                             "formal_rollout_ready",
                             inference_seed=capabilities.backend_metadata.get("model", {}).get(
                                 "inference_seed"
-                            ), latency_sample_count=len(warmup.latency_ns),
+                            ),
+                            latency_sample_count=len(warmup.latency_ns),
                         )
                     for kind, fields in warmup.take_events():
                         recorder.event(kind, **fields)
                         logger.info("%s %s", kind, fields)
                         with stage("robogui_publish_event"):
                             self._robogui.publish_event(
-                                kind, step=steps,
+                                kind,
+                                step=steps,
                                 metadata={
-                                    **fields, "episode_id": episode_id,
+                                    **fields,
+                                    "episode_id": episode_id,
                                     "run_dir": str(self._run_dir.resolve()),
                                     "runtime": self._strategy.name,
                                 },
@@ -745,18 +998,18 @@ class EdgeRuntime:
                         recorder.update_metadata(warmup=status)
                     robogui_episode_metadata["warmup"] = status
                     self._robogui.set_state_metadata(robogui_episode_metadata)
-                    # Preserve the existing paused hold; model output never reaches it.
-                    self._executor.reset(state)
-                    command = self._hold_command(self._clock.now_ns(), state.groups)
-                    self._safety.reset(state)
-                    with stage("safety_command"):
-                        self._safety.validate_command(command)
-                    self._robot.send_command(command)
+                    # Preview output never replaces the latched physical hold.
+                    self._executor.reset(hold_state)
+                    command = self._hold_command(self._clock.now_ns(), hold_target)
+                    self._safety.reset(hold_state)
+                    self._send_command(command, state, recorder, step=steps)
                     previous_command = copy_group_vector(last_command)
                     last_command = copy_group_vector(command.groups)
                     with stage("robogui_publish_state"):
                         self._robogui.publish_state(
-                            state, frames, step=steps,
+                            state,
+                            frames,
+                            step=steps,
                             max_steps=self._config["run"]["max_control_steps"],
                         )
                     next_tick_ns = max(
@@ -770,6 +1023,7 @@ class EdgeRuntime:
                 if robogui_control.paused and (
                     self._decoder is not None
                     or self._multi_inflight
+                    or self._min_execute_steps
                     or (
                         self._config["inference"]["inference_schedule"] == "serial"
                         and self._config["inference"]["algorithm"] in {"async", "serial"}
@@ -778,6 +1032,9 @@ class EdgeRuntime:
                 ):
                     # RTC conditions must not refer to the timeline discarded
                     # by Pause/Hold while a decoder response is still pending.
+                    if pending_response is not None:
+                        reject_response(pending_response, "invalidated_by_pause_or_home")
+                        pending_response = None
                     if self._state != RuntimeState.PAUSED:
                         self._strategy.reset()
                         self._scheduler.reset()
@@ -791,18 +1048,24 @@ class EdgeRuntime:
                 if self._state == RuntimeState.RUNNING and not formal_start_recorded:
                     recorder.update_metadata(
                         formal_start_state=state_evidence(
-                            state, targets=self._config["robot"]["options"].get("start_joints")
+                            state, targets=initial_pose_targets(self._config)
                         ),
                     )
                     formal_start_recorded = True
 
-                if not self._worker.is_alive and not worker_failure_reported:
+                if (
+                    self._worker is not None
+                    and not self._worker.is_alive
+                    and not worker_failure_reported
+                ):
                     worker_failure_reported = True
                     recorder.event("policy_worker_stopped", step=steps)
+                    if self._dispatch is not None:
+                        self._dispatch.fail_active("policy_worker_stopped")
 
                 decoded_chunk = None
                 with stage("worker_poll"):
-                    response = self._worker.poll()
+                    response = None if self._worker is None else self._worker.poll()
                 if response is not None:
                     logger.info(
                         "policy_response seq=%d inference_ms=%.1f error=%s raw=%s",
@@ -863,66 +1126,64 @@ class EdgeRuntime:
                                         if handoff_reference is None
                                         else handoff_reference.plan_id
                                     ),
+                                    # first_step_when_ready has no expected start until commit.
                                     seed_to_expected_start_ms=(
-                                        start_ns - seed.monotonic_ns
-                                    )
-                                    / 1e6,
+                                        None
+                                        if start_ns is None
+                                        else (start_ns - seed.monotonic_ns) / 1e6
+                                    ),
                                     expected_decode_ms=round(
                                         self._decode_forecast.seconds * 1e3, 3
                                     ),
                                 )
                                 # Keep inference+decode in flight until both arms finish.
                                 response = None
+                if self._min_execute_steps:
+                    # Buffer raw results so decoding, candidate selection and time
+                    # trimming all use the eventual handoff clock. Receipt frees
+                    # the inference slot; consuming an older buffered result does not.
+                    if response is not None:
+                        if response.request_seq == last_submitted_seq:
+                            request_in_flight = False
+                        reason = self._response_rejection_reason(
+                            response, last_submitted_seq=last_submitted_seq,
+                            last_request_deadline_ns=last_request_deadline_ns,
+                            discard_responses_through=discard_responses_through,
+                        )
+                        if reason is None and pending_response is not None:
+                            if response.request_seq <= pending_response.request_seq:
+                                reason = "superseded_pending_response"
+                            else:
+                                reject_response(pending_response, "superseded_pending_response")
+                        if reason is None:
+                            pending_response = response
+                        else:
+                            reject_response(response, reason)
+                        response = None
+                    now_ns = self._clock.now_ns()
+                    if pending_response is not None and self._timeline.replacement_ready(
+                        now_ns, self._min_execute_steps,
+                    ):
+                        response, pending_response = pending_response, None
+
                 if response is not None:
-                    request_in_flight = False
+                    evidence = response_log_path(
+                        self._config["policy"]["options"].get("response_log_dir"),
+                        response.session_id, response.request_seq,
+                    )
+                    if not self._min_execute_steps:
+                        request_in_flight = False
                     observation_state = pending_observation_states.pop(
                         response.request_seq, None
                     )
                     submission_visuals = pending_visuals.get(response.request_seq, {})
-                    rejection_reason = None
-                    if response.error is not None:
-                        rejection_reason = response.error
-                    elif response.session_id != self._session_id:
-                        rejection_reason = "session_mismatch"
-                    elif response.request_seq <= discard_responses_through:
-                        rejection_reason = "invalidated_by_pause_or_home"
-                    elif not self._multi_inflight and response.request_seq < last_submitted_seq:
-                        rejection_reason = "superseded_response"
-                    elif (
-                        self._multi_inflight
-                        and response.request_seq <= self._timeline.accepted_request_seq
-                    ):
-                        # Reject before ACT can add an out-of-order chunk to its history.
-                        rejection_reason = "stale_request_seq"
-                    elif response.finished_time_ns > (
-                        response.deadline_ns if self._multi_inflight else last_request_deadline_ns
-                    ):
-                        rejection_reason = "inference_deadline_exceeded"
-                    elif self._multi_inflight and self._clock.now_ns() > response.deadline_ns:
-                        rejection_reason = "deadline_exceeded_before_decode"
-                    elif response.raw_action is None:
-                        rejection_reason = "missing_action"
+                    rejection_reason = self._response_rejection_reason(
+                        response, last_submitted_seq=last_submitted_seq,
+                        last_request_deadline_ns=last_request_deadline_ns,
+                        discard_responses_through=discard_responses_through,
+                    )
                     if rejection_reason is not None:
-                        logger.warning(
-                            "inference_rejected seq=%d reason=%s",
-                            response.request_seq,
-                            rejection_reason,
-                        )
-                        self._strategy.on_response_rejected(response)
-                        rejected_plans += 1
-                        recorder.event(
-                            "inference_rejected",
-                            request_seq=response.request_seq,
-                            reason=rejection_reason,
-                        )
-                        with stage("robogui_publish_event"):
-                            self._robogui.publish_event(
-                                "inference_rejected",
-                                step=steps,
-                                chunk_id=response.request_seq,
-                                metadata={"reason": rejection_reason},
-                            )
-                        pending_visuals.pop(response.request_seq, None)
+                        reject_response(response, rejection_reason)
                     else:
                         try:
                             decode_start = time.perf_counter_ns()
@@ -943,9 +1204,11 @@ class EdgeRuntime:
                                     time.perf_counter_ns() - decode_start
                                 ) / 1e6
                         except (TypeError, ValueError) as exc:
-                            self._strategy.on_response_rejected(response)
                             rejected_plans += 1
                             reason = f"invalid_action:{type(exc).__name__}:{exc}"
+                            if evidence is not None:
+                                reason += f"; response_artifacts={evidence}"
+                            self._strategy.on_response_rejected(replace(response, error=reason))
                             logger.warning(
                                 "action_decode_rejected seq=%d reason=%s",
                                 response.request_seq,
@@ -967,31 +1230,39 @@ class EdgeRuntime:
                             chunk = None
                         now_ns = self._clock.now_ns()
                         if chunk is not None and chunk.action_space != self._timeline.action_space:
-                            self._strategy.on_response_rejected(response)
+                            reason = (
+                                "invalid_action:canonical action_space must be "
+                                f"{self._timeline.action_space!r}, got {chunk.action_space!r}"
+                            )
+                            rejected = rejected_response(response, reason)
+                            self._strategy.on_response_rejected(rejected)
                             rejected_plans += 1
                             recorder.event(
                                 "plan_rejected",
                                 request_seq=response.request_seq,
-                                reason=(
-                                    "invalid_action:canonical action_space must be "
-                                    f"{self._timeline.action_space!r}, got {chunk.action_space!r}"
-                                ),
+                                reason=reason,
+                                detail=rejected.error,
                             )
                             with stage("robogui_publish_event"):
                                 self._robogui.publish_event(
                                     "plan_rejected",
                                     step=steps,
                                     chunk_id=response.request_seq,
-                                    metadata={"reason": "invalid_action_space"},
+                                    metadata={
+                                        "reason": "invalid_action_space",
+                                        "detail": rejected.error,
+                                    },
                                 )
                             pending_visuals.pop(response.request_seq, None)
                             chunk = None
                         canonical_raw = None if chunk is None else copy_action_chunk(chunk)
+                        if chunk is not None and evidence is not None:
+                            chunk.metadata["provider_response_dir"] = str(evidence)
                         selector = (
                             self._strategy
                             if isinstance(self._strategy, StrategyChunkSelector) else None
                         )
-                        if chunk is not None and selector is None:
+                        if chunk is not None and selector is None and not self._min_execute_steps:
                             try:
                                 with stage("strategy_prepare_chunk"):
                                     chunk = prepare_strategy_chunk(
@@ -1001,9 +1272,11 @@ class EdgeRuntime:
                                         now_ns=now_ns,
                                     )
                             except (TypeError, ValueError) as exc:
-                                self._strategy.on_response_rejected(response)
                                 rejected_plans += 1
                                 reason = f"invalid_strategy_chunk:{type(exc).__name__}:{exc}"
+                                if evidence is not None:
+                                    reason += f"; response_artifacts={evidence}"
+                                self._strategy.on_response_rejected(replace(response, error=reason))
                                 recorder.event(
                                     "plan_rejected",
                                     request_seq=response.request_seq,
@@ -1062,11 +1335,12 @@ class EdgeRuntime:
                                 with stage("timeline_commit"):
                                     try:
                                         if selector is not None:
-                                            # Selection and trimming share one handoff clock.
+                                            # Score and prepare against one selection snapshot.
                                             chunk = selector.select_chunk(
                                                 chunk=chunk, now_ns=now_ns,
                                             )
                                             canonical_raw = copy_action_chunk(chunk)
+                                        if selector is not None or self._min_execute_steps:
                                             chunk = prepare_strategy_chunk(
                                                 self._strategy, chunk=chunk,
                                                 response=response, now_ns=now_ns,
@@ -1077,6 +1351,27 @@ class EdgeRuntime:
                                             f"invalid_strategy_chunk:{type(exc).__name__}:{exc}",
                                         )
                                     else:
+                                        commit_anchor = self._execution.reference_from_joints(
+                                            commit.current_command
+                                        )
+                                        if (
+                                            selector is not None
+                                            and self._config["inference"]["algorithm"]
+                                            == "chunktrust_ahs"
+                                            and self._config["inference"]["action_start_mode"]
+                                            == "first_step_when_ready"
+                                        ):
+                                            # Ordinary AHS starts its prefix after local work.
+                                            # Time-aligned selectors retain their scoring clock.
+                                            now_ns = self._clock.now_ns()
+                                            latency_ms = (
+                                                now_ns - chunk.observation_time_ns
+                                            ) / 1e6
+                                            chunk.metadata["observation_to_commit_ms"] = latency_ms
+                                            if canonical_raw is not None:
+                                                canonical_raw.metadata[
+                                                    "observation_to_commit_ms"
+                                                ] = latency_ms
                                         result = self._timeline.commit(
                                             chunk,
                                             now_ns=now_ns,
@@ -1084,7 +1379,7 @@ class EdgeRuntime:
                                                 self._config["inference"]["max_plan_age_s"]
                                                 * 1_000_000_000
                                             ),
-                                            current_command=self._execution.reference_from_joints(commit.current_command),
+                                            current_command=commit_anchor,
                                             blend_steps=commit.blend_steps,
                                             command_velocity={
                                                 name: (last_command[name]-previous_command[name])
@@ -1166,9 +1461,7 @@ class EdgeRuntime:
                                             "raw_horizon_steps": chunk.horizon_steps,
                                             "committed_horizon_steps": committed.horizon_steps,
                                             "time_trimmed_steps": result.time_trimmed_steps,
-                                            "handoff_skipped_steps": (
-                                                result.handoff_skipped_steps
-                                            ),
+                                            "handoff_skipped_steps": (result.handoff_skipped_steps),
                                             "timeline_latency_ms": (
                                                 result.timeline_latency_ns / 1_000_000
                                             ),
@@ -1205,30 +1498,60 @@ class EdgeRuntime:
                                     chunk.plan_id,
                                     result.reason,
                                 )
-                                self._strategy.on_response_rejected(response)
+                                detail = result.reason
+                                diagnostics = {}
+                                if result.reason == "plan_too_old":
+                                    diagnostics = {
+                                        "observation_to_commit_ms": (
+                                            now_ns - chunk.observation_time_ns
+                                        ) / 1e6,
+                                        "max_plan_age_ms": (
+                                            self._config["inference"]["max_plan_age_s"] * 1000
+                                        ),
+                                        "inference_ms": response.inference_ms,
+                                    }
+                                    detail += (
+                                        f": observation_to_commit_ms="
+                                        f"{diagnostics['observation_to_commit_ms']:.3f} exceeds "
+                                        f"max_plan_age_ms={diagnostics['max_plan_age_ms']:.3f}; "
+                                        f"inference_ms={response.inference_ms:.3f}"
+                                    )
+                                rejected = rejected_response(response, detail)
+                                self._strategy.on_response_rejected(rejected)
                                 rejected_plans += 1
                                 recorder.event(
                                     "plan_rejected",
                                     plan_id=chunk.plan_id,
                                     request_seq=chunk.request_seq,
                                     reason=result.reason,
+                                    detail=rejected.error,
+                                    **diagnostics,
                                 )
                                 with stage("robogui_publish_event"):
                                     self._robogui.publish_event(
                                         "plan_rejected",
                                         step=steps,
                                         chunk_id=response.request_seq,
-                                        metadata={"reason": result.reason},
+                                        metadata={
+                                            "reason": result.reason,
+                                            "detail": rejected.error,
+                                            **diagnostics,
+                                        },
                                     )
                                 pending_visuals.pop(response.request_seq, None)
 
-                if self._worker.is_alive and not (
-                    (
-                        self._decoder is not None
-                        or self._multi_inflight
-                        or getattr(self._strategy, "discard_plans_while_paused", False)
+                if (
+                    self._worker is not None
+                    and self._worker.is_alive
+                    and not (
+                        (
+                            self._decoder is not None
+                            or self._multi_inflight
+                            or self._min_execute_steps
+                            or getattr(self._strategy, "discard_plans_while_paused", False)
+                        )
+                        and self._state != RuntimeState.RUNNING
                     )
-                    and self._state != RuntimeState.RUNNING
                 ):
                     snapshot = ObservationSnapshot(state=state, frames=frames)
                     request_state = RequestState(
@@ -1306,13 +1629,10 @@ class EdgeRuntime:
                             **submission.event_fields,
                         }
                         if bool(submission.event_fields.get("conditioned", False)):
-                            executed_steps = int(submission.event_fields.get("executed_steps", 0))
-                            visual_fields["conditioned_overlap_steps"] = max(
-                                0, self._config["policy"]["horizon_policy_steps"] - executed_steps
-                            )
-                            visual_fields["frozen_steps"] = int(
-                                submission.event_fields.get("forecast_delay", 0)
-                            )
+                            visual_fields.update(condition_overlap_fields(
+                                submission.event_fields,
+                                self._config["policy"]["horizon_policy_steps"],
+                            ))
                         pending_visuals[request_seq] = visual_fields
                         if self._multi_inflight:
                             # Coalesced uploads never produce a plan. Keep diagnostic
@@ -1332,6 +1652,34 @@ class EdgeRuntime:
                         self._robogui.publish_event(kind, step=steps, metadata=fields)
 
                 now_ns = self._clock.now_ns()
+                if self._dispatch is not None:
+                    motion = self._dispatch.take_motion(request_seq + 1, now_ns)
+                    if motion is not None:
+                        request_seq += 1
+                        result = self._timeline.commit(
+                            motion, now_ns=now_ns,
+                            # Local goals use the dispatch call deadline, not VLA observation age.
+                            max_plan_age_ns=None,
+                            current_command=last_command, blend_steps=0,
+                            retain_terminal_target=True,
+                        )
+                        if result.accepted:
+                            accepted_plans += 1
+                            self._dispatch.plan_accepted(motion, now_ns)
+                            committed = self._timeline.active_horizon()
+                            assert committed is not None
+                            recorder.record_plan(canonical_raw=motion, infra_output=motion,
+                                                 committed=committed)
+                            recorder.event("plan_accepted", plan_id=motion.plan_id,
+                                           request_seq=motion.request_seq, **motion.metadata)
+                            self._robogui.publish_plan(motion, 0.0, committed=committed,
+                                                       metadata={**motion.metadata,
+                                                                 "runtime": "agent_motion"})
+                        else:
+                            rejected_plans += 1
+                            self._dispatch.motion_rejected(f"motion_plan_rejected:{result.reason}")
+                            recorder.event("plan_rejected", request_seq=motion.request_seq,
+                                           reason=result.reason, **motion.metadata)
                 with stage("timeline_reference"):
                     reference = self._timeline.reference_horizon(
                         now_ns=now_ns,
@@ -1344,7 +1692,9 @@ class EdgeRuntime:
                         now_ns, state, reference, last_command=last_command,
                     )
                     reference, command = execution.reference, execution.command
-                    scheduled = {name: values[0].copy() for name, values in reference.groups.items()}
+                    scheduled = {
+                        name: values[0].copy() for name, values in reference.groups.items()
+                    }
                     if execution.ik_status is not None and not execution.ik_status["success"]:
                         recorder.event("step_ik_hold", step=steps, **execution.ik_status)
                     if isinstance(self._executor, SmoothExecutor) and (
@@ -1359,9 +1709,9 @@ class EdgeRuntime:
                             groups=self._executor.gripper_diagnostics,
                         )
                 elif self._state == RuntimeState.RUNNING:
-                    # Every strategy holds the last sent command during a timeline gap.
-                    # Reset executor velocity history to the held command, so a new
-                    # chunk does not resume with velocity left over before the wait.
+                    # During a timeline gap, target the last sent command. Bounded
+                    # Smooth decelerates while retaining the emitted velocity;
+                    # other executors retain their existing hold/reset behavior.
                     held_state = RobotState(
                         groups=copy_group_vector(last_command),
                         monotonic_ns=now_ns,
@@ -1375,9 +1725,10 @@ class EdgeRuntime:
                         self._executor.reset(held_state)
                         command = self._hold_command(now_ns, last_command)
                 else:
-                    # Pause holds measured state and clears execution history.
-                    self._executor.reset(state)
-                    command = self._hold_command(now_ns, state.groups)
+                    # Hold the entry pose until Resume/Home; external motion
+                    # must not continuously redefine the position target.
+                    self._executor.reset(hold_state)
+                    command = self._hold_command(now_ns, hold_target)
                     self._safety.reset(
                         RobotState(
                             copy_group_vector(command.groups),
@@ -1385,8 +1736,6 @@ class EdgeRuntime:
                             state.sequence,
                         )
                     )
-                with stage("safety_command"):
-                    self._safety.validate_command(command)
                 log_dispatch = (
                     command.plan_id != last_dispatch_plan_id
                     or now_ns - last_dispatch_log_ns >= 1_000_000_000
@@ -1404,19 +1753,21 @@ class EdgeRuntime:
                             for name, values in command.groups.items()
                         },
                     )
-                try:
-                    self._robot.send_command(command)
-                except Exception:
-                    logger.exception(
-                        "command_dispatch_failed runtime_state=%s plan=%s execute=%s "
-                        "end_effector_control=%s groups=%s",
-                        self._state.value,
-                        command.plan_id,
-                        self._config["robot"]["options"].get("execute"),
-                        self._config["robot"]["options"].get("end_effector_control"),
-                        list(command.groups),
+                self._send_command(
+                    command, state, recorder, step=steps,
+                    reference_plan_id=(
+                        reference.plan_id
+                        if self._state == RuntimeState.RUNNING and reference is not None
+                        else None
+                    ),
+                )
+                if self._dispatch is not None:
+                    self._dispatch.command_sent(
+                        now_ns=command.monotonic_ns,
+                        plan_id=command.plan_id,
+                        reference_plan_id=None if reference is None else reference.plan_id,
+                        holding=self._state != RuntimeState.RUNNING,
                     )
-                    raise
                 if log_dispatch:
                     logger.info(
                         "command_sent plan=%s physical_dispatch=%s",
@@ -1477,12 +1828,23 @@ class EdgeRuntime:
                 timing.end()
 
             timing.end(completed=False)
+            # Keep the rollout duration independent of Home and cleanup latency.
+            wall_time_s = time.perf_counter() - started_wall
+            cleanup_errors = shutdown_runtime(faulted=False)
+            if cleanup_errors:
+                raise BaseExceptionGroup("runtime cleanup failed", cleanup_errors)
+            if self._dispatch is not None:
+                self._dispatch.close(terminal_reason)
+                for kind, fields in self._dispatch.take_events():
+                    recorder.event(kind, **fields)
             episode_dir = recorder.finish(
                 run_completed=True,
                 terminal_reason=terminal_reason,
                 steps=steps,
-                wall_time_s=time.perf_counter() - started_wall,
+                wall_time_s=wall_time_s,
             )
+            preparation.close()
+            shutdown_status.close()
             with stage("robogui_publish_event"):
                 self._robogui.publish_event(
                     "episode_finished",
@@ -1492,8 +1854,18 @@ class EdgeRuntime:
                         "episode_dir": str(episode_dir.resolve()),
                         "reason": terminal_reason,
                         "launch_mode": self._launch_mode,
+                        "agent_status": (
+                            self._dispatch.agent_status() if self._dispatch is not None else {}
+                        ),
                         "evaluation": dict(self._evaluation),
                         **self._rollout_identity,
+                        "identity_frozen": identity_frozen,
+                        "operator_started": operator_started,
+                        "preparation_cancelled": terminal_reason == "preparation_cancelled",
+                        "experiment_mode": (
+                            self._rollout_identity.get("experiment_mode", False)
+                            and terminal_reason != "preparation_cancelled"
+                        ),
                     },
                 )
             completed = True
@@ -1516,39 +1888,30 @@ class EdgeRuntime:
         finally:
             timing.end(completed=False)
             faulted = not completed and abort_reason != "KeyboardInterrupt"
-            self._state = RuntimeState.IDLE
-            cleanup_errors: list[BaseException] = []
-            stopped_cleanly = True
-            try:
-                self._robot.stop()
-            except BaseException as exc:
-                stopped_cleanly = False
-                cleanup_errors.append(exc)
-            if robot_connected and stopped_cleanly and not faulted and home_on_close:
-                try:
-                    self._robot.home()
-                except BaseException as exc:
-                    cleanup_errors.append(exc)
-            closers = [self._robot.close, self._worker.close]
-            if self._decoder is not None:
-                closers.append(self._decoder.close)
-            for closer in closers:
-                try:
-                    closer()
-                except BaseException as exc:
-                    cleanup_errors.append(exc)
-            try:
-                sensor_reader.close()
-            except BaseException as exc:
-                cleanup_errors.append(exc)
+            cleanup_errors = shutdown_runtime(faulted=faulted)
+            preparation.close()
+            shutdown_status.close()
             try:
                 self._robogui.close()
             except BaseException as exc:
                 cleanup_errors.append(exc)
-            if not completed:
+            if not completed or cleanup_errors:
+                detail = "; ".join(filter(None, [
+                    abort_detail, *(_exception_detail(exc) for exc in cleanup_errors),
+                ]))
                 try:
-                    recorder.abort(abort_reason, detail=abort_detail)
+                    if self._dispatch is not None:
+                        self._dispatch.close(abort_reason)
+                        for kind, fields in self._dispatch.take_events():
+                            recorder.event(kind, **fields)
+                    recorder.abort(
+                        "runtime_cleanup_failed" if completed else abort_reason, detail=detail,
+                    )
                 except BaseException as exc:
                     cleanup_errors.append(exc)
             if cleanup_errors:
+                if self._dispatch is not None:
+                    self._dispatch.close("runtime_cleanup_failed")
                 raise BaseExceptionGroup("runtime cleanup failed", cleanup_errors)
+            if self._dispatch is not None:
+                self._dispatch.close(terminal_reason if completed else abort_reason)

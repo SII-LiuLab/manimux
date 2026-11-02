@@ -34,6 +34,8 @@ DEFAULT_CAMERA_MAP = {
 class LingBotVLA2YamAdapter(PolicyAdapter):
     """Anchor-relative arm joints plus absolute grippers -> absolute YAM joints."""
 
+    supports_candidate_decoding = True
+
     def __init__(self, robot: dict, policy: dict, *, kinematics=None) -> None:
         self._layouts = group_layouts(robot["group_dims"], policy["adapter"])
         self._dimensions = dict(robot["group_dims"])
@@ -82,7 +84,10 @@ class LingBotVLA2YamAdapter(PolicyAdapter):
             raise ValueError(
                 f"LingBot-VLA2 action_semantics must be {ACTION_SEMANTICS!r}, got {semantics!r}"
             )
-        anchors = self._anchors.pop(context.request_seq, None)
+        # BID/AAC decode multiple candidates from one observation. Every candidate
+        # must use the same immutable request anchor, never consume it or use the
+        # newer measured state. prepare_request bounds this cache to eight requests.
+        anchors = self._anchors.get(context.request_seq)
         if anchors is None:
             raise ValueError(
                 f"LingBot-VLA2 adapter has no observation anchor for request {context.request_seq}"

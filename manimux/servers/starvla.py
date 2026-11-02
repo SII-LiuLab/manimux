@@ -37,7 +37,7 @@ def main():
         print(json.dumps(config, indent=2))
         return
     root = Path(__file__).resolve().parents[2]
-    sys.path.insert(0, str(root / "StarVLA"))
+    sys.path.insert(0, str(root / "third_party" / "StarVLA"))
     from deployment.model_server.serve import serve
 
     serve(config)

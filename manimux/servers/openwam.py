@@ -19,6 +19,9 @@ def main():
         default=REPO / "manimux/configs/policy/openwam/yam/finetune.yaml",
     )
     parser.add_argument("--checkpoint", type=Path)
+    parser.add_argument("--local", type=Path)
+    parser.add_argument("--runtime-template", type=Path,
+                        help="Explicit experiment template for --bind-runtime-config")
     parser.add_argument("--check", action="store_true")
     parser.add_argument(
         "--bind-runtime-config",
@@ -29,12 +32,15 @@ def main():
         "--dummy", action="store_true", help="Protocol debugging only; no model weights"
     )
     args = parser.parse_args()
-    for path in (REPO, REPO / "XPolicyLab"):
+    if bool(args.bind_runtime_config) != bool(args.runtime_template):
+        parser.error("--bind-runtime-config and --runtime-template must be supplied together")
+    for path in (REPO, REPO / "third_party", REPO / "third_party" / "XPolicyLab"):
         sys.path.insert(0, str(path))
-    from manimux.cli import read_experiment
     from XPolicyLab.policy.OpenWAM.model import validate_deployment
 
-    config = yaml.safe_load(args.config.read_text())
+    from manimux.cli import read_experiment
+    from manimux.policies.recipe import read_policy_recipe
+    config = read_policy_recipe(args.config, local=args.local)
     if config.get("policy_name") != "OpenWAM" or config.get("protocol") != "ws":
         raise ValueError("Expected the standard XPolicy OpenWAM WebSocket config")
     if args.checkpoint:
@@ -51,9 +57,12 @@ def main():
         if output.exists() or server_output.exists():
             raise FileExistsError("Refusing to overwrite bound deployment configs")
         runtime = read_experiment(
-            REPO / "manimux/configs/experiments/put_bottles/openwam/yam_openwam_manimux.yaml",
+            args.runtime_template,
             bind_local=False,
         )
+        # The exported pair is a standalone deployment binding, not a study entry.
+        runtime.pop("experiment", None)
+        runtime.pop("config_sources", None)
         identity_keys = (
             "checkpoint_path",
             "checkpoint_file",
@@ -72,6 +81,7 @@ def main():
             host = "127.0.0.1"
         runtime["policy"]["options"]["server"] = f"ws://{host}:{config.get('port', 8500)}"
         config["expected_artifacts"] = identity
+        runtime["policy_server"] = {"config": str(server_output)}
         output.parent.mkdir(parents=True, exist_ok=True)
         with output.open("x") as stream:
             yaml.safe_dump(runtime, stream, sort_keys=False)

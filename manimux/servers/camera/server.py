@@ -27,7 +27,7 @@ across any single bad request.
 
 CLI
 ---
-    manimux-camera-server --config <cameras.yaml>
+    manimux-camera-server --camera-config <cameras.yaml>
 """
 
 from __future__ import annotations
@@ -127,7 +127,10 @@ class CameraServer:
             raise ValueError(f"Unknown cameras: {sorted(missing)}")
         frames: dict[str, SensorFrame] = {}
         for name in names:
-            frame = self.cameras[name].read()
+            try:
+                frame = self.cameras[name].read()
+            except Exception as error:
+                raise RuntimeError(f"Camera {name}: {type(error).__name__}: {error}") from error
             if not isinstance(frame, SensorFrame):
                 raise TypeError(f"Camera {name!r} must return one SensorFrame")
             frames[name] = frame
@@ -147,6 +150,19 @@ class CameraServer:
         """Snapshot the latest color frame from every camera (RGB uint8)."""
         return self._response(self._read_frames(camera_names))
 
+    def _rgbd_snapshot(self, camera_names: list[str] | None = None) -> dict[str, Any]:
+        names = list(self.cameras) if camera_names is None else camera_names
+        if not isinstance(names, list) or not names or not all(isinstance(n, str) for n in names):
+            raise ValueError("camera_names must be a nonempty list of names")
+        if set(names) - self.cameras.keys():
+            raise ValueError("unknown RGB-D camera")
+        frames = {name: self.cameras[name].read_rgbd() for name in names}
+        response = self._response(frames)
+        response["depths"] = {name: frame.depth for name, frame in frames.items()}
+        response["camera_meta"] = {name: frame.camera_meta for name, frame in frames.items()}
+        response["sequences"] = {name: frame.sequence for name, frame in frames.items()}
+        return response
+
     # ------------------------------------------------------------------
     # Request handling
     # ------------------------------------------------------------------
@@ -164,6 +180,8 @@ class CameraServer:
         try:
             if cmd == "obs":
                 resp = self._snapshot(req.get("camera_names"))
+            elif cmd == "rgbd":
+                resp = self._rgbd_snapshot(req.get("camera_names"))
             elif cmd == "ping":
                 resp = {"ok": True, "pong": True}
             else:
@@ -307,14 +325,14 @@ def _build_cameras_from_config(cfg_path: Path, local: Path | None = None) -> dic
 
 def _build_cameras(cfg: dict) -> dict[str, SensorBase]:
     """Construct every component before starting any device; clean up failed starts."""
-    cameras = {
-        name: build_camera(name, spec)
-        for name, spec in cfg["sensors"]["cameras"].items()
-    }
+    cameras = {name: build_camera(name, spec) for name, spec in cfg["sensors"]["cameras"].items()}
     try:
         for name, camera in cameras.items():
             logger.info("Starting camera %s", name)
-            camera.start()
+            try:
+                camera.start()
+            except Exception as error:
+                raise RuntimeError(f"Camera {name} startup failed: {type(error).__name__}: {error}") from error
     except BaseException:
         for camera in cameras.values():
             try:
@@ -331,11 +349,20 @@ def main(argv: list[str] | None = None) -> int:
     source.add_argument(
         "--config",
         type=Path,
-        help="Camera recipe with cameras.<stream>.config, component and options",
+        help="One runtime config; read its camera_server",
     )
-    source.add_argument("--experiment", type=Path, help="Experiment with named camera components")
+    source.add_argument("--camera-config", type=Path, help="Advanced: a camera-only recipe")
+    source.add_argument("--experiment", type=Path, help=argparse.SUPPRESS)
+    source.add_argument("--config-list", type=Path, help="Resolve cameras from a config list")
     parser.add_argument(
-        "--local", type=Path,
+        "--experiment-id", help="Required if config-list camera configurations differ"
+    )
+    parser.add_argument(
+        "--check", action="store_true", help="Print resolved cameras without opening devices"
+    )
+    parser.add_argument(
+        "--local",
+        type=Path,
         help="Station bindings (default: manimux/configs/local/station.yaml)",
     )
     parser.add_argument("--rep-endpoint")
@@ -347,12 +374,28 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--heartbeat-sec", type=float, default=DEFAULT_HEARTBEAT_SEC)
     parser.add_argument("--log-level", default="INFO")
     args = parser.parse_args(argv)
-    local = resolve_local_path(args.experiment or args.config, args.local)
-    if args.experiment is not None:
-        experiment = read_experiment(args.experiment, local=local)
+    local = resolve_local_path(
+        args.config_list or args.config or args.experiment or args.camera_config, args.local
+    )
+    if args.experiment_id and not args.config_list:
+        parser.error("--experiment-id requires --config-list")
+    if args.config_list is not None:
+        from manimux.collections import select_service
+        experiment = select_service(
+            args.config_list, "camera_server", local=local, experiment=args.experiment_id
+        )
+    elif args.config is not None or args.experiment is not None:
+        experiment = read_experiment(args.config or args.experiment, local=local)
     else:
-        experiment = bind_station({"camera_server": read_camera_recipe(args.config)}, local)
+        experiment = bind_station({"camera_server": read_camera_recipe(args.camera_config)}, local)
     resolved_cameras = camera_config(experiment)
+    if args.check:
+        import json
+        print(json.dumps(
+            {"cameras": resolved_cameras, "service": experiment["camera_server"]},
+            default=str, indent=2,
+        ))
+        return 0
     service = experiment["camera_server"]
     # Explicit CLI addresses override the station's shared service bindings.
     args.rep_endpoint = args.rep_endpoint or service.get("rep_endpoint", DEFAULT_REP_ENDPOINT)

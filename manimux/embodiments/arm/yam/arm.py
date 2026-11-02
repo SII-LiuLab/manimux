@@ -1,6 +1,8 @@
 """YAM uses the installed i2rt directly; each command contains six joints and the built-in gripper."""
 
+import logging
 import threading
+import time
 from enum import Enum
 
 import numpy as np
@@ -11,6 +13,8 @@ from manimux.timing import stage
 
 from .kinematics import YamManipulatorKinematics, visual_configuration
 
+log = logging.getLogger(__name__)
+
 
 class YamController(ArmController):
     """Each CAN channel owns an SDK instance; construction stores parameters and connect opens the device.
@@ -20,18 +24,41 @@ class YamController(ArmController):
     """
 
     def __init__(
-        self, *, channel, clock=None, arm_type="yam", gripper_type="linear_4310", **hardware_options
+        self, *, channel, clock=None, arm_type="yam", gripper_type="linear_4310",
+        feedback_timeout_s=0.2, release_home_tolerance_rad=0.05,
+        release_velocity_tolerance_rad_s=0.1,
+        home_settle_duration_s=0.25, move_intervals=50, **hardware_options
     ):
         self.channel = channel
         self.clock = clock if clock is not None else SystemClock()
         self.arm_type = arm_type
         self.gripper_type = gripper_type
+        # Old station/config snapshots may still carry this removed deadline.
+        # Never forward it as an unknown option into the SDK constructor.
+        if "home_settle_timeout_s" in hardware_options:
+            hardware_options.pop("home_settle_timeout_s")
+            log.warning("home_settle_timeout_s is retired; Home waits for measured arrival")
         self.hardware_options = hardware_options
         self.robot = None
         self.sequence = 0
+        self.feedback_timeout_s = float(feedback_timeout_s)
+        self.release_home_tolerance_rad = float(release_home_tolerance_rad)
+        self.release_velocity_tolerance_rad_s = float(release_velocity_tolerance_rad_s)
+        self.home_settle_duration_s = float(home_settle_duration_s)
+        if not all(np.isfinite(x) and x > 0 for x in (
+            self.feedback_timeout_s, self.release_home_tolerance_rad,
+            self.release_velocity_tolerance_rad_s,
+            self.home_settle_duration_s,
+        )):
+            raise ValueError("YAM feedback/release tolerances must be finite and positive")
+        self._supported_release = False
+        if type(move_intervals) is not int or move_intervals < 1:
+            raise ValueError("YAM move_intervals must be a positive integer")
+        self.move_intervals = move_intervals
 
     def connect(self):
         if self.robot is None:
+            self._supported_release = False
             from i2rt.robots.get_robot import get_yam_robot
             from i2rt.robots.utils import ArmType, GripperType
 
@@ -56,9 +83,33 @@ class YamController(ArmController):
         with stage(f"yam.{self.channel}.sdk_command_joint_pos"):
             self.robot.command_joint_pos(target)
 
-    def move_joints(self, target, *, time_interval_s):
-        """Start poses and Home retain SDK interpolation; the robot layer coordinates phases across arms."""
-        self.robot.move_joints(target.copy(), time_interval_s=time_interval_s)
+    def move_joints(self, target, *, time_interval_s, cancel=None):
+        """Retain i2rt's linear waypoints with health checks at every submission.
+
+        The SDK helper itself does not stop interpolation after its CAN thread
+        fails. The assembly supplies a shared cancellation event for both arms.
+        """
+        cancel = cancel if cancel is not None else threading.Event()
+        try:
+            start = self.check_control_health().pos.copy()
+            target = np.array(target, dtype=float, copy=True)
+            if (target.shape != start.shape or not np.isfinite(target).all()
+                    or not np.isfinite(time_interval_s) or time_interval_s <= 0):
+                raise ValueError("Invalid YAM move target or duration")
+            started = time.monotonic()
+            for index in range(self.move_intervals + 1):
+                if cancel.is_set():
+                    raise RuntimeError("YAM move cancelled after peer-arm failure")
+                self.check_control_health()
+                if cancel.is_set():
+                    raise RuntimeError("YAM move cancelled after peer-arm failure")
+                alpha = index / self.move_intervals
+                self.robot.command_joint_pos((1 - alpha) * start + alpha * target)
+                deadline = started + (index + 1) * time_interval_s / self.move_intervals
+                time.sleep(max(0.0, deadline - time.monotonic()))
+        except BaseException:
+            cancel.set()
+            raise
 
     def sent_command_snapshots(self):
         """Read cached CAN-send evidence; an unpatched SDK has no evidence."""
@@ -142,11 +193,111 @@ class YamController(ArmController):
 
     def stop(self):
         if self.robot is not None:
+            self.check_control_health()
             self.robot.command_joint_pos(self.robot.get_joint_pos().copy())
+
+    def check_control_health(self):
+        """Require advancing CAN feedback AND SDK state, not refreshed read timestamps."""
+        native = self.robot
+        if native is None:
+            raise RuntimeError(f"{self.channel}: no connected YAM controller")
+        chain = native.motor_chain
+        with chain.state_lock:
+            previous_can = chain.state
+        with native._state_lock:
+            previous_joint = native._joint_state
+        deadline = time.monotonic() + self.feedback_timeout_s
+        while True:
+            if (not native._server_thread.is_alive() or native._stop_event.is_set()
+                    or not chain.running):
+                raise RuntimeError(f"{self.channel}: YAM control loop is not healthy")
+            with chain.state_lock:
+                current_can = chain.state
+                faults = [s.error_code for s in current_can if s.error_code != "0x1"]
+            if faults:
+                raise RuntimeError(f"{self.channel}: motor fault {faults}")
+            with native._state_lock:
+                current_joint = native._joint_state
+            if current_can is not previous_can and current_joint is not previous_joint:
+                if (not np.isfinite(current_joint.pos).all()
+                        or not np.isfinite(current_joint.vel).all()):
+                    raise RuntimeError(f"{self.channel}: nonfinite YAM feedback")
+                return current_joint
+            if time.monotonic() >= deadline:
+                raise RuntimeError(f"{self.channel}: CAN or SDK feedback stopped advancing")
+            time.sleep(0.002)
+
+    def validate_release(self):
+        if self.robot is None or self._supported_release:
+            return
+        state = self.check_control_health()
+        detail = self._home_error(state)
+        if detail:
+            raise RuntimeError(detail)
+
+    def _home_error(self, state):
+        positions, speeds = np.abs(state.pos[:6]), np.abs(state.vel[:6])
+        if (positions.max() <= self.release_home_tolerance_rad
+                and speeds.max() <= self.release_velocity_tolerance_rad_s):
+            return ""
+        return (
+            f"{self.channel}: YAM is not stationary at zero Home; keep control alive; "
+            f"max_position_error_rad={positions.max():.6f} "
+            f"(joint={int(positions.argmax()) + 1}, limit={self.release_home_tolerance_rad}); "
+            f"max_speed_rad_s={speeds.max():.6f} "
+            f"(joint={int(speeds.argmax()) + 1}, limit={self.release_velocity_tolerance_rad_s})"
+        )
+
+    def wait_for_home(self, *, cancel=None):
+        """Observe fresh feedback while the last Home target remains active.
+
+        No new target, automatic retry or threshold relaxation is permitted here.
+        There is no arrival deadline. Hardware-health failures still propagate
+        immediately; elapsed settling time alone never authorizes release.
+        """
+        next_report = time.monotonic() + 5.0
+        stable_since = None
+        while True:
+            if cancel is not None and cancel.is_set():
+                raise RuntimeError(f"{self.channel}: Home verification cancelled after peer-arm failure")
+            state = self.check_control_health()
+            now = time.monotonic()
+            detail = self._home_error(state)
+            if detail:
+                stable_since = None
+            else:
+                if stable_since is None:
+                    stable_since = now
+                if now - stable_since >= self.home_settle_duration_s:
+                    return
+            if now >= next_report:
+                log.warning(
+                    "%s: still returning Home; control retained; %s",
+                    self.channel, detail or "waiting for continuous stationary feedback",
+                )
+                next_report = now + 5.0
+            time.sleep(0.01)
+
+    def confirm_supported_release(self):
+        self._supported_release = True
 
     def close(self):
         if self.robot is None:
             return
+        while True:
+            try:
+                self.validate_release()
+                break
+            except Exception as error:
+                # Recheck after Home; a late fault cannot inherit permission
+                # from an earlier recovery attempt.
+                from manimux.embodiments.robot.release import (
+                    ReleaseDecision,
+                    require_supported_release,
+                )
+                if require_supported_release(str(error)) is ReleaseDecision.SUPPORTED_RELEASE:
+                    self.confirm_supported_release()
+                    break
         native = self.robot
         # The installed i2rt.close only joins service threads. Preserve the shutdown order: both loops
         # must end before releasing CAN so the motor loop cannot access a closed socket.

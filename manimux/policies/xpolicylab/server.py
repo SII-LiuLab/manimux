@@ -104,16 +104,30 @@ class StreamingPolicyServer(PolicyServer):
 
 def serve(config: dict) -> None:
     """Use the existing model loader with ManiMux's scheduling extension."""
+    from manimux.policies.xpolicylab.autohorizon import (
+        validate_autohorizon,
+    )
     from XPolicyLab import setup_policy_server
 
+    config = dict(config)
+    autohorizon = config.pop("autohorizon", None)
+    if autohorizon is not None:
+        autohorizon = validate_autohorizon(autohorizon)
+        if config.get("protocol", "ws") != "ws":
+            raise ValueError("AutoHorizon configuration requires ManiMux's websocket wrapper")
     if config.get("protocol", "ws") != "ws":
         setup_policy_server.main(config)
         return
     model_class = setup_policy_server.eval_function_decorator(
         f"XPolicyLab.policy.{config.get('policy_name')}.model", "Model",
     )
+    model = model_class(config)
+    if autohorizon is not None:
+        from XPolicyLab.utils.autohorizon_selection import ConfiguredAutoHorizon
+
+        model = ConfiguredAutoHorizon(model, autohorizon)
     server = StreamingPolicyServer(
-        model_class(config),
+        model,
         PolicyServerConfig(
             host=config.get("host", "0.0.0.0"),
             port=int(config.get("port")),

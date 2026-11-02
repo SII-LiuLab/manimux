@@ -105,9 +105,9 @@ to the left, right and both arm groups. The idle recovery entry points
 `recover_home(stop)` and `recover_drag()` clear latched faults first, because `connect()`
 rejects faulted arms. Idle Home restores grippers within the assembly, without changing
 the caller's configuration. The stop event cancels trajectory, settling and gripper waits;
-the owned components are stopped and closed before recovery returns. Task experiments
-select `tianji_taccap_pass_ball.yaml` or `tianji_taccap_pack_plate.yaml`; the shared
-`tianji_taccap.yaml` preserves the original pass-ball Home.
+the owned components are stopped and closed before recovery returns. Pack-plate
+experiments select `tianji_taccap_pack_plate.yaml`; the shared `tianji_taccap.yaml`
+preserves the original pass-ball Home.
 
 RoboGUI's **Release** button opens a choice of **Continuous release** or **Release 5s**,
 with an A / B / AB arm selector. Both call the assembly's `recover_release()` through
@@ -132,10 +132,10 @@ Null optical extrinsics mean unknown. TacCap TCP remains the fixed CAD approxima
 
 ## Experiment entry point and validation
 
-The experiment entry point is `manimux/configs/experiments/pass_ball/umi_dp/tianji_taccap_umi_dp.yaml`.
+The experiment entry point is `manimux/configs/experiments/{umi-dp-study}/pass_ball/tianji_taccap_umi_dp.yaml` (station-local; build it like the [example study](../../../configs/lists/example-yam-pi05.yaml)).
 Select the station with `--local`; policy configuration lives in `manimux/configs/policy/umi_dp/`.
 The existing XPolicyLab UMI_DP model and `xpolicylab_ws` remain in use. Bind checkpoint identity with the original launcher
-before running. See `.agents/skills/manimux-inference/references/deployment/umi-dp-tianji-taccap.md`.
+before running. See `skills/manimux-inference/references/deployment/umi-dp-tianji-taccap.md`.
 
 Tests cover registry-to-adapter wiring, numerical regression, display/control frame separation, subprocess decoding parity,
 existing timing/motion constraints and read-only/execution dispatch with fake SDKs. No real hardware or model service was started.

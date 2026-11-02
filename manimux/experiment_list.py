@@ -1,11 +1,11 @@
-"""A finite set of validated experiments sharing one live station/model service."""
+"""Selection metadata for a finite collection of resolved experiments."""
 
 from __future__ import annotations
 
-from copy import deepcopy
 from dataclasses import dataclass
-import hashlib
 from pathlib import Path
+
+from manimux.configuration import initial_pose_metadata
 
 
 @dataclass(frozen=True)
@@ -17,10 +17,19 @@ class ExperimentChoice:
     sha256: str
 
     def metadata(self) -> dict:
+        run = self.config["run"]
         return {
             "id": self.id, "label": self.label, "config_path": str(self.path),
-            "task": self.config["run"]["task"],
+            "task": run["task_prompt"],
             "method": self.config["inference"]["algorithm"],
+            "initial_pose": initial_pose_metadata(self.config),
+            # Enough for the operator UI to count every method's remaining trials.
+            "study": {
+                "output_dir": str(run["output_dir"]),
+                "history_sessions": [str(p) for p in run.get("history_sessions", [])],
+                "experiment_template": run.get("experiment_template"),
+                "research_defaults": {key: run.get(key, "") for key in ("experiment_name", "condition")},
+            },
         }
 
 
@@ -28,10 +37,16 @@ def shared_service_contract(config: dict) -> dict:
     """Fail before launch if switching would require different external services.
 
     Model initialization arguments remain fixed, including sampler defaults and
-    normalization. Task instructions belong to run.task, not model identity.
+    normalization. Task instructions belong to run.task_prompt, not model identity.
     Runtime strategies/executors are rebuilt by Prepare and may differ.
     """
-    policy = config["policy"]
+    policy = dict(config["policy"])
+    # The chunk IK solver runs in the runtime's decoder, rebuilt for every rollout;
+    # switching mink <-> dls needs no service restart.
+    policy["adapter"] = {
+        key: value for key, value in (policy.get("adapter") or {}).items()
+        if key not in {"ik_backend", "dls_ik"}
+    }
     return {
         "policy_server": config.get("policy_server"),
         "camera_server": config.get("camera_server"),
@@ -59,48 +74,3 @@ class ExperimentList:
         return {"list_path": str(self.path), "list_sha256": self.sha256,
                 "config_sha256": self.choices[choice_id].sha256,
                 **self.choices[choice_id].metadata()}
-
-
-def load_experiment_list(path: str | Path, *, local: Path | None = None,
-                         executor: str | None = None, control_timing: bool = False) -> ExperimentList:
-    from manimux.cli import _load_config, read_yaml
-
-    source = Path(path).expanduser().resolve()
-    raw = read_yaml(source)
-    if set(raw) != {"experiments"} or not isinstance(raw["experiments"], list) or not raw["experiments"]:
-        raise ValueError("Experiment list requires a nonempty experiments list")
-    choices: list[ExperimentChoice] = []
-    ids: set[str] = set()
-    outputs: set[Path] = set()
-    contract = None
-    for entry in raw["experiments"]:
-        if not isinstance(entry, dict) or set(entry) - {"id", "config", "label"}:
-            raise ValueError("Each experiment entry accepts id, config and optional label")
-        choice_id = entry.get("id")
-        if not isinstance(choice_id, str) or not choice_id.strip() or choice_id in ids:
-            raise ValueError(f"Experiment id must be a unique nonempty string: {choice_id!r}")
-        if not isinstance(entry.get("config"), str):
-            raise ValueError(f"Experiment {choice_id} requires a config path")
-        config_path = (source.parent / entry["config"]).resolve()
-        config_sha256 = hashlib.sha256(config_path.read_bytes()).hexdigest()
-        config = _load_config(config_path, executor, local=local, control_timing=control_timing)
-        if not config["robogui"]["enabled"]:
-            raise ValueError(f"Experiment {choice_id} requires robogui.enabled=true")
-        current = shared_service_contract(config)
-        if contract is not None and current != contract:
-            changed = [key for key in current if current[key] != contract[key]]
-            raise ValueError(f"Experiment {choice_id} cannot reuse the same services: {', '.join(changed)}")
-        contract = current
-        output = Path(config["run"]["output_dir"]).resolve()
-        if output in outputs:
-            raise ValueError(f"Experiment {choice_id} must have its own output_dir: {output}")
-        label = entry.get("label", choice_id)
-        if not isinstance(label, str) or not label.strip():
-            raise ValueError(f"Experiment {choice_id} requires a nonempty label")
-        task = config["run"]["task"]
-        if any(c.config["run"]["task"] == task and c.label == label for c in choices):
-            raise ValueError(f"Duplicate config label for task {task}: {label}")
-        ids.add(choice_id)
-        outputs.add(output)
-        choices.append(ExperimentChoice(choice_id, label, config_path, deepcopy(config), config_sha256))
-    return ExperimentList(source, choices, hashlib.sha256(source.read_bytes()).hexdigest())

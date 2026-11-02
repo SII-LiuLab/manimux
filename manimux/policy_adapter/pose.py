@@ -21,7 +21,7 @@ class PoseRequest(InferenceRequest):
 
 
 class PoseAdapter(KinematicAdapter):
-    """Absolute or explicitly anchored delta poses, with whole-chunk IK rejection.
+    """Absolute or explicitly anchored delta poses with the shared IK failure policy.
 
     Base deltas translate in the configured arm base and left-multiply rotation.
     Tool deltas right-multiply the observation TCP transform. Observation deltas
@@ -177,7 +177,7 @@ class PoseAdapter(KinematicAdapter):
             raise ValueError("Pose IK requires a decode seed")
         if self.semantics.startswith("delta_observation_") and context.observation_state is None:
             raise ValueError("Observation-relative poses require the request observation state")
-        groups = {}
+        groups, diagnostics = {}, {}
         for group in selected_groups:
             rows = actions[group]
             model = self.kinematics.models[group]
@@ -186,8 +186,9 @@ class PoseAdapter(KinematicAdapter):
                 context.observation_state.groups[group]
                 if self.semantics.startswith("delta_observation_") else seed
             )
+            sequence = self.ik_sequence(group, seed)
             solved = []
-            for step, row in enumerate(rows[: self.decode_steps]):
+            for row in rows[: self.decode_steps]:
                 target = pose_matrix(row[:7])
                 fixed = {}
                 if self.layouts[group]["gripper_dofs"]:
@@ -208,13 +209,14 @@ class PoseAdapter(KinematicAdapter):
                         raise ValueError("Pose-only decoding requires a normalized gripper")
                     solved.append(np.r_[matrix_pose(target), aperture])
                     continue
-                result = model.ik(target, seed, fixed_coordinates=fixed)
-                if not result.converged:
-                    raise ValueError(
-                        f"Pose IK failed: group={group} step={step} reason={result.reason}"
-                    )
-                seed = np.asarray(result.joints).copy()
+                result = model.ik(
+                    target,
+                    sequence.current,
+                    fixed_coordinates=fixed,
+                )
+                seed = sequence.resolve(result.converged, result.joints, reason=result.reason)
                 solved.append(seed)
+            diagnostics[group] = sequence.metadata()
             groups[group] = np.asarray(solved)
             if len(solved) == 1:
                 # A timeline segment needs two endpoints. Hold the one decoded
@@ -231,6 +233,7 @@ class PoseAdapter(KinematicAdapter):
             self.dt_ns,
             groups,
             metadata={
+                "ik": diagnostics,
                 "action_semantics": self.semantics,
                 "decoded_policy_steps": self.decode_steps,
                 "terminal_hold_endpoint": self.decode_steps == 1,

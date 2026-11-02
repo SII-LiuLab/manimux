@@ -1,5 +1,6 @@
 """Per-group action layout, independent of policy transports and hardware SDKs."""
 
+from copy import deepcopy
 from pathlib import Path
 
 import yaml
@@ -70,3 +71,63 @@ def gripper_indices(layouts: dict) -> dict[str, int]:
     if any(layout["gripper_dofs"] > 1 for layout in layouts.values()):
         raise ValueError("multi-coordinate end effectors require a matching executor capability")
     return {name: layout["arm_dofs"] for name, layout in layouts.items() if layout["gripper_dofs"]}
+
+
+def _set_contract_value(target: dict, name: str, value: object, label: str) -> None:
+    if name in target and target[name] != value:
+        raise ValueError(f"{label} conflicts with embodiment action_contract")
+    target[name] = deepcopy(value)
+
+
+def action_contract_group_indices(config: dict) -> dict[str, int] | None:
+    """Return each group's gripper coordinate from its resolved action contract."""
+
+    dims = config.get("robot", {}).get("group_dims")
+    options = config.get("policy", {}).get("adapter", {})
+    if not dims or not ({"group_layouts", "gripper_dofs"} & options.keys()):
+        return None
+    return gripper_indices(group_layouts(dims, options))
+
+
+def apply_action_contract(config: dict, contract: dict) -> dict[str, int]:
+    """Apply one embodiment-owned action layout to policy and execution sections."""
+
+    dimensions = contract.get("group_dims")
+    if "group_layouts" in contract:
+        dimensions = {
+            name: item["arm_dofs"] + item["gripper_dofs"]
+            for name, item in contract["group_layouts"].items()
+        }
+        if "group_dims" in contract and dimensions != contract["group_dims"]:
+            raise ValueError("component action layout conflicts with assembly dimensions")
+    layouts = group_layouts(dimensions, contract)
+    robot = config.setdefault("robot", {})
+    adapter = config.setdefault("policy", {}).setdefault("adapter", {})
+    _set_contract_value(robot, "group_dims", dimensions, "robot.group_dims")
+    _set_contract_value(robot, "group_layouts", layouts, "robot.group_layouts")
+    for name, value in {
+        "group_order": list(dimensions),
+        "group_prefixes": contract.get("group_prefixes", {name: name for name in dimensions}),
+        "group_layouts": layouts,
+    }.items():
+        _set_contract_value(adapter, name, value, f"policy.adapter.{name}")
+    indices = action_contract_group_indices(config)
+    assert indices is not None
+    execution = config.setdefault("executor", {})
+    motion = execution.get("motion_limits")
+    if isinstance(motion, dict):
+        _set_contract_value(
+            motion.setdefault("gripper", {}),
+            "group_indices",
+            indices,
+            "executor.motion_limits.gripper.group_indices",
+        )
+    smooth = execution.get("smooth")
+    if isinstance(smooth, dict) and isinstance(smooth.get("gripper"), dict):
+        _set_contract_value(
+            smooth["gripper"],
+            "group_indices",
+            indices,
+            "executor.smooth.gripper.group_indices",
+        )
+    return indices

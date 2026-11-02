@@ -1,0 +1,21 @@
+# Example study entry: the same Pi05 model driven by the RPent agent. The Codex planner
+# chooses observation, motion primitives and Pi05 calls; RoboGUI shows its transcript.
+# RPent trials are counted separately (" / RPent" condition). execute=false here: enable
+# it for your station in a private variant after the offline and Finish checks.
+_base_:
+- ../_base_.yaml
+- ../../../tasks/put_bottles.yaml
+agent:
+  config: ../../../agents/rpent_pi05_yam.yaml
+robot:
+  options:
+    execute: false
+robogui:
+  policy_label: Pi05 put-bottles - RPent - Serial 30 Hz
+inference:
+  # RPent sets rows per call (execute_policy.use_length); a configured chunk cap is rejected.
+  chunk_policy_steps: null
+  max_chunk_policy_steps: null
+experiment:
+  task: put_bottles
+  variant: rpent

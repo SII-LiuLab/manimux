@@ -36,7 +36,8 @@ def resolve_local_path(
         return Path(local).expanduser().resolve()
     if experiment is not None:
         source = Path(experiment).expanduser().resolve()
-        reference = read_yaml(source).get("local")
+        from manimux.configuration import compose
+        reference = compose(source)[0].get("local")
         if reference is not None:
             return (source.parent / Path(reference).expanduser()).resolve()
     return DEFAULT_LOCAL_PATH
@@ -93,6 +94,12 @@ def _merge_executor(base: dict, overrides: dict) -> dict:
 def load_local(path: str | Path) -> dict:
     """Read device, service and path bindings; execution flags belong to experiments."""
     source = Path(path).expanduser().resolve()
+    if not source.is_file():
+        raise FileNotFoundError(
+            f"station file {source} does not exist; copy a template from "
+            "manimux/configs/local/ (for example yam_example.yaml) to "
+            "manimux/configs/local/station.yaml, or pass --local <station.yaml>"
+        )
     bindings = read_yaml(source)
     # Retain the existing boundary check so misplaced execution flags are not ignored.
     extra = set(bindings) - {"robot", "services", "paths"}
@@ -112,13 +119,18 @@ def read_experiment(
 ) -> dict:
     """Expand component references and explicit station bindings.
 
-    Each section references at most one base YAML, without recursive inheritance.
+    Experiment/task bases compose first; component sections reference one recipe.
     robot.config remains the assembly path; reading does not construct RobotModel.
     """
     source = Path(path).expanduser().resolve()
-    raw = read_yaml(source)
-    from manimux.embodiments.layout import assembly_action_contract
-    from manimux.embodiments.robot import apply_action_contract
+    from manimux.configuration import apply_initial_pose, compose
+    raw, sources = compose(source)
+    if "task" in raw.get("run", {}):
+        raise ValueError("Rename run.task to run.task_prompt; experiment.task remains the task ID")
+    from manimux.config_validation import EXPERIMENT_FIELDS, check_fields
+    check_fields(raw, EXPERIMENT_FIELDS, "experiment")
+    raw["config_sources"] = sources
+    from manimux.embodiments.layout import apply_action_contract, assembly_action_contract
     from manimux.policies.base import backend_identity_from_recipe
 
     backend_identity = None
@@ -132,6 +144,7 @@ def read_experiment(
                 raw[name] = section
         if "config" in section:
             reference = (source.parent / section.pop("config")).resolve()
+            sources[str(reference)] = hashlib.sha256(reference.read_bytes()).hexdigest()
             base = (
                 read_camera_recipe(reference) if name == "camera_server" else read_yaml(reference)
             )
@@ -141,10 +154,11 @@ def read_experiment(
         if name == "policy_server" and isinstance(raw.get(name), dict):
             backend_identity = raw[name].pop("backend_identity", None)
     adapter = raw.get("policy", {}).get("adapter", {})
-    diff_ik = adapter.get("diff_ik", {})
-    if isinstance(diff_ik, dict) and "config" in diff_ik:
-        reference = (source.parent / diff_ik.pop("config")).resolve()
-        adapter["diff_ik"] = _merge(read_yaml(reference), diff_ik)
+    for name in ("diff_ik", "dls_ik"):
+        tuning = adapter.get(name, {})
+        if isinstance(tuning, dict) and "config" in tuning:
+            reference = (source.parent / tuning.pop("config")).resolve()
+            adapter[name] = _merge(read_yaml(reference), tuning)
     robot = raw.setdefault("robot", {})
     if robot.get("config") is not None:
         robot["config"] = str((source.parent / robot["config"]).resolve())
@@ -153,6 +167,8 @@ def read_experiment(
             apply_action_contract(raw, contract)
     if raw.get("control_profile") is not None:
         raw["control_profile"] = str((source.parent / raw["control_profile"]).resolve())
+
+    apply_initial_pose(raw)
 
     # CLI station paths are relative to cwd; saved references are experiment-relative.
     selected = Path(local).expanduser().resolve() if local is not None else None
@@ -170,6 +186,25 @@ def read_experiment(
         if configured is not None and configured != generated:
             raise ValueError("policy.expected_backend conflicts with policy_server recipe")
         policy["expected_backend"] = generated
+    # Snapshot every referenced YAML, including assembly/driver and station files.
+    def record_references(value, directory: Path) -> None:
+        if isinstance(value, list):
+            for item in value:
+                record_references(item, directory)
+        elif isinstance(value, dict):
+            for key, item in value.items():
+                if key in {"config", "control_profile", "local"} and isinstance(item, str):
+                    dependency = (directory / Path(item).expanduser()).resolve()
+                    if dependency.is_file() and str(dependency) not in visited:
+                        visited.add(str(dependency))
+                        raw["config_sources"][str(dependency)] = hashlib.sha256(dependency.read_bytes()).hexdigest()
+                        record_references(read_yaml(dependency), dependency.parent)
+                else:
+                    record_references(item, directory)
+    visited: set[str] = set()
+    for dependency in list(raw["config_sources"]):
+        record_references(read_yaml(dependency), Path(dependency).parent)
+    record_references(raw, source.parent)
     return raw
 
 
@@ -184,6 +219,8 @@ def bind_station(config: dict, local: str | Path) -> dict:
     selected = Path(local).expanduser().resolve()
     raw["local"] = str(selected)
     bindings = load_local(selected)
+    from manimux.policies.recipe import resolve_recipe_paths
+    raw = resolve_recipe_paths(raw, bindings.get("paths", {}))
     robot = raw.setdefault("robot", {})
     hardware = bindings.get("robot", {}).get("hardware", {})
     components = bindings.get("robot", {}).get("components", {})
@@ -240,7 +277,15 @@ def bind_station(config: dict, local: str | Path) -> dict:
             for key in ("model_path", "norm_stats_path"):
                 server[key] = str((paths["checkpoints"] / server[key]).resolve())
         elif "checkpoint" in paths:
-            server["checkpoint_path"] = str(paths["checkpoint"])
+            candidates = [key for key in ("checkpoint_path", "ckpt_dir", "model_path", "model_dir", "model_root")
+                          if key in server]
+            # Recipes may carry both a model directory and its selected weight
+            # file. The explicit file field is the checkpoint override target.
+            if "checkpoint_path" in candidates:
+                candidates = ["checkpoint_path"]
+            if len(candidates) != 1:
+                raise ValueError("paths.checkpoint is ambiguous for this recipe; use explicit ${paths.<root>} references")
+            server[candidates[0]] = str(paths["checkpoint"])
         if "norm_stats" in paths:
             server["norm_stats_path"] = str(paths["norm_stats"])
         if "vlm_processor" in paths:
@@ -308,17 +353,20 @@ def _create_run_dir(config: dict, config_path: Path, *, mode: str,
             {
                 "session_id": run_id,
                 "mode": mode,
+                "workflow": "experiment" if experiment_selection else "trial",
                 "created_at": datetime.now(UTC).isoformat(),
                 "git_sha": repositories["manimux"].get("head"),
                 "xpolicylab_git_sha": (
                     repositories["xpolicylab"].get("head") if "xpolicylab" in repositories
-                    else _git_sha(repository_root / "XPolicyLab")
+                    else _git_sha(repository_root / "third_party" / "XPolicyLab")
                 ),
                 "source_provenance": sources,
                 "deployment_artifacts": deployment_artifact_provenance(recipe),
                 "config_path": str(resolved_config),
                 "config_sha256": config_sha256,
                 "config": loads(dumps(deepcopy(config), default=str)),
+                "config_sources": config.get("config_sources", {}),
+                **({"collection": config["collection"]} if "collection" in config else {}),
                 **({"experiment_selection": experiment_selection} if experiment_selection else {}),
             },
             handle,
@@ -330,14 +378,42 @@ def _create_run_dir(config: dict, config_path: Path, *, mode: str,
     return run_dir
 
 
-def _run(
+def _trial_config(config: dict, config_path: Path, output_dir: Path | None = None) -> dict:
+    """Reuse a runtime recipe without borrowing study identity, progress or storage."""
+    from manimux.collections import safe_id
+
+    trial = deepcopy(config)
+    trial.pop("collection", None)
+    run = trial.setdefault("run", {})
+    root = (output_dir if output_dir is not None
+            else Path(run.get("output_dir") or "data") / "trials")
+    identity = trial.get("experiment") or {}
+    if identity:
+        destination = (root / safe_id(identity.get("task"), "task id")
+                       / safe_id(identity.get("variant"), "variant id"))
+    else:
+        # Equal filenames in separate directories must not share a trial namespace.
+        source_id = hashlib.sha256(str(config_path.resolve()).encode()).hexdigest()[:8]
+        destination = root / f"{config_path.stem}-{source_id}"
+    run.update(
+        output_dir=destination.expanduser().resolve(), experiment_mode=False,
+        experiment_name="", condition="", notes="", layout_id="", repeat_id=None,
+        reference_layout=None, experiment_template=None, history_sessions=[],
+    )
+    return trial
+
+
+def _run_once(
     config_path: Path, executor: str | None = None, *, local: Path | None = None,
-    control_timing: bool = False,
+    control_timing: bool = False, output_dir: Path | None = None,
 ) -> int:
     from manimux.runtime import build_runtime
     from manimux.runtime.lock import RuntimeLockError
 
-    config = _load_config(config_path, executor, local=local, control_timing=control_timing)
+    config = _trial_config(
+        _load_config(config_path, executor, local=local, control_timing=control_timing),
+        config_path, output_dir,
+    )
     try:
         with _runtime_lock(config, config_path, mode="run"):
             run_dir = _create_run_dir(config, config_path, mode="run")
@@ -357,30 +433,48 @@ def _run(
     return 0 if result.run_completed else 2
 
 
-def _serve(
+def _run_interactive(
     config_path: Path | None, executor: str | None = None, *, local: Path | None = None,
-    control_timing: bool = False, config_list: Path | None = None,
+    control_timing: bool = False,
+    collection: Path | None = None, experiment_id: str | None = None,
+    output_dir: Path | None = None,
 ) -> int:
     # Session/recovery dependencies are only needed for the interactive service.
     from manimux.runtime.lock import RuntimeLockError
     from manimux.session import RuntimeSessionService
 
     catalog = None
-    if config_list is not None:
-        from manimux.experiment_list import load_experiment_list
-
-        catalog = load_experiment_list(
-            config_list, local=local, executor=executor, control_timing=control_timing,
-        )
+    if collection is not None:
+        from manimux.collections import load_collection
+        if executor is not None or control_timing or output_dir is not None:
+            raise ValueError(
+                "Config-list runs own their output root and variant parameters; edit the YAML"
+            )
+        catalog = load_collection(collection, local=local, experiment=experiment_id)
         first = catalog.choices[catalog.default_id]
         config_path, config = first.path, deepcopy(first.config)
     else:
-        config = _load_config(config_path, executor, local=local, control_timing=control_timing)
+        config = _trial_config(
+            _load_config(config_path, executor, local=local, control_timing=control_timing),
+            config_path, output_dir,
+        )
+    if experiment_id is not None and collection is None:
+        raise ValueError("--experiment-id requires --config-list")
 
+    # Preserve the historical record/protocol mode; the public command is now run.
     def create_selection_dir(choice_id: str) -> Path:
         choice = catalog.choices[choice_id]
         return _create_run_dir(choice.config, choice.path, mode="serve",
                                experiment_selection=catalog.selection(choice_id))
+
+    def create_pose_dir(selected: dict) -> Path:
+        from manimux.configuration import initial_pose_metadata
+        if catalog:
+            choice_id = selected["collection"]["experiment_id"]
+            choice = catalog.choices[choice_id]
+            selection = {**catalog.selection(choice_id), "initial_pose": initial_pose_metadata(selected)}
+            return _create_run_dir(selected, choice.path, mode="serve", experiment_selection=selection)
+        return _create_run_dir(selected, config_path, mode="serve")
 
     try:
         with _runtime_lock(config, config_path, mode="serve"):
@@ -389,6 +483,8 @@ def _serve(
             RuntimeSessionService(
                 config, run_dir, experiment_list=catalog,
                 selection_dir_factory=create_selection_dir if catalog else None,
+                pose_dir_factory=create_pose_dir,
+                allow_experiments=catalog is not None,
             ).serve()
     except KeyboardInterrupt:
         print("runtime service stopped by operator")
@@ -415,8 +511,14 @@ def _add_runtime_arguments(parser: argparse.ArgumentParser, *, allow_list: bool 
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--config", type=Path)
     if allow_list:
-        source.add_argument("--config-list", type=Path,
-                            help="Select compatible experiments in RoboGUI without restarting services")
+        source.add_argument(
+            "--config-list", type=Path, help="Config list with trial plan and recording root"
+        )
+        parser.add_argument("--experiment-id", help="Initially select this config-list entry")
+    parser.add_argument(
+        "--output-dir", type=Path,
+        help="Trial recording root for --config only; default: <run.output_dir>/trials",
+    )
     parser.add_argument(
         "--local", type=Path,
         help="Station bindings (default: manimux/configs/local/station.yaml)",
@@ -437,45 +539,107 @@ def _add_runtime_arguments(parser: argparse.ArgumentParser, *, allow_list: bool 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="manimux")
     subparsers = parser.add_subparsers(dest="command", required=True)
-    run_parser = subparsers.add_parser("run", help="run one local robot-policy session")
-    _add_runtime_arguments(run_parser)
-    serve_parser = subparsers.add_parser(
-        "serve", help="keep one runtime service available for RoboGUI-controlled rollouts"
+    run_parser = subparsers.add_parser(
+        "run", help="try one config or manage a config list; --once exits after one trial"
     )
-    _add_runtime_arguments(serve_parser, allow_list=True)
+    _add_runtime_arguments(run_parser, allow_list=True)
+    run_parser.add_argument(
+        "--once", action="store_true",
+        help=("Run one standalone --config rollout and exit; connects immediately "
+              "(GUI still gates Start)"),
+    )
+    inspect_parser = subparsers.add_parser(
+        "inspect", help="Validate configuration without starting services"
+    )
+    source = inspect_parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--config", type=Path)
+    source.add_argument("--config-list", type=Path)
+    inspect_parser.add_argument("--output-dir", type=Path, help="Trial recording root for --config")
+    inspect_parser.add_argument("--local", type=Path)
+    inspect_parser.add_argument("--experiment-id")
+    inspect_parser.add_argument("--index", action="store_true", help="Refresh derived record index")
+    from manimux.deployment import add_commands
+    add_commands(subparsers)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     mp.freeze_support()
     signal.signal(signal.SIGTERM, _handle_termination)
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.command in {"doctor", "up", "status", "attach"}:
+        from manimux.deployment import main as deployment_main
+        return deployment_main(args)
+    if args.command == "run":
+        if args.once and args.config_list is not None:
+            parser.error(
+                "--once requires a standalone --config; "
+                "select a concrete variant with --config for a standalone trial"
+            )
+        if args.experiment_id is not None and args.config_list is None:
+            parser.error("--experiment-id requires --config-list")
+    if args.command == "inspect":
+        if args.config is not None:
+            if args.index or args.experiment_id:
+                parser.error("--index and --experiment-id require --config-list")
+            config = _trial_config(_load_config(args.config, local=args.local),
+                                   args.config, args.output_dir)
+            print(json.dumps({"workflow": "trial", "config": config},
+                             indent=2, default=str, ensure_ascii=False))
+            return 0
+        if args.output_dir is not None:
+            parser.error("--output-dir is for --config trials; config lists own recording.root")
+        from manimux.collections import load_collection, write_inventory
+        catalog = load_collection(args.config_list, local=args.local, experiment=args.experiment_id)
+        rows = []
+        for choice in catalog.choices.values():
+            c = choice.config
+            rows.append({**choice.metadata(), "output_dir": str(c['run']['output_dir']),
+                         "inference": c['inference'],
+                         "history_sessions": len(c['run']['history_sessions']),
+                         "history_rejected": c['collection']['history_rejected']})
+        print(json.dumps(rows, indent=2, default=str, ensure_ascii=False))
+        if args.index:
+            first = catalog.choices[catalog.default_id].config['collection']
+            print(write_inventory(Path(first['root']) / first['id']))
+        return 0
     logging.basicConfig(
         level=getattr(logging, args.log_level),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
     if args.command == "run":
-        return _run(
+        if args.once:
+            return _run_once(
+                args.config, args.executor, local=args.local, control_timing=args.control_timing,
+                output_dir=args.output_dir,
+            )
+        return _run_interactive(
             args.config, args.executor, local=args.local, control_timing=args.control_timing,
-        )
-    if args.command == "serve":
-        return _serve(
-            args.config, args.executor, local=args.local, control_timing=args.control_timing,
-            config_list=args.config_list,
+            collection=args.config_list, experiment_id=args.experiment_id,
+            output_dir=args.output_dir,
         )
     raise AssertionError(f"unhandled command {args.command}")
 
 
 def run_parameters(**options) -> dict:
     """Fill in the experiment recording directory and control step count."""
-
+    from manimux.config_validation import merge_parameters
     from manimux.embodiments.sensor.reader import sensor_reading_parameters
     from manimux.evaluation.identity import research_template
 
+    # Saved manifests used run.task before task_prompt became the public field.
+    # Normalize only at this boundary; live YAML rejects the old spelling above.
+    if "task" in options:
+        if "task_prompt" in options:
+            raise ValueError("Specify task_prompt only; both task and task_prompt were supplied")
+        options["task_prompt"] = options.pop("task")
     if "max_steps" in options:
         raise ValueError("unsupported run field: max_steps")
-    values = {
+    values = merge_parameters({
         "output_dir": Path("data"),
+        # Per-rollout RoboGUI selection, retained in recorded configs; not a YAML setting.
+        "execution_mode": None,
         "max_control_steps": 500,
         "warmup_before_start": False,
         "control_timing": False,
@@ -489,10 +653,13 @@ def run_parameters(**options) -> dict:
         "layout_id": "",
         "repeat_id": None,
         "reference_layout": None,
-        **options,
-    }
+    }, options, 'run', extra=('task_prompt', 'initial_pose', 'initial_pose_options', 'history_sessions', 'agent_run_dir'))
     if values.get("output_dir") is not None:
         values["output_dir"] = Path(values["output_dir"])
+    if values["execution_mode"] not in {None, "vla", "rpent"}:
+        raise ValueError("run.execution_mode must be vla or rpent")
+    if type(values["max_control_steps"]) is not int or values["max_control_steps"] < 0:
+        raise ValueError("run.max_control_steps must be a non-negative integer; 0 disables the limit")
     if not isinstance(values["warmup_before_start"], bool):
         raise ValueError("run.warmup_before_start must be boolean")
     if not isinstance(values["control_timing"], bool):
@@ -541,6 +708,8 @@ def prepare_experiment(**options) -> dict:
 
     if "viewer" in options:
         raise ValueError("Rename the experiment section 'viewer' to 'robogui'.")
+    from manimux.config_validation import EXPERIMENT_FIELDS, check_fields
+    check_fields(options, EXPERIMENT_FIELDS, "experiment")
     options = deepcopy(options)
     values = {
         "control_profile": None,
@@ -565,6 +734,14 @@ def prepare_experiment(**options) -> dict:
         raise ValueError("execution supports only the ik section")
     execution["ik"] = ik_parameters(**(execution.get("ik") or {}))
     values["run"] = run_parameters(**values["run"])
+    if values.get("agent") is not None:
+        from manimux.agents.execution import agent_parameters
+        values["agent"] = agent_parameters(values["agent"])
+    if values["run"]["execution_mode"] is None:
+        # An agent profile makes this an RPent experiment.
+        values["run"]["execution_mode"] = "rpent" if values.get("agent") else "vla"
+    if values["run"]["execution_mode"] == "rpent" and not values.get("agent"):
+        raise ValueError("RPent execution requires agent.config")
     values["robot"] = robot_parameters(**values["robot"])
     values["policy"] = policy_parameters(**values["policy"])
     values["executor"] = executor_parameters(**values["executor"])

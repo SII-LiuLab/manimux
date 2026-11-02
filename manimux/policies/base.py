@@ -51,10 +51,11 @@ def backend_identity_from_recipe(server: dict, spec: dict) -> dict:
 
 def policy_parameters(*, action_dt_s: float, horizon_policy_steps: int, **options) -> dict:
     """Require experiment timing and fill client and action-decoding options."""
+    from manimux.config_validation import merge_parameters
 
     if "horizon_steps" in options:
         raise ValueError("unsupported policy field: horizon_steps")
-    values = {
+    values = merge_parameters({
         "device": "cpu",
         "action_dt_s": action_dt_s,
         "trajectory_duration_s": None,
@@ -64,8 +65,7 @@ def policy_parameters(*, action_dt_s: float, horizon_policy_steps: int, **option
         "action_decoding": "inline",
         "expected_backend": None,
         "options": {},
-        **options,
-    }
+    }, options, 'policy', extra=('worker', 'adapter', 'service', 'inference_delay_s'))
     if values.get("expected_backend") is not None:
         values["expected_backend"] = expected_backend_parameters(**values["expected_backend"])
     return values

@@ -14,6 +14,7 @@ from manimux.runtime.inference import (
     CommitSettings,
     EnsembleScope,
     InferenceSubmission,
+    InferenceTimingError,
     RequestState,
 )
 from manimux.runtime.safety import RuntimeState
@@ -41,8 +42,11 @@ class PaintInferenceStrategy:
     """Algorithm 1 scheduling around an XPolicy flow-sampler hook."""
 
     ensemble_scope: EnsembleScope = "execution_prefix"
+    # Make the terminal source row executable for its full policy interval.
+    # EdgeRuntime then retains the last command while inference is pending.
+    hold_last_step = True
     # Compile both sampler branches, then measure each without its first call.
-    warmup_required_calls = {"ordinary": 2, "conditioned": 2}
+    warmup_required_calls = {"ordinary": 1, "conditioned": 2}
 
     def __init__(self, config: dict) -> None:
         self._config = config
@@ -52,8 +56,13 @@ class PaintInferenceStrategy:
         self._initial_delay_steps = int(paint["initial_delay_policy_steps"])
         self._delay_buffer_size = int(paint["delay_buffer_size"])
         self._warmup_delay_steps: tuple[int, ...] = ()
-        self._time_aligned = (
+        # A buffered single-inflight reply can outlive its conditioning plan too.
+        self._check_reference = (
             config["inference"]["inference_schedule"] == "multi_inflight"
+            or config["inference"].get("min_plan_hold_policy_steps", 0) > 0
+        )
+        self._time_aligned = (
+            self._check_reference
             or (config["inference"].get("temporal_ensemble") or {}).get("enabled", False)
         )
         self._active_rows: np.ndarray | None
@@ -63,7 +72,6 @@ class PaintInferenceStrategy:
         self._request_forecast: dict[int, int]
         self._request_execution: dict[int, int]
         self._conditioned_requests: set[int]
-        self._infeasible_pending: tuple[int, int, int] | None
         self._latency: list[tuple[int, int, float, float]]
         self._loop_ms: list[float]
         self._last_report_step: int
@@ -94,7 +102,6 @@ class PaintInferenceStrategy:
         self._request_forecast = {}
         self._request_execution = {}
         self._conditioned_requests = set()
-        self._infeasible_pending = None
         self._latency = []
         self._loop_ms = []
         self._last_report_step = 0
@@ -114,6 +121,20 @@ class PaintInferenceStrategy:
             maxlen=self._delay_buffer_size,
         )
 
+        self._require_future_output(self._config["policy"]["horizon_policy_steps"])
+
+    def _require_future_output(self, horizon: int) -> None:
+        delay = max(self._delay_forecast)
+        if delay >= horizon:
+            dt = action_interval(self._config["policy"])
+            raise InferenceTimingError(
+                f"PAINT timing infeasible: delay_steps={delay}, horizon_steps={horizon}; "
+                f"forecast_delay={delay * dt:.3f}s consumes the entire NEW chunk. "
+                "Holding the old terminal target is supported, but the new chunk "
+                "must retain future actions after latency trimming.",
+                algorithm="paint",
+            )
+
     def build_warmup_submission(
         self,
         *,
@@ -131,7 +152,7 @@ class PaintInferenceStrategy:
             observation_time_ns=snapshot.state.monotonic_ns,
             deadline_ns=now_ns + int(self._config["policy"]["timeout_s"] * 1_000_000_000),
             observation=adapter.build_observation(snapshot),
-            instruction=self._config["run"]["task"],
+            instruction=self._config["run"]["task_prompt"],
         )
         if not conditioned:
             return InferenceSubmission(
@@ -175,11 +196,12 @@ class PaintInferenceStrategy:
             "observation_time_ns": snapshot.state.monotonic_ns,
             "deadline_ns": deadline_ns,
             "observation": adapter.build_observation(snapshot),
-            "instruction": self._config["run"]["task"],
+            "instruction": self._config["run"]["task_prompt"],
         }
         active = self._active_rows
         if active is None:
-            if request_state.multi_flight:
+            self._require_future_output(self._config["policy"]["horizon_policy_steps"])
+            if self._check_reference:
                 self._request_reference_seq[request_seq] = timeline.accepted_request_seq
             self._request_started_ns[request_seq] = now_ns
             self._request_forecast[request_seq] = 0
@@ -194,19 +216,25 @@ class PaintInferenceStrategy:
         if executed < self._execution_steps:
             return None
         delay = max(self._delay_forecast)
-        if delay > executed or executed + delay > horizon:
-            self._infeasible_pending = (executed, delay, horizon)
-            return None
-
-        prefix = active[executed : executed + delay].astype(np.float64, copy=True)
+        self._require_future_output(self._config["policy"]["horizon_policy_steps"])
+        # The old plan may run out while the model is working. Continue its
+        # terminal target (including gripper), matching the runtime's hold.
+        indices = np.minimum(np.arange(executed, executed + delay), horizon - 1)
+        prefix = active[indices].astype(np.float64, copy=True)
         if self._time_aligned and delay:
             valid, prefix = sample_reference(
                 timeline, origin_ns=snapshot.state.monotonic_ns,
                 dt_ns=int(action_interval(self._config["policy"]) * 1e9),
                 steps=delay, group_order=self._group_order,
+                terminal_hold=True,
             )
             if not valid.all():
-                return None  # PAINT needs a complete anchored prefix.
+                if self._request_started_ns:
+                    return None
+                raise InferenceTimingError(
+                    "PAINT timing infeasible: the timeline no longer contains "
+                    "a complete time-aligned conditioning prefix.", algorithm="paint",
+                )
         request = PaintInferenceRequest(
             **request_fields,
             paint_action_prefix=prefix,
@@ -218,7 +246,7 @@ class PaintInferenceStrategy:
         self._request_forecast[request_seq] = delay
         self._request_execution[request_seq] = executed
         self._conditioned_requests.add(request_seq)
-        if request_state.multi_flight:
+        if self._check_reference:
             self._request_reference_seq[request_seq] = timeline.accepted_request_seq
         return InferenceSubmission(
             request=request,
@@ -226,6 +254,7 @@ class PaintInferenceStrategy:
                 "conditioned": True,
                 "execution_steps": executed,
                 "delay_steps": delay,
+                "forecast_terminal_hold_policy_steps": max(0, executed + delay - horizon),
             },
         )
 
@@ -262,7 +291,7 @@ class PaintInferenceStrategy:
         response: InferenceResponse,
         now_ns: int,
     ) -> ActionChunk:
-        if self._config["inference"]["inference_schedule"] == "multi_inflight" and (
+        if self._check_reference and (
             self._request_reference_seq.get(response.request_seq) != self._active_request_seq
         ):
             raise ValueError("paint_condition_plan_replaced")
@@ -286,6 +315,7 @@ class PaintInferenceStrategy:
         response: InferenceResponse,
         now_ns: int,
     ) -> dict[str, object]:
+        previous_horizon = len(self._active_rows) if self._active_rows is not None else 0
         self._active_request_seq = response.request_seq
         self._request_reference_seq.pop(response.request_seq, None)
         self._active_rows = np.concatenate(
@@ -309,11 +339,14 @@ class PaintInferenceStrategy:
         )
         self._conditioned_requests.discard(response.request_seq)
         fields: dict[str, object] = {
+            "paint_wait_policy": "terminal_hold_v1",
             "execution_steps": executed,
             "measured_delay": actual,
             "forecast_delay": forecast,
             "server_ms": round(response.inference_ms, 1),
             "trimmed_steps": result.trimmed_steps,
+            "forecast_terminal_hold_policy_steps": max(0, executed + forecast - previous_horizon) if forecast else 0,
+            "elapsed_terminal_hold_policy_steps": max(0, executed + actual - previous_horizon) if forecast else 0,
         }
         raw = response.raw_action
         metadata = raw.get("paint") if isinstance(raw, Mapping) else None
@@ -343,22 +376,7 @@ class PaintInferenceStrategy:
         self._conditioned_requests.discard(seq)
 
     def take_runtime_events(self, *, step: int) -> list[tuple[str, dict[str, object]]]:
-        pending = self._infeasible_pending
-        if pending is None:
-            return []
-        self._infeasible_pending = None
-        executed, delay, horizon = pending
-        return [
-            (
-                "paint_delay_infeasible",
-                {
-                    "step": step,
-                    "execution_steps": executed,
-                    "delay_steps": delay,
-                    "horizon_steps": horizon,
-                },
-            )
-        ]
+        return []
 
     def on_tick(self, *, steps: int, loop_ms: float, control_dt_ns: int) -> None:
         self._loop_ms.append(loop_ms)
@@ -389,14 +407,14 @@ class PaintInferenceStrategy:
 
 def paint_parameters(**options) -> dict:
     """Preserve default PAINT execution-prefix and delay-estimation step counts."""
+    from manimux.config_validation import merge_parameters
 
     unsupported = {"execution_steps", "initial_delay_steps"}.intersection(options)
     if unsupported:
         raise ValueError(f"unsupported PAINT fields: {sorted(unsupported)}")
-    values = {
+    values = merge_parameters({
         "execution_policy_steps": 10,
         "initial_delay_policy_steps": 4,
         "delay_buffer_size": 10,
-        **options,
-    }
+    }, options, 'inference.paint', extra=())
     return values

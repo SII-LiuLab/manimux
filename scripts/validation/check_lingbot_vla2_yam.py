@@ -15,7 +15,7 @@ import yaml
 sys.dont_write_bytecode = True
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-XPOLICY_ROOT = REPO_ROOT / "XPolicyLab"
+XPOLICY_ROOT = REPO_ROOT / "third_party" / "XPolicyLab"
 DEFAULT_CONFIG = REPO_ROOT / "manimux/configs/policy/lingbot-vla2/yam/base.yaml"
 
 
@@ -27,7 +27,7 @@ def _load_config(path: Path) -> dict[str, Any]:
 
 
 def _prepare_imports() -> None:
-    for path in (REPO_ROOT, XPOLICY_ROOT):
+    for path in (REPO_ROOT, XPOLICY_ROOT.parent, XPOLICY_ROOT):
         value = str(path)
         if value not in sys.path:
             sys.path.insert(0, value)
@@ -80,20 +80,7 @@ def _validate(
         if runtime not in {"manimux", "rtc"}:
             infra_errors.append("infra inference.algorithm must be manimux or rtc")
         if runtime == "rtc":
-            if report.get("rtc_capability") != "pi_guided_v1_sampler":
-                infra_errors.append("RTC config requires sampler-level pi_guided_v1 support")
-            rtc = execution.get("rtc", {})
-            delay = int(rtc.get("initial_delay_policy_steps", 0))
-            execute = int(rtc.get("min_execute_policy_steps", 0))
-            beta = float(rtc.get("beta", 0.0))
-            if delay <= 0 or not delay <= execute <= configured_horizon - delay:
-                infra_errors.append(
-                    "RTC requires delay <= min_execute_policy_steps <= action_horizon - delay"
-                )
-            if int(rtc.get("delay_buffer_size", 0)) <= 0:
-                infra_errors.append("RTC delay_buffer_size must be positive")
-            if not math.isfinite(beta) or beta <= 0:
-                infra_errors.append("RTC beta must be finite and positive")
+            infra_errors.append("LingBot RTC was withdrawn: conditioned inference exceeds the real-time budget")
     if infra_errors:
         report["errors"].extend(infra_errors)
         report["status"] = "blocked"
@@ -104,7 +91,6 @@ def _validate(
             "official_repository": "https://github.com/Robbyant/lingbot-vla-v2",
             "model_action_shape": [int(report["action_horizon"]), 14],
             "manimux_action_space": "absolute_joint_position",
-            "rtc_capability": report.get("rtc_capability", "blocked"),
             "inference_status": "not_verified",
             "policy_status": (
                 "base_checkpoint_capability_unvalidated"

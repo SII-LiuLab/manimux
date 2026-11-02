@@ -1,0 +1,19 @@
+# Example config list for Tianji Marvin + TacCap: one task, one model, three methods.
+# Start the four services against this same file (see the study README); actuation stays off
+# until a private variant enables it.
+id: example-tianji-pi05
+recording:
+  root: ../../../data/experiments
+experiments:
+- id: pack_plate_serial
+  label: Pi05 - Serial
+  config: ../experiments/example-tianji-pi05/pack_plate/serial.yaml
+  trials: {repeats: 3}
+- id: pack_plate_async
+  label: Pi05 - Async
+  config: ../experiments/example-tianji-pi05/pack_plate/async.yaml
+  trials: {repeats: 3}
+- id: pack_plate_rtc
+  label: Pi05 - RTC
+  config: ../experiments/example-tianji-pi05/pack_plate/rtc.yaml
+  trials: {repeats: 3}

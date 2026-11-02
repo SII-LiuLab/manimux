@@ -30,12 +30,15 @@ has neither ``msgpack`` nor ``websockets`` installed.
 
 from __future__ import annotations
 
+import inspect
+import ipaddress
 import time
 import uuid
 from contextlib import suppress
 from datetime import UTC, datetime
 from types import TracebackType
 from typing import Any
+from urllib.parse import urlsplit
 
 HELLO = "hello"
 HELLO_ACK = "hello_ack"
@@ -168,10 +171,21 @@ class XPolicyLabWsClient:
             raise ImportError(
                 'the XPolicyLab bridge requires websockets; install it with the "xpolicylab" extra'
             ) from exc
+        connect_options = {}
+        host = urlsplit(self._url).hostname or ""
+        try:
+            loopback = ipaddress.ip_address(host).is_loopback
+        except ValueError:
+            loopback = host.rstrip(".").lower() == "localhost"
+        # websockets >=15 discovers environment proxies automatically. Local
+        # station traffic must stay local; v14 has no proxy keyword/support.
+        if loopback and "proxy" in inspect.signature(ws_connect).parameters:
+            connect_options["proxy"] = None
         self._conn = ws_connect(
             self._url,
             open_timeout=self._connect_timeout_s,
             max_size=_NO_FRAME_SIZE_LIMIT,
+            **connect_options,
         )
         try:
             # Finish terminates this rollout's transport worker. Its disconnect
@@ -249,6 +263,7 @@ class XPolicyLabWsClient:
         if (
             sampling.get("mode") in {"aac", "paint", "autohorizon"}
             or "action_semantics" in payload
+            or "denoise_trace" in payload
         ):
             return dict(payload)
         return payload["actions"]
@@ -289,9 +304,13 @@ class XPolicyLabWsClient:
         if self._conn is None:
             raise XPolicyLabProtocolError("client is not connected")
         try:
-            reply = unpack_frame(self._conn.recv(timeout=0))
+            raw = self._conn.recv(timeout=0)
         except TimeoutError:
             return None
+        from manimux.policies.response_log import capture_response
+
+        capture_response(raw, stage="provider_wire")
+        reply = unpack_frame(raw)
         self._pending_requests.discard(reply.get("message_id"))
         return reply
 
@@ -332,7 +351,12 @@ class XPolicyLabWsClient:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise XPolicyLabTimeoutError(f"{message_type} timed out after {timeout_s:.3f}s")
-            reply = unpack_frame(conn.recv(timeout=remaining))
+            raw = conn.recv(timeout=remaining)
+            if message_type == INFER:
+                from manimux.policies.response_log import capture_response
+
+                capture_response(raw, stage="provider_wire")
+            reply = unpack_frame(raw)
             self._pending_requests.discard(reply.get("message_id"))
             # Heartbeat acks and replies to an earlier request we already gave
             # up on share the socket; drain them instead of mismatching.

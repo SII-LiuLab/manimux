@@ -40,9 +40,10 @@ def align_prediction(rows, origin_ns, times, dt_ns, *, first_step=0):
     return mask, (1 - alpha) * rows[lower] + alpha * rows[upper]
 
 
-def sample_reference(timeline, *, origin_ns, dt_ns, steps, group_order):
-    """Sample executable targets on a request's grid, without extending old plans."""
-    samples = [timeline.sample(origin_ns + step * dt_ns) for step in range(steps)]
+def sample_reference(timeline, *, origin_ns, dt_ns, steps, group_order, terminal_hold=False):
+    """Sample targets; PAINT can explicitly include a terminal-hold condition."""
+    options = {"terminal_hold": True} if terminal_hold else {}
+    samples = [timeline.sample(origin_ns + step * dt_ns, **options) for step in range(steps)]
     valid = np.array([sample is not None for sample in samples], dtype=bool)
     if not valid.any():
         return valid, None

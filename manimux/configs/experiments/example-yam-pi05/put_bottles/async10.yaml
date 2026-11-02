@@ -1,0 +1,27 @@
+# Example study entry: direct Pi05, Async with 10 Hz playback and Smooth execution.
+# The 50 returned rows play at 0.1 s each (slower than the checkpoint's 30 Hz), the next
+# request is sent after 28 rows while the current chunk keeps playing, and the Smooth
+# executor filters the interpolated 100 Hz commands.
+_base_:
+- ../_base_.yaml
+- ../../../tasks/put_bottles.yaml
+robot:
+  control_hz: 100.0
+policy:
+  action_dt_s: 0.1
+  timeout_s: 5.0
+robogui:
+  policy_label: Pi05 put-bottles - Async + Smooth - 10 Hz playback - request after 28 rows
+inference:
+  algorithm: async
+  inference_schedule: single_inflight
+  request_trigger: progress
+  chunk_policy_steps: 28
+  action_start_mode: first_step_when_ready
+  max_plan_age_s: 5.0
+executor:
+  config: ../../../executor/yam_smooth_standard.yaml
+  type: smooth
+experiment:
+  task: put_bottles
+  variant: async28_slow10_smooth

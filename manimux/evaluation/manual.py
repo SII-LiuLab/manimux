@@ -120,6 +120,17 @@ def write_manual_evaluation(
         **count_fields,
         "created_at": datetime.now(UTC).isoformat(),
     }
+    # Revision history travels with the atomic label, so a failed save cannot
+    # replace the old result without its audit trail.
+    if target.exists():
+        previous = json.loads(target.read_text(encoding="utf-8"))
+        if not isinstance(previous, dict):
+            raise ValueError("existing human-label.json must contain an object")
+        history = list(previous.pop("history", []))
+        payload["revision"] = int(previous.get("revision", 1)) + 1
+        payload["history"] = [*history, previous]
+    else:
+        payload["revision"] = 1
     try:
         with temporary.open("x", encoding="utf-8") as handle:
             json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)

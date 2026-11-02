@@ -27,22 +27,38 @@ class TimestampedCameraSensor(SensorBase):
 
     def start(self):
         self.client = CameraSubscriber(self.endpoint)
-        self.started_ns = self.clock.now_ns()
-        self.offset_ns = self.started_ns - time.time_ns()
+        samples = [self._clock_sample() for _ in range(3)]
+        now, low, high = min(samples, key=lambda sample: sample[2] - sample[1])
+        self.started_ns = now
+        self.offset_ns = (low + high) // 2
         self.frames = {}
+
+    def _clock_sample(self):
+        before = self.clock.now_ns()
+        wall = time.time_ns()
+        after = self.clock.now_ns()
+        # Preemption can occur between these reads. The actual clock offset is
+        # inside this interval, so scheduling delay must not look like an NTP jump.
+        return after, before - wall, after - wall
 
     def read(self):
         if self.client is None:
             raise RuntimeError("Timestamped camera sensor is not started")
-        now = self.clock.now_ns()
-        if abs((now - time.time_ns()) - self.offset_ns) > self.jump_ns:
+        bundle = self.client.try_recv_bundle()
+        now, low, high = self._clock_sample()
+        if not low - self.jump_ns <= self.offset_ns <= high + self.jump_ns:
             raise RuntimeError(
                 "Wall clock jumped relative to monotonic time; restart camera history"
             )
-        bundle = self.client.try_recv_bundle()
         if bundle is not None:
             timestamps = bundle.get("timestamps", {})
             images = bundle.get("frames", {})
+            # Independently started camera owners may publish partial bundles.
+            # Startup never exposes a partial observation to the policy.
+            if set(self.names) - images.keys() and not self.frames:
+                if now - self.started_ns <= self.startup_ns:
+                    return {}
+                raise RuntimeError("Camera PUB stream did not produce every selected camera")
             for name in self.names:
                 timestamp = float(timestamps.get(name, 0))
                 if name not in images or not np.isfinite(timestamp) or timestamp <= 0:
@@ -54,16 +70,23 @@ class TimestampedCameraSensor(SensorBase):
                     raise RuntimeError(f"Camera timestamp moved backwards: {name}")
                 if old is None or sequence != old.sequence:
                     self.frames[name] = SensorFrame(
-                        self.output_names.get(name, name), images[name], capture_ns, sequence
+                        self.output_names.get(name, name), images[name], capture_ns, sequence,
+                        camera_meta=bundle.get("camera_meta", {}).get(name),
                     )
         if not self.frames:
             if now - self.started_ns > self.startup_ns:
                 raise RuntimeError("Camera PUB stream did not produce timestamped frames")
             return {}
+        # Validate at consumption, after receiving/deserializing and constructing
+        # frames. A producer may publish while this thread is descheduled.
+        now = self.clock.now_ns()
         for name, frame in self.frames.items():
             age = now - frame.capture_monotonic_ns
             if age < -self.jump_ns or age > self.max_age_ns:
-                raise RuntimeError(f"Camera {name} capture timestamp is stale or in the future")
+                raise RuntimeError(
+                    f"Camera {name} capture timestamp is stale or in the future: "
+                    f"age={age / 1e6:.3f} ms, maximum={self.max_age_ns / 1e6:.3f} ms"
+                )
         # A cached frame retains object identity, RGB, capture time and sequence.
         # Logical names were assigned once, when the source frame arrived.
         return {frame.name: frame for frame in self.frames.values()}

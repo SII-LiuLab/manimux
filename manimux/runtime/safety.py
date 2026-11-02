@@ -16,8 +16,8 @@ class RuntimeState(StrEnum):
     FAULT = "fault"
 
 
-# Mink IK and encoder quantization sit ~1 mrad past a joint stop. Abort only
-# when the command is a real excursion, not that numerical slop.
+# Legacy profiles tolerate Mink/encoder quantization near a joint stop.
+# Controller-declared device bounds remain strict.
 _POSITION_LIMIT_TOLERANCE = 1e-3
 
 
@@ -32,6 +32,7 @@ class SafetyGuard:
         max_velocity: dict[str, list[float]] | None = None,
         max_acceleration: dict[str, list[float]] | None = None,
         control_dt_s: float | None = None,
+        device_bounds: dict[str, FloatArray] | None = None,
     ) -> None:
         self._group_dims = dict(group_dims)
         self._position_limit_abs = position_limit_abs
@@ -45,6 +46,33 @@ class SafetyGuard:
         self._position_upper = self._normalize_limits("position_upper", position_upper)
         self._max_velocity = self._normalize_limits("max_velocity", max_velocity)
         self._max_acceleration = self._normalize_limits("max_acceleration", max_acceleration)
+        # Resolve the existing profile tolerance once, before intersecting strict
+        # hardware bounds. Executors and validation then use identical intervals.
+        for name in self._position_lower:
+            self._position_lower[name] = self._position_lower[name] - _POSITION_LIMIT_TOLERANCE
+            self._position_upper[name] = self._position_upper[name] + _POSITION_LIMIT_TOLERANCE
+        for name, raw in (device_bounds or {}).items():
+            bounds = np.asarray(raw, dtype=float)
+            if name not in self._group_dims or bounds.shape != (self._group_dims[name], 2):
+                raise ValueError(f"device bounds for group {name!r} do not match robot layout")
+            if not np.isfinite(bounds).all() or np.any(bounds[:, 0] >= bounds[:, 1]):
+                raise ValueError(f"device bounds for group {name!r} must be finite ordered pairs")
+            self._position_lower[name] = np.maximum(
+                bounds[:, 0], self._position_lower.get(name, bounds[:, 0]),
+            )
+            self._position_upper[name] = np.minimum(
+                bounds[:, 1], self._position_upper.get(name, bounds[:, 1]),
+            )
+        for name in self._position_lower:
+            if position_limit_abs is not None:
+                self._position_lower[name] = np.maximum(
+                    self._position_lower[name], -position_limit_abs,
+                )
+                self._position_upper[name] = np.minimum(
+                    self._position_upper[name], position_limit_abs,
+                )
+            if np.any(self._position_lower[name] > self._position_upper[name]):
+                raise ValueError(f"command bounds for group {name!r} do not overlap")
         self._rate_limits_enabled = bool(self._max_velocity)
         if self._rate_limits_enabled and (control_dt_s is None or control_dt_s <= 0):
             raise ValueError("control_dt_s must be positive when command rate limits are set")
@@ -74,9 +102,9 @@ class SafetyGuard:
         return normalized
 
     def _validate_positions(self, name: str, values: FloatArray, *, label: str) -> None:
-        if self._position_lower:
-            below = values < self._position_lower[name] - _POSITION_LIMIT_TOLERANCE
-            above = values > self._position_upper[name] + _POSITION_LIMIT_TOLERANCE
+        if name in self._position_lower:
+            below = values < self._position_lower[name]
+            above = values > self._position_upper[name]
             if np.any(below | above):
                 index = int(np.flatnonzero(below | above)[0])
                 raise ValueError(
@@ -85,6 +113,22 @@ class SafetyGuard:
                     f"[{self._position_lower[name][index]:.6f}, "
                     f"{self._position_upper[name][index]:.6f}]"
                 )
+
+    def execution_limits(self) -> dict:
+        """Resolved grouped limits for command generation and rejection diagnostics."""
+        return {
+            "position_limit_abs": self._position_limit_abs,
+            "control_dt_s": self._control_dt_s,
+            **{
+                key: {name: value.tolist() for name, value in values.items()}
+                for key, values in (
+                    ("position_lower", self._position_lower),
+                    ("position_upper", self._position_upper),
+                    ("max_velocity", self._max_velocity),
+                    ("max_acceleration", self._max_acceleration),
+                )
+            },
+        }
 
     def validate_state(self, state: RobotState) -> None:
         if set(state.groups) != set(self._group_dims):

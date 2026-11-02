@@ -1,0 +1,52 @@
+# Hardware-free example study: synthetic robot, fake policy, RoboGUI and recording.
+# No station file, camera, checkpoint or robot SDK is needed; the synthetic robot only
+# echoes commands back as state. Use it to learn Prepare/Start/Finish, scoring and replay.
+local: ../../local/synthetic.yaml
+run:
+  task_prompt: Synthetic reach demonstration.
+  max_control_steps: 600
+  # Layouts the operator picks before each counted trial; a real task lists its scenes.
+  experiment_template:
+    name: Synthetic reach - two layouts
+    layout_ids: [near, far]
+    require_reference: false
+robot:
+  type: manimux.dispatch.demo:build_robot
+  group_dims: {left_arm: 7, right_arm: 7}
+  control_hz: 100.0
+  options:
+    execute: false
+    home_on_close: false
+sensors: []
+policy:
+  worker: fake
+  adapter:
+    type: manimux.policies.fake:FakePolicyAdapter
+  action_dt_s: 0.05
+  horizon_policy_steps: 10
+  inference_delay_s: 0.05
+  timeout_s: 5.0
+  startup_timeout_s: 60.0
+inference:
+  algorithm: serial
+  action_start_mode: first_step_when_ready
+  blend_policy_steps: 0
+executor:
+  type: direct
+robogui:
+  enabled: true
+  robot: yam
+  policy_label: Synthetic - Serial
+recording:
+  enabled: true
+  video_fps: 0
+evaluation:
+  kind: stages
+  task_id: synthetic_reach
+  rubric_id: synthetic_reach_v1
+  label: Synthetic reach
+  options:
+  - {id: failure, label: Not completed, score: 0.0, success: false}
+  - {id: success, label: Completed, score: 1.0, success: true}
+experiment:
+  task: synthetic_reach

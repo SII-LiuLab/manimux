@@ -11,6 +11,7 @@ from functools import partial
 import numpy as np
 
 from manimux.kinematics import build_kinematics
+from manimux.kinematics.failure import IKConvergenceError
 from manimux.kinematics.tianji_diff import rotation_matrix, rotation_vector
 from manimux.policies.base import action_interval
 from manimux.policies.xpolicylab.codec import matrix_pose, pose_matrix
@@ -366,8 +367,8 @@ class UmiDpTianjiAdapter(PolicyAdapter):
                     self._diff_target(kin, waypoint, aperture), current, duration_s / substeps
                 )
                 if not result.ok:
-                    raise ValueError(
-                        f"Tianji differential IK {result.reason}; rejecting the entire chunk "
+                    raise IKConvergenceError(
+                        f"Tianji differential IK {result.reason} "
                         f"(lag_mm={result.pos_err_mm}, lag_deg={result.rot_err_deg}, "
                         f"detail={result.detail})"
                     )
@@ -377,12 +378,14 @@ class UmiDpTianjiAdapter(PolicyAdapter):
                     lag["lag_exceedances"] += int(result.lag_exceeded)
                 ok, solved = result.ok, result.joints
             solved = np.asarray(solved, dtype=float)
-            if not ok or solved.shape != (7,) or not np.isfinite(solved).all():
-                raise ValueError("Tianji IK failed; rejecting the entire chunk")
+            if not ok:
+                raise IKConvergenceError("Tianji IK did not converge")
+            if solved.shape != (7,) or not np.isfinite(solved).all():
+                raise ValueError("Tianji IK returned an invalid solution")
             current = solved.copy()
             if substep_joints is not None:
                 substep_joints.append(current.copy())
-        return current
+        return np.r_[current, aperture]
 
     def warmup_decode(self, partition):
         # Load libKine and build the OSQP problem before the first real chunk.
@@ -427,6 +430,7 @@ class UmiDpTianjiAdapter(PolicyAdapter):
     def _decode_side(self, side, steps, seed_state, lead_in=None):
         """steps: model rows after the lead-in; seed_state: IK seed; lead_in: handoff targets."""
         seed = state_vector(seed_state)
+        sequence = self.ik_sequence(f"{side}_arm", seed)
         current = seed[:7].copy()
         previous_grip = float(seed[-1])
         diff_solver = self.diff_solvers.get(side)
@@ -439,17 +443,24 @@ class UmiDpTianjiAdapter(PolicyAdapter):
         samples_per_action = None
         for pose, grip in lead_in or ():
             # One diffIK step per runtime row; the last target is the join row.
-            current = self._solve_knot(
-                self.kin[side],
-                current,
-                pose,
-                grip,
-                self.waypoint_handoff.runtime_dt_ns / 1e9,
-                diff_solver=diff_solver,
-                lag=lag,
+            resolved = sequence.solve_interpolated(
+                partial(
+                    self._solve_knot,
+                    self.kin[side],
+                    current,
+                    pose,
+                    grip,
+                    self.waypoint_handoff.runtime_dt_ns / 1e9,
+                    diff_solver=diff_solver,
+                    lag=lag,
+                ),
+                duration_s=self.waypoint_handoff.runtime_dt_ns / 1e9,
+                substep_dt_s=self.validation_dt,
+                reset=None if diff_solver is None else diff_solver.reset,
             )
-            runtime_rows.append(np.r_[current, grip])
-            previous_grip = grip
+            current = resolved[:7].copy()
+            runtime_rows.append(resolved)
+            previous_grip = float(resolved[-1])
         if lead_in:
             rows.append(np.r_[current, previous_grip])
         for step in steps:
@@ -458,17 +469,25 @@ class UmiDpTianjiAdapter(PolicyAdapter):
             if grip.shape != (1,) or not np.isfinite(grip).all() or not 0 <= grip[0] <= 1:
                 raise ValueError("UMI gripper action must lie in [0, 1]")
             substep_joints = [] if runtime_rows is not None else None
-            current = self._solve_knot(
-                self.kin[side],
-                current,
-                target,
-                float(grip[0]),
-                self.dt_ns / 1e9,
-                diff_solver=diff_solver,
-                lag=lag,
+            resolved = sequence.solve_interpolated(
+                partial(
+                    self._solve_knot,
+                    self.kin[side],
+                    current,
+                    target,
+                    float(grip[0]),
+                    self.dt_ns / 1e9,
+                    diff_solver=diff_solver,
+                    lag=lag,
+                    substep_joints=substep_joints,
+                ),
+                duration_s=self.dt_ns / 1e9,
+                substep_dt_s=self.validation_dt,
                 substep_joints=substep_joints,
+                reset=None if diff_solver is None else diff_solver.reset,
             )
-            rows.append(np.r_[current, grip])
+            current = resolved[:7].copy()
+            rows.append(resolved)
             if runtime_rows is not None:
                 count = len(substep_joints)
                 if not count or (samples_per_action is not None and count != samples_per_action):
@@ -476,14 +495,15 @@ class UmiDpTianjiAdapter(PolicyAdapter):
                 samples_per_action = count
                 for index, joints in enumerate(substep_joints, start=1):
                     alpha = index / count
-                    dense_grip = (1.0 - alpha) * previous_grip + alpha * float(grip[0])
+                    dense_grip = (1.0 - alpha) * previous_grip + alpha * float(resolved[-1])
                     runtime_rows.append(np.r_[joints, dense_grip])
-            previous_grip = float(grip[0])
+            previous_grip = float(resolved[-1])
         return (
             np.asarray(rows),
             None if runtime_rows is None else np.asarray(runtime_rows),
             samples_per_action,
             lag,
+            sequence.metadata(),
         )
 
     def _decode(self, raw, context, sides):
@@ -541,9 +561,10 @@ class UmiDpTianjiAdapter(PolicyAdapter):
         runtime_groups = {}
         samples_per_action = None
         lag_stats = {}
+        diagnostics = {}
         for side in sides:
             group = f"{side}_arm"
-            groups[group], runtime_rows, side_samples, lag = self._decode_side(
+            groups[group], runtime_rows, side_samples, lag, diagnostics[group] = self._decode_side(
                 side,
                 steps,
                 seed.groups[group],
@@ -585,6 +606,7 @@ class UmiDpTianjiAdapter(PolicyAdapter):
             source_offset_steps=0,
             runtime_trajectory=runtime_trajectory,
             metadata={
+                "ik": diagnostics,
                 "native_action_semantics": SEMANTICS,
                 "measured_observation_time_ns": context.observation_time_ns,
                 "first_action_offset_ns": self.offset_ns,
