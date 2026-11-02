@@ -18,8 +18,8 @@ manimux/configs/
 ├── policy/                                  # model artifacts, serving and action contracts
 ├── inference/                               # algorithm base settings
 ├── executor/                                # execution settings
-├── robogui/                                 # display and preview settings
-└── local/                                   # private station bindings and local configurations
+├── robogui/                                 # station display overrides (presets live in manimux/robogui/robots/)
+└── local/                                   # station templates; your station.yaml stays private
 ```
 
 ## Worked example: how the files fit together
@@ -47,9 +47,9 @@ experiments/example-yam-pi05/put_bottles/async10.yaml   2. one method
         ├─▶ experiments/example-yam-pi05/_base_.yaml      3. runnable baseline
         │     robot, cameras, policy client, Serial 30 Hz, RoboGUI, recording
         │     camera_server: {config: ../../embodiment/sensor/cameras/realsense_3_views.yaml}
-        │     policy_server: {config: ../../policy/pi05/yam/put-bottles/joint-step30000.yaml}
+        │     policy_server: {config: ../../policy/pi05/yam/put-bottles/joint.yaml}
         │           │
-        │           └─▶ policy/pi05/yam/put-bottles/joint-step30000.yaml   4. model recipe
+        │           └─▶ policy/pi05/yam/put-bottles/joint.yaml   4. model recipe
         │                 checkpoint and normalization below paths.checkpoints,
         │                 horizon, action contract, backend identity
         │
@@ -107,9 +107,11 @@ Only the `example-*` studies and lists are published:
 
 | Study | Shows |
 | --- | --- |
+| [`example-synthetic`](experiments/example-synthetic/README.md) | No hardware: synthetic robot and policy, the full RoboGUI trial loop ([list](lists/example-synthetic.yaml)) |
 | [`example-yam-pi05`](experiments/example-yam-pi05/README.md) | Pi05 through XPolicyLab: Serial, RTC, Async 10 Hz + Smooth, RPent ([list](lists/example-yam-pi05.yaml)) |
 | [`example-yam-dream1`](experiments/example-yam-dream1/README.md) | Hosted Dream-1 API: Serial, RPent ([list](lists/example-yam-dream1.yaml)) |
 | [`example-yam-poke`](experiments/example-yam-poke/serial.yaml) | Hosted Poke API, Serial (single variant, no list) |
+| [`example-tianji-pi05`](experiments/example-tianji-pi05/README.md) | Tianji Marvin + TacCap, Pi05 pack-plate with differential IK: Serial, Async, RTC; actuation off ([list](lists/example-tianji-pi05.yaml)) |
 | [`example-franka`](experiments/example-franka/_base_.yaml) | Franka FR3: Pi05-DROID through XPolicyLab, RPent |
 | [`example-rpent-synthetic`](experiments/example-rpent-synthetic/_base_.yaml) | Hardware-free dispatch and RPent GUI checks |
 
@@ -125,6 +127,9 @@ and recordings remain private.
 - [Tasks and scoring](../../guideline.html#experiments): explicit score options for every task, plus the trial workflow.
 - [Launch commands](../../guideline.html#example-study): matching camera, model, RoboGUI and runtime services.
 - [Switching and reload rules](../../guideline.html#experiment-switch-boundaries): compatible entries and service restart boundaries.
-- [Policy recipes](policy/README.md) and [camera recipes](embodiment/sensor/cameras/README.md): component-specific ownership.
+- Per-folder guides: [tasks](tasks/README.md), [embodiment](embodiment/README.md),
+  [policy recipes](policy/README.md), [inference presets](inference/README.md),
+  [agents](agents/README.md), [RoboGUI overrides](robogui/README.md),
+  [camera recipes](embodiment/sensor/cameras/README.md) and [station templates](local/README.md).
 - [Experiment skill](../../skills/manimux-experiments/SKILL.md): agent workflow for eliciting task details, writing files and validating them.
 - [Station setup skill](../../skills/manimux-station-setup/SKILL.md): agent workflow for local hardware and service bindings.

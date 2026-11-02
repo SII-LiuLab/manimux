@@ -226,8 +226,8 @@ The generated runtime retains its station reference; the standalone server YAML 
 the resolved values from that generation. After changing addresses or checkpoints, regenerate
 the pair or launch through `--experiment` to read the current station bindings.
 
-The current YAM RTC joint-step30000 and generic assembly examples, plus the Tianji–TacCap
-experiments, declare named camera components for shared station loading. Other historical
+The published `example-*` studies, including the Tianji–TacCap example, declare named
+camera components for shared station loading. Other historical
 YAM recipes may still contain direct addresses or lack a `camera_server` mapping. Use a
 recipe with these bindings when launching all services from one experiment; the loader
 does not infer missing camera assembly from old addresses.

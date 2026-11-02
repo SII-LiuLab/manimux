@@ -1,0 +1,15 @@
+# Hardware-free example list: two methods, two counted trials each.
+id: example-synthetic
+# Empty station: no hardware bindings are needed.
+local: ../local/synthetic.yaml
+recording:
+  root: ../../../data/experiments
+experiments:
+- id: synthetic_serial
+  label: Synthetic - Serial
+  config: ../experiments/example-synthetic/demo/serial.yaml
+  trials: {repeats: 2}
+- id: synthetic_async
+  label: Synthetic - Async
+  config: ../experiments/example-synthetic/demo/async.yaml
+  trials: {repeats: 2}

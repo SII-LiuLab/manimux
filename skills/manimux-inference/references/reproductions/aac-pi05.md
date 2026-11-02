@@ -94,13 +94,14 @@ dt:     1/30 s
 ### Local red-ball 50-step checkpoint
 
 ```text
-server: manimux/configs/policy/pi05/yam/finetune-pick-red-ball-box-step1000.yaml
+server: manimux/configs/policy/pi05/yam/{recipe}.yaml
 infra:  manimux/configs/experiments/{pi05-study}/pick_red_object/aac_step1000.yaml
 output: N x 50 x 14 absolute joint positions after official output transforms
 dt:     1/30 s
 ```
 
-The local model was initialized from official `pi05_base` and uses its own checkpoint-matched
+The step-1000 red-ball checkpoint is private. `{recipe}` is your Pi05 recipe; copy the published
+[`put-bottles/joint.yaml`](../../../../manimux/configs/policy/pi05/yam/put-bottles/joint.yaml) (H=50, absolute joint actions) and point it at your own export. The local model was initialized from official `pi05_base` and uses its own checkpoint-matched
 `yam_pick_red_ball_box_v1` norm stats. Those model stats remain separate from AAC's scoring-only EE
 stats at `manimux/policies/xpolicylab/norm_stats/yam_60ep_ee_increment.json`.
 

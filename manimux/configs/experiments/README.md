@@ -4,9 +4,11 @@ Only the `example-*` studies are published; they are also the runtime examples:
 
 | Study | Base | Variants |
 | --- | --- | --- |
+| [`example-synthetic/`](example-synthetic/README.md) | Synthetic robot and fake policy, no hardware or station file | `demo/{serial,async}` |
 | [`example-yam-pi05/`](example-yam-pi05/README.md) | Pi05 through XPolicyLab, YAM, Serial 30 Hz | `put_bottles/{serial,rtc,async10,rpent,chunktrust_ahs,chunktrust_ahs_rtc}` |
 | [`example-yam-dream1/`](example-yam-dream1/README.md) | Hosted Dream-1 API, YAM, Serial 30 Hz | `put_bottles/{serial,rpent}` |
 | [`example-yam-poke/`](example-yam-poke/serial.yaml) | Hosted Poke API, YAM | `serial` |
+| [`example-tianji-pi05/`](example-tianji-pi05/README.md) | Pi05 pack-plate through XPolicyLab, Tianji Marvin + TacCap, actuation off | `pack_plate/{serial,async,rtc}` |
 | [`example-franka/`](example-franka/_base_.yaml) | Franka FR3, XPolicyLab joint policy, read-only | `pick_yellow_block/{pi05_droid,rpent}` |
 | [`example-rpent-synthetic/`](example-rpent-synthetic/_base_.yaml) | Synthetic robot and tool policy, no hardware | `demo/{rpent,rpent_gui,rpent_gui_debug,rpent_gui_primitives}` |
 
@@ -34,9 +36,32 @@ generic policy services also accept that `--config`. This route offers Prepare R
 only and saves separate trial records; it never consumes the study repeat budget.
 A new standalone runtime config needs no experiment identity, layouts or scoring.
 
-Example lists: [`../lists/example-yam-pi05.yaml`](../lists/example-yam-pi05.yaml),
-[`../lists/example-yam-dream1.yaml`](../lists/example-yam-dream1.yaml).
+Example lists: [`example-synthetic`](../lists/example-synthetic.yaml),
+[`example-yam-pi05`](../lists/example-yam-pi05.yaml),
+[`example-yam-dream1`](../lists/example-yam-dream1.yaml),
+[`example-tianji-pi05`](../lists/example-tianji-pi05.yaml).
 See the [complete protocol and commands](../../../guideline.html#experiment-lists).
+
+## Start your own study
+
+1. Run [`example-synthetic`](example-synthetic/README.md) once to learn the RoboGUI loop.
+2. Copy the closest example study to a new name (without the `example-` prefix, so it stays
+   private): `cp -r example-yam-pi05 my-study`.
+3. Edit `my-study/_base_.yaml`: robot assembly, cameras, `policy_server.config` (copy a
+   recipe from [`../policy/`](../policy/README.md) for your checkpoint) and the baseline timing.
+   Run it alone first: `manimux inspect --config my-study/_base_.yaml`.
+4. Add or copy a task in [`../tasks/`](../tasks/README.md): prompt (the training label),
+   layouts and score options. Rename `rubric_id` whenever the options change.
+5. Write one file per method under `my-study/<task>/`. Each inherits `../_base_.yaml` and the
+   task, sets `experiment: {task, variant}` and only what the method changes.
+6. Copy a list from [`../lists/`](../lists/README.md), point its entries at your variants,
+   set `trials` and `recording.root`, and validate:
+   `manimux inspect --config-list manimux/configs/lists/my-study.yaml`.
+7. Start camera, model, RoboGUI and runtime with that `--config-list` (the command block in
+   each example README), then Prepare Experiment in RoboGUI.
+
+To change a method after trials were recorded, give it a new `variant` ID; the old
+recordings keep their saved conditions.
 
 Raw historical sessions retain their saved parameters and paths. Their config list
 `history` inputs require compatible conditions. A change only to the stop budget

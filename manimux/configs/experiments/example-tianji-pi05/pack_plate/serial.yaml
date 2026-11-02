@@ -1,0 +1,7 @@
+# Example study entry: Serial. Listed in ../../../lists/example-tianji-pi05.yaml.
+_base_:
+- ../_base_.yaml
+- ../../../tasks/pack_plate.yaml
+experiment:
+  task: pack_plate
+  variant: serial

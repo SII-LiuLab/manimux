@@ -143,9 +143,12 @@ Smooth/MPC limits and Safety remain explicit outer real-robot layers and are not
 The experiment is station-local; build it like the [example study](../../../../manimux/configs/lists/example-yam-pi05.yaml).
 
 ```text
-server: manimux/configs/policy/pi05/yam/finetune-pick-red-ball-box-step1000.yaml
+server: manimux/configs/policy/pi05/yam/{recipe}.yaml
 infra:  manimux/configs/experiments/{pi05-study}/pick_red_object/autohorizon_step1000.yaml
 ```
+
+`{recipe}` is your Pi05 recipe; the step-1000 red-ball checkpoint measured below is private.
+Copy the published [`put-bottles/joint.yaml`](../../../../manimux/configs/policy/pi05/yam/put-bottles/joint.yaml) (H=50, absolute joint actions) and point it at your own export.
 
 The server config is unchanged because AutoHorizon reuses the same JAX checkpoint and matching norm
 stats. The infra config selects only `inference.algorithm: autohorizon` and disables seam blending.
@@ -158,7 +161,7 @@ Start the unchanged Pi05 server:
 cd {repo}
 third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
   manimux/servers/pi05.py \
-  --config manimux/configs/policy/pi05/yam/finetune-pick-red-ball-box-step1000.yaml
+  --config manimux/configs/policy/pi05/yam/{recipe}.yaml
 ```
 
 Before any robot process, run the forward probe:

@@ -5,9 +5,10 @@
 | `check_can_arm_sdks.py` | Verify installed PiPER / X5 SDK bindings offline (below) |
 | `dls_gate_calibrate.py` | Derive the YAM DLS `singularity_gate` from this station's recordings ([DLS gate](../../skills/manimux-development/references/runtime-config.md)) |
 | `export_chunktrust_backend.py` | Write a standalone XPolicyLab recipe for a ChunkTrust backend ([ChunkTrust](../../skills/manimux-inference/references/chunktrust.md)) |
+| `setup_openwam_local_env.sh` | Create the OpenWAM model environment ([OpenWAM runbook](../../skills/manimux-inference/references/deployment/openwam-yam.md)) |
 | `franka-linux-cp312.txt` | Pinned FR3 Franky/libfranka SDK artifact |
 
-Each script prints its options with `--help`; none of them opens a device.
+The Python scripts print their options with `--help`; none of these helpers opens a device.
 
 ## Offline SDK installation checks
 

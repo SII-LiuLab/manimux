@@ -1,0 +1,20 @@
+# Example study entry: Async. Request the next chunk 0.25 s before the current one runs
+# out; the new chunk drops the rows that elapsed during inference and blends in over 2 rows.
+_base_:
+- ../_base_.yaml
+- ../../../tasks/pack_plate.yaml
+robogui:
+  policy_label: Pi05 pack-plate (wrist only) - Async
+inference:
+  algorithm: async
+  inference_schedule: single_inflight
+  chunk_policy_steps: null
+  refill_threshold_s: 0.25
+  max_plan_age_s: 2.0
+  blend_policy_steps: 2
+  action_start_mode: drop_infer_latency
+  handoff: blend
+  handoff_margin_s: 0.03
+experiment:
+  task: pack_plate
+  variant: async

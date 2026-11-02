@@ -172,6 +172,18 @@ uv run manimux-robogui --robot piper --demo --host 127.0.0.1 --port 8087
 uv run manimux-robogui --robot aloha --demo --host 127.0.0.1 --port 8088
 ```
 
+### Run a full trial loop offline
+
+The [hardware-free example study](manimux/configs/experiments/example-synthetic/README.md)
+adds the runtime: a synthetic robot and policy, so Prepare, Start, Finish, scoring, counted
+trials and recordings all work without a station file. Run the two commands in separate
+terminals (stop the demo above first; both use port 8086):
+
+```bash
+uv run manimux-robogui --robot yam --host 127.0.0.1 --port 8086
+uv run manimux run --config-list manimux/configs/lists/example-synthetic.yaml
+```
+
 Model environments and checkpoints are needed only for real-robot deployment below.
 
 ### Before the first robot run

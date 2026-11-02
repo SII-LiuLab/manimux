@@ -1,6 +1,8 @@
 # SAPolicy + YAM
 
-SAPolicy recipes are station-local (checkpoint bundles are not published); `{recipe}` below is your recipe under `manimux/configs/policy/sapolicy/yam/`.
+SAPolicy recipes are station-local: checkpoint bundles are not published, and a clean clone has no
+`manimux/configs/policy/sapolicy/` folder. `{recipe}` below is a recipe you write there
+([write your recipe](#write-your-recipe)); the recipe names in the table are this station's.
 
 ## Current deployment
 
@@ -54,6 +56,46 @@ third_party/XPolicyLab/policy/SAPolicy/.venv/bin/python manimux/servers/sapolicy
 
 `--check` validates configuration and resources only. The shared model service defaults to `ws://127.0.0.1:8510`
 and does not connect to hardware; only one SAPolicy server can hold that port at a time.
+
+### Write your recipe
+
+Copy the layout of a published XPolicyLab recipe such as
+[`abc_dit/yam/put-bottles/pretrained-200k.yaml`](../../../../manimux/configs/policy/abc_dit/yam/put-bottles/pretrained-200k.yaml)
+and fill in the fields `manimux/servers/sapolicy.py` and XPolicyLab's `policy/SAPolicy/assets.py` read:
+
+```yaml
+policy_name: SAPolicy
+protocol: ws
+host: 127.0.0.1
+port: 8510
+task_name: put_the_plastic_bottles_in_the_bin
+env_cfg_type: yam_dual
+robot_action_dim_info: {arm_dim: [6, 6], ee_dim: [1, 1]}
+num_envs: 1
+action_type: ee
+eval_batch: false
+output_format: action_dict
+model_path: checkpoints/finetuned/sapolicy/<bundle>/model.ckpt
+cfg_file: checkpoints/finetuned/sapolicy/<bundle>/resolved_config.yaml
+backbone_path: checkpoints/finetuned/sapolicy/<bundle>/backbone.pth
+normalizer_path: checkpoints/finetuned/sapolicy/<bundle>/action_normalizer.pt
+workspace: data/sapolicy/<bundle>/inference
+checkpoint_source: sha256:<model.ckpt digest>
+action_horizon: 50
+use_ema: false
+ckpt_type: raw
+camera_names: [top, left, right]
+body_frame_actions: true
+tcp_forward_offset_m: 0.0
+device: cuda:0
+```
+
+Relative paths resolve from the repository root. `cfg_file` must be the checkpoint's resolved
+training YAML: `action_horizon` must equal its `action_sequence_length`, and the adapter
+accepts only the 20-D dual-arm, body-frame relative-action contract. `checkpoint_source`
+is verified at startup. `sapolicy_root` defaults to XPolicyLab's `policy/SAPolicy/upstream`;
+point it at a bundle's `source/` snapshot when the checkpoint needs one (tcp_rot20 and
+caps1010 below). See [other training checkpoints](#using-other-sapolicy-training-checkpoints).
 
 ## Cameras and GUI
 

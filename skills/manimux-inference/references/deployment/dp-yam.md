@@ -18,10 +18,9 @@ From the repository root:
 bash third_party/XPolicyLab/policy/DP/install_inference.sh
 ```
 
-Expected local checkpoint:
-`checkpoints/finetuned/ziyang/dp-yam-eef-put-bottles-step100000/100000.ckpt`.
-SHA-256: `579abd982af3289bd6835112bebe197a0e9c81f1403b6d9d8573326a48c30534`.
-The server verifies this digest before loading. Normalization and architecture
+Expected local checkpoint: `checkpoints/finetuned/<dp-run>/<step>.ckpt`, below the
+station's `paths.checkpoints`. The station-local recipe pins its SHA-256, and the server
+verifies that digest before loading. Normalization and architecture
 come from the checkpoint. The model environment contains torch; the robot
 runtime uses `envs/yam/.venv` and does not import model code.
 
@@ -38,7 +37,7 @@ envs/yam/.venv/bin/python -m manimux.servers.camera.server \
 ```bash
 envs/yam/.venv/bin/python -m manimux.robogui.dashboard \
   --robot yam --host 127.0.0.1 --port 8086 \
-  --config manimux/configs/robogui/yam-dp-live.yaml
+  --config manimux/configs/robogui/example-yam-manual-cameras.yaml
 ```
 
 ```bash
@@ -80,7 +79,7 @@ and finite action checks; all twelve IK targets succeeded, producing two 6x7
 joint chunks. That request took 453 ms including transport/inference, followed
 by 119 ms of IK. These are individual offline measurements, not a latency
 distribution or a guarantee under live camera/control load. Test receipts are
-in the private `training/dp-yam-eef-deploy/` directory.
+private and not published.
 
 Offline pose, history and transport tests do not establish physical bottle-pick
 success. Hardware motion and task success require a separate real rollout.
