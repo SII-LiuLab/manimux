@@ -3,6 +3,3 @@ contact_links:
   - name: User guide
     url: https://sii-liulab.github.io/manimux/guideline.html
     about: Installation, configuration, launch commands and troubleshooting.
-  - name: Security or robot-safety problem
-    url: https://github.com/SII-LiuLab/manimux/security/advisories/new
-    about: Report privately; do not open a public issue.

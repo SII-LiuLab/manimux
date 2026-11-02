@@ -264,11 +264,8 @@ for external model/camera services, separate trial roots and Franka.
 ## Contributing & community
 
 Contributions to robot and policy integrations, inference strategies, RoboGUI,
-and documentation are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md); we follow the
-[Code of Conduct](CODE_OF_CONDUCT.md), and security or robot-safety problems go through
-[SECURITY.md](SECURITY.md). For agent-assisted development, use the
-[development skill](skills/manimux-development/SKILL.md). Notable changes are listed in the
-[changelog](CHANGELOG.md).
+and documentation are welcome. Start with the [contribution guide](.github/CONTRIBUTING.md).
+For agent-assisted development, use the [development skill](skills/manimux-development/SKILL.md).
 
 **Latest update · 2026-10-18:** The [ManiMux website](https://sii-liulab.github.io/manimux/) and dedicated [user guide](https://sii-liulab.github.io/manimux/guideline.html) are live.
 
