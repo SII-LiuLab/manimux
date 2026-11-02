@@ -40,7 +40,9 @@ places both bases on the top beam of a vertical support column with their z axes
 pointing down and a common x/y orientation; the differing HOME joints reproduce
 the photographed left/right poses. `xyz`/`rpy` are display-only, not calibrated
 inter-arm geometry or hardware Home targets; adjust them to the measured station
-mount. Home and idle fault/drag recovery are not advertised.
+mount. Recovery is implemented by the Flexiv assembly; see
+`manimux/embodiments/robot/flexiv/README.md`. Home requires explicit assembly
+targets. Hand guiding requires an explicit station setting and the flat RDK API.
 
 ## Policy contracts
 
@@ -150,10 +152,10 @@ arm-base frame before training/deployment. This is station evidence, not a unive
 Rizon transform. Validate independent poses before physical Cartesian deployment;
 one saved pose does not validate every workspace configuration.
 
-When grippers arrive, add actual component drivers and calibrated flange mounts/TCPs
-through existing end-effector interfaces, extend assembly construction, and update
-the action contract/model data together. This assembly explicitly rejects an
-unimplemented separate gripper.
+The bare-arm assembly remains available. The separate
+`flexiv_omnigripper_dual.yaml` assembly adds independent OmniGripper components;
+see `manimux/embodiments/end_effector/omnigripper/README.md` for its read-only
+validation and uncalibrated flange-reference geometry.
 
 ## Validation
 
@@ -175,3 +177,15 @@ envs/flexiv/.venv/bin/python scripts/validation/flexiv_readonly_probe.py \
 # scripts/validation/flexiv_readonly_probe.py --config manimux/configs/examples/flexiv_joint.yaml \
 #   --local <station.yaml>
 ```
+
+## NRT hand guiding
+
+Drag/Release use the existing flat `flexivpy` binding. Python owns connections,
+mode changes, monitoring and cleanup. Drag refreshes a low-stiffness impedance
+reference from measured joints at up to 100 Hz; Release uses zero stiffness and
+monitoring. The assembly owns `hardware.drag_stiffness_scale` and
+`hardware.hand_guiding_motion` (frequency, damping ratio, velocity/acceleration
+limits). Guiding limits are independent of policy and Home limits. Mode, health
+and feedback checks remain active, without applying policy target margins to
+manual guiding. Stop uses blocking RDK Stop to IDLE. Active tool/load settings
+remain unchanged. Physical acceptance of tuned parameters is still required.

@@ -29,23 +29,27 @@ def main():
     adapter = adapter_type(config["robot"], policy, kinematics=model.kinematics)
     layouts = _layouts_from_options(policy["adapter"], config["robot"]["group_dims"])
     q = np.array([0.2, 0.5, -0.3, 1.2, 0.4, 0.8, 1.5])
-    state = RobotState({name: q.copy() for name in model.groups}, 1, 1)
+    vectors = {name: np.r_[q, 0.5] if group.kinematics.num_coordinates == 8 else q.copy()
+               for name, group in model.groups.items()}
+    state = RobotState(vectors, 1, 1)
     step = {}
     for layout in layouts:
-        if layout.arm_dofs != 7 or layout.gripper_dofs:
-            raise ValueError("this probe expects bare seven-axis arms")
+        if layout.arm_dofs != 7 or layout.gripper_dofs not in (0, 1):
+            raise ValueError("this probe expects seven-axis arms and optional scalar grippers")
         key = layout.arm_key if kind == "joint" else f"{layout.prefix}_ee_pose"
         step[key] = q.tolist() if kind == "joint" else matrix_pose(
-            model.kinematics.models[layout.group].fk(q)
+            model.kinematics.models[layout.group].fk(vectors[layout.group])
         )
+        if layout.gripper_dofs:
+            step[f"{layout.prefix}_ee_joint_state"] = [0.5]
     raw = decode_policy_actions(
         [step] * policy["horizon_policy_steps"], layouts=layouts, format=kind
     )
     chunk = adapter.decode_action(
         raw, ActionContext(1, 1, 1, observation_state=state, ik_seed=state)
     )
-    for values in chunk.groups.values():
-        np.testing.assert_allclose(values[0], q, atol=1e-4)
+    for name, values in chunk.groups.items():
+        np.testing.assert_allclose(values[0], vectors[name], atol=1e-4)
     print(json.dumps({
         "validation": "offline only; no SDK, model server, camera or hardware connection",
         "robot": model.name,

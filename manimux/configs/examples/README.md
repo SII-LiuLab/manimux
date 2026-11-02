@@ -6,6 +6,10 @@ camera streams, and disabled execution. A matching trained model and actual
 cameras must be supplied. See the [Flexiv runbook](../../embodiments/arm/flexiv/README.md)
 for station bindings, SDK ABI, pose frames, limits and validation scope.
 
+The [Flexiv OmniGripper read-only example](flexiv_omnigripper_readonly.yaml)
+uses two 7+1-coordinate groups, no sensors and a fake policy. It still connects
+hardware when served; the tool model references the flange, not a grasp TCP.
+
 [`yam_pi05_rtc.yaml`](yam_pi05_rtc.yaml) is an annotated YAM / Pi05 joint-action /
 put-bottles / step-30000 example. It composes existing robot, camera, policy-server,
 inference and executor recipes. For the regular executable experiment, see
@@ -110,3 +114,11 @@ envs/yam/.venv/bin/python -m manimux run \
 The commented `run.experiment_template` in the example shows custom layout IDs,
 repeat counts and optional reference images. The [research guide](../../../guideline.html#experiments)
 explains free/study rollouts, identity fields, record locations and GUI replay.
+
+Flexiv + OmniGripper also supplies `flexiv_omnigripper_joint.yaml` and
+`flexiv_omnigripper_pose.yaml` for the shared JointAdapter and PoseAdapter. Both
+require a matching real model service, use eight coordinates per arm and disable
+execution by default. The pose template currently targets the flange reference,
+not a calibrated grasp TCP. The read-only example now publishes to RoboGUI;
+its fake predictions must never be enabled for execution. Select the
+`flexiv_omnigripper` RoboGUI preset. See the Flexiv assembly README for recovery.
