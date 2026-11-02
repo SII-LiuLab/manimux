@@ -226,6 +226,141 @@ force control. See the <a href="https://github.com/SII-LiuLab/manimux/blob/main/
 for SDK setup, frame conventions, retryable cleanup and future gripper integration.
 The pose template uses chunk IK; <code>execution.ik.mode: step</code> is rejected for
 zero-gripper groups because step IK currently requires a trailing aperture coordinate.</p>
+<h3 id="pi05-flexiv">Pi05 stack cube on Flexiv + OmniGripper</h3>
+<p>The step-29999 deployment uses three Gemini RGB views, 16 absolute joint/opening
+coordinates, 50-step predictions at 30 Hz and Serial inference. It selects the
+<code>flexiv_joint</code> profile in XPolicyLab Pi_05, with seven joints and one
+normalized opening per arm. The runtime uses 50 Hz control and Smooth execution;
+continuous gripper shaping bounds aperture predictions to [0,1].</p>
+<p>The portable experiment is
+<code>manimux/configs/experiments/stack_cube/pi05/flexiv_pi05_serial_joint_step29999.yaml</code>.
+Bind camera components <code>left_wrist_camera</code>, <code>head_camera</code>,
+<code>right_wrist_camera</code>, arm/gripper devices, and <code>paths.checkpoints</code>
+in one private station. The checkpoint root contains the exported run directory;
+normalization is pinned by SHA256. Execution and automatic enable are disabled.</p>
+<p>The experiment selects the collection's <code>force_position</code> gripper mode:
+100 Hz inner control, kp/kd 8/0.2, reference speed 1.2 rad/s, acceleration 6 rad/s²
+and encoded MIT PD torque budget 0.3 Nm. This is separate from the executor's
+opening slew limits and the 3 Nm measured-torque trip. The station verifies
+motor SN, CAN rate and calibrated position bounds. Camera acquisition uses the
+same serial-selected RGB interfaces, MJPG 640×480/30 FPS and no image flip.
+The teleoperation preview must release the cameras before ManiMux opens them.</p>
+<pre><code class="language-bash"># This workstation's prepared checkpoint, calibrated robot and station:
+MM_PI05_EXPERIMENT=.local/flexiv/pi05_stack_cube.yaml
+
+# Offline artifact/config checks:
+envs/flexiv/.venv/bin/python -m manimux.servers.pi05 --experiment "$MM_PI05_EXPERIMENT" --check
+envs/flexiv/.venv/bin/python scripts/validation/flexiv_offline.py \
+  --config "$MM_PI05_EXPERIMENT" --local .local/flexiv/pi05_stack_cube_station.yaml
+
+# Read both grippers without enabling motors or connecting arms:
+envs/flexiv/.venv/bin/python scripts/validation/omnigripper_readonly.py \
+  --config "$MM_PI05_EXPERIMENT" --duration 5 --hz 100
+
+# Start each service in its own terminal when live setup is intended:
+envs/flexiv/.venv/bin/python -m manimux.servers.camera.server --experiment "$MM_PI05_EXPERIMENT"
+XLA_PYTHON_CLIENT_PREALLOCATE=false XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
+  -m manimux.servers.pi05 --experiment "$MM_PI05_EXPERIMENT"
+envs/flexiv/.venv/bin/python -m manimux.robogui.dashboard \
+  --config .local/flexiv/pi05_stack_cube_robogui.yaml
+envs/flexiv/.venv/bin/python -m manimux serve --config "$MM_PI05_EXPERIMENT"
+</code></pre>
+<p>Real-weight synthetic-image inference and a temporary WebSocket round trip passed,
+including backend identity, RESET and (50,8) arrays for each arm. Local collection
+arrays match the training preparation hashes, and all normalization statistics
+match exactly. Image resizing, camera slots, masks, state/text tokenization and
+action transforms were checked against the submitted training source. Images
+use RGB, bilinear resize and centered black padding to 224×224, followed by
+pixel normalization to [-1,1]; inference does not apply training augmentation.
+A subsequent five-second live check passed all three RGB streams through the
+shared camera server at about 30 FPS with maximum frame age 38.2 ms. Concurrent
+read-only polling of both grippers passed 501 samples each at 100 Hz, with
+motor SN 0/1 and disabled status throughout. Physical execution and task success
+remain unvalidated; keep <code>execute: false</code> for the initial runtime session.
+See <code>.agents/skills/manimux-inference/references/deployment/pi05-flexiv.md</code>
+for the precise contract and validation boundary.</p>
+<p>The local Pi05 deployment also supports the same manual recovery as
+<code>omnigripper_control</code>: Clear error, Return Home, Drag, Release,
+Release 5s and A/B/AB arm selection. It selects <code>backend: flexivpy</code>
+with the installed flat SDK and <code>hardware.hand_guiding: true</code>.
+The grouped <code>flexivrdk</code> backend does not provide these hand-guiding
+operations. Home retains the stack-cube collection pose. Current local execution
+and automatic-enable flags are true; the portable example remains read-only.
+After changing these bindings, finish the active episode/recovery and restart
+only the runtime. RoboGUI receives the updated capability list automatically;
+model and camera services can continue running.</p>
+<h3 id="flexiv-omnigripper">Flexiv with OmniGripper</h3>
+<p>The Flexiv RoboGUI presets show mirrored mounts on the front face of the
+T-shaped stand, with base cable outlets facing inward. Both base Z axes face
+forward (world -Y). The two bases sit at X = -0.45/+0.45 m, Y = 0.71 m,
+Z = 1.72 m, against the original beam's front face. These positions and dimensions
+are display settings under <code>robogui_display_frame</code> and
+<code>scene.boxes</code>, not calibrated inter-arm transforms.</p>
+<p><code>manimux/configs/embodiment/robot/flexiv_omnigripper_dual.yaml</code>
+assembles two Flexiv arms and independently connected USB2CAN grippers. Each group
+uses seven joint radians followed by one normalized gripper opening (0 closed, 1 open).
+Copy <code>manimux/configs/local/flexiv_omnigripper_example.yaml</code> to a private
+station and bind both arm serials, distinct physical USB ports and calibrated travel.
+The provided geometry is a flange reference with no gripper mesh, not a calibrated
+grasp TCP; calibrate the mount and tool model before pose-based deployment.</p>
+<pre><code class="language-bash">python -m pip install -e '.[omnigripper]'
+python scripts/validation/omnigripper_readonly.py \
+  --config manimux/configs/examples/flexiv_omnigripper_readonly.yaml --local &lt;station.yaml&gt;
+</code></pre>
+<p>Use RoboGUI preset <code>flexiv_omnigripper</code> for the combined 8-coordinate groups.
+The read-only example publishes measured state and synthetic predictions separately;
+never turn on execution in that fake-policy example. Joint and pose deployment templates
+are <code>flexiv_omnigripper_joint.yaml</code> and <code>flexiv_omnigripper_pose.yaml</code>;
+they use the existing JointAdapter and PoseAdapter and require a compatible model.</p>
+<p>The locally installed Marvin straight-gripper visual resources live under
+<code>manimux/embodiments/end_effector/omnigripper/assets/marvin_straight/</code>.
+They include a standalone URDF, relative STL paths and an <code>end_effector.yaml</code>
+for <code>load_end_effector(path)</code>, with normalized opening 0 closed / 1 open.
+The source <code>tool0</code> is a reference frame, not a calibrated fingertip TCP.
+Select them with the component option <code>visual_asset: marvin_straight</code>;
+the default remains <code>flange_reference</code>. RoboGUI preset
+<code>flexiv_omnigripper</code> loads both grippers on the front-mounted Flexiv arms.
+Adjust each end-effector's <code>mount.xyz</code> (metres) and
+<code>mount.rpy</code> (XYZ Euler radians) in
+<code>manimux/configs/embodiment/robot/flexiv_omnigripper_dual.yaml</code>, then
+restart RoboGUI. A -6.31 mm flange-Z mounting offset seats the gripper rear face
+flush with the wrist end face; a matching +6.31 mm <code>tcp_transform</code>
+translation retains the flange-reference TCP.</p>
+<pre><code class="language-bash">envs/flexiv/.venv/bin/python -m manimux.robogui.dashboard \
+  --robot flexiv_omnigripper --port 8087 \
+  --bridge-endpoint tcp://127.0.0.1:5578 \
+  --control-endpoint tcp://127.0.0.1:5579</code></pre>
+<p>This static preview loads offline models without connecting robot controllers.
+The waiting status is expected without a runtime service.</p>
+<p>Flexiv recovery uses the shared runtime and RoboGUI controls. Configure
+<code>home.joints_deg</code> in the station's assembly for Return Home and
+<code>hardware.home_motion</code> for speed, tolerance and timeout. Home first stops
+the arms in IDLE after measured arrival, then sends the full-open gripper target
+and waits for measured opening of at least 0.98. Gripper settling uses
+<code>settle_timeout_s</code>; failure is reported rather than treated as success.
+Connected Home respects <code>end_effector_control</code>; idle Return Home always
+opens attached grippers. Current low-stiffness opening arrival remains unverified.
+Explicit Clear error never enables.
+For the flat RDK API, <code>hardware.hand_guiding: true</code> enables Drag, Release and
+Release 5s. Drag uses Python NRT joint impedance with 1% nominal stiffness and
+damping ratio 0.7, refreshing its reference from measured joints at up to 100 Hz.
+Configure <code>hardware.hand_guiding_motion</code>: <code>control_hz</code>,
+<code>damping_ratio</code>, <code>max_velocity_deg_s</code> and
+<code>max_acceleration_deg_s2</code>. The portable limits are 6 deg/s and 18 deg/s²;
+the local station is trialling 30 and 90 to reduce reference lag. Policy and Home
+limits are independent. These settings do not establish physical success.
+Release uses zero stiffness with monitoring only; Release 5s times from confirmed entry.
+The active tool/load stays unchanged; verify the station's tool1 in Elements.
+ManiMux policy target margins do not apply to manual guiding. Exit uses RDK Stop
+to IDLE; it does not disable servo torque. A native floating extension is not required.
+Fault clearing remains a separate action.
+Physical acceptance of these operations is still pending.</p>
+<p>The probe connects only the grippers and never enables motors. The example has
+no sensors, uses a fake policy and disables execution; serving it still connects
+real arms and grippers. Isolated low-speed gripper opening/closing was checked
+on 2026-10-28, with approximately 0.04–0.05 rad settling error; combined robot
+motion remains unvalidated. See the OmniGripper component README for stop,
+feedback, travel and hardware-validation details.</p>
 </section>
 <section aria-labelledby="shared-parameters" class="guide-page" data-page-id="shared-parameters" data-title="Shared parameters" hidden=""><h2 id="shared-parameters">Shared parameters</h2>
 <p>Use this guide to configure Serial, asynchronous chunking, RTC, ACT temporal
