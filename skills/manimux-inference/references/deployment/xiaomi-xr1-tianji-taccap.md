@@ -1,59 +1,68 @@
-# Xiaomi Robotics 1 / Tianji–TacCap 传球接入
+# Xiaomi Robotics 1 / Tianji–TacCap pass ball
 
-本入口使用 `third_party/XPolicyLab/policy/Xiaomi_Robotics_1` 加载本地 step-50000
-DeepSpeed 模型文件，并通过共享 `xpolicylab_ws` worker 服务 ManiMux。模型只接收两路
-真实腕部 RGB；训练时的第三路 ego view 是纯黑，因此由 XPolicyLab 在预处理阶段生成
-全零 `uint8 RGB`，不注册虚假相机，也不复用任意现场画面。
+This entry loads a local step-50000 DeepSpeed model file through
+`third_party/XPolicyLab/policy/Xiaomi_Robotics_1` and serves ManiMux through the shared
+`xpolicylab_ws` worker. The model receives only the two real wrist RGB streams. The third
+ego view was pure black during training, so XPolicyLab generates an all-zero `uint8 RGB`
+image during preprocessing; no fake camera is registered and no live image is reused.
 
-## 固定契约
+## Fixed contract
 
-- checkpoint：`mp_rank_00_model_states.pt`；8 个 optimizer state 不参与推理。
-- normalization：同目录 `training_metadata/normalize.json`，形状分别为
-  `mean/std=(30,60)`、`q01/q99=(1,60)`。
-- observation：Tianji 左/右各 7 个关节与 1 个 `[0,1]` TacCap 开合量；两路腕部 RGB；
-  第三路按左腕分辨率生成纯黑图，然后进入 XR-1 的公共 resize。
-- action：checkpoint 原生输出 30×60 anchor-relative EE delta。每一行都相对于发起请求时的
-  TCP pose，不是逐行累加。与 UMI-DP 相同，相对化由 XPolicyLab 完成：adapter 用 Tianji
-  TCP FK 发送观测时的 `left/right_ee_pose`（per-arm base 系 `xyz + wxyz`），server 以
-  `output_format: xpolicylab` 返回绝对 TCP pose 和开合量，adapter 再用 IK 转为两组
-  30×8 joint position。Tianji FK 即 checkpoint 的 EE 坐标系，因此 `eef_reframe_matrix`
-  固定为单位阵。
-- TacCap 保持 checkpoint 的连续 `[0,1]` 开合量，不启用 close-latch 语义替换。gripper
-  还原后若越界不超过配置的 `gripper_clip_tolerance: 0.1`，会饱和到物理范围；
-  更大的越界仍拒绝整个 action chunk。
-- `[16:20]` 的腰部/底盘槽位在 Tianji 上无对应执行器，由 XPolicyLab 的标准 EE 输出丢弃。
-- Diff-IK 在两个独立 spawn 进程中按左右臂并行解码，两个结果都成功后才原子提交；
-  控制线程不再同步执行整段 IK。Diff-IK 的速度和步长上限与共享 motion profile 一致。
-- RTC condition 以同样的绝对布局发送：adapter 把关节 waypoint 经 FK 转成 30×16 的
-  `[xyz, wxyz, 开合量]` 双臂行（weight 为 0 的行不做 FK、保持为 0），XPolicyLab 再相对
-  观测 pose 编码成 60 维原生 delta。当前实验模板仍只启用普通 ManiMux single-inflight。
+- Checkpoint: `mp_rank_00_model_states.pt`; the eight optimizer states are not used for inference.
+- Normalization: `training_metadata/normalize.json` in the same directory, with
+  `mean/std=(30,60)` and `q01/q99=(1,60)`.
+- Observation: seven joints and one `[0,1]` TacCap opening per Tianji arm; two wrist RGB
+  streams; a black third view at the left-wrist resolution, then XR-1's common resize.
+- Action: the checkpoint natively outputs 30×60 anchor-relative EE deltas. Every row is
+  relative to the TCP pose at request time, not accumulated row by row. As with UMI-DP,
+  XPolicyLab owns the relative encoding: the adapter sends the observation-time
+  `left/right_ee_pose` from Tianji TCP FK (per-arm base frame, `xyz + wxyz`), the server
+  returns absolute TCP poses and openings with `output_format: xpolicylab`, and the adapter
+  converts them with IK into two 30×8 joint-position groups. Tianji FK is the checkpoint's
+  EE frame, so `eef_reframe_matrix` is the identity.
+- TacCap keeps the checkpoint's continuous `[0,1]` opening; close-latch semantics are not
+  substituted. A restored gripper value outside the physical range by at most
+  `gripper_clip_tolerance: 0.1` saturates to that range; a larger excursion rejects the
+  whole action chunk.
+- The waist/base slots `[16:20]` have no Tianji actuator and are dropped by XPolicyLab's
+  standard EE output.
+- Diff-IK decodes the left and right arms in parallel in two spawned processes and commits
+  atomically only when both succeed; the control thread no longer runs the whole chunk's IK.
+  Diff-IK velocity and step limits match the shared motion profile.
+- RTC conditions use the same absolute layout: the adapter converts joint waypoints with FK
+  into 30×16 dual-arm rows `[xyz, wxyz, opening]` (rows with weight 0 skip FK and stay 0),
+  and XPolicyLab encodes them relative to the observation pose as 60-D native deltas. The
+  current experiment template still enables only ordinary ManiMux single-inflight.
 
-## 文件
+## Files
 
-- 模型服务：`manimux/configs/policy/xiaomi-xr1/tianji/pass_ball/step50000.yaml`
-- 安全关闭执行的实验模板（站点本地，参照[示例研究](../../../../manimux/configs/lists/example-yam-pi05.yaml)构建）：
+- Model service: `manimux/configs/policy/xiaomi-xr1/tianji/pass_ball/step50000.yaml`
+- Experiment template with execution off (station-local; build it like the
+  [example study](../../../../manimux/configs/experiments/example-tianji-pi05/README.md)):
   `manimux/configs/experiments/{xr1-tianji-study}/pass_ball/tianji_taccap_xiaomi_xr1_step50000.yaml`
-- server launcher：`manimux/servers/xiaomi_xr1_tianji_server.py`
+- Server launcher: `manimux/servers/xiaomi_xr1_tianji_server.py`
 
-模板保持 `robot.options.execute: false`、RoboGUI 关闭。加载配置、检查 checkpoint 或启动
-服务都不会令机器人运动。
+The template keeps `robot.options.execute: false` and RoboGUI off. Loading the
+configuration, checking the checkpoint or starting the service never moves the robot.
 
-## 1. 安装隔离的模型环境
+## 1. Install the isolated model environment
 
-模型依赖不能装进 Tianji 硬件 runtime 环境：
+Model dependencies must not be installed into the Tianji hardware runtime environment:
 
 ```bash
-cd /path/to/manimux/third_party/XPolicyLab/policy/Xiaomi_Robotics_1
+cd third_party/XPolicyLab/policy/Xiaomi_Robotics_1
 MIBOT_CONDA_ENV=mibot bash install.sh
 ```
 
-Qwen processor 默认使用 `Qwen/Qwen3-VL-4B-Instruct`，首次启动需要 HuggingFace
-可达或已有缓存。离线机器可通过 `--processor /absolute/local/processor` 指定本地目录。
+The Qwen processor defaults to `Qwen/Qwen3-VL-4B-Instruct`; the first start needs
+HuggingFace access or an existing cache. On an offline machine, pass a local directory with
+`--processor /absolute/local/processor`.
 
-## 2. 只检查 artifact 与配置
+## 2. Check artifacts and configuration only
+
+Run from the ManiMux root:
 
 ```bash
-cd /path/to/manimux
 conda run -n mibot --no-capture-output python \
   manimux/servers/xiaomi_xr1_tianji_server.py \
   --experiment manimux/configs/experiments/{xr1-tianji-study}/pass_ball/tianji_taccap_xiaomi_xr1_step50000.yaml \
@@ -62,15 +71,14 @@ conda run -n mibot --no-capture-output python \
   --check
 ```
 
-传入 checkpoint 目录时 launcher 会唯一解析
-`mp_rank_00_model_states.pt`，并自动使用相邻的
-`training_metadata/normalize.json`。`--check` 只验证文件、shape、协议和黑图契约，
-不加载 5B 模型。
+Given a checkpoint directory, the launcher resolves exactly one
+`mp_rank_00_model_states.pt` and uses the adjacent
+`training_metadata/normalize.json`. `--check` validates files, shapes, protocol and the
+black-view contract without loading the 5B model.
 
-## 3. 启动模型服务
+## 3. Start the model service
 
 ```bash
-cd /path/to/manimux
 conda run -n mibot --no-capture-output python \
   manimux/servers/xiaomi_xr1_tianji_server.py \
   --experiment manimux/configs/experiments/{xr1-tianji-study}/pass_ball/tianji_taccap_xiaomi_xr1_step50000.yaml \
@@ -78,23 +86,23 @@ conda run -n mibot --no-capture-output python \
   --checkpoint /path/to/posttrain_pass_ball_50k_8gpu_epoch0_step50000_checkpoint
 ```
 
-服务启动后会发布 checkpoint、normalization、`xpolicylab` 输出格式、black ego profile 和
-action semantics 身份；ManiMux 在开始 rollout 前逐项核对，避免连到 UMI-DP 或错误 XR-1
-checkpoint。
+The service publishes its checkpoint, normalization, `xpolicylab` output format, black-ego
+profile and action-semantics identity; ManiMux compares each before a rollout starts, so it
+cannot connect to UMI-DP or the wrong XR-1 checkpoint.
 
-## 4. 相机与安全 dry run
+## 4. Cameras and a dry run
 
-另一个终端启动现有 TacCap camera server，只打开两路腕部相机：
+In another terminal, start the TacCap camera server with only the two wrist cameras:
 
 ```bash
-cd /path/to/manimux
 conda run -n xense-taccap --no-capture-output python \
   -m manimux.servers.camera.server \
   --config manimux/configs/experiments/{xr1-tianji-study}/pass_ball/tianji_taccap_xiaomi_xr1_step50000.yaml \
   --local .local/tianji_taccap.yaml
 ```
 
-保持模板中的 `execute: false`，先运行 runtime 观察握手、推理延迟、IK 与保存记录：
+Keep `execute: false` from the template and run the runtime once to observe the handshake,
+inference latency, IK and saved records:
 
 ```bash
 conda run -n xense-taccap --no-capture-output python -m manimux run --once \
@@ -102,6 +110,7 @@ conda run -n xense-taccap --no-capture-output python -m manimux run --once \
   --local .local/tianji_taccap.yaml
 ```
 
-实机执行必须在 dry run、起始姿态、两腕相机方向、TCP、夹爪 `[0,1]` 约定以及完整
-30-step IK 都通过后，复制模板到 Git 忽略的 `.local/`，人工复核并只在该副本中设置
-`execute: true`。本次接入没有启动硬件，也没有宣称真实传球成功。
+Execute on hardware only after the dry run, start pose, both wrist-camera orientations, TCP,
+the gripper `[0,1]` convention and the full 30-step IK have all passed. Then copy the
+template to the Git-ignored `.local/`, review it by hand, and set `execute: true` only in that
+copy. This integration started no hardware and claims no real pass-ball success.

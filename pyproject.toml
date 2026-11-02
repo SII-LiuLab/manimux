@@ -6,6 +6,18 @@ readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE", "licenses/THIRD_PARTY_NOTICES.md", "licenses/*.txt"]
 requires-python = ">=3.11,<3.13"
+authors = [{ name = "ManiMux contributors" }]
+keywords = ["robotics", "robot learning", "manipulation", "policy inference", "vla", "real-robot evaluation"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "Intended Audience :: Developers",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
   "mujoco>=3.3",
   "numpy>=1.26,<2.5",
@@ -46,6 +58,12 @@ dev = [
   "ruff>=0.6",
   "types-pyyaml>=6.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/SII-LiuLab/manimux"
+Documentation = "https://sii-liulab.github.io/manimux/guideline.html"
+Issues = "https://github.com/SII-LiuLab/manimux/issues"
+Changelog = "https://github.com/SII-LiuLab/manimux/blob/main/CHANGELOG.md"
 
 [project.scripts]
 manimux = "manimux.cli:main"

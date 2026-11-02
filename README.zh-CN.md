@@ -124,7 +124,7 @@ uv run manimux up --config <experiment.yaml> \
 
 ## 贡献与社区
 
-欢迎贡献机器人/策略集成、推理策略、RoboGUI 与文档。请从 [贡献指南](skills/manimux-development/references/README.md#contributing) 开始；Agent 辅助开发可使用 [development skill](skills/manimux-development/SKILL.md)。
+欢迎贡献机器人/策略集成、推理策略、RoboGUI 与文档。请从 [CONTRIBUTING.md](CONTRIBUTING.md) 开始，并遵守 [行为准则](CODE_OF_CONDUCT.md)；安全或机器人安全问题请按 [SECURITY.md](SECURITY.md) 私下报告。Agent 辅助开发可使用 [development skill](skills/manimux-development/SKILL.md)。重要变更见 [CHANGELOG](CHANGELOG.md)。
 
 ### 开发者微信群
 
@@ -151,6 +151,10 @@ uv run manimux up --config <experiment.yaml> \
 
 相关组件请另引：[XPolicyLab](https://github.com/XPolicyLab/XPolicyLab)、[StarVLA](https://github.com/starVLA/starVLA)、[PRM-as-a-Judge](https://github.com/YuyangLiu2003/PRM-as-a-Judge)。
 
+## 安全须知
+
+ManiMux 会向真实机器人发送指令。它是按"现状"提供的研究软件，不附带任何担保（见 [LICENSE](LICENSE)），站点安全由使用者负责。每个新配置都先用 `execute: false` 并完成对应 runbook 中的只读检查；急停按钮放在手边；Prepare、Warmup、Start 前清空工作空间；机器人执行时不要离开。ManiMux 的指令边界和运动限制只能降低风险，不能替代机器人自身的安全功能。
+
 ## 许可证
 
-ManiMux 采用 [MIT](LICENSE)。第三方框架、SDK 与资源保留各自许可证，见 [third-party notices](licenses/THIRD_PARTY_NOTICES.md)。
+ManiMux 采用 [MIT](LICENSE)。第三方框架、SDK 与资源保留各自许可证，见 [third-party notices](licenses/THIRD_PARTY_NOTICES.md)。模型权重和数据集不随 ManiMux 分发，遵循各自条款。

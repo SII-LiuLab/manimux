@@ -97,14 +97,14 @@ RoboGUI provides the operator workspace.
         <ul>
           <li><a href="https://sii-liulab.github.io/manimux/guideline.html#support">XPolicyLab</a> ✅
             <ul>
-              <li><a href="https://github.com/Cuzyoung/XPolicyLab/tree/ziyang/policy/Pi_05">Pi05</a></li>
-              <li><a href="https://github.com/Cuzyoung/XPolicyLab/tree/ziyang/policy/LingBot_VLA2">LingBot-VLA2</a></li>
-              <li><a href="https://github.com/Cuzyoung/XPolicyLab/tree/ziyang/policy/Xiaomi_Robotics_1">Xiaomi Robotics 1</a></li>
-              <li><a href="https://github.com/Cuzyoung/XPolicyLab/tree/ziyang/policy/OpenWAM">OpenWAM</a></li>
-              <li><a href="https://github.com/Cuzyoung/XPolicyLab/tree/ziyang/policy/FastWAM">FastWAM</a></li>
-              <li><a href="https://github.com/Cuzyoung/XPolicyLab/tree/ziyang/policy/GR00T_N17">GR00T</a></li>
-              <li><a href="https://github.com/Cuzyoung/XPolicyLab/tree/ziyang/policy/DP">Diffusion Policy</a></li>
-              <li><a href="https://github.com/Cuzyoung/XPolicyLab/tree/ziyang#readme">More models →</a></li>
+              <li><a href="https://github.com/Cuzyoung/XPolicyLab/tree/main/policy/Pi_05">Pi05</a></li>
+              <li><a href="https://github.com/Cuzyoung/XPolicyLab/tree/main/policy/LingBot_VLA2">LingBot-VLA2</a></li>
+              <li><a href="https://github.com/Cuzyoung/XPolicyLab/tree/main/policy/Xiaomi_Robotics_1">Xiaomi Robotics 1</a></li>
+              <li><a href="https://github.com/Cuzyoung/XPolicyLab/tree/main/policy/OpenWAM">OpenWAM</a></li>
+              <li><a href="https://github.com/Cuzyoung/XPolicyLab/tree/main/policy/FastWAM">FastWAM</a></li>
+              <li><a href="https://github.com/Cuzyoung/XPolicyLab/tree/main/policy/GR00T_N17">GR00T</a></li>
+              <li><a href="https://github.com/Cuzyoung/XPolicyLab/tree/main/policy/DP">Diffusion Policy</a></li>
+              <li><a href="https://github.com/Cuzyoung/XPolicyLab/tree/main#readme">More models →</a></li>
             </ul>
           </li>
           <li><a href="https://sii-liulab.github.io/manimux/guideline.html#support">StarVLA</a> ✅</li>
@@ -264,8 +264,11 @@ for external model/camera services, separate trial roots and Franka.
 ## Contributing & community
 
 Contributions to robot and policy integrations, inference strategies, RoboGUI,
-and documentation are welcome. Start with the [contribution guide](skills/manimux-development/references/README.md#contributing).
-For agent-assisted development, use the [development skill](skills/manimux-development/SKILL.md).
+and documentation are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md); we follow the
+[Code of Conduct](CODE_OF_CONDUCT.md), and security or robot-safety problems go through
+[SECURITY.md](SECURITY.md). For agent-assisted development, use the
+[development skill](skills/manimux-development/SKILL.md). Notable changes are listed in the
+[changelog](CHANGELOG.md).
 
 **Latest update · 2026-10-18:** The [ManiMux website](https://sii-liulab.github.io/manimux/) and dedicated [user guide](https://sii-liulab.github.io/manimux/guideline.html) are live.
 
@@ -299,7 +302,17 @@ If ManiMux supports your research, please cite this repository. The paper link i
 Please also cite the components, models and methods used in your work:
 [XPolicyLab](https://github.com/XPolicyLab/XPolicyLab), [StarVLA](https://github.com/starVLA/starVLA) and [PRM-as-a-Judge](https://github.com/YuyangLiu2003/PRM-as-a-Judge).
 
+## Safety
+
+ManiMux sends commands to physical robots. It is research software provided "as is",
+without warranty (see [LICENSE](LICENSE)); you are responsible for the safety of your
+station. Start every new configuration with `execute: false` and the read-only checks in
+its runbook, keep an emergency stop within reach, clear the workspace before Prepare,
+Warmup and Start, and never leave an executing robot unattended. Command bounds and motion
+limits in ManiMux reduce risk but do not replace the robot's own safety functions.
+
 ## License
 
 ManiMux is licensed under [MIT](LICENSE). Third-party frameworks, SDKs and assets
 retain their own licenses; see [third-party notices](licenses/THIRD_PARTY_NOTICES.md).
+Model weights and datasets are not distributed with ManiMux and keep their own terms.
