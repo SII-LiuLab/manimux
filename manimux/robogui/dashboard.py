@@ -1271,7 +1271,17 @@ class PolicyRoboGUI:
         self.layout_progress.visible = self.layout.visible
 
     def _setup_hint(self) -> str:
-        return "Run: no scoring. Experiment: choose a layout, then Prepare Experiment."
+        if self.last_rollout_error:
+            return f"🔴 **Previous rollout failed:** {self.last_rollout_error}"
+        if self.layout.options == ("—",):
+            return (
+                "Prepare Run: no layout or scoring required. "
+                "Prepare Experiment: optional evaluation after Finish."
+            )
+        return (
+            "Prepare Run: no layout or scoring required. "
+            "Prepare Experiment: choose a layout for evaluation."
+        )
 
     def _refresh_repeat_history(self) -> None:
         self._repeat_history = completed_repeats(
@@ -2095,6 +2105,7 @@ class PolicyRoboGUI:
             self._set_policy_controls_enabled(False)
             self._update_prepare_enabled()
             self._set_stage("setup")
+            self.rollout_setup_status.content = self._setup_hint()
             self._idle_status(self.last_rollout_error)
 
     def _update_group(self, group: RobotGroup, configuration: FloatArray) -> None:
