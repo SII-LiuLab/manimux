@@ -62,12 +62,23 @@ def _validate_paths(config: dict[str, Any]) -> tuple[Path, Path]:
     if not (model_root / "params").is_dir():
         raise FileNotFoundError(f"Pi05 params not found under {model_root}")
     if not (stats_dir / "norm_stats.json").is_file():
-        raise FileNotFoundError(f"YAM norm_stats.json not found under {stats_dir}")
+        raise FileNotFoundError(f"Pi05 norm_stats.json not found under {stats_dir}")
     return model_root, stats_dir
 
 
 def _resolved_contract(config_path: Path, config: dict[str, Any]) -> dict[str, Any]:
     _prepare_imports()
+    if config.get("observation_profile") == "flexiv_joint":
+        from XPolicyLab.policy.Pi_05.flexiv_joint import validate_artifacts
+
+        return {
+            **validate_artifacts(config),
+            "model_python": str(MODEL_PYTHON),
+            "server_config": str(config_path),
+            "checkpoint_variant": config["checkpoint_variant"],
+            "runtime_status": "environment_present"
+                if MODEL_PYTHON.is_file() else "blocked_missing_model_environment",
+        }
     if config.get("observation_profile") == "tianji_taccap_pi05_zero_pose":
         from XPolicyLab.policy.Pi_05.pass_ball_contract import validate_artifacts
 
