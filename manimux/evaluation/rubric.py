@@ -94,6 +94,36 @@ def count_result(
     return "success" if completed_count == target_count else "failure"
 
 
+def explicit_evaluation(value: Mapping[str, Any] | None, *, task_id: str) -> dict[str, Any]:
+    """Expand historical shorthand for migration/identity, not new task authoring.
+
+    Retain full score precision and option meaning. Saved rollout rubrics and
+    labels are never rewritten. New task files spell out every option directly.
+    """
+    profile = evaluation_parameters(value)
+    if profile["kind"] == "stages":
+        return profile
+    result = {
+        "kind": "stages",
+        "task_id": profile.get("task_id", task_id),
+        "rubric_id": profile.get("rubric_id", f"{task_id}_binary_v1"),
+        "label": profile.get("label", task_id),
+    }
+    if profile["kind"] == "count":
+        target = profile["target_count"]
+        result["options"] = [
+            {"id": f"count_{count}", "label": f"{profile['count_label']}: {count}/{target}",
+             "score": count / target, "success": count == target}
+            for count in range(target + 1)
+        ]
+    else:
+        result["options"] = [
+            {"id": "failure", "label": "Not completed", "score": 0.0, "success": False},
+            {"id": "success", "label": "Completed", "score": 1.0, "success": True},
+        ]
+    return result
+
+
 def stage_option(profile: Mapping[str, Any], stage_id: str) -> dict[str, Any]:
     """Resolve one total-score option from the recorded rubric, never sum stages."""
     normalized = evaluation_parameters(profile)

@@ -1,0 +1,11 @@
+# Async: request the next chunk while the current one is still executing.
+_base_: ../_base_.yaml
+robogui: {policy_label: Synthetic - Async}
+inference:
+  algorithm: async
+  inference_schedule: single_inflight
+  request_trigger: progress
+  chunk_policy_steps: 6
+  action_start_mode: drop_infer_latency
+  max_plan_age_s: 2.0
+experiment: {variant: async}

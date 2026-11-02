@@ -258,6 +258,18 @@ wheels = [
 ]
 
 [[package]]
+name = "dreamlabs-client"
+version = "1.0.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "websockets" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1d/ed/caf212b8d88b2079d257a78792c538c64d56358caea8588c1771739df736/dreamlabs_client-1.0.3-py3-none-any.whl", hash = "sha256:2a2afaaead696a5f76de5fb3a671dbf7ac85fa69c3311deae40f698f621af5c2", size = 458969, upload-time = "2026-10-20T04:45:46.705Z" },
+]
+
+[[package]]
 name = "embreex"
 version = "4.4.0"
 source = { registry = "https://pypi.org/simple" }
@@ -575,11 +587,21 @@ dependencies = [
 omnigripper = [
     { name = "pyserial" },
 ]
+dream = [
+    { name = "dreamlabs-client" },
+]
+franka = [
+    { name = "pylibfranka" },
+]
 realsense = [
     { name = "pyrealsense2" },
 ]
 replay = [
     { name = "av" },
+]
+robotiq = [
+    { name = "pymodbus" },
+    { name = "pyserial" },
 ]
 starvla = [
     { name = "msgpack" },
@@ -605,6 +627,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "av", marker = "extra == 'replay'", specifier = ">=12" },
+    { name = "dreamlabs-client", marker = "extra == 'dream'", specifier = "==1.0.3" },
     { name = "msgpack", marker = "extra == 'starvla'", specifier = ">=1.0.8" },
     { name = "msgpack", marker = "extra == 'xpolicylab'", specifier = ">=1.0.8" },
     { name = "msgpack-numpy", marker = "extra == 'xpolicylab'", specifier = ">=0.4.8" },
@@ -613,8 +636,11 @@ requires-dist = [
     { name = "osqp", marker = "extra == 'tianji-diff-ik'", specifier = ">=1,<2" },
     { name = "pillow", specifier = ">=10" },
     { name = "pydantic", specifier = ">=2.8" },
+    { name = "pylibfranka", marker = "extra == 'franka'", specifier = ">=0.20.2,<0.22" },
+    { name = "pymodbus", marker = "extra == 'robotiq'", specifier = ">=3.10,<4" },
     { name = "pyrealsense2", marker = "extra == 'realsense'", specifier = ">=2.55" },
     { name = "pyserial", marker = "extra == 'omnigripper'", specifier = ">=3.5,<4" },
+    { name = "pyserial", marker = "extra == 'robotiq'", specifier = ">=3.5" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "pyzmq", specifier = ">=26" },
     { name = "scipy", specifier = ">=1.13" },
@@ -624,7 +650,7 @@ requires-dist = [
     { name = "yourdfpy", specifier = ">=0.0.58" },
     { name = "zarr", specifier = ">=2.18,<3" },
 ]
-provides-extras = ["realsense", "omnigripper", "tianji-diff-ik", "replay", "starvla", "xpolicylab"]
+provides-extras = ["omnigripper", "franka", "robotiq", "realsense", "tianji-diff-ik", "replay", "dream", "starvla", "xpolicylab"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1092,6 +1118,27 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/c3/b2/bc9c9196916376152d655522fdcebac55e66de6603a76a02bca1b6414f6c/pygments-2.20.0.tar.gz", hash = "sha256:6757cd03768053ff99f3039c1a36d6c0aa0b263438fcab17520b30a303a82b5f", size = 4955991, upload-time = "2026-03-29T13:29:33.898Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/f4/7e/a72dd26f3b0f4f2bf1dd8923c85f7ceb43172af56d63c7383eb62b332364/pygments-2.20.0-py3-none-any.whl", hash = "sha256:81a9e26dd42fd28a23a2d169d86d7ac03b46e2f8b59ed4698fb4785f946d0176", size = 1231151, upload-time = "2026-03-29T13:29:30.038Z" },
+]
+
+[[package]]
+name = "pylibfranka"
+version = "0.21.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/10/07/bf2f15d06a0f9b9981e9066c00f9514cd7b293b6089c27f3c52e0dadc1e0/pylibfranka-0.21.3-cp311-cp311-manylinux_2_34_x86_64.whl", hash = "sha256:e71d0c7a04f77a640c6784de7f524474c57fee56e5019929896d6182273a99a0", size = 4176662, upload-time = "2026-07-30T07:47:45.172Z" },
+    { url = "https://files.pythonhosted.org/packages/5d/58/676d3c47012b5927f3f04984add4c3021de19cbac7e0b00640bdc15e9eb5/pylibfranka-0.21.3-cp312-cp312-manylinux_2_34_x86_64.whl", hash = "sha256:ba952e369a91d49487b01babb02f70507997cf2472379c27d92ca0da1fa6da56", size = 4180463, upload-time = "2026-07-30T07:47:47.084Z" },
+]
+
+[[package]]
+name = "pymodbus"
+version = "3.16.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/65/ca/2552fdc467e87a04654af2b6cd994a29653cf767e371792810e15f4715f6/pymodbus-3.16.1.tar.gz", hash = "sha256:19e571826dff37860afc31c845c1fd2fb72acffca02a233506b32d94fa022c33", size = 168950, upload-time = "2026-10-11T17:38:47.372Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ee/b4/c6ccb9186b576abbbbffe865544184014fcc0563dfdff00749ca234ca0f8/pymodbus-3.16.1-py3-none-any.whl", hash = "sha256:bb433f7417280bdea1190d95495aa6fb8e1fa8e0d720c436922b270bc378024c", size = 167870, upload-time = "2026-10-11T17:38:45.39Z" },
 ]
 
 [[package]]

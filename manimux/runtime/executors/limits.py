@@ -6,6 +6,7 @@ from typing import Literal
 
 import numpy as np
 
+from manimux.runtime.executors.base import ExecutorError
 from manimux.types import GroupVector
 
 
@@ -102,6 +103,55 @@ def braking_velocity(distance: np.ndarray, acceleration: float, dt_s: float) -> 
     step = acceleration * dt_s
     # Rationalized form avoids cancellation very close to the target.
     return 2 * acceleration * distance / (np.sqrt(step * step + 2 * acceleration * distance) + step)
+
+
+def bounded_step(
+    target: np.ndarray,
+    previous: np.ndarray,
+    previous_velocity: np.ndarray,
+    *,
+    dt_s: float,
+    lower: np.ndarray,
+    upper: np.ndarray,
+    max_velocity: np.ndarray,
+    max_acceleration: np.ndarray,
+    group: str,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Intersect position/braking, velocity and acceleration bounds before moving.
+
+    This does not repair an infeasible starting state by clipping its position.
+    The returned velocity is always the actual emitted position increment.
+    """
+    if not np.isfinite(target).all() or not np.isfinite(previous_velocity).all():
+        raise ExecutorError(f"{group}: nonfinite bounded command or velocity")
+    outside = (~np.isfinite(previous)) | (previous < lower) | (previous > upper)
+    if np.any(outside):
+        index = int(np.flatnonzero(outside)[0])
+        raise ExecutorError(f"{group}: coordinate {index} starts outside command bounds")
+    lo = np.maximum((lower - previous) / dt_s, -max_velocity)
+    hi = np.minimum((upper - previous) / dt_s, max_velocity)
+    finite = np.isfinite(max_acceleration)
+    if np.any(finite):
+        acceleration = max_acceleration[finite]
+        lo[finite] = np.maximum(
+            lo[finite], -braking_velocity(previous[finite] - lower[finite], acceleration, dt_s),
+        )
+        hi[finite] = np.minimum(
+            hi[finite], braking_velocity(upper[finite] - previous[finite], acceleration, dt_s),
+        )
+        lo[finite] = np.maximum(lo[finite], previous_velocity[finite] - acceleration * dt_s)
+        hi[finite] = np.minimum(hi[finite], previous_velocity[finite] + acceleration * dt_s)
+    if np.any(lo > hi):
+        index = int(np.flatnonzero(lo > hi)[0])
+        raise ExecutorError(
+            f"{group}: infeasible command limits at coordinate {index}: "
+            f"position={previous[index]:.9g}, velocity={previous_velocity[index]:.9g}, "
+            f"bounds=[{lower[index]:.9g}, {upper[index]:.9g}], dt_s={dt_s:.9g}"
+        )
+    velocity = np.clip((target - previous) / dt_s, lo, hi)
+    # Close floating-point roundoff at a boundary, then retain the emitted delta.
+    command = np.clip(previous + velocity * dt_s, lower, upper)
+    return command, (command - previous) / dt_s
 
 
 def tracking_step(

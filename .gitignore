@@ -64,6 +64,14 @@ logs/
 !/manimux/embodiments/end_effector/omnigripper/assets/
 !/manimux/embodiments/end_effector/omnigripper/assets/**
 
+# Public Apache-2.0 Franka FR3 geometry retains upstream LICENSE and NOTICE.
+!/manimux/embodiments/arm/franka/assets/
+!/manimux/embodiments/arm/franka/assets/**
+
+# Robotiq's frame-only tool description is part of its offline model.
+!/manimux/embodiments/end_effector/robotiq/assets/
+!/manimux/embodiments/end_effector/robotiq/assets/**
+
 # Local backup of the pre-refactor package tree; the active package is /manimux.
 /src/
 
@@ -76,3 +84,51 @@ logs/
 
 # Private study decisions and results; preserve the local file.
 /experiments.md
+
+# Publish only the example-* studies; your own studies remain local.
+/manimux/configs/experiments/*
+!/manimux/configs/experiments/README.md
+!/manimux/configs/experiments/example-*/
+/manimux/configs/lists/*
+!/manimux/configs/lists/example-*.yaml
+!/manimux/configs/lists/README.md
+
+# Task definitions used only by private/historical experiment variants.
+/manimux/configs/local/tasks/
+/manimux/configs/local/archived_experiments/
+
+# Scratch/reference implementations are local; maintained algorithms live in manimux/.
+/reference_files/
+
+# Private checkpoint recipes, station-specific presets and one-off analyses. Each has a
+# published counterpart: example-* studies, the stepless policy recipes and scripts/README.md.
+/manimux/configs/policy/pi05/yam/put-bottles/joint-step30000.yaml
+/manimux/configs/policy/pi05/yam/finetune-pick-red-ball-box-step1000.yaml
+/manimux/configs/policy/pi05/yam/base.yaml
+/manimux/configs/policy/openwam/yam/latest300ep-step60000-cache-compile.yaml
+/manimux/configs/policy/openwam/yam/finetune-put-bottles-step30000.yaml
+/manimux/configs/policy/umi_dp/tianji/assembly.yaml
+/manimux/configs/embodiment/robot/tianji_taccap_pass_ball.yaml
+/manimux/configs/embodiment/robot/tianji_taccap_inter_hand_relative.yaml
+/manimux/configs/embodiment/robot/tianji_control_live.yaml
+/manimux/configs/embodiment/sensor/cameras/realsense_gemini_5_views.yaml
+/manimux/configs/tasks/stack_blocks_small.yaml
+/scripts/experiments/check_step_ratio.py
+/scripts/validation/pi05_pack_plate_chunk_speed.py
+/scripts/validation/compare_dp_chunk_overlap.py
+/scripts/validation/attribute_dp_overlap.py
+/scripts/validation/lingbot_vla2_yam_audit.py
+/scripts/validation/benchmark_parallel_ik.py
+/skills/manimux-experiments/references/dp-chunk-overlap.md
+# Station display overrides for `robogui.dashboard --config`; only example-* ships.
+/manimux/configs/robogui/*
+!/manimux/configs/robogui/README.md
+!/manimux/configs/robogui/example-*.yaml
+
+# Unused local scripts and private hosting metadata (files stay on disk).
+/scripts/media/orbbec_preview.py
+/scripts/validation/analyze_chunk_boundaries.py
+/scripts/validation/benchmark_step_chunk_ik.py
+/scripts/validation/pi05_yam_offline_infer.py
+/scripts/validation/run_policy_branch_regressions.sh
+/website/.openai/hosting.json

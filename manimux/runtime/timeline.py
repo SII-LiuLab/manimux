@@ -52,6 +52,7 @@ class _ActivePlan:
     unblended_groups: GroupTrajectory | None = None
     observation_time_ns: int | None = None
     hold_last_step: bool = False
+    retain_terminal_target: bool = False
 
     command_blend: _CommandBlend | None = None
     action_space: str = "joint_position"
@@ -71,6 +72,8 @@ class _ActivePlan:
 
 
 def _sample_plan(plan: _ActivePlan, time_ns: int) -> GroupVector | None:
+    if plan.retain_terminal_target and time_ns >= plan.end_time_ns:
+        return {name: values[-1].copy() for name, values in plan.groups.items()}
     blend = plan.command_blend
     if blend is not None and blend.start_ns <= time_ns < blend.end_ns:
         duration = (blend.end_ns - blend.start_ns) / 1e9
@@ -121,6 +124,7 @@ class ActionTimeline:
         max_source_steps: int | None = None,
         action_start_mode: str = "drop_infer_latency",
         hold_last_step: bool = False,
+        allow_retimed_suffix: bool = False,
         blend_mode: str = "linear",
         gripper_indices: dict[str, int] | None = None,
     ) -> None:
@@ -141,6 +145,9 @@ class ActionTimeline:
         # first_step_when_ready starts the untrimmed chunk at commit; drop_infer_latency
         # keeps the source row grid, so a plan may start up to one row after the commit.
         self._starts_at_commit = action_start_mode == "first_step_when_ready"
+        if allow_retimed_suffix and not (self._starts_at_commit and hold_last_step):
+            raise ValueError("retimed suffixes require commit-time playback with a final interval")
+        self._allow_retimed_suffix = allow_retimed_suffix
         self._hold_last_step = hold_last_step
         self._group_dims = dict(group_dims)
         self._active: _ActivePlan | None = None
@@ -163,6 +170,21 @@ class ActionTimeline:
         if self._runtime_active is None:
             return 0
         return max(0, self._runtime_active.end_time_ns - now_ns)
+
+    def replacement_ready(self, now_ns: int, minimum_policy_steps: int) -> bool:
+        """Protect policy intervals from activation, capped by available execution time.
+
+        Count from activation (including a command blend), not observation time.
+        Dense adapter trajectories still use the model's policy-step duration.
+        """
+        active, runtime = self._active, self._runtime_active
+        if not minimum_policy_steps or active is None or runtime is None:
+            return True
+        earliest = min(
+            runtime.activation_time_ns + minimum_policy_steps * active.dt_ns,
+            runtime.end_time_ns,
+        )
+        return now_ns >= earliest
 
     def cursor(self, now_ns: int) -> int:
         """Return the current index in the committed plan for observers."""
@@ -196,24 +218,25 @@ class ActionTimeline:
         chunk: ActionChunk,
         *,
         now_ns: int,
-        max_plan_age_ns: int,
+        max_plan_age_ns: int | None,
         current_command: GroupVector,
         blend_steps: int,
         handoff_skip_steps: int = 0,
         command_velocity: GroupVector | None = None,
+        retain_terminal_target: bool = False,
     ) -> CommitResult:
         """Validate, time-align, trim, and activate a new action chunk."""
-        if type(handoff_skip_steps) is not int or handoff_skip_steps < 0:
-            raise ValueError("handoff_skip_steps must be a non-negative integer")
+        if type(handoff_skip_steps) is not int:
+            raise ValueError("handoff_skip_steps must be an integer")
         if chunk.action_space != self.action_space:
             return CommitResult(False, "action_space_mismatch")
         if self.action_space == POSE_SPACE and (chunk.runtime_trajectory is not None or chunk.handoff is not None):
             return CommitResult(False, "joint_handoff_on_pose_timeline")
         if chunk.request_seq <= self._accepted_request_seq:
             return CommitResult(False, "stale_request_seq")
-        if now_ns - chunk.observation_time_ns > max_plan_age_ns:
+        if max_plan_age_ns is not None and now_ns - chunk.observation_time_ns > max_plan_age_ns:
             return CommitResult(False, "plan_too_old")
-        if self._hold_last_step and chunk.source_offset_steps:
+        if self._hold_last_step and chunk.source_offset_steps and not self._allow_retimed_suffix:
             return CommitResult(False, "serial_requires_untrimmed_chunk")
         if set(chunk.groups) != set(self._group_dims):
             return CommitResult(False, "group_mismatch")
@@ -223,6 +246,11 @@ class ActionTimeline:
             if chunk.groups[name].shape[1] != dim or current_command[name].shape != (dim,):
                 return CommitResult(False, f"dimension_mismatch:{name}")
         runtime = chunk.runtime_trajectory
+        if retain_terminal_target and (
+            chunk.action_space != "joint_position" or runtime is not None
+            or chunk.hold_from_step or chunk.handoff is not None
+        ):
+            return CommitResult(False, "terminal_target_requires_complete_joint_path")
         if runtime is not None:
             if set(runtime.groups) != set(self._group_dims):
                 return CommitResult(False, "runtime_group_mismatch")
@@ -256,10 +284,12 @@ class ActionTimeline:
         time_trimmed_steps = (
             0 if self._starts_at_commit else max(0, source_cursor - chunk.source_offset_steps)
         )
+        clock_trimmed_steps = time_trimmed_steps
         # Skip source actions without moving the time at which the new plan starts.
         # The first plan has no outgoing chunk to hand off from.
         handoff_skipped_steps = handoff_skip_steps if self._active is not None else 0
         # All adapters finish decoding before the execution-only crop is applied.
+        handoff_skipped_steps = max(-time_trimmed_steps, handoff_skipped_steps)
         row_skip_steps = handoff_skipped_steps
         trimmed_steps = time_trimmed_steps + row_skip_steps
         end = chunk.horizon_steps
@@ -270,7 +300,7 @@ class ActionTimeline:
 
         # Time trim determines the handoff instant. The intentional skip changes
         # only which source row occupies that instant, not the handoff clock.
-        first_time_step = chunk.source_offset_steps + time_trimmed_steps
+        first_time_step = chunk.source_offset_steps + clock_trimmed_steps
         start_time_ns = (
             earliest_ns
             if self._starts_at_commit
@@ -304,6 +334,7 @@ class ActionTimeline:
             unblended_groups=unblended_groups,
             observation_time_ns=chunk.observation_time_ns,
             hold_last_step=self._hold_last_step,
+            retain_terminal_target=retain_terminal_target,
             action_space=self.action_space,
         )
 
@@ -520,9 +551,16 @@ class ActionTimeline:
             )
         return active
 
-    def sample(self, time_ns: int) -> GroupVector | None:
-        """Sample the model/source trajectory used by observers and RTC."""
+    def sample(self, time_ns: int, *, terminal_hold: bool = False) -> GroupVector | None:
+        """Sample source targets; optional terminal hold is for conditioning only.
+
+        Execution coverage is unchanged. Do not revive an earlier plan or fill
+        time before the owning plan activates.
+        """
         plan = self._plan_at(time_ns)
+        if (terminal_hold and plan is not None
+                and time_ns >= max(plan.activation_time_ns, plan.end_time_ns)):
+            return {name: values[-1].copy() for name, values in plan.groups.items()}
         return None if plan is None else _sample_plan(plan, time_ns)
 
     def _sample_runtime(self, time_ns: int) -> GroupVector | None:

@@ -1,87 +1,48 @@
 # Inference presets
 
-Experiments explicitly select `inference.algorithm`: `serial`, `async`, `rtc`, `aac`,
-`paint`, `autohorizon`, `bid_backward`, or `act_temporal_ensemble`. Sampler capability
-requirements remain unchanged.
+This directory supplies reusable **algorithm defaults**. An experiment selects
+`inference.algorithm`, optionally references a preset through `inference.config`,
+and declares its comparison parameters inline. Inline values override the preset, and
+the effective variant is authoritative: a preset name alone does not establish the
+executed window.
 
-An optional `config` supplies reusable parameters. Inline fields override that
-file; references are relative to the experiment and expanded once.
+| Preset | Algorithm and schedule | Key values |
+| --- | --- | --- |
+| [`yam_rtc.yaml`](yam_rtc.yaml) | RTC parameters only; the experiment sets `algorithm: rtc` | 12-step window, delay 4, beta 9.1, 4-row blend |
+| [`yam_rtc_multi_inflight.yaml`](yam_rtc_multi_inflight.yaml) | RTC, multi-inflight at 30 Hz observations | min 12 executed, delay 4, beta 9.1 |
+| [`yam_chunktrust_ahs.yaml`](yam_chunktrust_ahs.yaml) | ChunkTrust adaptive horizon, Serial | candidates 10–50 rows |
+| [`yam_chunktrust_ahs_rtc.yaml`](yam_chunktrust_ahs_rtc.yaml) | ChunkTrust adaptive horizon + RTC, single-inflight | beta 10 |
+| [`yam_bid_backward.yaml`](yam_bid_backward.yaml) | BID backward, Serial | 16 samples, 16-row window |
+| [`yam_bid_single_inflight.yaml`](yam_bid_single_inflight.yaml) | BID backward, single-inflight refill | 16 samples, 5-row window |
+| [`yam_bid_multi_inflight.yaml`](yam_bid_multi_inflight.yaml) | BID backward, multi-inflight | 16 samples, 5-row window |
+| [`yam_bid_deadline.yaml`](yam_bid_deadline.yaml) | BID backward, deadline schedule | 16 samples, 5-row window |
+| [`yam_bid_aac.yaml`](yam_bid_aac.yaml) | BID candidates, AAC chooses the execution length | 16 samples |
+| [`yam_act_serial.yaml`](yam_act_serial.yaml) | ACT temporal ensemble, Serial | 5-row window |
 
-`inference.strategy` optionally selects a strategy implementation. UMI uses it to
-assemble measured observation history around the chosen `algorithm`; the algorithm
-is no longer hidden in `policy.options.history_strategy`.
+The `example-*` studies mostly write their timing inline so each method file is
+self-contained. For example, `example-yam-pi05/put_bottles/rtc.yaml` runs RTC with a
+32-row minimum and beta 10 and does not use `yam_rtc.yaml`; the ChunkTrust variants
+reference their presets. Either form is valid: reference a preset when several variants
+share it, and override only what one method changes:
 
-`chunk_policy_steps` retains each algorithm's original meaning, such as RTC's minimum
-execution prefix or PAINT's execution window. It does not change policy action
-interval, model horizon, robot control rate or executor smoothing.
+```yaml
+inference:
+  algorithm: rtc
+  config: ../../../inference/yam_rtc.yaml
+  rtc: {beta: 10.0}          # this variant's change
+```
 
-`yam_act_serial.yaml` selects ACT with serial scheduling and a five-step execution
-prefix. Here `chunk_policy_steps` is K (1..H, or null for the full prediction);
-asynchronous ACT keeps its existing query-interval meaning. Serial ACT retains full
-predictions and aligns their overlap at commit timestamps, including inference gaps.
-It requires inline absolute-joint decoding, `first_step_when_ready`, zero blend and
-zero skip; no additional `temporal_ensemble.enabled` flag is needed.
+- These presets select scheduler/algorithm combinations; they do not establish model
+  sampling support or hardware validation.
+- Model-side sampling and cache options belong to the policy recipe.
+- Execution smoothing and command limits belong to `executor/` and embodiment
+  control profiles. `blend_policy_steps` governs runtime chunk handoff.
 
-For `bid_backward`, it caps the execution prefix at K future policy rows. Serial
-replanning waits for that prefix; asynchronous request timing comes from the shared
-scheduler. `yam_bid_single_inflight.yaml`, `yam_bid_deadline.yaml`, and
-`yam_bid_multi_inflight.yaml` select time-aligned asynchronous variants.
-`yam_bid_backward.yaml` selects N=16 candidates, rho=0.9, and K=5. This is BID's
-backward-coherence criterion only; see the [integration record](../../../.agents/skills/manimux-inference/references/reproductions/bid-backward.md).
+Current Pi05 fixed windows are 32/50. Other policies need a window within their
+actual horizon and a deliberate comparison protocol; AutoHorizon remains adaptive.
+Historical settings remain evidence, not launch recommendations.
 
-`action_start_mode` states how a returned action chunk starts:
-
-- `drop_infer_latency` drops source steps whose timestamps passed between observation
-  and commit, including transport, inference and decoding.
-- `first_step_when_ready` keeps the selected chunk intact and starts its first step
-  when the runtime accepts the result.
-
-The runtime always preserves the real `observation_time_ns`; this mode controls
-playback without relabeling that timestamp. `blend_policy_steps` is likewise the
-single configured seam-blending value for every inference strategy.
-An accepted, decoded result takes effect at commit time; there is no additional
-switch delay. Latency estimates include the elapsed preparation and inference work,
-without adding an artificial wait.
-
-Aligned experiment presets live in `aligned/`; experiments select them through
-`inference.config`. Alignment does not imply completed hardware validation.
-
-The paired Pi05 Joint 30k bottle experiments enable `run.warmup_before_start`.
-After Prepare, choose Activate Warmup to run inference while holding the measured robot state. Start
-drains warmup requests and waits for a backend RESET acknowledgement before fresh
-formal inference. PAINT additionally requires two successful calls of both the ordinary
-and conditioned branches before reset, including when Start is pressed early. Other
-strategies retain their existing behavior without a minimum count or countdown.
-The RoboGUI displays warmup chunks, predicted end-effector paths and an E2E latency
-curve as display-only previews. Start and Finish clear them. Finish stops new model
-requests and invalidates queued WS work; an already-running model call may finish,
-but its output is discarded. Warmup resumes only after another Prepare and Activate Warmup.
-
-In `aligned/yam_rtc.yaml`, `rtc.initial_delay_policy_steps: null` selects automatic
-initialization from warmup latency. The first successful call of each sampler branch
-is recorded separately and excluded from calibration. Later successful E2E samples
-are rounded up to policy steps; the predictor uses the maximum of the latest ten.
-Starting without calibration samples is explicitly reported and uses zero until
-formal accepted plans update the estimate. Numeric initial values keep their legacy
-behavior. Other model experiments have not been migrated to these aligned presets.
-
-PAINT's integer initial delay remains a floor during warmup calibration. Its first
-ordinary and first conditioned calls are excluded; later samples can raise the forecast
-and persist across reset. This exercises the conditioned sampler before formal motion
-instead of charging its first compilation to the second executable chunk.
-
-## Optional combinations
-
-- `yam_aac_single_inflight.yaml` / `yam_aac_multi_inflight.yaml`: asynchronous AAC.
-- `yam_autohorizon_single_inflight.yaml` / `yam_autohorizon_multi_inflight.yaml`: asynchronous AutoHorizon.
-- `yam_paint_multi_inflight.yaml`: streaming PAINT with reference-plan rejection.
-- `yam_bid_aac.yaml`: serial BID selection with AAC's adaptive execution length.
-- `yam_act_serial.yaml`: serial ACT fusion with a configurable execution prefix.
-
-Add `temporal_ensemble: {enabled: true}` to an experiment using RTC, PAINT, BID, AAC
-or AutoHorizon to fuse aligned predictions. Keep `blend_policy_steps: 0` and no
-handoff skip/waypoint. The base method still controls request timing. For asynchronous
-BID+AAC, override `inference_schedule: single_inflight` (or `deadline`, or `multi_inflight` with
-`observation_hz`), and `action_start_mode: drop_infer_latency`. AAC's EE statistics
-must match the selected embodiment; these are selecting examples, not tuned or
-hardware-validated settings. See [composition contracts](../../../guideline.html#optional-algorithm-composition).
+For parameter meanings, supported combinations and warmup behavior, use the
+[user guide](../../../guideline.html#optional-algorithm-composition).
+For model capability verification, use the
+[inference skill](../../../skills/manimux-inference/SKILL.md).

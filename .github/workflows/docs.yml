@@ -1,11 +1,13 @@
-name: Guide
+name: Website and Guide
 
 on:
   push:
     branches: [main]
     paths:
+      - 'website/**'
       - 'guideline.html'
       - 'assets/manimux-robogui-demo.webp'
+      - 'assets/dream1-task-1440p30.mp4'
       - 'assets/manimux_2026-09-05_23-17-35-00.00.03.144-00.00.34.914-seg1-00.00.02.596-00.00.34.966.mp4'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
@@ -22,16 +24,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Package the single-file guide
+      - name: Build website and guide
         run: |
-          mkdir -p site/assets
-          cp guideline.html site/index.html
-          cp assets/manimux-robogui-demo.webp site/assets/
-          cp assets/manimux_2026-09-05_23-17-35-00.00.03.144-00.00.34.914-seg1-00.00.02.596-00.00.34.966.mp4 site/assets/
-          touch site/.nojekyll
+          node --check website/app.js
+          python3 website/build.py
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: site
+          path: website/dist
 
   deploy:
     needs: build
@@ -43,6 +42,6 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Deploy documentation
+      - name: Deploy website and guide
         id: deployment
         uses: actions/deploy-pages@v4

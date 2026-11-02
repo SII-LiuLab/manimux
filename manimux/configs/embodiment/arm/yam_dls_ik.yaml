@@ -1,0 +1,8 @@
+# YAM damped-least-squares chunk IK profile (policy.adapter.ik_backend: dls).
+# Per output step: minimize pose error + joint_motion_cost^2 * |q - q_previous|^2
+# inside a per-joint box; accept residuals within the max errors, otherwise the
+# step is an IK failure for execution.ik.failure_policy.
+max_joint_step_rad: 0.15
+max_position_error_m: 0.02
+max_rotation_error_rad: 0.17
+joint_motion_cost: 0.1

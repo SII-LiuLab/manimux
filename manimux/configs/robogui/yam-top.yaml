@@ -1,6 +1,0 @@
-# Optional manual preview. Omit --config for automatic policy input views.
-camera_mode: manual
-cameras:
-  top: d405_front
-  left: d405_left
-  right: d405_right

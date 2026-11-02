@@ -1,0 +1,19 @@
+# Offline assembly and display styling; loading this preset never connects hardware.
+label: Franka FR3 + Robotiq 2F-85
+model: ../../../configs/embodiment/robot/franka_fr3_robotiq.yaml
+camera_mode: policy
+cameras:
+  - {source: external1, label: Exterior, slot: top}
+  - {source: wrist, label: Wrist, slot: left}
+camera_aliases:
+  external1: top
+  exterior: top
+  wrist: left
+groups:
+  arm:
+    label: Arm
+    prediction_color: [52, 111, 255]
+    trail_color: [33, 180, 106]
+    # Display seed only, never a Home or startup command.
+    initial: [0.0, 0.2, 0.0, -1.7, 0.0, 2.0, 0.1, 1.0]
+    aperture: gripper

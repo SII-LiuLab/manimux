@@ -1,0 +1,21 @@
+name: Feature or integration request
+description: Propose a new robot, model, algorithm or workflow.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: What you want to run or measure, and why the current options do not cover it.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: Which layer would own it (embodiment, policy adapter, inference strategy, executor, RoboGUI, config) and what the configuration would look like.
+  - type: textarea
+    id: resources
+    attributes:
+      label: Hardware, checkpoints and SDKs involved
+      description: Links and licenses of any SDK, model or asset the change depends on.

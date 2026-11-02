@@ -1,0 +1,10 @@
+# TCP tools and Pi05 VLA calls share this runtime; VLA uses the standard JointAdapter.
+# RoboGUI is off in this study, so RPent runs through the separate serve/run commands with
+# ../../../agents/rpent_franka.yaml (see the agents README); no agent.config is needed here.
+_base_: pi05_droid.yaml
+run:
+  warmup_before_start: false
+inference:
+  chunk_policy_steps: null
+  max_chunk_policy_steps: null
+  handoff_skip_steps: 0

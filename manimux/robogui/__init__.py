@@ -15,15 +15,15 @@ __all__ = [
 
 def robogui_parameters(**options) -> dict:
     """Fill in display publishing parameters without starting RoboGUI."""
+    from manimux.config_validation import merge_parameters
 
-    values = {
+    values = merge_parameters({
         "enabled": False,
         "robot": "",
         "policy_label": "",
         "camera_hz": 5.0,
         "tianji_teleop_root": None,
-        **options,
-    }
+    }, options, 'robogui', extra=('control',))
     if values.get("tianji_teleop_root") is not None:
         values["tianji_teleop_root"] = Path(values["tianji_teleop_root"])
     from .control import control_parameters

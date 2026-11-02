@@ -1,0 +1,29 @@
+# Embedded PI-family AHS defaults. The experiment must select a trace-capable backend.
+algorithm: chunktrust_ahs
+inference_schedule: serial
+request_trigger: algorithm
+chunk_policy_steps: null
+max_chunk_policy_steps: null
+action_start_mode: first_step_when_ready
+blend_policy_steps: 0
+handoff_skip_steps: 0
+chunktrust:
+  candidates: [10, 20, 30, 40, 50]
+  exec_mode: expected_round
+  temperature: 0.8
+  epsilon: 0.05
+  seed: 0
+  update_mode: kernel_forget
+  kernel_bandwidth: 10.0
+  forget_rho: 0.99
+  update_eta: 1.0
+  intra_cut_t: 0.25
+  intra_z_mode: window_rms
+  intra_tau_window: 3
+  intra_alpha: 4.0
+  inter_use_speed_uniformity: true
+  mix_mode: both
+  history_window: 60
+  inter_weight: 0.5
+  inter_beta: 4.0
+  inter_fallback: ehh_only

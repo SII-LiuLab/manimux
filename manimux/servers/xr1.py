@@ -10,10 +10,8 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
-XPOLICY_ROOT = REPO_ROOT / "XPolicyLab"
+XPOLICY_ROOT = REPO_ROOT / "third_party" / "XPolicyLab"
 XR1_ROOT = XPOLICY_ROOT / "policy/Xiaomi_Robotics_1/xiaomi_robotics_1/xr1"
 DEFAULT_CONFIG = REPO_ROOT / "manimux/configs/policy/xiaomi-xr1/yam/base.yaml"
 MODEL_PYTHON = REPO_ROOT / "envs/xr1/.venv/bin/python"
@@ -24,11 +22,9 @@ YAM_FINETUNED_VARIANTS = {
 }
 
 
-def _load_config(path: Path) -> dict[str, Any]:
-    loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
-    if not isinstance(loaded, dict):
-        raise ValueError(f"server config must be a mapping: {path}")
-    return loaded
+def _load_config(path: Path, *, local=None) -> dict[str, Any]:
+    from manimux.policies.recipe import read_policy_recipe
+    return read_policy_recipe(path, local=local)
 
 
 def _shape(value: object) -> tuple[int, ...]:
@@ -122,7 +118,7 @@ def _validate(config: dict[str, Any]) -> dict[str, Any]:
 
 
 def _prepare_imports() -> None:
-    for path in (REPO_ROOT, XPOLICY_ROOT, XR1_ROOT):
+    for path in (REPO_ROOT, XPOLICY_ROOT.parent, XPOLICY_ROOT, XR1_ROOT):
         value = str(path)
         if value not in sys.path:
             sys.path.insert(0, value)
@@ -132,9 +128,10 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     parser.add_argument("--check", action="store_true", help="validate without loading the model")
+    parser.add_argument("--local", type=Path)
     args = parser.parse_args()
 
-    config = _load_config(args.config.resolve())
+    config = _load_config(args.config.resolve(), local=args.local)
     contract = _validate(config)
     if args.check:
         print(json.dumps(contract, indent=2))

@@ -4,7 +4,17 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
+from manimux.kinematics.failure import DEFAULT_FAILURE_POLICY, IKSequence
 from manimux.types import ActionChunk, ActionContext, InferenceRequest, ObservationSnapshot
+
+
+def require_request_type(request: InferenceRequest, allowed: tuple[type, ...], model: str) -> None:
+    """Reject algorithm-specific requests an adapter would rebuild without their fields."""
+    if type(request) not in allowed:
+        raise ValueError(
+            f"{model} supports {[cls.__name__ for cls in allowed]} requests, "
+            f"not {type(request).__name__}; its algorithm fields would be dropped"
+        )
 
 
 class PolicyAdapter(ABC):
@@ -15,6 +25,7 @@ class PolicyAdapter(ABC):
     """
 
     # The runtime selects pose decoding only after validating step IK support.
+    ik_failure_policy = DEFAULT_FAILURE_POLICY
     decode_pose_only = False
     supports_step_ik = False
     pose_condition_modes = ()
@@ -38,9 +49,14 @@ class PolicyAdapter(ABC):
         return None
 
     def __init__(self, robot: dict, policy: dict, *, kinematics=None):
+        if "ik_failure_policy" in policy["adapter"]:
+            raise ValueError("Move policy.adapter.ik_failure_policy to execution.ik.failure_policy")
         self.robot = robot
         self.policy = policy
         self.kinematics = kinematics
+
+    def ik_sequence(self, group, seed, *, approximate=False):
+        return IKSequence(seed, group=group, policy=self.ik_failure_policy, approximate=approximate)
 
     def build_observation(self, snapshot: ObservationSnapshot) -> ObservationSnapshot:
         """Adapters that do not rewrite observations preserve the original snapshot and timestamps."""

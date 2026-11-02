@@ -1,0 +1,3 @@
+# Empty station for the hardware-free example-synthetic study: no devices, services or
+# model paths. Selected by that study itself; do not copy it to station.yaml.
+paths: {}

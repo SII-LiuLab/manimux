@@ -2,8 +2,17 @@
 type: arm
 implementation: manimux.embodiments.arm.yam:YamArm
 action_layout: {arm_dofs: 6, gripper_dofs: 1}
-options: {}
+options:
+  # Metres; null disables final IK position-error acceptance, not optimization.
+  # Orientation acceptance and joint position limits remain enforced.
+  pos_threshold: 0.001
 hardware:
   arm_type: yam
   gripper_type: linear_4310
+  # Shutdown health requires both CAN feedback and SDK state to advance.
+  feedback_timeout_s: 0.2
+  release_home_tolerance_rad: 0.05
+  release_velocity_tolerance_rad_s: 0.1
+  home_settle_duration_s: 0.25  # Position and speed must stay within limits continuously.
+  move_intervals: 50  # Preserve i2rt Home/start interpolation; check health at each waypoint.
   # The local station file provides channel; model loading requires no CAN connection.

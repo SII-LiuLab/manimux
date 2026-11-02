@@ -1,4 +1,5 @@
 name: yam
+initial_poses: ../initial_poses/yam.yaml
 hardware:
   stale_timeout_s: 0.2
 components:

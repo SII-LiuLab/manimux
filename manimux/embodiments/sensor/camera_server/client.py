@@ -86,6 +86,10 @@ class CameraClient:
         """Return ``{cam_name: np.ndarray (H,W,3) uint8 RGB}`` with the latest frames."""
         return self.get_bundle(camera_names)["frames"]
 
+    def get_rgbd_bundle(self, camera_names: list[str] | None = None) -> dict[str, Any]:
+        """Read optional aligned RGB-D captures without changing the RGB protocol."""
+        return self._request("rgbd", camera_names)
+
     def get_bundle(self, camera_names: list[str] | None = None) -> dict[str, Any]:
         """Keep the server capture timestamps alongside the selected RGB images."""
         resp = self._request("obs", camera_names)
@@ -121,12 +125,7 @@ class CameraClient:
 
 
 class CameraSubscriber:
-    """Optional PUB/SUB consumer for the live preview.
-
-    The eval inner loop should use ``CameraClient`` (REQ/REP). This subscriber
-    exists so a cv2 preview can render at camera rate without competing for the
-    REP socket with the policy.
-    """
+    """Latest-bundle PUB/SUB consumer for preview and timestamped sensors."""
 
     def __init__(self, endpoint: str, recv_timeout_ms: int = 100) -> None:
         self.endpoint = endpoint
@@ -136,6 +135,9 @@ class CameraSubscriber:
         self._sock.setsockopt(zmq.LINGER, 0)
         self._sock.setsockopt(zmq.RCVTIMEO, self.recv_timeout_ms)
         self._sock.setsockopt(zmq.SUBSCRIBE, b"")
+        # The protocol sends one complete bundle per message. Retain only the
+        # newest bundle when a consumer pauses; never accumulate image history.
+        self._sock.setsockopt(zmq.CONFLATE, 1)
         self._sock.connect(endpoint)
 
     def try_recv(self) -> dict[str, np.ndarray] | None:

@@ -42,12 +42,12 @@ from manimux.policies.xpolicylab.codec import (
     encode_observation,
 )
 from manimux.policies.xpolicylab.ws_client import XPolicyLabWsClient
-from manimux.runtime.train_time_rtc import TrainTimeRtcRequest
 from manimux.runtime.aac import AacInferenceRequest
 from manimux.runtime.autohorizon import AutoHorizonInferenceRequest
 from manimux.runtime.bid import BidInferenceRequest
 from manimux.runtime.paint import PaintInferenceRequest
 from manimux.runtime.rtc.request import RtcInferenceRequest
+from manimux.runtime.train_time_rtc import TrainTimeRtcRequest
 from manimux.types import InferenceRequest, InferenceResponse
 
 
@@ -68,6 +68,9 @@ class XPolicyLabWsPolicyModel:
         self._frequency = 1.0 / action_interval(config)
         self._request_timeout_s = _positive_float_option(
             options, "request_timeout_s", config["timeout_s"]
+        )
+        self._warmup_request_timeout_s = _positive_float_option(
+            options, "warmup_request_timeout_s", self._request_timeout_s
         )
         self._connect_timeout_s = _positive_float_option(
             options, "connect_timeout_s", config["startup_timeout_s"]
@@ -189,8 +192,16 @@ class XPolicyLabWsPolicyModel:
         client = self._client
         assert client is not None
         sampling_request = getattr(request, "sampling_request", None) or request
-        result = client.infer(observation, sampling=self._sampling(sampling_request))
+        result = client.infer(
+            observation, sampling=self._sampling(sampling_request),
+            timeout_s=self._timeout_for_request(request.request_seq),
+        )
         return self._process_result(result, sampling_request, request.observation)
+
+    def _timeout_for_request(self, request_seq: int) -> float:
+        # PolicyWarmup reserves negative sequences for display-only requests.
+        # Cold compilation must not extend the timeout of executable requests.
+        return self._warmup_request_timeout_s if request_seq < 0 else self._request_timeout_s
 
     def _sampling(self, request):
         """Share sampling validation across blocking and streaming transports."""
@@ -392,7 +403,9 @@ class XPolicyLabWsPolicyModel:
                 if not isinstance(payload, dict) or "actions" not in payload:
                     raise ValueError("infer reply has no actions")
                 result = (
-                    payload if {"action_semantics", "autohorizon", "paint"}.intersection(payload)
+                    payload if {
+                        "action_semantics", "autohorizon", "paint", "denoise_trace",
+                    }.intersection(payload)
                     else payload["actions"]
                 )
                 if isinstance(num_samples, InferenceRequest):
@@ -412,7 +425,8 @@ class XPolicyLabWsPolicyModel:
         for request_id, (response, started_ns, _) in self._pending.items():
             if request_id in self._expired:
                 continue
-            if time.monotonic_ns() - started_ns > self._request_timeout_s * 1e9:
+            timeout_ns = self._timeout_for_request(response.request_seq) * 1e9
+            if time.monotonic_ns() - started_ns > timeout_ns:
                 # Report once, keeping its transport credit occupied until the
                 # late reply is drained. A stalled peer must stay bounded.
                 self._expired.add(request_id)

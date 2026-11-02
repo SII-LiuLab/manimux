@@ -1,0 +1,7 @@
+{
+  "source_page": "https://science.nasa.gov/resource/earth-with-clouds-3d-model/",
+  "download": "https://assets.science.nasa.gov/content/dam/science/psd/solar/2023/09/e/EarthClouds_1_12756.glb",
+  "source_sha256": "f0989772fa9ab1aeee32911df9b5da4ee1a938580414357ace51c9e05b5f3929",
+  "derived_sha256": "4abf4daadf0e384788b0756f71c521733616b6b93278ceb144f3af3ac95c9728",
+  "changes": "Original mesh and UVs preserved. Base-color texture reduced to 2048x1536 JPEG; normal map removed; neutral non-metallic material."
+}

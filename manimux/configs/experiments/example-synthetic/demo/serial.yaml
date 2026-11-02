@@ -1,0 +1,3 @@
+# Serial: wait for each chunk, execute it, then request the next one.
+_base_: ../_base_.yaml
+experiment: {variant: serial}

@@ -32,3 +32,5 @@ services:
 paths:
   # Recipes select paths inside this root. Relative roots are based on station.yaml.
   checkpoints: ../../../checkpoints
+  # Only needed by SAPolicy recipes; set to the installed workspace.
+  # sapolicy_workspace: /path/to/sa

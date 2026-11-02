@@ -12,7 +12,7 @@ from typing import Any
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-XPOLICY_ROOT = REPO_ROOT / "XPolicyLab"
+XPOLICY_ROOT = REPO_ROOT / "third_party" / "XPolicyLab"
 OPENPI_SRC = XPOLICY_ROOT / "policy/Pi_05/openpi/src"
 DEFAULT_CONFIG = REPO_ROOT / "manimux/configs/policy/pi05/yam/finetune.yaml"
 MODEL_PYTHON = XPOLICY_ROOT / "policy/Pi_05/openpi/.venv/bin/python"
@@ -28,6 +28,7 @@ YAM_FINETUNED_VARIANTS = HARDWARE_VERIFIED_VARIANTS | {
     "pi05_yam_assemble_screwdriver_step_15000",
     "pi05_yam_put_bottles_joint_step_30000",
     "pi05_yam_put_bottles_joint_ee_step_30000",
+    "pi05_yam_abc_bottles_realsim_step_20000",
 }
 GPU_FORWARD_VERIFIED_VARIANTS = HARDWARE_VERIFIED_VARIANTS | {
     "pi05_yam_put_bottles_joint_ee_step_30000_eef",
@@ -39,7 +40,7 @@ TASK_QUALITY_LIMITED_VARIANTS = {
 
 
 def _prepare_imports() -> None:
-    for path in (REPO_ROOT, XPOLICY_ROOT, OPENPI_SRC):
+    for path in (REPO_ROOT, XPOLICY_ROOT.parent, XPOLICY_ROOT, OPENPI_SRC):
         value = str(path)
         if value not in sys.path:
             sys.path.insert(0, value)
@@ -59,8 +60,9 @@ def _validate_paths(config: dict[str, Any]) -> tuple[Path, Path]:
         )
     model_root = Path(str(config["model_path"])).expanduser().resolve()
     stats_dir = Path(str(config["norm_stats_path"])).expanduser().resolve()
-    if not (model_root / "params").is_dir():
-        raise FileNotFoundError(f"Pi05 params not found under {model_root}")
+    # OpenPI loads a PyTorch checkpoint when the step directory holds model.safetensors.
+    if not (model_root / "params").is_dir() and not (model_root / "model.safetensors").is_file():
+        raise FileNotFoundError(f"Pi05 params or model.safetensors not found under {model_root}")
     if not (stats_dir / "norm_stats.json").is_file():
         raise FileNotFoundError(f"Pi05 norm_stats.json not found under {stats_dir}")
     return model_root, stats_dir
@@ -137,7 +139,7 @@ def _resolved_contract(config_path: Path, config: dict[str, Any]) -> dict[str, A
             if checkpoint_variant in TASK_QUALITY_LIMITED_VARIANTS
             else "yam_finetune_not_evaluated"
             if checkpoint_variant in YAM_FINETUNED_VARIANTS
-            else "base_checkpoint_not_yam_finetune"
+            else "task_quality_not_evaluated"
         ),
         "model_python": str(MODEL_PYTHON),
         "server_config": str(config_path),
@@ -152,7 +154,9 @@ def _resolved_contract(config_path: Path, config: dict[str, Any]) -> dict[str, A
         "action_horizon": horizon,
         "num_steps": num_steps,
         "inference_seed": config.get("inference_seed", 0),
-        "rtc": "unsupported" if config.get("action_type") == "ee" else "pi_guided_v1",
+        # The loaded model reports sampling modes through the shared HELLO.
+        # Artifact inspection cannot establish sampler hooks or backend support.
+        "rtc": "not_verified_before_model_load",
     }
 
 
@@ -161,6 +165,12 @@ def main(argv: list[str] | None = None) -> int:
     source = parser.add_mutually_exclusive_group()
     source.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     source.add_argument("--experiment", type=Path, help="Use the experiment's paired policy_server")
+    source.add_argument(
+        "--config-list", type=Path, help="Use a config list's shared model configuration"
+    )
+    parser.add_argument(
+        "--experiment-id", help="Required if config-list model configurations differ"
+    )
     parser.add_argument(
         "--local",
         type=Path,
@@ -176,9 +186,18 @@ def main(argv: list[str] | None = None) -> int:
 
     from manimux.cli import bind_station, read_experiment, resolve_local_path
 
-    local = resolve_local_path(args.experiment, args.local)
-    config_path = (args.experiment or args.config).expanduser().resolve()
-    if args.experiment is not None:
+    local = resolve_local_path(args.config_list or args.experiment, args.local)
+    config_path = (args.config_list or args.experiment or args.config).expanduser().resolve()
+    if args.experiment_id and not args.config_list:
+        parser.error("--experiment-id requires --config-list")
+    if args.config_list is not None:
+        from manimux.collections import select_service
+        config = select_service(
+            args.config_list, "policy_server", local=local, experiment=args.experiment_id
+        )["policy_server"]
+        if config.get("policy_name") != "Pi_05":
+            raise ValueError("Pi05 launcher requires a Pi_05 config-list entry")
+    elif args.experiment is not None:
         config = read_experiment(config_path, local=local)["policy_server"]
     else:
         config = bind_station({"policy_server": _load_config(config_path)}, local)["policy_server"]

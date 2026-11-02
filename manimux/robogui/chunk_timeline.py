@@ -22,12 +22,14 @@ class ChunkLane:
     frozen_steps: int = 0
     superseded_steps: int = 0
     inference_ms: float | None = None
+    tool: str | None = None
     timeline_latency_ms: float | None = None
     decode_stage_ms: float | None = None
     state: str = "empty"
     conditioned: bool = False
     source_chunk_id: int | None = None
     condition_from_index: int | None = None
+    condition_steps: int | None = None
     latency_from_index: int | None = None
     gripper_closed_steps_by_group: dict[str, tuple[bool, ...]] = field(default_factory=dict)
 
@@ -59,8 +61,10 @@ class ChunkTimelineView:
         self._warmup_animation: ChunkTimelineView | None = None
         self._warmup_playback_start = 0.0
         self._warmup_action_dt = 1.0
+        self._warmup_configured = False
         self._warmup_phase: str | None = None
         self._warmup_completed = 0
+        self._warmup_configured = False
         self._warmup_blocked = False
         self._closed_warmup_episodes: set[tuple[str, str]] = set()
 
@@ -96,6 +100,7 @@ class ChunkTimelineView:
         self.warmup_samples = ()
         self._warmup_phase = None
         self._warmup_completed = 0
+        self._warmup_configured = False
         self._warmup_blocked = False
 
     def clear_warmup_preview(self) -> None:
@@ -105,6 +110,7 @@ class ChunkTimelineView:
         self.warmup_samples = ()
         self._warmup_phase = None
         self._warmup_completed = 0
+        self._warmup_configured = False
         self._warmup_blocked = True
         if self.episode_id:
             self._closed_warmup_episodes.add((self.service_id, self.episode_id))
@@ -154,6 +160,12 @@ class ChunkTimelineView:
             return
         self._warmup_phase = "warming"
         self._warmup_completed = int(warmup.get("completed_requests", 0))
+        self._warmup_configured = bool(warmup.get("configured_planning", False))
+        if self._warmup_configured and warmup.get("active_chunk_id") is not None:
+            self._warmup_animation_view().update({
+                "kind": "state", "active_chunk_id": warmup["active_chunk_id"],
+                "chunk_index": warmup.get("chunk_index", 0),
+            })
         self.warmup_samples = tuple(
             duration
             for value in warmup.get("recent_inference_ms", [])[-10:]
@@ -197,15 +209,19 @@ class ChunkTimelineView:
         previous_lane = (
             animation.lanes[animation._lane_by_chunk[previous]] if previous is not None else None
         )
-        # Reuse the formal reducer/renderer, but never feed these display cursors
-        # to the runtime. Warmup conditions are synthetic, not executed prefixes.
+        # Current previews carry runtime-owned progress/condition metadata.
+        # Legacy recordings retain local animation as a display-only fallback.
+        self._warmup_configured = bool(metadata.get("configured_planning", False))
+        plan_metadata = {k: v for k, v in metadata.items() if k != "warmup_preview"}
         animation.update({
             **message,
             "metadata": {
+                **plan_metadata,
                 "runtime": self.runtime,
                 "previous_chunk_id": previous,
                 "previous_chunk_index": 0 if previous_lane is None else previous_lane.cursor,
                 "timeline_latency_ms": lane.e2e_ms,
+                "decode_stage_ms": (metadata.get("warmup_timing") or {}).get("decode_ms"),
                 "gripper_closed_steps_by_group": metadata.get("gripper_closed_steps_by_group", {}),
             },
         })
@@ -218,6 +234,8 @@ class ChunkTimelineView:
         return self._warmup_animation
 
     def _advance_warmup_playback(self) -> None:
+        if self._warmup_configured:
+            return
         animation = self._warmup_animation
         if animation is not None and animation.active_chunk_id is not None:
             animation.update({
@@ -255,6 +273,7 @@ class ChunkTimelineView:
                 ),
                 "chunk_id": int(chunk_id),
                 "metadata": {
+                    **metadata,
                     "runtime": self.runtime, "horizon_steps": metadata.get("horizon_steps", 1),
                 },
             })
@@ -303,32 +322,26 @@ class ChunkTimelineView:
                 return
             chunk_id = int(raw_chunk_id)
             horizon = max(1, int(metadata.get("horizon_steps", 1)))
-            overlap = max(0, int(metadata.get("conditioned_overlap_steps", 0)))
-            frozen = max(0, int(metadata.get("frozen_steps", 0)))
+            overlap, frozen = self._condition_overlap(metadata)
             conditioned = bool(metadata.get("conditioned", False))
             active_chunk_id = metadata.get("active_chunk_id")
             source_chunk_id = active_chunk_id if conditioned else None
-            source_index_is_raw = "executed_steps" in metadata
-            source_index = max(
-                0,
-                int(
-                    metadata["executed_steps"]
-                    if source_index_is_raw
-                    else metadata.get("active_chunk_index", 0)
-                ),
-            )
+            raw_index = self._raw_source_index(metadata)
             if active_chunk_id is not None:
                 source_lane_index = self._lane_by_chunk.get(int(active_chunk_id))
                 if source_lane_index is not None:
                     source_lane = self.lanes[source_lane_index]
-                    source_lane.latency_from_index = min(
+                    source_index = min(
                         source_lane.horizon_steps,
-                        source_index
-                        if source_index_is_raw
-                        else source_lane.trimmed_steps + source_index,
+                        raw_index
+                        if raw_index is not None
+                        else source_lane.trimmed_steps
+                        + max(0, int(metadata.get("active_chunk_index", 0))),
                     )
+                    source_lane.latency_from_index = source_index
                     if conditioned:
                         source_lane.condition_from_index = source_index
+                        source_lane.condition_steps = overlap
             lane = ChunkLane(
                 chunk_id=chunk_id,
                 horizon_steps=horizon,
@@ -384,17 +397,13 @@ class ChunkTimelineView:
                         previous_lane.trimmed_steps + max(0, int(metadata["active_chunk_index"])),
                     )
                 if conditioned and previous_lane.condition_from_index is None:
-                    previous_lane.condition_from_index = max(
-                        0,
-                        int(
-                            metadata.get(
-                                "executed_steps",
-                                previous_lane.condition_from_index
-                                if previous_lane.condition_from_index is not None
-                                else previous_lane.trimmed_steps + previous_lane.cursor,
-                            )
-                        ),
+                    raw_index = self._raw_source_index(metadata)
+                    previous_lane.condition_from_index = (
+                        raw_index
+                        if raw_index is not None
+                        else previous_lane.trimmed_steps + previous_lane.cursor
                     )
+                    previous_lane.condition_steps = self._condition_overlap(metadata)[0]
                 previous_lane.state = "source" if conditioned else "retired"
 
         committed_steps = len(next(iter(message.get("groups", {}).values()), []))
@@ -407,11 +416,8 @@ class ChunkTimelineView:
             trimmed, max(0, int(metadata.get("time_trimmed_steps", trimmed)))
         )
         handoff_skipped = trimmed - time_trimmed
-        overlap = min(
-            raw_horizon,
-            max(0, int(metadata.get("conditioned_overlap_steps", 0))),
-        )
-        frozen = min(raw_horizon, max(0, int(metadata.get("frozen_steps", 0))))
+        overlap, frozen = self._condition_overlap(metadata)
+        overlap, frozen = min(raw_horizon, overlap), min(raw_horizon, frozen)
 
         def raw_gripper_steps(values: Any) -> tuple[bool, ...]:
             committed = tuple(bool(value) for value in values)
@@ -441,7 +447,10 @@ class ChunkTimelineView:
             handoff_skipped_steps=handoff_skipped,
             overlap_steps=overlap,
             frozen_steps=frozen,
-            inference_ms=float(message.get("inference_ms", 0.0)),
+            inference_ms=(None if metadata.get("runtime") == "agent_motion"
+                          else float(message.get("inference_ms", 0.0))),
+            tool=(str(metadata.get("tool", "primitive"))
+                  if metadata.get("runtime") == "agent_motion" else None),
             timeline_latency_ms=optional_ms("timeline_latency_ms"),
             decode_stage_ms=optional_ms("decode_stage_ms"),
             state="active",
@@ -472,6 +481,33 @@ class ChunkTimelineView:
         self.active_chunk_id = chunk_id
 
     @staticmethod
+    def _raw_source_index(metadata: dict[str, Any]) -> int | None:
+        # RTC reports executed_steps and PAINT execution_steps, both in raw
+        # source-chunk rows; active_chunk_index excludes the trimmed prefix.
+        for key in ("executed_steps", "execution_steps"):
+            if key in metadata:
+                return max(0, int(metadata[key]))
+        return None
+
+    @staticmethod
+    def _condition_overlap(metadata: dict[str, Any]) -> tuple[int, int]:
+        # PAINT conditions only on its delay prefix; RTC on the whole remainder.
+        if metadata.get("conditioned") and "delay_steps" in metadata:
+            delay = max(0, int(metadata["delay_steps"]))
+            return delay, delay
+        return (
+            max(0, int(metadata.get("conditioned_overlap_steps", 0))),
+            max(0, int(metadata.get("frozen_steps", 0))),
+        )
+
+    @staticmethod
+    def _condition_end(lane: ChunkLane) -> int:
+        start = max(0, lane.condition_from_index or 0)
+        if lane.condition_steps is None:
+            return lane.horizon_steps
+        return min(lane.horizon_steps, start + lane.condition_steps)
+
+    @staticmethod
     def _cell_state(lane: ChunkLane, index: int) -> str:
         if lane.state == "pending":
             if index < lane.frozen_steps:
@@ -497,7 +533,10 @@ class ChunkTimelineView:
             and lane.cursor < lane.committed_steps
         ):
             return "current"
-        if lane.condition_from_index is not None and index >= lane.condition_from_index:
+        if (
+            lane.condition_from_index is not None
+            and lane.condition_from_index <= index < ChunkTimelineView._condition_end(lane)
+        ):
             return "condition-source"
         if lane.state == "retired" and committed_index >= lane.cursor:
             return "superseded"
@@ -515,10 +554,12 @@ class ChunkTimelineView:
             return "sampling"
         if lane.state == "rejected":
             return "rejected"
+        if lane.tool:
+            return f"Primitive · {lane.tool}"
         if lane.timeline_latency_ms is not None:
-            return f"{lane.timeline_latency_ms:.0f} ms"
+            return f"E2E {lane.timeline_latency_ms:.0f} ms"
         if lane.inference_ms is not None:
-            return f"{lane.inference_ms:.0f} ms"
+            return f"Model {lane.inference_ms:.0f} ms"
         return lane.state
 
     @staticmethod
@@ -597,7 +638,7 @@ class ChunkTimelineView:
             max(0, source.condition_from_index or source.cursor),
         )
         linked_steps = min(
-            max(0, source.horizon_steps - source_start),
+            max(0, self._condition_end(source) - source_start),
             max(0, target.overlap_steps),
         )
         if linked_steps <= 0:
@@ -626,7 +667,7 @@ class ChunkTimelineView:
         ranges: list[str] = []
         if lane.condition_from_index is not None:
             start = min(lane.horizon_steps, max(0, lane.condition_from_index))
-            count = lane.horizon_steps - start
+            count = ChunkTimelineView._condition_end(lane) - start
             if count > 0:
                 left = 100.0 * start / lane.horizon_steps
                 width = 100.0 * count / lane.horizon_steps
@@ -658,6 +699,15 @@ class ChunkTimelineView:
             lane_class = f"{html.escape(lane.state)} {'reverse' if index else ''}"
             summary = html.escape(self._lane_summary(lane))
             summary_title = html.escape(self._lane_summary_title(lane), quote=True)
+            timing_parts = []
+            if lane.inference_ms is not None:
+                timing_parts.append(f"Model call {lane.inference_ms:.0f} ms")
+            if lane.decode_stage_ms is not None:
+                timing_parts.append(f"Decode / IK {lane.decode_stage_ms:.0f} ms")
+            timing_html = (
+                '<div style="font-size:10px;color:#94a3b8;margin-top:7px">'
+                + " · ".join(timing_parts) + '</div>'
+            ) if timing_parts else ""
             cells_html = [
                 f'<span class="manimux-chunk-cell {self._cell_state(lane, cell)}"></span>'
                 for cell in range(lane.horizon_steps)
@@ -698,6 +748,7 @@ class ChunkTimelineView:
                     <div class="manimux-chunk-cells">{cells}{condition_range}</div>
                     {lower}
                   </div>
+                  {timing_html}
                 </div>
                 """
             )

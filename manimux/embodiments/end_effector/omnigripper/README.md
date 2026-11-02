@@ -222,7 +222,7 @@ probe output are evidence of read-only feedback, not task success.
 ```bash
 python -m pip install -e '.[omnigripper]'
 python scripts/validation/omnigripper_readonly.py \
-  --config manimux/configs/examples/flexiv_omnigripper_readonly.yaml \
+  --config manimux/configs/experiments/example-flexiv/flexiv_omnigripper_readonly.yaml \
   --local <station.yaml>
 ```
 

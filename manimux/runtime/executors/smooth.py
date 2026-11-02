@@ -9,6 +9,7 @@ import numpy as np
 
 from manimux.runtime.executors.limits import (
     ScalarLimits,
+    bounded_step,
     decelerate_velocity,
     limit_step,
     limit_velocity,
@@ -38,8 +39,12 @@ class _GripperEvent:
 
 
 class SmoothExecutor:
-    def __init__(self, config: dict, control_dt_s: float) -> None:
+    def __init__(
+        self, config: dict, control_dt_s: float, *, command_limits: dict | None = None,
+    ) -> None:
         self._dt_s = control_dt_s
+        # Optional resolved snapshot from SafetyGuard.execution_limits().
+        self._command_limits = command_limits or {}
         rc = 1.0 / (2.0 * math.pi * config["cutoff_hz"])
         self._alpha = control_dt_s / (rc + control_dt_s)
         self._limits = ScalarLimits(
@@ -75,10 +80,6 @@ class SmoothExecutor:
         self._rc = rc
 
     @property
-    def has_pending_release(self) -> bool:
-        return any(event.kind == "release" for event in self._gripper_events.values())
-
-    @property
     def uses_close_latch(self) -> bool:
         return self._gripper is not None and self._gripper["mode"] == "close_latch"
 
@@ -105,20 +106,30 @@ class SmoothExecutor:
 
         Arms follow the caller's hold state. A close-latch gripper keeps its
         last command, so contact feedback cannot remove the commanded squeeze.
+        Shared bounds require deceleration with consistent command history.
         """
         groups = copy_group_vector(state.groups)
         if self.uses_close_latch and self._previous is not None:
             for name, index in self._gripper["group_indices"].items():
                 groups[name][index] = self._previous[name][index]
+        velocities = {}
+        if self._previous is not None:
+            self._bound_commands(groups, velocities)
         self.reset(
             RobotState(groups, now_ns, state.sequence),
             preserve_gripper_latch=True,
         )
+        self._previous_velocity.update(velocities)
         return RobotCommand(groups, now_ns, plan_id=None)
 
     def reset(self, state: RobotState, *, preserve_gripper_latch: bool = False) -> None:
         # Only inference holds preserve the logical state. Explicit reset,
         # Pause and Home start unlatched, independently of measured aperture.
+        for name, lower in self._command_limits.get("position_lower", {}).items():
+            upper = self._command_limits["position_upper"][name]
+            values = state.groups[name]
+            if not np.isfinite(values).all() or np.any(values < lower) or np.any(values > upper):
+                raise ValueError(f"{name}: measured/reset state is outside command bounds")
         latched = self._gripper_closed if preserve_gripper_latch and self.uses_close_latch else {}
         closed_since = self._gripper_closed_since_ns
         self._command_history = deque(
@@ -163,6 +174,31 @@ class SmoothExecutor:
             if closed and self.uses_close_latch:
                 self._gripper_closed_since_ns[name] = closed_since.get(name, state.monotonic_ns)
             self._gripper_open_candidate_ns[name] = None
+
+    def _bound_commands(self, output: GroupVector, velocities: GroupVector) -> None:
+        """Apply resolved safety limits after shaping, before advancing history."""
+        shared = self._command_limits
+        for name, lower in shared.get("position_lower", {}).items():
+            count = len(output[name])
+            speed = self._limits.velocity_bound(self._dt_s)
+            vmax = np.full(count, np.inf if speed is None else speed)
+            amax = np.full(count, self._limits.max_acceleration or np.inf)
+            if self._gripper is not None and name in self._gripper["group_indices"]:
+                index = self._gripper["group_indices"][name]
+                vmax[index] = self._gripper["max_velocity"] or np.inf
+                amax[index] = self._gripper["max_acceleration"] or np.inf
+            vmax = np.minimum(vmax, shared.get("max_velocity", {}).get(name, np.inf))
+            amax = np.minimum(amax, shared.get("max_acceleration", {}).get(name, np.inf))
+            output[name], velocities[name] = bounded_step(
+                output[name], self._previous[name], self._previous_velocity[name],
+                dt_s=self._dt_s,
+                lower=np.asarray(lower), upper=np.asarray(shared["position_upper"][name]),
+                max_velocity=vmax, max_acceleration=amax, group=name,
+            )
+            diagnostics = self.gripper_diagnostics.get(name, {})
+            if "command_aperture" in diagnostics:
+                index = self._gripper["group_indices"][name]
+                diagnostics["command_aperture"] = float(output[name][index])
 
     def _shape_grippers(
         self,
@@ -624,6 +660,7 @@ class SmoothExecutor:
             )
             output[name] = self._previous[name] + velocities[name] * self._dt_s
         self._shape_grippers(now_ns, reference, output, velocities, state)
+        self._bound_commands(output, velocities)
         self._command_history.append((now_ns, copy_group_vector(output)))
         self._previous = copy_group_vector(output)
         self._previous_velocity = copy_group_vector(velocities)

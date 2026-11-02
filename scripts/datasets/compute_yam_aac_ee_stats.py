@@ -115,7 +115,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--episodes",
-        default="/home/ubuntu/yam-abc-reproduce/data/episodes",
+        required=True,
         help="recording root containing <task>/<episode>/ directories",
     )
     parser.add_argument("--out", required=True, help="destination JSON file")

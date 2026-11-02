@@ -1,0 +1,8 @@
+# Frame-only visualization. Supply the measured tool TCP in the component options.
+name: robotiq_2f
+urdf: end_effector.urdf
+root_link: base_link
+inputs: 1
+rest_inputs: [1.0]
+aperture_input: 0
+joints: []

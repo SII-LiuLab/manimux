@@ -9,8 +9,8 @@ from station serials, never discovery order.
 
 - Assembly: `manimux/configs/embodiment/robot/flexiv_dual.yaml`.
 - Station template: `manimux/configs/local/flexiv_example.yaml`.
-- Joint inference: `manimux/configs/examples/flexiv_joint.yaml`.
-- Flange-pose inference: `manimux/configs/examples/flexiv_pose.yaml`.
+- Joint inference: `manimux/configs/experiments/example-flexiv/flexiv_joint.yaml`.
+- Flange-pose inference: `manimux/configs/experiments/example-flexiv/flexiv_pose.yaml`.
 - Offline display: `python -m manimux.robogui.dashboard --robot flexiv --demo`.
 
 Copy the station template to a private file. Supply the two serials, matching SDK,
@@ -31,7 +31,7 @@ After supplying the model and cameras, launch the existing runtime:
 
 ```bash
 python -m manimux.robogui.dashboard --robot flexiv
-python -m manimux serve --config manimux/configs/examples/flexiv_joint.yaml --local <station.yaml>
+python -m manimux serve --config manimux/configs/experiments/example-flexiv/flexiv_joint.yaml --local <station.yaml>
 # Or select flexiv_pose.yaml with the matching model-side contract.
 ```
 
@@ -174,7 +174,7 @@ change, target, SDK Stop or Home:
 envs/flexiv/.venv/bin/python scripts/validation/flexiv_readonly_probe.py \
   --config .local/flexiv/joint.yaml --seconds 5
 # Public templates need an explicit station:
-# scripts/validation/flexiv_readonly_probe.py --config manimux/configs/examples/flexiv_joint.yaml \
+# scripts/validation/flexiv_readonly_probe.py --config manimux/configs/experiments/example-flexiv/flexiv_joint.yaml \
 #   --local <station.yaml>
 ```
 

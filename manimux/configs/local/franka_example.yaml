@@ -1,0 +1,17 @@
+# Copy to a private station file and replace device addresses/calibration.
+paths:
+  checkpoints: ../../../checkpoints
+robot:
+  components:
+    arm:
+      ip: 192.0.2.1
+    gripper:
+      port: /dev/serial/by-id/REPLACE_ME
+      raw_open: 0
+      raw_closed: 255
+services:
+  camera:
+    endpoint: tcp://127.0.0.1:5556
+    request_endpoint: tcp://127.0.0.1:5555
+  policy:
+    endpoint: ws://127.0.0.1:18190

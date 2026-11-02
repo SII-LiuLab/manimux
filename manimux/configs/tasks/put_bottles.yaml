@@ -1,0 +1,43 @@
+run:
+  max_control_steps: 6000
+  task_prompt: put_bottles_into_the_bin
+  experiment_template:
+    name: put_bottles_into_the_bin - four bottles, ten layouts, three repeats
+    layout_ids:
+    - four_01
+    - four_02
+    - four_03
+    - four_04
+    - four_05
+    - four_06
+    - four_07
+    - four_08
+    - four_09
+    - four_10
+    require_reference: true
+evaluation:
+  kind: stages
+  task_id: put_bottles
+  rubric_id: put_bottles_4_v1
+  label: Put bottles into the bin
+  options:
+  - id: count_0
+    label: 'Bottles in bin: 0/4'
+    score: 0.0
+    success: false
+  - id: count_1
+    label: 'Bottles in bin: 1/4'
+    score: 0.25
+    success: false
+  - id: count_2
+    label: 'Bottles in bin: 2/4'
+    score: 0.5
+    success: false
+  - id: count_3
+    label: 'Bottles in bin: 3/4'
+    score: 0.75
+    success: false
+  - id: count_4
+    label: 'Bottles in bin: 4/4'
+    score: 1.0
+    success: true

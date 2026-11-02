@@ -23,6 +23,9 @@ class RoboGUIControl:
     control_run_dir: str = ""
     warmup_requested: bool = False
     start_identity: dict[str, Any] | None = None
+    home_request_id: str = ""
+    finish_request_id: str = ""
+    control_revision: str = ""
 
 
 class RoboGUIBridge:
@@ -108,6 +111,9 @@ class RoboGUIBridge:
             control_run_dir=state.get("control_run_dir", ""),
             warmup_requested=state.get("warmup_requested") is True,
             start_identity=state.get("start_identity"),
+            home_request_id=state.get("home_request_id", ""),
+            finish_request_id=state.get("finish_request_id", ""),
+            control_revision=state.get("control_revision", ""),
         )
 
     def set_state_metadata(self, metadata: dict[str, object]) -> None:

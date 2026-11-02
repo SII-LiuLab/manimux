@@ -9,8 +9,10 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from manimux.clock import SystemClock
+from manimux.configuration import initial_pose_metadata
 from manimux.embodiments.robot import build_robot
 from manimux.experiment_list import ExperimentList
+from manimux.failures import describe_failure
 from manimux.robogui.communication import ControlClient, RoboGUIPublisher, RuntimeEvent
 from manimux.runtime import RunResult, build_runtime
 
@@ -218,16 +220,24 @@ class RuntimeSessionService:
         runtime_factory: RuntimeFactory | None = None,
         control_factory: ControlFactory = ControlClient,
         publisher_factory: PublisherFactory = RoboGUIPublisher,
-        poll_interval_s: float = 0.1,
+        poll_interval_s: float = 0.02,
         announcement_interval_s: float = 1.0,
         experiment_list: ExperimentList | None = None,
         selection_dir_factory: Callable[[str], Path] | None = None,
+        pose_dir_factory: Callable[[dict], Path] | None = None,
+        allow_experiments: bool = True,
     ) -> None:
         if not config["robogui"]["enabled"]:
-            raise ValueError("manimux serve requires robogui.enabled=true")
+            raise ValueError(
+                "Interactive manimux run requires robogui.enabled=true; "
+                "use --once for a standalone headless rollout"
+            )
         self._config = config
         self._experiment_list = experiment_list
+        self._allow_experiments = allow_experiments
         self._selection_dir_factory = selection_dir_factory
+        self._pose_dir_factory = pose_dir_factory
+        self._pose_base_config = deepcopy(config)
         if experiment_list is not None and selection_dir_factory is None:
             raise ValueError("Experiment switching requires a recording directory factory")
         self._selection_id = experiment_list.default_id if experiment_list else ""
@@ -240,19 +250,27 @@ class RuntimeSessionService:
         self._announcement_interval_s = announcement_interval_s
         self._last_episode_dir: Path | None = None
         self._last_error = ""
+        self._last_failure = {}
         self._last_failure_id = ""
+        self._prepare_ack = ""
         self._recovery = None
         if config["robot"].get("options", {}).get("execute", False):
             recovery = _IdleRecovery(config)
             self._recovery = recovery if recovery.available else None
 
     def _ready_metadata(self) -> dict[str, object]:
+        from manimux.agents.execution import execution_choices
         return {
+            "execution_choices": execution_choices(self._config),
+            "execution_mode": self._config["run"].get("execution_mode", "vla"),
             "run_dir": str(self._run_dir.resolve()),
+            "history_sessions": self._config["run"].get("history_sessions", []),
             "experiment_choices": self._experiment_list.metadata() if self._experiment_list else [],
             "experiment_id": self._selection_id,
             "selection_error": self._selection_error,
-            "task": self._config["run"]["task"],
+            "initial_pose": initial_pose_metadata(self._config),
+            "initial_pose_options": deepcopy(self._config["run"].get("initial_pose_options", [])),
+            "task": self._config["run"]["task_prompt"],
             "evaluation": deepcopy(self._config.get("evaluation", {"kind": "binary"})),
             "runtime": self._config["inference"]["algorithm"],
             "executor": self._config["executor"]["type"],
@@ -264,11 +282,14 @@ class RuntimeSessionService:
                 for key in ("experiment_name", "condition", "notes")
             },
             "default_experiment_mode": self._config["run"]["experiment_mode"],
+            "experiments_available": self._allow_experiments,
             "last_episode_dir": (
                 "" if self._last_episode_dir is None else str(self._last_episode_dir.resolve())
             ),
             "last_error": self._last_error,
+            "failure": self._last_failure,
             "last_failure_id": self._last_failure_id,
+            "prepare_ack": self._prepare_ack,
             "recovery": (
                 self._recovery.metadata() if self._recovery is not None else {"available": False}
             ),
@@ -304,8 +325,20 @@ class RuntimeSessionService:
                     self._recovery.update(recovery_control)
                 if self._try_select_experiment(state):
                     last_announcement = float("-inf")
+                elif self._try_select_initial_pose(state):
+                    last_announcement = float("-inf")
                 now = time.monotonic()
                 if now - last_announcement >= self._announcement_interval_s:
+                    from manimux.deployment.reporter import report
+                    report(
+                        "recovery" if self._recovery is not None and self._recovery.busy
+                        else "waiting_for_prepare",
+                        run_dir=str(self._run_dir.resolve()),
+                        last_episode_dir=(
+                            str(self._last_episode_dir) if self._last_episode_dir else None
+                        ),
+                        detail="Runtime session alive; robot readiness remains unverified",
+                    )
                     publisher.publish(
                         RuntimeEvent(
                             "runtime_service_ready",
@@ -317,15 +350,29 @@ class RuntimeSessionService:
                     last_announcement = now
                 if (
                     bool(state.get("new_rollout_requested", False))
+                    and (not state.get("prepare_request_id")
+                         or state["prepare_request_id"] != self._prepare_ack)
                     and (self._recovery is None or not self._recovery.busy)
                     and not state.get("recovery_lease", False)
                     and not state.get("recovery_request", "")
                     and not state.get("select_experiment_id")
+                    and not state.get("select_initial_pose_id")
                     and (self._experiment_list is None or (
                         state.get("experiment_id") == self._selection_id
                         and state.get("control_run_dir") == str(self._run_dir.resolve())
                     ))
                 ):
+                    self._prepare_ack = str(state.get("prepare_request_id", ""))
+                    from manimux.deployment.reporter import report
+                    report("operator_control", run_dir=str(self._run_dir.resolve()),
+                           detail="Operator requested Prepare; see RoboGUI for rollout/cleanup")
+                    publisher.publish(RuntimeEvent(
+                        "rollout_prepare_accepted",
+                        robot=self._config["robogui"]["robot"],
+                        policy=self._config["robogui"]["policy_label"],
+                        metadata={"run_dir": str(self._run_dir.resolve()),
+                                  "prepare_ack": self._prepare_ack},
+                    ))
                     return state
                 time.sleep(self._poll_interval_s)
         finally:
@@ -354,17 +401,61 @@ class RuntimeSessionService:
             return False
         try:
             choice = self._experiment_list.choices[requested]
-            run_dir = self._selection_dir_factory(requested)
+            from manimux.collections import service_contract, pose_configuration
+            if service_contract(choice.config) != service_contract(self._config):
+                raise ValueError("Service configuration differs. Restart affected services and runtime with --experiment-id " + requested)
+            selected = deepcopy(choice.config)
+            pose_id = initial_pose_metadata(self._config)["id"]
+            if (self._config["run"]["task_prompt"] == selected["run"]["task_prompt"]
+                    and pose_id != initial_pose_metadata(self._pose_base_config)["id"]
+                    and any(p["id"] == pose_id for p in selected["run"].get("initial_pose_options", []))):
+                selected = pose_configuration(selected, pose_id)
+                run_dir = self._pose_dir_factory(selected)
+            else:
+                run_dir = self._selection_dir_factory(requested)
         except (KeyError, TypeError, OSError, ValueError) as exc:
             self._selection_error = f"Cannot select experiment: {exc}"
             return True
-        self._config = deepcopy(choice.config)
+        self._config = selected
+        self._pose_base_config = deepcopy(choice.config)
         self._run_dir = run_dir
         self._selection_id = requested
         self._selection_error = self._last_error = self._last_failure_id = ""
+        self._last_failure = {}
         self._last_episode_dir = None
         # Hardware/recovery contract is identical across the validated catalog.
         # Next Prepare builds a fresh worker, strategy, timeline and warmup state.
+        return True
+
+    def _try_select_initial_pose(self, state: dict[str, Any]) -> bool:
+        """Idle-only configuration selection; actual motion belongs to Prepare."""
+        requested = state.get("select_initial_pose_id")
+        if not requested or state.get("select_experiment_id"):
+            return False
+        if state.get("control_run_dir") != str(self._run_dir.resolve()):
+            return False
+        if (state.get("evaluation_complete") is not True
+                or state.get("new_rollout_requested")
+                or state.get("recovery_lease") or state.get("recovery_request")
+                or (self._recovery is not None and self._recovery.busy)):
+            self._selection_error = "Finish evaluation and recovery before changing initial pose."
+            return True
+        if requested == initial_pose_metadata(self._config)["id"]:
+            self._selection_error = ""
+            return False
+        try:
+            if self._pose_dir_factory is None:
+                raise ValueError("Initial pose switching is unavailable in this service")
+            from manimux.collections import pose_configuration
+            config = pose_configuration(self._pose_base_config, requested)
+            run_dir = self._pose_dir_factory(config)
+        except (KeyError, TypeError, OSError, ValueError) as exc:
+            self._selection_error = f"Cannot select initial pose: {exc}"
+            return True
+        self._config, self._run_dir = config, run_dir
+        self._selection_error = self._last_error = self._last_failure_id = ""
+        self._last_failure = {}
+        self._last_episode_dir = None
         return True
 
     def serve(self, *, max_rollout_attempts: int | None = None) -> None:
@@ -378,21 +469,34 @@ class RuntimeSessionService:
             )
         print(
             "Use Prepare Run or Prepare Experiment in RoboGUI; experiments offer evaluation "
-            "that can be saved or skipped"
+            "that can be saved or skipped" if self._allow_experiments else
+            "Trial mode: use Prepare Run, then Start. Trials do not count toward study progress."
         )
         while max_rollout_attempts is None or attempts < max_rollout_attempts:
             request = self._wait_for_rollout_request()
             attempts += 1
             self._last_error = ""
+            self._last_failure = {}
             self._last_failure_id = ""
             try:
+                if not self._allow_experiments and request.get("experiment_mode", False):
+                    raise ValueError(
+                        "This is a --config trial; use --config-list for scored experiments"
+                    )
                 rollout_config = deepcopy(self._config)
+                from manimux.agents.execution import execution_choices, execution_condition
+                execution_mode = request.get(
+                    "execution_mode", rollout_config["run"].get("execution_mode", "vla")
+                )
+                if execution_mode not in execution_choices(rollout_config):
+                    raise ValueError("Selected execution mode is not configured for this experiment")
+                rollout_config["run"]["execution_mode"] = execution_mode
                 task_command = str(request.get("task_command", "")).strip()
                 if (self._experiment_list is not None and task_command
-                        and task_command != rollout_config["run"]["task"]):
+                        and task_command != rollout_config["run"]["task_prompt"]):
                     raise ValueError("Task instruction does not match the selected experiment")
                 if task_command:
-                    rollout_config["run"]["task"] = task_command
+                    rollout_config["run"]["task_prompt"] = task_command
                 # Identity comes only from this Prepare, never the preceding attempt.
                 rollout_config["run"].update(
                     experiment_name=request.get("experiment_name", ""),
@@ -403,12 +507,31 @@ class RuntimeSessionService:
                     repeat_id=request.get("repeat_id"),
                     reference_layout=deepcopy(request.get("reference_layout")),
                 )
-                result = self._runtime_factory(rollout_config, self._run_dir).run()
+                rollout_config["run"]["condition"] = execution_condition(
+                    self._config["run"].get("condition", ""), execution_mode
+                ) if execution_mode == "rpent" else request.get("condition", "")
+                from manimux.runtime.lifecycle import OperationStatus
+                progress = OperationStatus(
+                    enabled=True, robot=self._config["robogui"]["robot"],
+                    policy=self._config["robogui"]["policy_label"], event="runtime_preparing",
+                    identity={"run_dir": str(self._run_dir.resolve()),
+                              "prepare_request_id": self._prepare_ack},
+                )
+                progress.update("Building runtime")
+                try:
+                    runtime = self._runtime_factory(rollout_config, self._run_dir)
+                finally:
+                    progress.close()
+                result = runtime.run()
             except KeyboardInterrupt:
                 raise
             except Exception as exc:  # noqa: BLE001 - keep the session alive after one failed episode
-                self._last_error = f"{type(exc).__name__}: {exc}"
+                self._last_failure = describe_failure(exc)
+                self._last_error = self._last_failure["detail"]
                 self._last_failure_id = uuid.uuid4().hex
+                failure = self._last_failure
+                print(f"{failure['title']} [{failure['source']} / {failure['stage']} / {failure['target']}]: {failure['reason']}")
+                print(f"Next step: {failure['action']}")
                 print(f"rollout attempt failed; service remains available: {self._last_error}")
                 self._publish_once(
                     "episode_failed",
@@ -419,6 +542,17 @@ class RuntimeSessionService:
                 )
                 continue
             self._last_episode_dir = result.episode_dir
+            self._refresh_record_index()
             print(
                 f"rollout completed; reason={result.terminal_reason}; episode={result.episode_dir}"
             )
+
+    def _refresh_record_index(self) -> None:
+        collection = self._config.get("collection")
+        if collection is None:
+            return
+        from manimux.collections import write_inventory
+        try:
+            write_inventory(Path(collection["root"]) / collection["id"])
+        except (OSError, ValueError) as error:
+            print(f"Record index refresh failed; raw recordings are intact: {error}")

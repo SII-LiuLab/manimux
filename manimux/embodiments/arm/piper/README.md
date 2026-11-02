@@ -4,7 +4,7 @@
 driver and wire codecs with an owned CAN receiver. This preserves packet receipt
 times and propagates failures that the SDK's communication wrapper suppresses.
 
-See the [SDK adapter guide](../../../../.agents/skills/manimux-station-setup/references/can-arms.md) for firmware,
+See the [SDK adapter guide](../../../../skills/manimux-station-setup/references/can-arms.md) for firmware,
 calibration, receive-only operation, lifecycle and validation scope.
 
 The shared visual and kinematic `model.urdf` and ten `assets/meshes/*.STL` files
@@ -21,7 +21,7 @@ Normalized opening expands into the model's nominal finger travel of
 `[0, 0.035]` and `[0, -0.035]` m. Physical width calibration is independently
 required by the controller; the visual mapping is not a calibration procedure.
 
-See the [PiPER asset guide](../../../../.agents/skills/manimux-station-setup/references/piper.md) for offline preview,
+See the [PiPER asset guide](../../../../skills/manimux-station-setup/references/piper.md) for offline preview,
 replay, supported model scope and reproducible asset preparation. Run
 `scripts/assets/prepare_piper.py --help` to regenerate this model and its meshes
 from the pinned official source. No SDK source or native libraries are bundled.
@@ -29,5 +29,5 @@ from the pinned official source. No SDK source or native libraries are bundled.
 `arm.py` owns offline model loading; `controller.py` owns communication and
 feedback lifecycle. Shared station calibration lives in `arm/_calibration.py`,
 independently of nominal finger geometry. See the
-[SDK installation guide](../../../../.agents/skills/manimux-station-setup/references/robot-sdks.md) for dependencies
+[SDK installation guide](../../../../skills/manimux-station-setup/references/robot-sdks.md) for dependencies
 and the offline API/FK probe.

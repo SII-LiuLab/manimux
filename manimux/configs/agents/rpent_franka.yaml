@@ -1,0 +1,12 @@
+# RPent recipe for experiments/example-franka/pick_yellow_block/rpent.yaml.
+# Copy rpent_franka_motion.example.yaml to ../local/rpent_franka_motion.yaml first.
+agent: rpent
+experiment: ../experiments/example-franka/pick_yellow_block/rpent.yaml
+motion: ../local/rpent_franka_motion.yaml
+endpoint: http://127.0.0.1:8088
+task: Pick up the yellow block and place it in the pink bowl.
+planner: api
+model: null
+max_turns: 30
+memory_root: ../../../data/agent-memory
+output_dir: ../../../data/rpent-franka-agent

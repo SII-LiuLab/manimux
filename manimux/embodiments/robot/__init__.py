@@ -3,75 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from copy import deepcopy
 from pathlib import Path
 
 from manimux.clock import Clock
-from manimux.embodiments.layout import gripper_indices, group_layouts
+from manimux.embodiments.layout import action_contract_group_indices, apply_action_contract
 from manimux.embodiments.robot.base import RobotBase, RobotModel
 from manimux.plugins import load_plugin
 
 RobotFactory = Callable[[dict, Clock], RobotBase]
-
-
-def _set_contract_value(target: dict, name: str, value: object, label: str) -> None:
-    if name in target and target[name] != value:
-        raise ValueError(f"{label} conflicts with embodiment action_contract")
-    target[name] = deepcopy(value)
-
-
-def action_contract_group_indices(config: dict) -> dict[str, int] | None:
-    """Return each group's gripper coordinate from its resolved action contract."""
-
-    dims = config.get("robot", {}).get("group_dims")
-    options = config.get("policy", {}).get("adapter", {})
-    if not dims or not ({"group_layouts", "gripper_dofs"} & options.keys()):
-        return None
-    return gripper_indices(group_layouts(dims, options))
-
-
-def apply_action_contract(config: dict, contract: dict) -> dict[str, int]:
-    """Apply one embodiment-owned action layout to policy and execution sections."""
-
-    dimensions = contract.get("group_dims")
-    if "group_layouts" in contract:
-        dimensions = {
-            name: item["arm_dofs"] + item["gripper_dofs"]
-            for name, item in contract["group_layouts"].items()
-        }
-        if "group_dims" in contract and dimensions != contract["group_dims"]:
-            raise ValueError("component action layout conflicts with assembly dimensions")
-    layouts = group_layouts(dimensions, contract)
-    robot = config.setdefault("robot", {})
-    adapter = config.setdefault("policy", {}).setdefault("adapter", {})
-    _set_contract_value(robot, "group_dims", dimensions, "robot.group_dims")
-    _set_contract_value(robot, "group_layouts", layouts, "robot.group_layouts")
-    for name, value in {
-        "group_order": list(dimensions),
-        "group_prefixes": contract.get("group_prefixes", {name: name for name in dimensions}),
-        "group_layouts": layouts,
-    }.items():
-        _set_contract_value(adapter, name, value, f"policy.adapter.{name}")
-    indices = action_contract_group_indices(config)
-    assert indices is not None
-    execution = config.setdefault("executor", {})
-    motion = execution.get("motion_limits")
-    if isinstance(motion, dict):
-        _set_contract_value(
-            motion.setdefault("gripper", {}),
-            "group_indices",
-            indices,
-            "executor.motion_limits.gripper.group_indices",
-        )
-    smooth = execution.get("smooth")
-    if isinstance(smooth, dict) and isinstance(smooth.get("gripper"), dict):
-        _set_contract_value(
-            smooth["gripper"],
-            "group_indices",
-            indices,
-            "executor.smooth.gripper.group_indices",
-        )
-    return indices
 
 
 def _tianji_taccap(config: dict, clock: Clock) -> RobotBase:
@@ -93,6 +32,7 @@ def _yam(config, clock):
 
 
 _BUILTINS = {
+    "franka": "manimux.embodiments.robot.franka:build_robot",
     "tianji_taccap": _tianji_taccap,
     "yam": _yam,
 }
@@ -136,8 +76,12 @@ def robot_parameters(**options) -> dict:
 def shared_robot_parameters(**options) -> dict:
     """Read robot parameters shared by collection and inference without adding experiment-level frequencies."""
 
-    values = {
+    from manimux.config_validation import merge_parameters
+    values = merge_parameters({
         "options": {},
-        **options,
-    }
+    }, options, "robot", extra=("type", "config", "control_hz", "group_dims", "group_layouts"))
+    # Retired policy: normalize both historical and new configurations at the
+    # same boundary. Runtime always requests Home before closing hardware.
+    values["options"] = dict(values["options"])
+    values["options"].pop("home_on_close", None)
     return values

@@ -1,0 +1,40 @@
+# Example Pi05 recipe used by example-yam-pi05: a Pi05 checkpoint finetuned on YAM
+# put-bottles demonstrations, absolute joint actions, 50-step chunks.
+# model_path and norm_stats_path are relative to the station's paths.checkpoints.
+# Point them at your own export; keep the directory layout openpi writes:
+#   <checkpoint>/params/  <checkpoint>/assets/<repo_id>/norm_stats.json
+# The shipped example expects <paths.checkpoints>/finetuned/pi05-yam-put-bottles-joint/.
+policy_name: Pi_05
+protocol: ws
+host: 127.0.0.1
+port: 8500
+
+# The training episodes were labelled put_bottles_into_the_bin; the task file sends the
+# same string as the prompt.
+task_name: put_bottles_into_the_bin
+env_cfg_type: yam_dual
+robot_action_dim_info: {arm_dim: [6, 6], ee_dim: [1, 1]}
+num_envs: 1
+action_type: joint
+eval_batch: false
+# Identity recorded with every trial; rename it when you swap the checkpoint.
+checkpoint_variant: pi05_yam_put_bottles_joint
+
+train_config_name: pi05_yam
+observation_profile: yam_native
+# Training dataset ID; openpi names the checkpoint assets/<repo_id>/ directory after it.
+repo_id: yam_put_bottles_into_the_bin_20260905_joint_ee_v1
+model_path: finetuned/pi05-yam-put-bottles-joint
+checkpoint_source: pi05-yam-put-bottles-joint
+norm_stats_path: finetuned/pi05-yam-put-bottles-joint/assets/yam_put_bottles_into_the_bin_20260905_joint_ee_v1
+norm_stats_source: checkpoint_matched_yam_put_bottles_into_the_bin_20260905_joint_ee_v1
+use_delta_joint_actions: true
+
+action_horizon: 50
+num_steps: 10
+inference_seed: 0
+
+backend_identity:
+  fields: [task_name, checkpoint_variant, checkpoint_source, norm_stats_path, norm_stats_source, train_config_name, action_horizon, num_steps, inference_seed]
+  aliases: {model_root: model_path}
+  model: {policy_family: pi05}

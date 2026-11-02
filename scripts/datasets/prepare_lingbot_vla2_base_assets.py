@@ -11,7 +11,7 @@ from pathlib import Path
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SOURCE_ROOT = REPO_ROOT / "XPolicyLab/policy/LingBot_VLA2/lingbot_vla_v2"
+SOURCE_ROOT = REPO_ROOT / "third_party/XPolicyLab/policy/LingBot_VLA2/lingbot_vla_v2"
 DEFAULT_CHECKPOINT = REPO_ROOT / "checkpoints/pretrained/lingbot-vla-v2-6b"
 DEFAULT_PROCESSOR = REPO_ROOT / "checkpoints/pretrained/qwen3_vl_4b_processor"
 DEFAULT_STATS = (
@@ -19,7 +19,7 @@ DEFAULT_STATS = (
     / "manimux/configs/policy/lingbot-vla2/yam/assets/base_projection_norm_stats.json"
 )
 DEFAULT_OUTPUT = REPO_ROOT / "checkpoints/pretrained/lingbot-vla-v2-6b-yam-projection"
-ROBOT_CONFIG = REPO_ROOT / "XPolicyLab/policy/LingBot_VLA2/robot_configs/yam_dual_absolute.yaml"
+ROBOT_CONFIG = REPO_ROOT / "third_party/XPolicyLab/policy/LingBot_VLA2/robot_configs/yam_dual_absolute.yaml"
 TRAINING_TEMPLATE = SOURCE_ROOT / "configs/vla/real_robot/real_robot.yaml"
 
 

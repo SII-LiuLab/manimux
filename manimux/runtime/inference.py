@@ -20,6 +20,16 @@ from manimux.types import (
 )
 
 
+class InferenceTimingError(RuntimeError):
+    """A schedule cannot progress; abort through the shared fault/Home path."""
+
+    def __init__(self, message: str, *, algorithm: str) -> None:
+        super().__init__(message)
+        self.manimux_failure = {
+            "source": "inference", "stage": "timing feasibility", "target": algorithm,
+        }
+
+
 @dataclass(frozen=True, slots=True)
 class RequestState:
     in_flight: bool
@@ -61,9 +71,11 @@ class StrategyActionDecoder(Protocol):
 class StrategyChunkSelector(Protocol):
     """Optional selection after decoding, immediately before preparation/commit.
 
-    now_ns is the same timestamp used by prepare_chunk and Timeline.commit.
-    Warmup may select a preview without accepting it. Only on_plan_accepted may
-    advance accepted reference history; rejection/reset discard pending state.
+    Selection and preparation share now_ns. Time-aligned selectors commit on that
+    same clock. Ordinary ChunkTrust AHS refreshes the commit clock after local
+    selection/preparation and anchor conversion, retaining its selection snapshot.
+    Warmup commits only to its isolated preview timeline. Only on_plan_accepted
+    may advance reference history; rejection/reset discard pending state.
     """
 
     def select_chunk(self, *, chunk: ActionChunk, now_ns: int) -> ActionChunk: ...
@@ -207,7 +219,7 @@ class DefaultChunkStrategy:
             observation_time_ns=snapshot.state.monotonic_ns,
             deadline_ns=deadline_ns,
             observation=adapter.build_observation(snapshot),
-            instruction=self._config["run"]["task"],
+            instruction=self._config["run"]["task_prompt"],
         )
         return InferenceSubmission(request=request, event_fields=progress_fields)
 
@@ -277,6 +289,8 @@ _STRATEGY_BUILTINS: dict[str, InferenceStrategyFactory | str] = {
     "bid_backward": "manimux.runtime.bid:BidBackwardStrategy",
     "paint": "manimux.runtime.paint:PaintInferenceStrategy",
     "autohorizon": "manimux.runtime.autohorizon:AutoHorizonInferenceStrategy",
+    "chunktrust_ahs": "manimux.runtime.chunktrust.strategy:ChunkTrustAhsStrategy",
+    "chunktrust_ahs_rtc": "manimux.runtime.chunktrust.rtc:ChunkTrustAhsRtcStrategy",
 }
 
 INFERENCE_ALGORITHMS = frozenset(_STRATEGY_BUILTINS)
@@ -323,7 +337,11 @@ def build_warmup_submission(
     adapter: PolicyAdapter,
     conditioned: bool = False,
 ) -> InferenceSubmission:
-    """Build an inference-only request without advancing the formal scheduler."""
+    """Legacy sampler-probe helper, not the runtime warmup entry point.
+
+    PolicyWarmup uses RequestScheduler.build_submission on a preview timeline.
+    This helper does not provide scheduling/conditioning parity with rollout.
+    """
     method = getattr(strategy, "build_warmup_submission", None)
     if callable(method):
         return method(
@@ -341,7 +359,7 @@ def build_warmup_submission(
             observation_time_ns=snapshot.state.monotonic_ns,
             deadline_ns=now_ns + int(config["policy"]["timeout_s"] * 1_000_000_000),
             observation=adapter.build_observation(snapshot),
-            instruction=config["run"]["task"],
+            instruction=config["run"]["task_prompt"],
         ),
         event_fields={"conditioned": False},
     )

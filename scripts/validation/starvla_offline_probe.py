@@ -75,7 +75,7 @@ def probe_sampling(client, config, snapshot, condition, report):
                 now,
                 now + 180_000_000_000,
                 snapshot,
-                config["run"]["task"],
+                config["run"]["task_prompt"],
                 **options,
             )
             started = time.perf_counter()
@@ -131,7 +131,7 @@ def probe_observations(client, adapter, config, report, outputs, *, deterministi
             now,
             now + 180_000_000_000,
             adapter.build_observation(ObservationSnapshot(state, frames)),
-            config["run"]["task"],
+            config["run"]["task_prompt"],
         )
         request = adapter.prepare_request(request)
         started = time.perf_counter()

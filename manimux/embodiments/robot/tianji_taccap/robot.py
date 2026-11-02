@@ -119,6 +119,7 @@ class TianjiTaccapRobot(RobotBase):
             ready_timeout_s=ready_timeout_s,
         )
         self._arms = MappingProxyType(configs)
+        self._recovery_home_stop: threading.Event | None = None
         super().__init__(
             arm_components={name: TianjiArm(self.controller, name) for name in configs},
             end_effectors={
@@ -294,17 +295,28 @@ class TianjiTaccapRobot(RobotBase):
             self._end_effector_control = previous_control
 
     def _check_home_cancel(self) -> None:
-        stop = getattr(self, "_recovery_home_stop", None)
+        stop = self._recovery_home_stop
         if stop is not None and stop.is_set():
             raise RuntimeError("Tianji-TacCap Home cancelled")
 
     def _home_wait(self, period_s: float) -> None:
-        stop = getattr(self, "_recovery_home_stop", None)
+        stop = self._recovery_home_stop
         if stop is None:
             time.sleep(period_s)
         else:
             stop.wait(period_s)
             self._check_home_cancel()
+
+    def home_targets(self, state):
+        if self.model is None or not self.model.home_joints:
+            return None
+        targets = {name: values.copy() for name, values in state.groups.items()}
+        for name, joints in self.model.home_joints.items():
+            targets[name][:len(joints)] = joints
+        if self._end_effector_control:
+            for name in self.end_effectors:
+                targets[name][-1] = 1.0
+        return targets
 
     def home(self) -> None:
         """Move connected arms to model.home_joints, then fully open the grippers.
@@ -487,6 +499,7 @@ class TianjiTaccapRobot(RobotBase):
         )
         self.controller = controller
         self._arms = MappingProxyType(configs)
+        self._recovery_home_stop: threading.Event | None = None
 
 
 # Compatibility name for existing direct-construction callers.

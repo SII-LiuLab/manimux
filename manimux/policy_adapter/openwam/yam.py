@@ -31,6 +31,7 @@ class PoseRequest(InferenceRequest):
 
 class OpenWAMYamAdapter(KinematicAdapter):
     supports_step_ik = True
+    supports_dls_ik = True
     pose_condition_modes = ("rtc", "paint")
 
     def __init__(self, robot, policy, *, kinematics=None):
@@ -139,7 +140,7 @@ class OpenWAMYamAdapter(KinematicAdapter):
             raise ValueError("OpenWAM action has no matching observation anchor")
         if self.decode_pose_only:
             return pose_chunk(context, actions, self.dt)
-        groups = {}
+        groups, diagnostics = {}, {}
         for side in ("left", "right"):
             group = f"{side}_arm"
             seed = (
@@ -150,18 +151,18 @@ class OpenWAMYamAdapter(KinematicAdapter):
             seed = np.asarray(seed, dtype=float)
             if seed.shape != (7,) or not np.isfinite(seed).all():
                 raise ValueError("Invalid YAM IK seed")
-            current, rows = seed[:6].copy(), []
+            sequence = self.ik_sequence(group, seed)
+            rows = []
             for step in actions[group]:
                 target = pose_matrix(step[:7])
                 grip = step[7:]
                 if grip.shape != (1,) or not np.isfinite(grip).all() or not 0 <= grip[0] <= 1:
                     raise ValueError("OpenWAM gripper must be one value in [0, 1]")
-                ok, solved = self._ik(group, target, current, float(grip[0]))
-                solved = np.asarray(solved)
-                if not ok or solved.shape != (6,) or not np.isfinite(solved).all():
-                    raise ValueError("OpenWAM IK failed; rejecting the entire action chunk")
-                current = solved.copy()
-                rows.append(np.r_[current, grip])
+                ok, solved, residual = self._solve_ik(
+                    group, target, sequence.current[:6], float(grip[0])
+                )
+                rows.append(sequence.resolve(ok, np.r_[solved, grip[0]], residual=residual))
+            diagnostics[group] = sequence.metadata()
             groups[group] = np.asarray(rows)
         return ActionChunk(
             plan_id=f"openwam-{uuid.uuid4().hex}",
@@ -171,5 +172,6 @@ class OpenWAMYamAdapter(KinematicAdapter):
             action_space="joint_position",
             dt_ns=self.dt,
             groups=groups,
-            metadata={"native_action_semantics": SEMANTICS},
+            metadata={"native_action_semantics": SEMANTICS,
+                      "ik_failure_policy": self.ik_failure_policy, "ik": diagnostics},
         )

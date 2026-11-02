@@ -1,3 +1,10 @@
+# OpenWAM recipe for a YAM-finetuned checkpoint (end-effector actions, 32-step replan).
+# Set ckpt_dir to your export below the station root, e.g.
+#   ckpt_dir: ${paths.checkpoints}/finetuned/openwam/<run>
+# and task_name/default_instruction to the task the checkpoint was trained on.
+# servers.openwam --bind-runtime-config writes a copy with expected_artifacts (checkpoint and
+# normalization hashes) so the server refuses a different export. dit_cache_modes defaults
+# to [default]; add rtc to also cache RTC-guided requests.
 policy_name: OpenWAM
 protocol: ws
 host: 127.0.0.1

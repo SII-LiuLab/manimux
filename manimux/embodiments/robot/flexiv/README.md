@@ -19,7 +19,7 @@ through their shared midpoint. Left A is at `[0.45, 0.71, 1.72]` and right B at
 orientation without changing A/B identity. The stand and table remain fixed.
 These are provisional display placements, independent of controller frames.
 
-The joint and pose examples in `configs/examples/flexiv_omnigripper_*.yaml` use
+The joint and pose examples in `configs/experiments/example-flexiv/flexiv_omnigripper_*.yaml` use
 existing `JointAdapter` and `PoseAdapter`, with the same robot model for decoding,
 FK/IK and rendering. The pose template currently describes the flange reference;
 it must not be represented as a calibrated grasp TCP. `scripts/validation/flexiv_offline.py`
@@ -103,8 +103,8 @@ pose with current feedback during recovery.
 
 ```bash
 python -m manimux.robogui.dashboard --robot flexiv_omnigripper --demo
-python scripts/validation/flexiv_offline.py --config manimux/configs/examples/flexiv_omnigripper_joint.yaml
-python scripts/validation/flexiv_offline.py --config manimux/configs/examples/flexiv_omnigripper_pose.yaml
+python scripts/validation/flexiv_offline.py --config manimux/configs/experiments/example-flexiv/flexiv_omnigripper_joint.yaml
+python scripts/validation/flexiv_offline.py --config manimux/configs/experiments/example-flexiv/flexiv_omnigripper_pose.yaml
 ```
 
 For live read-only feedback, omit `--demo` and run `manimux serve` with the

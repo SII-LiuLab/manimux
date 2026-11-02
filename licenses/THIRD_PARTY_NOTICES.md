@@ -9,15 +9,77 @@ no gripper or external force sensor; mesh references were made relative. The
 upstream Apache-2.0 license is retained in that component's `LICENSE.txt`.
 RDK libraries and the local Python binding are not distributed with ManiMux.
 
+## ChunkTrust PI-family AHS numerical core
+
+`manimux/runtime/chunktrust/_pi_ahs.py` is copied byte-for-byte from
+`hf618/ChunkTrust`, revision `a9fd57412b3a19a0728cd726b0558dd89395fb84`,
+`src/chunktrust/_pi_ahs.py` (SHA-256
+`44ee901b6397c77405e073cc5909d18e869dd64f96aea7e2c17d94475481b8bd`).
+ChunkTrust's source manifest identifies its source as
+`Reflex/RoboTwin/eval_rebuttal/12_chunktrust_rtc_pi0_pi05_fft50_ready_20260918/runtime/selector.py`.
+The numerical methods were extracted from its PI/OpenPI integrations; extraction
+does not replace the applicable upstream license. ChunkTrust's MIT license is
+retained in `licenses/chunktrust-MIT.txt` and OpenPI's Apache-2.0 license in
+`licenses/chunktrust-openpi-Apache-2.0.txt`.
+
+The ManiMux adapter supplies explicit typed parameter mapping, speculative state,
+acceptance/reset, input validation and external execution history. It does not
+modify the copied file, vendor a model implementation, or reproduce the historical
+RoboDriver controller. The OpenPI upstream revision recorded by ChunkTrust is
+`650c5b0283a49c42784fb5055a0507da2c6d347d`; ChunkTrust's source snapshot and
+file hash identify its research modifications. Model weights and datasets retain
+their own terms. Frozen-code provenance is available from
+`manimux.runtime.chunktrust.provenance`.
+
+## Dream Labs YAM training-reference geometry
+
+`manimux/policy_adapter/assets/dream_yam.urdf` is derived from
+`dream_ik/assets/yam.urdf` in the official `dreamlabs` 1.0.5 wheel
+(https://pypi.org/project/dreamlabs/1.0.5/). Dream Labs' distribution is
+Copyright 2026 Dream Labs, Apache License 2.0; its notice attributes the YAM
+description to i2rt, MIT License, Copyright (c) I2RT Robotics.
+See `licenses/dreamlabs-Apache-2.0.txt` and `licenses/i2rt-MIT.txt`.
+The source hash is recorded in the derived file. Visual, collision and inertial
+elements were removed; joint origins, axes and limits were preserved.
+This reference encodes the hosted model's proprioceptive inputs only. It does
+not replace the configured physical robot geometry or establish calibration.
+
+## Franka FR3 v2.1 model assets
+
+`manimux/embodiments/arm/franka/assets/` contains a reduced URDF, eight collision
+meshes and eight detailed visual scenes derived from `frankarobotics/franka_description`, revision
+`7aeeddc449edf8d62b594f9e36a81da53e7796f9`, under Apache-2.0. The upstream license
+and copyright notice are retained as `assets/LICENSE` and `assets/NOTICE`.
+Collision meshes are unchanged. Visual scenes are converted from Collada to binary
+glTF with their node transforms, materials and triangle counts retained; source and
+output hashes are recorded in `visual-sources.json`. The URDF preserves joint
+transforms, limits and mesh origins, and omits inertials, ROS plugins and accessories.
+These resources support nominal FK/IK and display, not collision checking or a
+claim of calibrated physical geometry. Franky and pylibfranka are separate optional
+dependencies; no native control SDK is vendored here.
+
+## Robotiq 2F-85 visual assets
+
+`manimux/embodiments/end_effector/robotiq/assets/2f_85/` contains model resources
+from `robotiq/ros`, revision `c39cd970a3f950c8be206d0e4340c7b69e018d7a`.
+The upstream BSD-3-Clause notices are retained as `LICENSE` (Copyright 2022,
+PickNik Robotics) and `LICENSE.robotiq` (Copyright 2026, Robotiq).
+Visual scenes are converted from Collada to binary glTF without mesh decimation;
+collision meshes are unchanged. The standalone URDF preserves joint origins,
+axes, limits and mimic relationships, and removes the external mounting joint,
+inertials, simulator surface parameters and ROS control declarations. `sources.json`
+records the upstream paths and content hashes. The linkage is a nominal display,
+not a measurement of fingertip contact or a physical calibration.
+
 ## XPolicyLab
 
-`XPolicyLab/` is a Git submodule tracking the `Cuzyoung/XPolicyLab` fork of
-`XPolicyLab/XPolicyLab`. It remains a separately versioned project and retains
+`third_party/XPolicyLab/` is a Git submodule tracking the `Cuzyoung/XPolicyLab` fork of
+`third_party/XPolicyLab/XPolicyLab`. It remains a separately versioned project and retains
 its own license and third-party notices inside the submodule.
 
 ## StarVLA
 
-`StarVLA/` is a separately versioned Git submodule tracking the
+`third_party/StarVLA/` is a separately versioned Git submodule tracking the
 `GuHaomingcs/starVLA` fork of `starVLA/starVLA`. The integration is based on upstream
 revision `312fac890ab75b7651d2bc4f8f8c8dbb5e055184`; the parent gitlink identifies
 its exact version. Source and sampler licenses remain in that submodule.
@@ -28,9 +90,9 @@ retained in `licenses/starvla-MIT.txt`.
 
 ## PRM-as-a-Judge
 
-`PRM-as-a-Judge/` is a Git submodule tracking
+`third_party/PRM-as-a-Judge/` is a Git submodule tracking
 `YuyangLiu2003/PRM-as-a-Judge`. It remains separately versioned under the
-Apache License 2.0; see `PRM-as-a-Judge/LICENSE`.
+Apache License 2.0; see `third_party/PRM-as-a-Judge/LICENSE`.
 
 ## i2rt YAM model assets
 
@@ -76,18 +138,14 @@ Meshes are copied unchanged. The URDF uses relative mesh paths and omits
 collision elements; upstream joint geometry, inertia, visual origins and
 materials remain unchanged. These resources support offline rendering and
 FK/IK, not physical calibration or collision-free motion. Preparation and
-model scope are documented in `.agents/skills/manimux-station-setup/references/piper.md`.
+model scope are documented in `skills/manimux-station-setup/references/piper.md`.
 
 ## Tianji Marvin model assets
 
-`manimux/embodiments/arm/tianji/assets/` and
-`manimux/embodiments/robot/tianji_taccap/assets/` contain the vendor CAD exports of the Tianji
-Marvin left arm, right arm and stand (URDF and STL), as bundled in
-`SII-LiuLab/universal_robogui` at commit `a7278af`. The stand URDF keeps only
-the `Link_Base`/`Link_Stand` links of the vendor's full assembly, and link
-colors are replaced with the palette of the bundled YAM model. These assets
-are used only for robogui rendering. The DH parameters and joint limits in
-`manimux/kinematics/tianji.py` are copied from the vendor SDK's
+The Tianji Marvin CAD exports (arm and stand URDF/STL) are not distributed with this
+repository; stations install them locally under `manimux/embodiments/arm/tianji/assets/`
+and `manimux/embodiments/robot/tianji_taccap/assets/`. The DH parameters and joint limits
+in `manimux/kinematics/tianji.py` are copied from the vendor SDK's
 `CommonConfig/ccs_m6_40.MvKDCfg`.
 
 ## Tianji differential IK
@@ -97,22 +155,18 @@ flange Jacobian in `tianji.py` are adapted from `SII-LiuLab/tianji-control`
 revision `1e7dfdbc94c62f87501d6485b8c0e43ce6dbf513` (`algos/diff_ik.py`,
 `algos/kinematics.py`, and the joint-limit objective in `algos/nullspace.py`).
 Tracking-lag guard semantics follow CalibWrist revision
-`f17a62a2ab77207de54fdca73dc8ff4d76f87cdb`. See `.agents/skills/manimux-development/references/tianji-diff-ik.md` for the
+`f17a62a2ab77207de54fdca73dc8ff4d76f87cdb`. See `skills/manimux-development/references/tianji-diff-ik.md` for the
 port boundaries and numerical validation. The source tianji-control checkout
 does not include a project-level license file; no different license is asserted
 for this derived code here.
 
-## Marvin SDK
+## README Earth model and architecture animation
 
-`manimux/embodiments/arm/tianji/sdk/marvin/` contains the Python bindings
-(`fx_robot.py`, `fx_kine.py`), Linux x86-64 libraries (`libMarvinSDK.so`,
-`libKine.so`) and the `ccs_m6_40.MvKDCfg` arm table from the vendor's
-`TJ_FX_ROBOT_CONTRL_SDK`, unmodified. The SDK is Copyright 2025 上海孚晞科技有限公司
-under the Apache License 2.0; see the `LICENSE` file in that directory.
-
-## UMI follower gripper assets
-
-`manimux/embodiments/end_effector/taccap/assets/umi_follower/` contains the XenseRobotics
-UMI follower gripper CAD (follower gripper assembly 0720, URDF and STL) with colors replaced by
-the bundled YAM gripper palette. Its flange mount and TCP follow the
-derivation in `SII-LiuLab/tianji-control` commit `d1def56`.
+`assets/architecture/earth-clouds.glb` derives from NASA's
+[Earth with Clouds 3D Model](https://science.nasa.gov/resource/earth-with-clouds-3d-model/),
+credited to NASA Visualization Technology Applications and Development (VTAD).
+The mesh and UVs are retained; the color texture is downsampled and the normal map
+removed. The README animation and static diagram render this model with custom
+lighting. NASA's [media usage guidelines](https://www.nasa.gov/nasa-brand-center/images-and-media/)
+apply to this material; it is not relicensed under MIT. No NASA endorsement is
+implied. Source hashes and reproduction instructions are in `assets/architecture/`.

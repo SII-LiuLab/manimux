@@ -103,6 +103,7 @@ class TopViewOverlay:
         self.layouts = ReferenceLayouts(root)
         self._lock = threading.RLock()
         self._live: np.ndarray | None = None
+        self._live_status = "Waiting"
         self._reference: np.ndarray | None = None
         self._reference_identity: dict[str, Any] | None = None
         self._selection_enabled = True
@@ -120,7 +121,8 @@ class TopViewOverlay:
                 format="jpeg",
                 jpeg_quality=90,
             )
-        with gui.add_folder("Reference appearance", expand_by_default=True):
+        self.appearance_folder = gui.add_folder("Reference appearance", expand_by_default=True)
+        with self.appearance_folder:
             self.enabled = gui.add_checkbox("Show reference overlay", True)
             self.opacity = gui.add_slider(
                 "Reference opacity", min=0.0, max=1.0, step=0.05, initial_value=0.5
@@ -164,7 +166,7 @@ class TopViewOverlay:
         with self._lock:
             if self._task == EMPTY_TASK or self._slot == EMPTY_SLOT:
                 raise ValueError("Select a task and a saved reference image first.")
-            pixels, identity = self.layouts.snapshot(self._task, self._slot)
+            pixels, identity = self.layouts.snapshot(self._task, self._slot, refresh=True)
             self._reference = pixels
             self._reference_identity = identity
             self._error = ""
@@ -194,6 +196,16 @@ class TopViewOverlay:
             except (OSError, ValueError) as exc:
                 self._error = f"Could not restore this rollout's reference image: {exc}"
             self._render()
+
+    def selection(self) -> dict[str, Any] | None:
+        with self._lock:
+            return deepcopy(self._reference_identity)
+
+    def set_live_status(self, status: str) -> None:
+        with self._lock:
+            if status != self._live_status:
+                self._live_status = status
+                self._render()
 
     def update(self, image: np.ndarray | None) -> None:
         with self._lock:
@@ -233,6 +245,8 @@ class TopViewOverlay:
         self.image.image = (
             display if display is not None else np.zeros((480, 640, 3), dtype=np.uint8)
         )
+        if self._live is not None:
+            note = f"{self._live_status} · {note}"
         if self.status.content != note:
             self.status.content = note
         content = (

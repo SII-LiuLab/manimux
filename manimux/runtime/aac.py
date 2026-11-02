@@ -77,15 +77,15 @@ class AacInferenceStrategy(SynchronousChunkStrategy):
 
 def aac_parameters(**options) -> dict:
     """Preserve adaptive chunking sample counts, motion thresholds and selection rules."""
+    from manimux.config_validation import merge_parameters
 
-    values = {
+    values = merge_parameters({
         "num_samples": 20,
         "motion_threshold": 3.0,
         "ee_stats_path": None,
         "chunk_id_selector": "0",
         "backward_beta": 0.99,
-        **options,
-    }
+    }, options, 'inference.aac', extra=())
     return values
 
 
