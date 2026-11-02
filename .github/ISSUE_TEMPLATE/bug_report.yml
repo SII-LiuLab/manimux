@@ -1,0 +1,41 @@
+name: Bug report
+description: Something does not work as documented.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command and configuration
+      description: The exact command and the experiment or list YAML. Remove addresses, serials and keys.
+      render: bash
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log or traceback
+      render: text
+  - type: input
+    id: setup
+    attributes:
+      label: Robot, model and commit
+      placeholder: e.g. YAM dual, Pi05 via XPolicyLab, manimux main @ abc1234
+    validations:
+      required: true
+  - type: dropdown
+    id: hardware
+    attributes:
+      label: Was real hardware connected?
+      options:
+        - "No (offline, demo or synthetic)"
+        - "Yes, read-only (execute: false)"
+        - "Yes, executing"
+    validations:
+      required: true
