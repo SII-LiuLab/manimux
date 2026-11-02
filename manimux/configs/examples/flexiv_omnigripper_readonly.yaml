@@ -1,0 +1,35 @@
+# Read-only hardware smoke: no cameras and no model server. Do not enable execution.
+run:
+  task: Flexiv OmniGripper read-only smoke
+  output_dir: ./data/flexiv_omnigripper
+  max_control_steps: 100
+robot:
+  type: manimux.embodiments.robot.flexiv:build_robot
+  config: ../embodiment/robot/flexiv_omnigripper_dual.yaml
+  control_hz: 30.0
+  options: {execute: false}
+sensors: []
+policy:
+  worker: fake
+  action_dt_s: 0.05
+  horizon_policy_steps: 16
+  inference_delay_s: 0.0
+  adapter: {type: 'manimux.policies.fake:FakePolicyAdapter'}
+  options: {}
+inference:
+  algorithm: serial
+  chunk_policy_steps: 16
+  blend_policy_steps: 0
+  action_start_mode: first_step_when_ready
+  max_plan_age_s: 5.0
+executor:
+  type: smooth
+  smooth: {cutoff_hz: 5.0, position_limit_abs: null}
+  motion_limits:
+    arm: {max_velocity: 0.15, max_acceleration: 0.3}
+    gripper: {}
+robogui:
+  enabled: true
+  robot: flexiv-omnigripper-dual
+  policy_label: Read-only feedback (synthetic predictions)
+recording: {enabled: true}

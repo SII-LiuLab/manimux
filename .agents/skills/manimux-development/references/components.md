@@ -28,6 +28,14 @@ assemblies retain 100 Hz, 9 deg/s, 0.5 degrees and 5 seconds. Experiment
 `robot.options.hardware.home_motion` may override individual fields; these options
 belong to the assembly and are not forwarded to the arm SDK.
 
+Flexiv Home validates arm targets, moves and settles the arms, stops arm motion
+in IDLE, then commands controlled grippers to normalized opening 1.0 and waits
+for measured opening >= 0.98 using `home_motion.settle_timeout_s`. Connected Home
+respects `end_effector_control`; explicit idle Return Home temporarily enables
+tool control, restores the previous setting on success/failure, and closes the
+assembly. Cancellation, gripper faults and incomplete opening fail Home and
+attempt cleanup of all owned components. Sending an open command is not arrival.
+
 Document these lifecycle details in the integration's runbook:
 
 - **Read-only execution:** `execute: false` permits only documented read-only
@@ -74,6 +82,11 @@ with a fake SDK. State separately what still needs the real SDK or authorized ha
 
 Flexiv Rizon4s uses `embodiments/arm/flexiv` and the independent-session assembly
 `embodiments/robot/flexiv`. See its [runbook](../../../../manimux/embodiments/arm/flexiv/README.md).
+Manual Drag/Release use the flat binding's NRT joint impedance API. Python owns
+lifecycle, feedback reference updates and monitoring. The assembly's guiding
+velocity/acceleration settings are separate from Home and policy limits. Keep
+controller health/freshness checks and cleanup; policy target margins do not
+apply to manual guiding. Native torque floating is not part of the selected path.
 Each bare arm has seven radians and zero gripper coordinates. The driver adapts
 flat/grouped RDK APIs; feedback host time is first observation of a new device
 timestamp. Nominal URDF poses use physical base_link, which may differ from RDK
@@ -122,7 +135,28 @@ explicit end-to-end extension; inheriting `EndEffectorBase` alone is insufficien
 Test the actual capability's units, command mapping and measured feedback, not a
 fake scalar adapter that discards unsupported coordinates.
 
+OmniGripper supports `position` (existing default) and `force_position` through
+one `GripperBase` implementation. Select control gains/rates in the experiment's
+`robot.options.component_hardware`; bind ports, motor SN and calibrated raw limits
+in the station. `connect` verifies identity and reads feedback without enabling.
+Executing workers own feedback queries; cached reads retain the receipt timestamp.
+Read-only operation queries on demand. The force-position controller budgets the
+encoded MIT PD request, not physical fingertip force. See the component README for
+parameters, protocol limits, feedback-only retries and retryable disable semantics.
+
 ## Assembly, coordinate layout and geometry
+
+OmniGripper's offline `load_model()` accepts `visual_asset`, resolved under its
+own `assets/` root. It defaults to `flange_reference`; `marvin_straight` selects
+the locally installed Marvin CAD with normalized opening and a mimic finger.
+RoboGUI preset `flexiv_omnigripper` uses the assembly
+`configs/embodiment/robot/flexiv_omnigripper_dual.yaml`. Fit the two physical
+flange-to-tool transforms through the assembly's end-effector `mount` entries;
+keep global scene placement in the RoboGUI preset. The source tool reference
+frame does not establish a calibrated fingertip TCP. The Flexiv assembly supplies
+a -6.31 mm flange-Z seating offset and a matching +6.31 mm `tcp_transform`
+translation to keep the gripper's rear face flush and retain the existing
+flange-reference TCP while fitting the visual geometry.
 
 Read `manimux/embodiments/robot/base.py`, its sibling `__init__.py`, and
 `manimux/embodiments/layout.py`. `RobotModel.from_config()` loads component models;

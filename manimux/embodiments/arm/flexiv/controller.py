@@ -78,6 +78,7 @@ class FlexivController(ArmController):
         self._prepared = False
         self._stamp = None
         self._state = None
+        self._guiding = None
         self._lock = threading.RLock()
 
     def connect(self):
@@ -168,14 +169,32 @@ class FlexivController(ArmController):
         if self._robot.fault():
             raise RuntimeError("Flexiv fault; recovery must be explicit")
         if require_operational and not self._robot.operational():
-            raise RuntimeError("Flexiv is not operational; enable must be explicit")
+            raise RuntimeError(
+                f"Flexiv {self.channel} is not operational; enable must be explicit; "
+                f"status={self._operational_status()}"
+            )
+
+    def _operational_status(self):
+        read = getattr(self._robot, "operational_status", None)
+        return str(read()) if callable(read) else "unavailable"
+
+    def _check_remote_mode(self):
+        status = self._operational_status()
+        if status.rsplit(".", 1)[-1] in {"IN_AUTO_MODE", "IN_MANUAL_MODE"}:
+            raise RuntimeError(
+                f"Flexiv {self.channel}: status={status}; select Auto (Remote) "
+                "in Flexiv Elements before SDK control"
+            )
 
     def _wait_operational(self):
         deadline = time.monotonic() + self.enable_timeout_s
         while not self._robot.operational():
             self._health(require_operational=False)
             if time.monotonic() >= deadline:
-                raise TimeoutError("Flexiv enable did not complete; stop is not confirmed")
+                raise TimeoutError(
+                    f"Flexiv {self.channel}: enable did not complete; stop is not confirmed; "
+                    f"status={self._operational_status()}"
+                )
             time.sleep(0.02)
 
     def get_states(self):
@@ -244,10 +263,110 @@ class FlexivController(ArmController):
             self._robot.Stop()  # Blocking stop and transition to IDLE, without ServoOff.
             self._prepared = self._owned = False
 
+    def enable(self, stop):
+        """Explicit recovery enable; cancellation is checked between RDK calls."""
+        with self._lock:
+            if not self.execute or not self._ready:
+                raise RuntimeError("recovery requires a connected executing controller")
+            if stop.is_set():
+                raise InterruptedError("Flexiv recovery cancelled")
+            self._health(require_operational=False)
+            self._check_remote_mode()
+            if not self._robot.estop_released():
+                raise RuntimeError("Flexiv E-stop is not released")
+            if not self._robot.operational():
+                self._owned = self._enable_pending = True
+                (self._robot.ServoOn if self._grouped else self._robot.Enable)()
+                deadline = time.monotonic() + self.enable_timeout_s
+                while not self._robot.operational():
+                    self._health(require_operational=False)
+                    if stop.is_set():
+                        raise InterruptedError("Flexiv enable cancelled")
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError(
+                            f"Flexiv {self.channel}: enable timed out; "
+                            f"status={self._operational_status()}"
+                        )
+                    stop.wait(0.02)
+                self._enable_pending = False
+
+    def clear_errors(self):
+        """Explicit fault reset in a temporary session, without enabling."""
+        with self._lock:
+            if not self.execute or self._robot is not None:
+                raise RuntimeError("clear_errors requires a disconnected executing controller")
+            previous = self.enable_on_connect
+            self.enable_on_connect = False
+            try:
+                self.connect()
+                if self._robot.fault() and not self._robot.ClearFault():
+                    raise RuntimeError("Flexiv ClearFault failed")
+                self._health(require_operational=False)
+                self.get_states()
+            finally:
+                self.enable_on_connect = previous
+                self.close()
+
+    def prepare_hand_guiding(self, stiffness_scale, motion):
+        """Validate NRT guiding before enabling any selected arm."""
+        with self._lock:
+            if not self.execute or not self._ready:
+                raise RuntimeError("hand guiding requires a connected executing controller")
+            if self._grouped:
+                raise RuntimeError("hand guiding requires the flat flexivpy API")
+            self.check_hand_guiding(require_mode=False)
+            stiffness = self._vector(self._robot.info().K_q_nom) * stiffness_scale
+            if np.any(stiffness < 0) or not 0 <= stiffness_scale <= 1:
+                raise ValueError("invalid hand-guiding stiffness")
+            self._guiding = (stiffness.tolist(), float(motion["damping_ratio"]),
+                             float(np.deg2rad(motion["max_velocity_deg_s"])),
+                             float(np.deg2rad(motion["max_acceleration_deg_s2"])))
+
+    def begin_hand_guiding(self, stop):
+        """Enter low-stiffness NRT impedance with the current measured position."""
+        with self._lock:
+            if self._guiding is None:
+                raise RuntimeError("prepare_hand_guiding must precede guiding")
+            self.enable(stop)
+            if stop.is_set():
+                raise InterruptedError("Flexiv hand guiding cancelled")
+            self._owned = True
+            self._prepared = False
+            self._robot.SwitchMode(self._sdk.Mode.NRT_JOINT_IMPEDANCE)
+            if stop.is_set():
+                raise InterruptedError("Flexiv hand guiding cancelled")
+            stiffness, damping, _, _ = self._guiding
+            self._robot.SetJointImpedance(stiffness, [damping] * 7)
+            self.follow_hand_guiding(stop)
+
+    def check_hand_guiding(self, *, require_mode=True):
+        self._health(require_operational=require_mode)
+        self._check_remote_mode()
+        if require_mode and self._robot.mode() != self._sdk.Mode.NRT_JOINT_IMPEDANCE:
+            raise RuntimeError("Flexiv hand-guiding mode changed")
+        # The controller enforces its own limits in manual guiding. Additional
+        # ManiMux policy margins remain exclusive to commanded trajectories.
+        return self.get_states()[self.channel].joints
+
+    def follow_hand_guiding(self, stop):
+        """Refresh the impedance reference from feedback, without policy margins."""
+        with self._lock:
+            if not self.execute or not self._ready or self._guiding is None:
+                raise RuntimeError("hand guiding has not been prepared")
+            if stop.is_set():
+                raise InterruptedError("Flexiv hand guiding cancelled")
+            q = self.check_hand_guiding()
+            if stop.is_set():
+                raise InterruptedError("Flexiv hand guiding cancelled")
+            _, _, velocity, acceleration = self._guiding
+            self._robot.SendJointPosition(q.tolist(), [0.0] * 7,
+                                         [velocity] * 7, [acceleration] * 7)
+
     def close(self):
         with self._lock:
             self._ready = False
             self.stop()  # Preserve the SDK handle if Stop fails, allowing cleanup retry.
+            self._guiding = None
             self._robot = None  # RDK releases its connection through its destructor.
             self._state = self._stamp = None
             self._prepared = self._owned = self._enable_pending = False

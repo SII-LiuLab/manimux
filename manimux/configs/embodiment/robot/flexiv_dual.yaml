@@ -1,10 +1,25 @@
 name: flexiv-dual
-hardware: {stale_timeout_s: 0.2}
+hardware:
+  stale_timeout_s: 0.2
+  drag_stiffness_scale: 0.01
+  hand_guiding_motion:
+    control_hz: 100.0
+    damping_ratio: 0.7
+    max_velocity_deg_s: 6.0
+    max_acceleration_deg_s2: 18.0
 components:
-  left_flexiv: {config: ../arm/flexiv_rizon4s.yaml}
-  right_flexiv: {config: ../arm/flexiv_rizon4s.yaml}
+  left_flexiv:
+    config: ../arm/flexiv_rizon4s.yaml
+  right_flexiv:
+    config: ../arm/flexiv_rizon4s.yaml
 groups:
-  left_arm: {arm: left_flexiv, end_effector: null}
-  right_arm: {arm: right_flexiv, end_effector: null}
+  left_arm:
+    arm: left_flexiv
+    end_effector: null
+  right_arm:
+    arm: right_flexiv
+    end_effector: null
 action_contract:
-  group_prefixes: {left_arm: left, right_arm: right}
+  group_prefixes:
+    left_arm: left
+    right_arm: right
