@@ -21,6 +21,7 @@ dependencies = [
 
 [project.optional-dependencies]
 realsense = ["pyrealsense2>=2.55"]
+omnigripper = ["pyserial>=3.5,<4"]
 tianji-diff-ik = [
   "osqp>=1,<2",
 ]

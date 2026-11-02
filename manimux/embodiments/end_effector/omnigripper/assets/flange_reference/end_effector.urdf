@@ -1,0 +1,5 @@
+<?xml version="1.0"?>
+<!-- Placeholder frame only, not the actual gripper geometry. -->
+<robot name="omnigripper_flange_reference">
+  <link name="omnigripper_base"/>
+</robot>

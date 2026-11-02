@@ -60,6 +60,10 @@ logs/
 !/manimux/embodiments/arm/piper/assets/
 !/manimux/embodiments/arm/piper/assets/**
 
+# Hand-authored OmniGripper flange-reference frame, without proprietary CAD.
+!/manimux/embodiments/end_effector/omnigripper/assets/
+!/manimux/embodiments/end_effector/omnigripper/assets/**
+
 # Local backup of the pre-refactor package tree; the active package is /manimux.
 /src/
 
