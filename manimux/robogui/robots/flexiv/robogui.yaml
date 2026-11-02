@@ -1,8 +1,6 @@
-# Display-only overhead mount for the current dual Rizon4s station.
-# Both bases sit on the top beam of a vertical column, face down, and keep the
-# same x/y orientation, so the displayed HOME joint poses are not mirrored. The
-# arms hang over the table as in the station photo. xyz/rpy are not embodiment
-# FK/IK, Home targets or calibrated inter-arm geometry. Adjust them to the mount.
+# Display-only mirrored mounts on the FRONT of the original T-shaped stand.
+# Both base +Z axes face world -Y. Base +Y cable outlets face inward (+X/-X).
+# Display placement is independent of embodiment FK/IK and Home joint values.
 label: Flexiv Rizon4s dual arms (no grippers)
 model: ../../../configs/embodiment/robot/flexiv_dual.yaml
 camera_mode: policy
@@ -17,9 +15,8 @@ groups:
   left_arm:
     label: Left Arm (A)
     robogui_display_frame:
-      xyz: [0.0, -0.45, 1.80]
-      # Base x +world x, base y -world y, base z down.
-      rpy: [3.141592653589793, 0.0, 0.0]
+      xyz: [-0.45, 0.71, 1.72]
+      rpy: [1.5707963267948966, 1.5707963267948966, 0.0]
     prediction_color: [52, 111, 255]
     trail_color: [33, 180, 106]
     # Measured 2026-10-18 HOME joints (radians), display only.
@@ -30,9 +27,8 @@ groups:
   right_arm:
     label: Right Arm (B)
     robogui_display_frame:
-      xyz: [0.0, 0.45, 1.80]
-      # Same base orientation as A; base z down.
-      rpy: [3.141592653589793, 0.0, 0.0]
+      xyz: [0.45, 0.71, 1.72]
+      rpy: [1.5707963267948966, -1.5707963267948966, 0.0]
     prediction_color: [255, 94, 87]
     trail_color: [255, 170, 0]
     # Measured 2026-10-18 HOME joints (radians), display only.
@@ -42,8 +38,8 @@ groups:
       phase: 1.5
 scene:
   view:
-    camera_position: [1.8, -2.6, 1.9]
-    camera_look_at: [0.0, 0.0, 1.0]
+    camera_position: [2.4, -3.7, 2.5]
+    camera_look_at: [0.0, 0.25, 1.35]
     grid_position: [0.0, 0.0, -0.01]
     grid_size: [2.0, 2.0]
   boxes:
