@@ -52,6 +52,25 @@ grippers in the same private station. Physical device assignments come from the
 collection station, not USB enumeration order. Keep calibrated arm geometry in
 the selected assembly. See `guideline.html#pi05-flexiv` for startup commands.
 
+The experiment enables `run.warmup_before_start`. After **Prepare Run**, the
+operator selects **Activate Warmup** to exercise the shared planner and Smooth
+executor with predicted command dispatch suppressed, then **Start** to drain
+warmup and await backend reset before formal execution. Prepare still owns the
+ordinary hardware connection; warmup is not a hardware-free connection mode.
+
+Use the `flexiv_omnigripper` RoboGUI preset, or copy its `cameras` and
+`camera_aliases` into a private preset. `gemini_main` occupies `top`, and
+`gemini_left_wrist` / `gemini_right_wrist` occupy `left` / `right` in the shared
+left overlay. Keep `camera_mode: policy`; these display slots do not change the
+model input map. An empty camera list places inputs in the additional-input
+folder instead of the overlay.
+
+After a main update, finish the active episode/recovery before restarting the
+runtime and RoboGUI with the updated configuration, then refresh the browser.
+Existing Python processes retain their loaded UI/runtime code. The current
+interactive entry point is `manimux run --config`, not the retired `serve` CLI.
+Camera and model services do not need restarting for these display/warmup settings.
+
 ## Validation boundary (2026-11-02)
 
 For the supplied step 29999 export, the normalization has 16 finite coordinates

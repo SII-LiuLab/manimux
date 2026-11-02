@@ -4,7 +4,14 @@
 label: Flexiv + OmniGripper (Marvin straight grippers)
 model: ../../../configs/embodiment/robot/flexiv_omnigripper_dual.yaml
 camera_mode: policy
-cameras: []
+cameras:
+  - {source: gemini_main, label: Top, slot: top}
+  - {source: gemini_left_wrist, label: Left wrist, slot: left}
+  - {source: gemini_right_wrist, label: Right wrist, slot: right}
+camera_aliases:
+  gemini_main: top
+  gemini_left_wrist: left
+  gemini_right_wrist: right
 groups:
   left_arm:
     label: Left Arm (A)
