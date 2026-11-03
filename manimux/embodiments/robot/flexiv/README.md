@@ -7,6 +7,11 @@ ports. Cross-device commands are not atomic.
 
 ## Models and adapters
 
+Each `FlexivArm` owns only its seven-joint flange model. `RobotModel` composes
+the separate tool's geometry and visual mapping into the complete group model
+used by adapters and RoboGUI. Display placement and camera slots belong in the
+RoboGUI preset; no Flexiv-specific dashboard or rendering adapter is needed.
+
 Select `configs/embodiment/robot/flexiv_omnigripper_dual.yaml` for seven arm
 radians and one normalized gripper coordinate per group (0 closed, 1 open).
 The `flexiv_omnigripper` RoboGUI preset matches this layout. It shows arm geometry, aperture data and the locally installed Marvin

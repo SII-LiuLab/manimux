@@ -37,7 +37,7 @@ class FlexivRobot(RobotBase):
             if controller.channel in serials:
                 raise ValueError("Flexiv arms must have distinct robot serials")
             serials.add(controller.channel)
-            arms[name] = component["class"](controller, kinematics=group.kinematics)
+            arms[name] = component["class"](controller, kinematics=group.arm.kinematics)
             if group.end_effector_name is not None:
                 tool = model.components[group.end_effector_name]
                 tool_hardware = {**tool["hardware"], **bindings.get(group.end_effector_name, {})}
@@ -100,7 +100,7 @@ class FlexivRobot(RobotBase):
     def hand_guiding_actions(self):
         if "drag" not in self.recovery_actions:
             return MappingProxyType({})
-        return MappingProxyType({"drag": self.recover_drag,
+        return MappingProxyType({**super().hand_guiding_actions,
                                  "release": self.recover_release,
                                  "release_5s": partial(self.recover_release, duration_s=5.0)})
 
@@ -197,9 +197,6 @@ class FlexivRobot(RobotBase):
 
     def drag(self, groups, stop, on_active=None):
         self._guide(groups, stop, on_active, stiffness_scale=self._drag_scale, follow=True)
-
-    def recover_drag(self, groups, stop, on_active=None):
-        self.drag(groups, stop, on_active)
 
     def recover_release(self, groups, stop, on_active=None, *, duration_s=None):
         self._guide(groups, stop, on_active, stiffness_scale=0.0, follow=False,
