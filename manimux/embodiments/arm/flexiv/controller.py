@@ -186,16 +186,25 @@ class FlexivController(ArmController):
                 "in Flexiv Elements before SDK control"
             )
 
-    def _wait_operational(self):
+    def _wait_operational(self, stop=None):
         deadline = time.monotonic() + self.enable_timeout_s
         while not self._robot.operational():
             self._health(require_operational=False)
+            if stop is not None and stop.is_set():
+                raise InterruptedError("Flexiv enable cancelled")
             if time.monotonic() >= deadline:
+                reason = (
+                    "enable did not complete; stop is not confirmed"
+                    if stop is None else "enable timed out"
+                )
                 raise TimeoutError(
-                    f"Flexiv {self.channel}: enable did not complete; stop is not confirmed; "
+                    f"Flexiv {self.channel}: {reason}; "
                     f"status={self._operational_status()}"
                 )
-            time.sleep(0.02)
+            if stop is None:
+                time.sleep(0.02)
+            else:
+                stop.wait(0.02)
 
     def get_states(self):
         with self._lock:
@@ -277,17 +286,7 @@ class FlexivController(ArmController):
             if not self._robot.operational():
                 self._owned = self._enable_pending = True
                 (self._robot.ServoOn if self._grouped else self._robot.Enable)()
-                deadline = time.monotonic() + self.enable_timeout_s
-                while not self._robot.operational():
-                    self._health(require_operational=False)
-                    if stop.is_set():
-                        raise InterruptedError("Flexiv enable cancelled")
-                    if time.monotonic() >= deadline:
-                        raise TimeoutError(
-                            f"Flexiv {self.channel}: enable timed out; "
-                            f"status={self._operational_status()}"
-                        )
-                    stop.wait(0.02)
+                self._wait_operational(stop)
                 self._enable_pending = False
 
     def clear_errors(self):

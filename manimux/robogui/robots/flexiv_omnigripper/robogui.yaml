@@ -16,137 +16,43 @@ groups:
   left_arm:
     label: Left Arm (A)
     robogui_display_frame:
-      xyz:
-      - 0.45
-      - 0.71
-      - 1.72
-      rpy:
-      - 1.5707963267948966
-      - -1.5707963267948966
-      - 0.0
-    prediction_color:
-    - 52
-    - 111
-    - 255
-    trail_color:
-    - 33
-    - 180
-    - 106
-    initial:
-    - 0.925021
-    - 1.125734
-    - 0.654498
-    - 1.396259
-    - 0.733037
-    - 1.500982
-    - 1.073384
-    - 1.0
+      xyz: [0.45, 0.71, 1.72]
+      rpy: [1.5707963267948966, -1.5707963267948966, 0.0]
+    prediction_color: [52, 111, 255]
+    trail_color: [33, 180, 106]
+    initial: [0.925021, 1.125734, 0.654498, 1.396259, 0.733037, 1.500982, 1.073384, 1.0]
     demo:
-      amplitude:
-      - 0.1
-      - 0.1
-      - 0.1
-      - 0.1
-      - 0.1
-      - 0.1
-      - 0.1
-      - 0.0
+      amplitude: [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.0]
       phase: 0.0
     aperture: gripper
   right_arm:
     label: Right Arm (B)
     robogui_display_frame:
-      xyz:
-      - -0.45
-      - 0.71
-      - 1.72
-      rpy:
-      - 1.5707963267948966
-      - 1.5707963267948966
-      - 0.0
-    prediction_color:
-    - 255
-    - 94
-    - 87
-    trail_color:
-    - 255
-    - 170
-    - 0
-    initial:
-    - 0.438466
-    - 0.610942
-    - -0.325089
-    - 1.414768
-    - 1.406154
-    - 0.908435
-    - -1.075826
-    - 1.0
+      xyz: [-0.45, 0.71, 1.72]
+      rpy: [1.5707963267948966, 1.5707963267948966, 0.0]
+    prediction_color: [255, 94, 87]
+    trail_color: [255, 170, 0]
+    initial: [0.438466, 0.610942, -0.325089, 1.414768, 1.406154, 0.908435, -1.075826, 1.0]
     demo:
-      amplitude:
-      - 0.1
-      - 0.1
-      - 0.1
-      - 0.1
-      - 0.1
-      - 0.1
-      - 0.1
-      - 0.0
+      amplitude: [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.0]
       phase: 1.5
     aperture: gripper
 scene:
   view:
-    camera_position:
-    - 2.4
-    - -3.7
-    - 2.5
-    camera_look_at:
-    - 0.0
-    - 0.25
-    - 1.35
-    grid_position:
-    - 0.0
-    - 0.0
-    - -0.01
-    grid_size:
-    - 2.0
-    - 2.0
+    camera_position: [2.4, -3.7, 2.5]
+    camera_look_at: [0.0, 0.25, 1.35]
+    grid_position: [0.0, 0.0, -0.01]
+    grid_size: [2.0, 2.0]
   boxes:
   - name: flexiv_column
-    dimensions:
-    - 0.22
-    - 0.18
-    - 1.64
-    position:
-    - 0.0
-    - 0.8
-    - 0.82
-    color:
-    - 238
-    - 238
-    - 238
+    dimensions: [0.22, 0.18, 1.64]
+    position: [0.0, 0.8, 0.82]
+    color: [238, 238, 238]
   - name: flexiv_top_beam
-    dimensions:
-    - 1.2
-    - 0.18
-    - 0.16
-    position:
-    - 0.0
-    - 0.8
-    - 1.72
-    color:
-    - 238
-    - 238
-    - 238
+    dimensions: [1.2, 0.18, 0.16]
+    position: [0.0, 0.8, 1.72]
+    color: [238, 238, 238]
   - name: table
-    dimensions:
-    - 1.6
-    - 0.9
-    - 0.04
-    position:
-    - 0.0
-    - 0.2
-    - 0.68
-    color:
-    - 240
-    - 240
-    - 240
+    dimensions: [1.6, 0.9, 0.04]
+    position: [0.0, 0.2, 0.68]
+    color: [240, 240, 240]
