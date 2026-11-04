@@ -23,6 +23,8 @@ class AsyncSimClient:
         self._connection: Any = None
         self._connection_context: Any = None
         self._ids = itertools.count(1)
+        self.inference_pause_token: str | None = None
+        self._resume_on_command = False
 
     def connect(self) -> None:
         if self._connection is not None:
@@ -66,10 +68,18 @@ class AsyncSimClient:
             payload["recording_directory"] = str(Path(recording_directory).resolve())
         result = self.request("reset", payload)
         self.episode_id = result["episode_id"]
+        self.inference_pause_token = None
+        self._resume_on_command = False
         return result
 
     def subscribe(self, streams: list[str]) -> None:
         self.request("subscribe", {"streams": streams})
+
+    def attach(self, episode_id: str) -> None:
+        result = self.request("attach", {"episode_id": episode_id})
+        if result.get("episode_id") != episode_id:
+            raise RuntimeError("AsyncSim attach returned another episode")
+        self.episode_id = episode_id
 
     def read_snapshot(self, streams: list[str]) -> dict[str, Any]:
         result = self.request("read_snapshot", {"streams": streams})
@@ -78,7 +88,43 @@ class AsyncSimClient:
         return result
 
     def submit_command(self, command: dict[str, Any]) -> dict[str, Any]:
+        if self.inference_pause_token is not None:
+            if not self._resume_on_command:
+                raise RuntimeError("cannot submit control while inference is paused")
+            return self.finish_inference(command=command)
         return self.request("submit_command", {"command": command})
+
+    def submit_action_chunk(self, chunk: dict[str, Any]) -> dict[str, Any]:
+        if self.inference_pause_token is not None:
+            if not self._resume_on_command:
+                raise RuntimeError("cannot submit action chunk while inference is paused")
+            return self.finish_inference(chunk=chunk)
+        return self.request("submit_action_chunk", {"chunk":chunk})
+
+    def policy_snapshot(self, streams: list[str], *, mode: str, request_seq: int,
+                        timeout_s: float) -> dict[str, Any]:
+        result = self.request("policy_snapshot", {
+            "streams": streams, "mode": mode, "request_seq": request_seq, "timeout_s": timeout_s,
+        })
+        if result["episode_id"] != self.episode_id:
+            raise RuntimeError("policy snapshot belongs to another episode")
+        self.inference_pause_token = result["ablation"].get("pause_token")
+        self._resume_on_command = False
+        return result
+
+    def resume_with_next_command(self) -> None:
+        self._resume_on_command = True
+
+    def finish_inference(self, *, command: dict | None = None, chunk: dict | None = None,
+                         reason: str = "command_ready") -> dict:
+        if self.inference_pause_token is None:
+            return {}
+        result = self.request("finish_inference", {
+            "token": self.inference_pause_token, "command": command, "chunk":chunk, "reason": reason,
+        })
+        self.inference_pause_token = None
+        self._resume_on_command = False
+        return result
 
     def health(self) -> dict[str, Any]:
         return self.request("health")
@@ -105,3 +151,5 @@ class AsyncSimClient:
                 except Exception:
                     pass
         self.episode_id = None
+        self.inference_pause_token = None
+        self._resume_on_command = False

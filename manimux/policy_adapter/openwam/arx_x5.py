@@ -140,8 +140,6 @@ class OpenWAMArxX5Adapter(KinematicAdapter):
 
     def decode_action(self, raw, context):
         saved = self._anchors.pop(context.request_seq, None)
-        if context.observation_state is not None:
-            saved = (context.observation_state.monotonic_ns, context.observation_state.groups)
         if saved is None or saved[0] != context.observation_time_ns:
             raise ValueError("OpenWAM X5 action has no matching observation anchor")
         actions = action_groups(raw, dict.fromkeys(GROUPS, 8), format="pose")

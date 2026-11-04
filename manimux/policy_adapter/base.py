@@ -45,15 +45,6 @@ class PolicyAdapter(ABC):
         """Specialized adapters may add poses or history; the default preserves the request."""
         return request
 
-    def create_command_controller(self, config: dict):
-        """Optionally convert source actions at execution time, outside policy inference.
-
-        The controller owns its resources and returns physical RobotCommands from
-        visible measured state and the active source horizon. Ordinary adapters
-        keep the shared timeline/executor path by returning None.
-        """
-        return None
-
     @abstractmethod
     def decode_action(self, raw: object, context: ActionContext) -> ActionChunk:
         """Convert explicitly contracted server outputs to action sequences; the base class does not infer formats."""

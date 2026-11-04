@@ -51,25 +51,3 @@ Model loading, normalization and model sampling remain in XPolicyLab. Transport
 remains in `policies/`; scheduling in `runtime/`; command generation in executors.
 No empty generic TCP adapter is provided: existing pose adapters differ in anchor,
 quaternion, timing and IK behavior and cannot be merged solely because they use poses.
-
-## RoboDojo Runtime Motor Control
-
-`openwam.motor_eef:OpenWAMMotorEEFAdapter` is an opt-in AsyncSim adapter for
-OpenWAM's absolute EEF contract. It preserves source EEF rows while an
-adapter-provided `RoboDojoMotorController` performs per-row measured-state IK and
-native-compatible ten-point interpolation in an isolated client-owned worker.
-The existing `AsyncSimRuntime` loop samples physical motor targets at 250 Hz;
-the simulator applies them without another IK/interpolation or gripper mapping.
-
-Use `configs/experiments/asyncsim/robodojo_openwam_insert_key_motor.yaml` with an
-AsyncSim server exposing `proprio.motor_joint_state` and eight-coordinate
-physical motor groups. `robot.options.motor_control_config` points to a JSON
-export of the actual robot's joint order, bases, cuRobo paths, gripper parameters
-and solver Python executable. The AsyncSim server can export this metadata with
-`--control-chain motor --export-motor-config PATH`.
-
-This mode keeps normal independent sensor streams and continuous physics during
-both inference and IK. It requires neither fresh aligned observations nor a
-simulation-pause interface. Serial, unblended 25 Hz source chunks and 250 Hz
-motor commands are currently supported; incompatible scheduling is rejected.
-Existing adapters do not enable this command controller by default.

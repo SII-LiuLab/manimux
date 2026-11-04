@@ -11,6 +11,16 @@ from manimux.cli import read_experiment
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
+def runtime_artifacts(expected):
+    """Translate a verified HF recipe to XPolicyLab's file-only identity schema."""
+    return {
+        "checkpoint_file": expected["checkpoint_file"],
+        "checkpoint_sha256": expected["checkpoint_sha256"],
+        "training_config_sha256": expected["config_sha256"],
+        "norm_stats_sha256": expected["norm_stats_sha256"],
+    }
+
+
 def _sha256(path):
     digest = hashlib.sha256()
     with path.open("rb") as source:
@@ -75,6 +85,8 @@ def main(argv=None):
     print(json.dumps(server, indent=2), flush=True)
     if args.check:
         return 0
+    # resolve_server has already verified repo/revision and the actual file hashes.
+    server["expected_artifacts"] = runtime_artifacts(server["expected_artifacts"])
     for path in (REPO_ROOT, REPO_ROOT / "XPolicyLab"):
         sys.path.insert(0, str(path))
     import setup_policy_server

@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import uuid
-from collections import OrderedDict
 from collections.abc import Mapping
+from collections import OrderedDict
 from dataclasses import replace
 
 import numpy as np
@@ -124,10 +124,6 @@ class XR1ArxX5Adapter(KinematicAdapter):
 
     def decode_action(self, raw, context):
         anchor = self._anchors.pop(context.request_seq, None)
-        if context.observation_state is not None:
-            if context.observation_state.monotonic_ns != context.observation_time_ns:
-                raise ValueError("XR1 X5 action has a mismatched observation anchor")
-            anchor = context.observation_state.groups
         if anchor is None:
             raise ValueError(f"XR1 X5 has no observation anchor for request {context.request_seq}")
         actions = np.asarray(raw, dtype=float)

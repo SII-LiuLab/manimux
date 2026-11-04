@@ -23,6 +23,7 @@ class AsyncSimRobot:
         self, client: Any, group_dims: Mapping[str, int], state_keys: Mapping[str, str],
         *, state_stream: str = "proprio.joint_state", env_index: int = 0,
         command_ttl_s: float = 0.2,
+        command_action_space: str = "joint_position",
     ) -> None:
         self.client = client
         self.group_dims = dict(group_dims)
@@ -34,15 +35,21 @@ class AsyncSimRobot:
         self.state_stream = state_stream
         self.env_index = env_index
         self.command_ttl_s = command_ttl_s
+        if command_action_space not in {"joint_position", "eef_pose"}:
+            raise ValueError("unsupported command action space")
+        self.command_action_space = command_action_space
         self._sequence = 0
         self._command_seq = 0
         self._last_snapshot: dict[str, Any] | None = None
 
     def connect(self) -> None:
         self.client.connect()
-        declared = self.client.health().get("canonical_group_dims")
+        health = self.client.health()
+        declared = health.get("canonical_group_dims")
         if declared != self.group_dims:
             raise ValueError("AsyncSim canonical group layout does not match ManiMux configuration")
+        if health.get("command_action_space", "joint_position") != self.command_action_space:
+            raise ValueError("AsyncSim command action space does not match ManiMux configuration")
 
     def reset(self) -> None:
         self._sequence = 0
@@ -95,7 +102,7 @@ class AsyncSimRobot:
             "apply_after_sim_ts": now,
             "expires_at_sim_ts": now + self.command_ttl_s,
             "plan_id": command.plan_id or "hold",
-            "action_space": "joint_position",
+            "action_space": self.command_action_space,
             "groups": {name: values.tolist() for name, values in command.groups.items()},
         }
         ack = self.client.submit_command(issued)
@@ -107,6 +114,32 @@ class AsyncSimRobot:
 
     def home(self) -> None:
         raise NotImplementedError("AsyncSim homing requires a configured simulator reset")
+
+    def send_action_chunk(self, chunk) -> dict[str, Any]:
+        snapshot = self._last_snapshot
+        if snapshot is None or self.client.episode_id is None:
+            raise RuntimeError("read robot state before sending an action chunk")
+        if chunk.action_space != self.command_action_space or set(chunk.groups) != set(self.group_dims):
+            raise ValueError("chunk action space or groups do not match AsyncSim")
+        count = chunk.horizon_steps
+        if not 1 <= count <= 4096 or any(
+            rows.shape != (count,self.group_dims[name]) or not np.isfinite(rows).all()
+            for name,rows in chunk.groups.items()
+        ):
+            raise ValueError("invalid action chunk layout")
+        now = snapshot["sim_ts"]
+        commands=[]
+        for index in range(count):
+            commands.append({"episode_id":self.client.episode_id,
+                "command_seq":self._command_seq+index+1, "issued_sim_ts":now, "apply_after_sim_ts":now,
+                "expires_at_sim_ts":now+self.command_ttl_s, "plan_id":chunk.plan_id,
+                "action_space":chunk.action_space,
+                "groups":{name:rows[index].tolist() for name,rows in chunk.groups.items()}})
+        ack = self.client.submit_action_chunk({"commands":commands,"action_dt_s":chunk.dt_ns/1e9})
+        if not ack["accepted"]:
+            raise AsyncSimCommandRejected(ack["reason"])
+        self._command_seq += count
+        return {**ack,"issued_sim_ts":now,"action_count":count}
 
     def stop(self) -> None:
         self.client.close()

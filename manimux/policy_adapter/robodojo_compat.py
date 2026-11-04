@@ -1,4 +1,4 @@
-"""Independent implementation of RoboDojo's X5 IK/interpolation.
+"""Ablation-only independent implementation of RoboDojo's X5 IK/interpolation.
 
 Only robot data and the cuRobo library are shared with RoboDojo. No RoboDojo
 planner, IK, interpolation or execution function is imported here.
@@ -184,3 +184,29 @@ class RoboDojoCompatibleDecoder:
                     sequence[index][grip]["position"] = [value,
                         value * robot["mimic"][1] + robot["mimic"][2]]
         return sequence
+
+
+def eef_targets(adapter, raw, context, robots):
+    """Preserve ManiMux's FK/observation anchor; change only IK/interpolation."""
+    from manimux.policy_adapter.xr1.arx_x5 import EEF_REFRAME, GROUPS, SLICES
+
+    anchor = adapter._anchors.pop(context.request_seq, None)
+    actions = np.asarray(raw, dtype=float)
+    if anchor is None or actions.ndim != 2 or actions.shape[1] != 60 or not len(actions) or not np.isfinite(actions).all():
+        raise ValueError("invalid XR1 observation anchor or packed EEF chunk")
+    result = [dict() for _ in actions]
+    for name, robot in zip(GROUPS, robots):
+        pose = adapter.kinematics.models[name].fk(adapter._geometry_state(anchor[name]))
+        rotation = pose[:3, :3] @ EEF_REFRAME
+        base = pose_matrix(robot["base_pose"])
+        pos_slice, rot_slice, grip_index = SLICES[name]
+        for item, row in zip(result, actions):
+            target = np.eye(4)
+            target[:3, 3] = pose[:3, 3] + rotation @ row[pos_slice]
+            target[:3, :3] = rotation @ Rotation.from_rotvec(row[rot_slice]).as_matrix() @ EEF_REFRAME.T
+            output = matrix_pose(base @ target)
+            if output[3] < 0:
+                output[3:] *= -1
+            item[robot["prefix"] + "_ee_pose"] = output.astype(np.float32)
+            item[robot["grip"]] = np.array([anchor[name][-1] + row[grip_index]], dtype=np.float32)
+    return result

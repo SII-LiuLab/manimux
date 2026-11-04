@@ -2,39 +2,30 @@
 
 from __future__ import annotations
 
-import math
-import sys
-import time
-import uuid
 from collections.abc import Iterable
 from copy import deepcopy
+import sys
+import time
 from pathlib import Path
 from typing import Any
+import uuid
 
 from manimux.clock import Clock, SystemClock
 from manimux.embodiments.asyncsim import AsyncSimClient, AsyncSimRobot, AsyncSimSensor
+from manimux.embodiments.asyncsim.client import AsyncSimRemoteError
 from manimux.embodiments.asyncsim.robot import AsyncSimCommandRejected
 from manimux.policies import PolicyCapabilities
 from manimux.policies.worker import PolicyWorkerClient
 from manimux.policy_adapter import build_policy_adapter
 from manimux.runtime.executors import DirectExecutor, SmoothExecutor
 from manimux.runtime.inference import (
-    CommitSettings,
-    RequestState,
-    build_inference_strategy,
-    prepare_strategy_chunk,
+    CommitSettings, RequestState, build_inference_strategy, prepare_strategy_chunk,
 )
-from manimux.runtime.native_chunk import NativeChunkExecution
 from manimux.runtime.safety import RuntimeState, SafetyGuard
 from manimux.runtime.scheduling import RequestScheduler
 from manimux.runtime.timeline import ActionTimeline, CommitResult
 from manimux.types import (
-    ActionChunk,
-    ActionContext,
-    InferenceResponse,
-    ObservationSnapshot,
-    RobotCommand,
-    RobotState,
+    ActionChunk, ActionContext, InferenceResponse, ObservationSnapshot, RobotCommand, RobotState,
     copy_group_vector,
 )
 
@@ -51,39 +42,38 @@ class AsyncSimRuntime:
             "async", "serial", "act_temporal_ensemble", "rtc", "paint",
         }:
             raise ValueError("AsyncSim inference strategy is not supported")
+        if config["inference"]["inference_schedule"] == "multi_inflight":
+            raise ValueError("AsyncSim does not yet support multiple in-flight requests")
         if config["policy"]["action_decoding"] != "inline" or config["inference"]["independent_group_decoding"]:
             raise ValueError("AsyncSim requires inline, non-independent action decoding")
         self.config = config
-        self._native_chunk_execution = config["run"].get("native_chunk_execution", False)
-        if type(self._native_chunk_execution) is not bool:
-            raise ValueError("run.native_chunk_execution must be boolean")
+        self.ablation_mode = config["run"].get("ablation_mode", "stream_async")
+        if self.ablation_mode not in {"stream_async", "fresh_async", "stream_paused", "fresh_paused"}:
+            raise ValueError("unknown run.ablation_mode")
+        if self.ablation_mode != "stream_async" and (
+            config["inference"]["algorithm"] != "serial"
+            or config["inference"]["inference_schedule"] != "serial"
+            or not config["run"].get("simulation_time_timeline", False)
+        ):
+            raise ValueError("ablation requires serial inference and a simulation-time timeline")
         self.clock = clock or SystemClock()
         self.session_id = f"asyncsim-{uuid.uuid4().hex}"
         self.worker = worker
         self.strategy = build_inference_strategy(config)
         self.scheduler = RequestScheduler(config["inference"])
-        self._multi_inflight = self.scheduler.mode == "multi_inflight"
         self.adapter = build_policy_adapter(
             config["robot"], config["policy"], motion_limits=config["executor"]["motion_limits"],
         )
         self.adapter.validate(config["robot"], config["policy"])
-        factory = getattr(self.adapter, "create_command_controller", None)
-        self.command_controller = factory(config) if callable(factory) and not self._native_chunk_execution else None
-        self._source_action_space = (
-            self.command_controller.source_action_space if self.command_controller else "joint_position"
-        )
         robot = config["robot"]
         options = robot["options"]
-        if self._native_chunk_execution:
-            self._source_action_space = options.get("command_action_space", "joint_position")
-        if options.get("env_index", 0) != 0:
-            raise ValueError("AsyncSim supports only env_index=0")
         self.client = client or AsyncSimClient(options["endpoint"])
         self.robot = AsyncSimRobot(
             self.client, robot["group_dims"], options["state_keys"],
             state_stream=options.get("state_stream", "proprio.joint_state"),
             env_index=options.get("env_index", 0),
             command_ttl_s=options.get("command_ttl_s", 0.2),
+            command_action_space=options.get("command_action_space", "joint_position"),
         )
         sensor_specs = [item for item in config["sensors"] if item["driver"] == "asyncsim"]
         if len(sensor_specs) != 1 or len(config["sensors"]) != 1:
@@ -150,11 +140,8 @@ class AsyncSimRuntime:
             raise ValueError("simulation-time timeline currently requires Async, Serial or RTC inference")
         self._timeline_origin_ns: int | None = None
         self._timeline_now_ns: int | None = None
-        self._last_wire_snapshot: dict[str, Any] = {}
-        self._native_execution = NativeChunkExecution(
-            self.client, self.robot.group_dims, action_space=self._source_action_space,
-            ttl_s=self.robot.command_ttl_s,
-        ) if self._native_chunk_execution else None
+        self._native_chunk_execution = bool(config["run"].get("native_chunk_execution", False))
+        self._native_chunk_plan_id = None
         if self._native_chunk_execution and (
             config["executor"]["type"] != "direct" or config["executor"]["motion_limits"] is not None
             or config["inference"]["blend_policy_steps"] != 0
@@ -163,6 +150,16 @@ class AsyncSimRuntime:
             or config["inference"]["algorithm"] != "serial"
         ):
             raise ValueError("native chunk execution requires serial, exact unblended action rows")
+        if self.robot.command_action_space == "eef_pose" and (
+            self._control_period_alignment != "plan"
+            or config["executor"]["type"] != "direct"
+            or config["executor"]["motion_limits"] is not None
+            or config["inference"]["blend_policy_steps"] != 0
+            or config["inference"]["handoff_skip_steps"] != 0
+            or config["inference"]["algorithm"] != "serial"
+            or not self._skip_unplanned_commands
+        ):
+            raise ValueError("EEF passthrough requires serial, unblended exact plan rows and an unlimited direct executor")
 
     def start(
         self, *, seed: int | None = None, recording_directory: str | Path | None = None,
@@ -171,8 +168,6 @@ class AsyncSimRuntime:
             raise RuntimeError("AsyncSim runtime already started")
         self.robot.connect()
         try:
-            if self.command_controller is not None:
-                self.command_controller.start(recording_directory)
             if recording_directory is None:
                 episode = self.client.reset(seed=seed)
             else:
@@ -191,14 +186,7 @@ class AsyncSimRuntime:
             self._instruction = None
             self._timeline_origin_ns = None
             self._timeline_now_ns = None
-            if self._native_execution is not None:
-                self._native_execution.reset(episode["episode_id"])
-                health = self.client.health()
-                if health.get("command_action_space") != self._source_action_space:
-                    raise ValueError("AsyncSim native action space does not match the runtime")
-                self._native_execution.complete(health)
-            if self.command_controller is not None:
-                self.command_controller.reset()
+            self._native_chunk_plan_id = None
             self.client.subscribe(self.streams)
             self.sensor.start()
             self._started = True
@@ -210,10 +198,10 @@ class AsyncSimRuntime:
                 pass
             raise
 
-    def observe(self) -> ObservationSnapshot:
+    def observe(self, snapshot: dict | None = None) -> ObservationSnapshot:
         if not self._started:
             raise RuntimeError("start the AsyncSim runtime before observing")
-        snapshot = self.client.read_snapshot(self.streams)
+        snapshot = self.client.read_snapshot(self.streams) if snapshot is None else snapshot
         self._last_wire_snapshot = snapshot
         if self._simulation_timeline:
             sim_ns = round(snapshot["sim_ts"] * 1_000_000_000)
@@ -292,8 +280,8 @@ class AsyncSimRuntime:
         state = observation.state
         result = None
         if chunk is not None:
-            if chunk.action_space != self._source_action_space:
-                raise ValueError("AsyncSim chunk does not match the configured source action space")
+            if chunk.action_space != self.robot.command_action_space:
+                raise ValueError("AsyncSim chunk action space does not match the configured command interface")
             result = self.timeline.commit(
                 chunk, now_ns=now_ns,
                 max_plan_age_ns=round(self.config["inference"]["max_plan_age_s"] * 1e9),
@@ -306,33 +294,27 @@ class AsyncSimRuntime:
                     if commit_settings is None else commit_settings.blend_steps
                 ),
             )
-        if self._native_execution is not None:
+        if self._native_chunk_execution:
             if chunk is None or not result.accepted:
                 return result, {}
-            if result.trimmed_steps:
-                raise ValueError("native chunks cannot trim policy actions")
+            if result.trimmed_steps or chunk.source_offset_steps or chunk.runtime_trajectory is not None:
+                raise ValueError("native chunks cannot trim or resample policy actions")
             for index in range(chunk.horizon_steps):
                 self.safety.validate_command(RobotCommand(
-                    {name: rows[index] for name, rows in chunk.groups.items()}, now_ns, chunk.plan_id,
-                ))
-            ack = self._native_execution.submit(chunk, sim_ts=self._last_wire_snapshot["sim_ts"])
-            self._last_command = {name: rows[-1].copy() for name, rows in chunk.groups.items()}
+                    {name:rows[index] for name,rows in chunk.groups.items()}, now_ns, chunk.plan_id))
+            ack = self.robot.send_action_chunk(chunk)
+            self._native_chunk_plan_id = chunk.plan_id
+            self._last_command = {name:rows[-1].copy() for name,rows in chunk.groups.items()}
             return result, ack
         sample_ns = now_ns
         if self._control_period_alignment == "plan":
             active = self.timeline.active_horizon()
             if active is not None and now_ns >= active.start_time_ns:
                 sample_ns = active.start_time_ns + ((now_ns - active.start_time_ns) // active.dt_ns) * active.dt_ns
-        horizon = (
-            self.timeline.reference_horizon(
-                now_ns=sample_ns, dt_ns=self.dt_ns, horizon_steps=self.executor.horizon_steps
-            ) if self.command_controller is None else None
+        horizon = self.timeline.reference_horizon(
+            now_ns=sample_ns, dt_ns=self.dt_ns, horizon_steps=self.executor.horizon_steps
         )
-        if self.command_controller is not None:
-            command = self.command_controller.sample(
-                now_ns, state, self.timeline.active_horizon(), self._last_command,
-            )
-        elif horizon is None:
+        if horizon is None:
             if isinstance(self.executor, SmoothExecutor) and self.executor.braking_tracking:
                 command = self.executor.brake_hold(now_ns, state)
             elif isinstance(self.executor, SmoothExecutor):
@@ -354,8 +336,6 @@ class AsyncSimRuntime:
         missing = self.strategy.required_sampling_modes.difference(capabilities.sampling_modes)
         if missing:
             raise RuntimeError(f"policy backend does not support sampling modes {sorted(missing)}")
-        if self._multi_inflight and not capabilities.multi_inflight:
-            raise RuntimeError("policy backend does not support multi_inflight")
         expected = self.config["policy"]["expected_backend"]
         if expected is not None:
             def compare(required: dict, actual: dict, path: str) -> None:
@@ -370,17 +350,24 @@ class AsyncSimRuntime:
                         raise RuntimeError(f"policy backend identity mismatch at {path}.{key}")
             compare(deepcopy(expected), capabilities.backend_metadata, "backend")
 
-    def native_execution_complete(self, health: dict[str, Any]) -> bool | None:
-        return None if self._native_execution is None else self._native_execution.complete(health)
+    def native_execution_complete(self, health):
+        if not self._native_chunk_execution:
+            return None
+        progress = health.get("action_chunk", {})
+        if not progress.get("enabled") or progress.get("mode") != "native_chunk_boundary_replace_v1":
+            raise RuntimeError("simulator does not support ordered native action chunks")
+        feedback = progress.get("feedback", {})
+        if type(feedback.get("physics_step_id")) is not int:
+            raise RuntimeError("native action execution lacks bottom-level physics feedback")
+        return not progress["busy"] and (self._native_chunk_plan_id is None
+            or progress.get("last_completed_plan_id") == self._native_chunk_plan_id)
 
     def run_policy(
         self, *, seed: int | None = None, max_steps: int | None = None,
         timeout_s: float | None = None, recording_directory: str | Path | None = None,
     ) -> dict[str, Any]:
         """Execute ManiMux's worker, adapter, strategy, timeline and executor."""
-        worker = self.worker or PolicyWorkerClient(
-            self.config["policy"], self.session_id, multi_inflight=self._multi_inflight,
-        )
+        worker = self.worker or PolicyWorkerClient(self.config["policy"], self.session_id)
         max_steps = max_steps or self.config["run"]["max_control_steps"]
         if max_steps <= 0:
             raise ValueError("max_steps must be positive")
@@ -397,12 +384,8 @@ class AsyncSimRuntime:
         last_submitted = -1
         last_deadline = 0
         in_flight = False
-        pending_requests: dict[int, tuple[int, int, RobotState]] = {}
-        max_pending_requests = (
-            max(2, math.ceil(
-                self.config["policy"]["timeout_s"] * self.config["inference"]["observation_hz"]
-            ) + 2) if self._multi_inflight else 1
-        )
+        pending_observation_ns: dict[int, int] = {}
+        pending_observation_states: dict[int, RobotState] = {}
         try:
             worker.start()
             self._check_capabilities(worker)
@@ -435,45 +418,46 @@ class AsyncSimRuntime:
                 self.clock.sleep_until_ns(self.clock.now_ns() + poll_dt_ns)
 
             def submit_if_ready(observation: ObservationSnapshot, now_ns: int) -> bool:
-                nonlocal request_seq, last_submitted, last_deadline, in_flight
-                if self._native_chunk_execution and control_steps >= max_steps:
-                    return False
+                nonlocal request_seq, last_submitted, last_deadline, pending_observation_ns, in_flight, health
                 execution_complete = self.native_execution_complete(health)
                 if execution_complete is False:
                     return False
-                if self._multi_inflight:
-                    # Coalesced IPC uploads and server acknowledgements may never
-                    # reach this loop. Retire their contexts without losing a live anchor.
-                    wall_ns = self.clock.now_ns()
-                    for seq, (observation_ns, deadline_ns, _) in list(pending_requests.items()):
-                        reason = (
-                            "superseded" if seq <= self.timeline.accepted_request_seq
-                            else "deadline_exceeded" if wall_ns > deadline_ns else None
-                        )
-                        if reason is not None:
-                            pending_requests.pop(seq)
-                            self.strategy.on_response_rejected(InferenceResponse(
-                                session_id=self.session_id, request_seq=seq,
-                                observation_time_ns=observation_ns, deadline_ns=deadline_ns,
-                                finished_time_ns=wall_ns, inference_ms=0.0,
-                                raw_action=None, error=reason,
-                            ))
-                            events.append({"kind": "inference_retired", "request_seq": seq,
-                                           "reason": reason})
-                    in_flight = bool(pending_requests)
-                    if len(pending_requests) >= max_pending_requests:
+                if self.ablation_mode != "stream_async":
+                    if not self.scheduler.ready(
+                        now_ns=now_ns, timeline=self.timeline,
+                        request_state=RequestState(in_flight, last_submitted, last_deadline),
+                        runtime_state=RuntimeState.RUNNING,
+                        execution_complete=execution_complete,
+                    ):
                         return False
+                    try:
+                        wire = self.client.policy_snapshot(
+                            self.streams, mode=self.ablation_mode, request_seq=request_seq + 1,
+                            timeout_s=min(3600.0, self.config["policy"]["timeout_s"] + 60.0),
+                        )
+                    except AsyncSimRemoteError as exc:
+                        if exc.code != "runtime_error" or "episode is not accepting policy observations" not in str(exc):
+                            raise
+                        health = self.client.health()
+                        if (health["episode"]["state"] in {"succeeded", "failed", "finished"}
+                                and not health.get("last_error")):
+                            events.append({"kind": "episode_finished_before_capture",
+                                           "episode_state": health["episode"]["state"]})
+                            return False
+                        raise
+                    observation = self.observe(wire)
+                    now_ns = self._timeline_now_ns
                 submission = self.scheduler.build_submission(
                     self.strategy,
                     session_id=self.session_id, request_seq=request_seq + 1, now_ns=now_ns,
                     snapshot=observation, adapter=self.adapter, timeline=self.timeline,
-                    request_state=RequestState(
-                        in_flight, last_submitted, last_deadline, multi_flight=self._multi_inflight,
-                    ),
+                    request_state=RequestState(in_flight, last_submitted, last_deadline),
                     runtime_state=RuntimeState.RUNNING,
                     execution_complete=execution_complete,
                 )
                 if submission is None:
+                    if self.ablation_mode in {"stream_paused", "fresh_paused"}:
+                        self.client.finish_inference(reason="request_not_admitted")
                     return False
                 if self.instruction_stream is not None:
                     if self._instruction is None:
@@ -489,21 +473,23 @@ class AsyncSimRuntime:
                 request_seq = prepared.request_seq
                 last_submitted = request_seq
                 last_deadline = prepared.deadline_ns
-                if not self._multi_inflight:
-                    pending_requests.clear()
+                pending_observation_ns = {request_seq: prepared.observation_time_ns}
+                pending_observation_states.clear()
                 request_state = prepared.observation.state
-                pending_requests[request_seq] = (
-                    prepared.observation_time_ns, prepared.deadline_ns,
-                    RobotState(
-                        copy_group_vector(request_state.groups),
-                        request_state.monotonic_ns, request_state.sequence,
-                    ),
+                pending_observation_states[request_seq] = RobotState(
+                    copy_group_vector(request_state.groups), request_state.monotonic_ns, request_state.sequence,
                 )
                 in_flight = True
                 events.append({"kind": "inference_submitted", "request_seq": request_seq,
-                               **({"execution_before_inference": deepcopy(health["action_chunk"]),
-                                   "input_snapshot_ts": self._last_wire_snapshot["sim_ts"]}
-                                  if self._native_execution is not None else {}),
+                               "ablation_mode": self.ablation_mode,
+                               "input_snapshot_ts": self._last_wire_snapshot["sim_ts"],
+                               "input_capture": self._last_wire_snapshot.get("ablation", {}),
+                               "execution_before_inference":deepcopy(health.get("action_chunk")),
+                               "input_streams": {name: {
+                                   "seq": entry["packet"]["seq"],
+                                   "capture_ts": entry["packet"]["capture_ts"], "age_s": entry["age_s"],
+                               } for name, entry in self._last_wire_snapshot["packets"].items()
+                                   if entry["packet"] is not None},
                                "instruction": prepared.instruction,
                                "observation_time_ns": prepared.observation_time_ns,
                                "deadline_ns": prepared.deadline_ns,
@@ -515,16 +501,14 @@ class AsyncSimRuntime:
                                **submission.event_fields})
                 return True
 
-            while control_steps < max_steps or (
-                self._native_execution is not None and not self.native_execution_complete(health)
-            ):
+            while control_steps < max_steps:
                 loop_ticks += 1
                 if timeout_s is not None and time.monotonic() - started_wall > timeout_s:
                     raise TimeoutError("AsyncSim policy rollout exceeded its wall time limit")
                 if not worker.is_alive:
                     raise RuntimeError("policy worker stopped")
-                if self._native_chunk_execution and health.get("last_error"):
-                    raise RuntimeError(f"native chunk simulator failed: {health['last_error']}")
+                if self.ablation_mode != "stream_async" and health.get("last_error"):
+                    raise RuntimeError(f"ablation simulator failed: {health['last_error']}")
                 state = health["episode"]["state"]
                 if state not in {"ready", "running", "safe_hold"}:
                     break
@@ -535,7 +519,8 @@ class AsyncSimRuntime:
                     continue
                 observation = self.observe()
                 now_ns = self._timeline_now_ns if self._simulation_timeline else self.clock.now_ns()
-                if self._simulation_timeline and not self._native_chunk_execution:
+                if (self._simulation_timeline and not self._native_chunk_execution
+                        and not getattr(self.client, "inference_pause_token", None)):
                     origin_ns = control_origin_ns()
                     if origin_ns != last_control_origin:
                         last_control_origin = origin_ns
@@ -557,41 +542,30 @@ class AsyncSimRuntime:
                     inference_ms += response.inference_ms
                     events.append({
                         "kind": "inference_response", "request_seq": response.request_seq,
+                        "response_sim_ts": self._last_wire_snapshot["sim_ts"],
                         "finished_time_ns": response.finished_time_ns,
                         "inference_ms": response.inference_ms,
                     })
-                    same_session = response.session_id == self.session_id
-                    if same_session and response.request_seq == last_submitted:
+                    if response.request_seq == last_submitted:
                         in_flight = False
-                    pending = (
-                        pending_requests.pop(response.request_seq, None) if same_session else None
-                    )
-                    observation_ns, deadline_ns, observation_state = (
-                        pending if pending is not None else (None, 0, None)
-                    )
-                    stale_request = pending is None or (
-                        response.request_seq <= self.timeline.accepted_request_seq
-                        if self._multi_inflight else response.request_seq != last_submitted
-                    )
+                    observation_ns = pending_observation_ns.pop(response.request_seq, None)
+                    observation_state = pending_observation_states.pop(response.request_seq, None)
                     invalid_reason = (
-                        ("stale_session" if not same_session else None)
-                        or ("stale_request" if stale_request else None)
-                        or response.error
+                        response.error
+                        or ("stale_session" if response.session_id != self.session_id else None)
+                        or ("stale_request" if response.request_seq != last_submitted else None)
                         or ("observation_mismatch" if response.observation_time_ns != observation_ns else None)
-                        or ("deadline_exceeded" if (
-                            response.finished_time_ns > deadline_ns
-                            or self.clock.now_ns() > deadline_ns
-                        ) else None)
+                        or ("deadline_exceeded" if response.finished_time_ns > last_deadline or self.clock.now_ns() > last_deadline else None)
                         or ("empty_action" if response.raw_action is None else None)
                     )
                     if invalid_reason is not None:
-                        if same_session:
-                            self.strategy.on_response_rejected(response)
+                        self.strategy.on_response_rejected(response)
                         rejected += 1
                         rejection_reasons.append(invalid_reason)
                         events.append({"kind": "inference_rejected", "request_seq": response.request_seq,
                                        "reason": invalid_reason})
                     else:
+                        decode_started_wall = time.monotonic()
                         try:
                             chunk = self.adapter.decode_action(
                                 response.raw_action,
@@ -604,8 +578,8 @@ class AsyncSimRuntime:
                                     max_source_steps=self.config["inference"]["max_chunk_policy_steps"],
                                 ),
                             )
-                            if chunk.action_space != self._source_action_space:
-                                raise ValueError("policy adapter returned the wrong source action space")
+                            if chunk.action_space != self.robot.command_action_space:
+                                raise ValueError("policy adapter returned the wrong command action space")
                             chunk = prepare_strategy_chunk(
                                 self.strategy, chunk=chunk, response=response, now_ns=now_ns,
                             )
@@ -620,6 +594,11 @@ class AsyncSimRuntime:
                             events.append({"kind": "plan_rejected", "request_seq": response.request_seq,
                                            "reason": f"invalid_action:{exc}"})
                             chunk = None
+                        events.append({"kind": "action_decoded", "request_seq": response.request_seq,
+                                       "decode_wall_s": time.monotonic() - decode_started_wall,
+                                       "accepted": chunk is not None})
+                    if self.ablation_mode in {"stream_paused", "fresh_paused"} and chunk is None:
+                        self.client.finish_inference(reason="response_rejected")
                 if self._simulation_timeline and chunk is not None:
                     # Decoding can take time; commit against current simulation time.
                     observation = self.observe()
@@ -628,6 +607,14 @@ class AsyncSimRuntime:
                     submit_if_ready(observation, now_ns)
                     if self._simulation_timeline and chunk is None else False
                 )
+                if health["episode"]["state"] in {"succeeded", "failed", "finished"}:
+                    break
+                if self.ablation_mode in {"stream_paused", "fresh_paused"} and getattr(self.client, "inference_pause_token", None):
+                    if in_flight:
+                        wait_for_poll()
+                        health = self.client.health()
+                        continue
+                    self.client.resume_with_next_command()
                 if ((self._native_chunk_execution and chunk is None)
                         or (self._skip_unplanned_commands and chunk is None and self.timeline.sample(now_ns) is None)):
                     result = None
@@ -703,9 +690,7 @@ class AsyncSimRuntime:
                 "inference_time_s": inference_ms / 1000.0,
                 "wall_elapsed_s": time.monotonic() - started_wall,
                 "audit": {"episode_id": episode["episode_id"], "snapshots": self._snapshot_audit,
-                          "actions": command_acks, "manimux_events": events,
-                          **({"execution_contract": self.command_controller.audit()}
-                             if self.command_controller is not None else {})},
+                          "actions": command_acks, "manimux_events": events},
                 "packets": tuple(self._selected_packets.values()),
             }
         finally:
@@ -736,11 +721,5 @@ class AsyncSimRuntime:
 
     def close(self) -> None:
         self._started = False
-        try:
-            if self.command_controller is not None:
-                self.command_controller.close()
-        finally:
-            try:
-                self.sensor.close()
-            finally:
-                self.robot.close()
+        self.sensor.close()
+        self.robot.close()
