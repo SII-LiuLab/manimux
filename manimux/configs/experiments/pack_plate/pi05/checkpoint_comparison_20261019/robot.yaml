@@ -1,0 +1,153 @@
+# Study-owned snapshot of the current pack-plate assembly and Home pose.
+name: tianji-taccap
+home:
+  name: pack_plate_start
+  joints_deg:
+    left_arm:
+    - 73.506
+    - -1.65
+    - -29.239
+    - -120.623
+    - -72.979
+    - -31.53
+    - 11.11
+    right_arm:
+    - -86.287
+    - -9.624
+    - 34.59
+    - -121.456
+    - 50.266
+    - -34.262
+    - -43.184
+hardware:
+  home_motion:
+    control_hz: 100.0
+    peak_velocity_deg_s: 9.0
+    tolerance_deg: 0.5
+    settle_timeout_s: 5.0
+  stale_timeout_s: 0.2
+  ready_timeout_s: 3.0
+  max_tracking_error_deg: 10
+  check_measured_position_limits: true
+  rated_joint_velocity_rad_s: 3.141592653589793
+  velocity_ratio: 100
+  acceleration_ratio: 100
+components:
+  main_camera:
+    config: ../../../../embodiment/sensor/uvc.yaml
+    mount: null  # RGB-only policy input; no calibrated extrinsics are claimed.
+  left_arm:
+    config: ../../../../embodiment/arm/tianji_left.yaml
+    options:
+      limit_margin_deg: 3.0
+    hardware:
+      # Command/IK bounds: base range inset by 3 degrees.
+      joint_limits:
+      - [-2.91469985083053, -2.0420352248333655, -2.91469985083053, -2.478367537831948, -2.91469985083053, -0.9948376736367679, -1.5184364492350666]
+      - [2.91469985083053, 2.0420352248333655, 2.91469985083053, 0.9948376736367679, 2.91469985083053, 0.9948376736367679, 1.5184364492350666]
+      # Independent feedback bounds: base range inset by 0.5 degrees.
+      measured_joint_limits:
+      - [-2.9583330821303884, -2.0856684561332237, -2.9583330821303884, -2.522000769131806, -2.9583330821303884, -1.038470904936626, -1.562069680534925]
+      - [2.9583330821303884, 2.0856684561332237, 2.9583330821303884, 1.038470904936626, 2.9583330821303884, 1.038470904936626, 1.562069680534925]
+      drag_tool:
+        kine:
+        - -36.745
+        - 0.0
+        - 169.45
+        - 0.0
+        - -90.0
+        - 180.0
+        dynamic:
+        - 0.7592901345868115
+        - -26.297010972083665
+        - -5.114926721017194
+        - 79.87115777180252
+        - 0.008816778161434263
+        - 0.0
+        - 0.0
+        - 0.001
+        - 0.0
+        - 0.0008785353008534495
+  right_arm:
+    config: ../../../../embodiment/arm/tianji_right.yaml
+    options:
+      limit_margin_deg: 3.0
+    hardware:
+      # Command/IK bounds: base range inset by 3 degrees.
+      joint_limits:
+      - [-2.91469985083053, -2.0420352248333655, -2.91469985083053, -2.478367537831948, -2.91469985083053, -0.9599310885968813, -1.5184364492350666]
+      - [2.91469985083053, 2.0420352248333655, 2.91469985083053, 0.9948376736367679, 2.91469985083053, 0.9599310885968813, 1.5184364492350666]
+      # Independent feedback bounds: base range inset by 0.5 degrees.
+      measured_joint_limits:
+      - [-2.9583330821303884, -2.0856684561332237, -2.9583330821303884, -2.522000769131806, -2.9583330821303884, -1.0035643198967394, -1.562069680534925]
+      - [2.9583330821303884, 2.0856684561332237, 2.9583330821303884, 1.038470904936626, 2.9583330821303884, 1.0035643198967394, 1.562069680534925]
+      drag_tool:
+        kine:
+        - -36.745
+        - 0.0
+        - 169.45
+        - 0.0
+        - -90.0
+        - 180.0
+        dynamic:
+        - 0.7388190421557731
+        - -31.69050032486985
+        - -7.5863175968931635
+        - 82.72853176515602
+        - 0.004192653302493302
+        - 0.0
+        - 0.0
+        - 0.001
+        - 0.0
+        - 0.0026402611847252235
+  left_end_effector:
+    config: ../../../../embodiment/end_effector/taccap.yaml
+    hardware:
+      side: left
+    parent: left_arm.flange
+    mount:
+      xyz:
+      - -0.01575
+      - 0.0
+      - 0.0505
+      rpy:
+      - 3.141592653589793
+      - -1.5707963267948966
+      - 0.0
+  right_end_effector:
+    config: ../../../../embodiment/end_effector/taccap.yaml
+    hardware:
+      side: right
+    parent: right_arm.flange
+    mount:
+      xyz:
+      - -0.01575
+      - 0.0
+      - 0.0505
+      rpy:
+      - 3.141592653589793
+      - -1.5707963267948966
+      - 0.0
+  left_wrist_camera:
+    config: ../../../../embodiment/sensor/taccap.yaml
+    parent: left_end_effector.base
+    mount: null
+  right_wrist_camera:
+    config: ../../../../embodiment/sensor/taccap.yaml
+    parent: right_end_effector.base
+    mount: null
+groups:
+  left_arm:
+    arm: left_arm
+    end_effector: left_end_effector
+  right_arm:
+    arm: right_arm
+    end_effector: right_end_effector
+action_contract:
+  group_dims:
+    left_arm: 8
+    right_arm: 8
+  group_prefixes:
+    left_arm: left
+    right_arm: right
+  gripper_dofs: 1

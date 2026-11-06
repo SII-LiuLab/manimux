@@ -1,0 +1,70 @@
+# Live configuration; Task label does not replace the model instruction.
+local: ../../../../../../.local/pack_plate/pi05_checkpoint_comparison_20261019/station.yaml
+run:
+  task: place each plate into a bubble wrap sleeve
+  output_dir: ./data/experiments/pi05-pack-plate-checkpoint-comparison-20261022/ratio_umi100_tele000_29999/serial32
+  experiment_name: pi05-pack-plate-checkpoint-comparison-20261022
+  condition: ratio_umi100_tele000_29999-serial32
+  max_control_steps: 6000
+  warmup_before_start: true
+  task_label: Pack plate
+robot:
+  type: tianji_taccap
+  config: robot.yaml
+  control_hz: 100.0
+  group_dims:
+    left_arm: 8
+    right_arm: 8
+  group_layouts:
+    left_arm:
+      arm_dofs: 7
+      gripper_dofs: 1
+    right_arm:
+      arm_dofs: 7
+      gripper_dofs: 1
+  options:
+    execute: true
+    end_effector_control: true
+    hardware:
+      stale_timeout_s: 0.1
+    component_hardware:
+      left_end_effector:
+        read_hz: 100.0
+        control_mode: force_position
+        grasp_torque_nm: 1.0
+        close_speed_radps: 3.0
+      right_end_effector:
+        read_hz: 100.0
+        control_mode: force_position
+        grasp_torque_nm: 1.0
+        close_speed_radps: 3.0
+sensors:
+- name: tianji_wrist_cameras
+  driver: manimux.embodiments.sensor.camera_server.timestamped:build_sensor
+  service: camera
+  options:
+    camera_names:
+    - taccap_left
+    - taccap_right
+    max_frame_age_sec: 0.15
+    clock_jump_tolerance_s: 0.02
+    output_names:
+      taccap_left: left_wrist_camera
+      taccap_right: right_wrist_camera
+policy:
+  config: policy-runtime.yaml
+robogui:
+  enabled: true
+  robot: tianji-taccap
+  policy_label: Pi05 / UMI 100 + Teleop 000 / 29999 / Serial 32
+recording:
+  enabled: true
+inference:
+  config: serial32.yaml
+executor:
+  config: executor.yaml
+policy_server:
+  checkpoint_low_memory: true
+  config: ../../../../policy/pi05/tianji/pack_plate/ratio-umi100-tele000-step29999.yaml
+camera_server:
+  config: ../../../../embodiment/sensor/cameras/taccap_2_views.yaml

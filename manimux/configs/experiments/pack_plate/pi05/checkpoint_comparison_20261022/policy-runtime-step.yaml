@@ -1,0 +1,24 @@
+# Pose-only decode; execution.ik.backend selects the per-tick solver.
+# Explicit aperture mapping preserves the chunk profile with direct execution.
+worker: xpolicylab_ws
+service: policy
+adapter:
+  type: manimux.policy_adapter.pi05.tianji:Pi05PackPlateTacCapAdapter
+  camera_map:
+    cam_left_wrist: left_wrist_camera
+    cam_right_wrist: right_wrist_camera
+  gripper_clip_tolerance: 0.1
+  ik_validation_dt_s: 0.004
+  ik_backend: analytic
+  gripper_mapping:
+    mode: curve
+    deadzone: 0.1
+    exponent: 1.05
+action_decoding: inline
+action_dt_s: 0.03333333333333333
+horizon_policy_steps: 32
+timeout_s: 120.0
+startup_timeout_s: 180.0
+options:
+  connect_timeout_s: 60.0
+  request_timeout_s: 120.0

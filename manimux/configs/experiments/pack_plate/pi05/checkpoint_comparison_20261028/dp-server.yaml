@@ -1,0 +1,53 @@
+policy_name: UMI_DP
+protocol: ws
+host: 127.0.0.1
+port: 8560
+bench_name: ManiMux
+task_name: pack_plate
+ckpt_name: null
+env_cfg_type: tianji_umi
+robot_action_dim_info:
+  arm_dim:
+  - 7
+  - 7
+  ee_dim:
+  - 1
+  - 1
+num_envs: 1
+seed: 0
+action_type: ee
+gpu_id: 0
+eval_batch: false
+checkpoint_path: /home/jw/Desktop/project/CalibWrist/outputs/pack_plate_all_scratch_20261028/checkpoints/latest.ckpt
+checkpoint_file: latest.ckpt
+device: cuda:0
+source_fps: 30
+observation_tolerance_s: 0.04
+rtc_guidance: null
+expected_artifacts: &id001
+  policy_family: umi_dp
+  observation_profile: tianji_umi_relative2
+  checkpoint_path: /home/jw/Desktop/project/CalibWrist/outputs/pack_plate_all_scratch_20261028/checkpoints/latest.ckpt
+  checkpoint_file: latest.ckpt
+  checkpoint_sha256: a34f03ecf4c5b82c0d325710d555eb6ebecda0fdb0e65a13ff87fa3b6f9876df
+  training_config_sha256: 627b62d68f797de03e9fa3e77a28d3336f4dbc37b582bc45fbd2cd601c2988b8
+  weight_key: ema_model
+  action_horizon: 32
+  action_dt_s: 0.03333333333333333
+  first_action_offset_s: 0.03333333333333333
+  source_fps: 30.0
+  action_down_sample_steps: 1
+  observation_horizon: 2
+  observation_period_s: 0.1
+  num_inference_steps: 16
+  rgb_normalize: true
+  inference_augmentation: checkpoint
+  action_semantics: absolute_per_arm_base_xyz_wxyz
+  rtc_guidance: null
+  train_time_rtc: true
+  trained_prefix_lengths:
+  - 0
+  - 4
+  - 5
+backend_identity:
+  model: *id001

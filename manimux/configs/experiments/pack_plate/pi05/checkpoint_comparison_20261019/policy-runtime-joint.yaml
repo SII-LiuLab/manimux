@@ -1,0 +1,17 @@
+# Native absolute 7+1 / 7+1 joint targets. No FK, IK or pose anchor conversion.
+worker: xpolicylab_ws
+service: policy
+adapter:
+  type: manimux.policy_adapter.joint:JointAdapter
+  camera_map:
+    cam_left_wrist: left_wrist_camera
+    cam_right_wrist: right_wrist_camera
+action_decoding: inline
+action_dt_s: 0.03333333333333333
+horizon_policy_steps: 32
+timeout_s: 120.0
+startup_timeout_s: 180.0
+options:
+  connect_timeout_s: 60.0
+  request_timeout_s: 120.0
+  action_format: joint

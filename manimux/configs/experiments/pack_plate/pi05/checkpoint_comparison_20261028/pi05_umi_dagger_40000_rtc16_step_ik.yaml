@@ -1,0 +1,96 @@
+local: ../../../../../../.local/pack_plate/pi05_checkpoint_comparison_20261019/station.yaml
+run:
+  task: place each plate into a bubble wrap sleeve
+  output_dir: ./data/experiments/pack-plate-20261028/pi05_umi_dagger_40000_rtc16_step_ik
+  experiment_name: pack-plate-20261028
+  condition: pi05_umi_dagger_40000_rtc16_step_ik
+  max_control_steps: 30000
+  warmup_before_start: true
+  task_label: Pack plate
+robot:
+  type: tianji_taccap
+  config: robot.yaml
+  control_hz: 100.0
+  group_dims:
+    left_arm: 8
+    right_arm: 8
+  group_layouts:
+    left_arm:
+      arm_dofs: 7
+      gripper_dofs: 1
+    right_arm:
+      arm_dofs: 7
+      gripper_dofs: 1
+  options:
+    execute: true
+    end_effector_control: true
+    hardware:
+      stale_timeout_s: 0.1
+    component_hardware:
+      left_end_effector:
+        read_hz: 100.0
+        control_mode: force_position
+        grasp_torque_nm: 1.0
+        close_speed_radps: 3.0
+      right_end_effector:
+        read_hz: 100.0
+        control_mode: force_position
+        grasp_torque_nm: 1.0
+        close_speed_radps: 3.0
+sensors:
+- name: tianji_wrist_cameras
+  driver: manimux.embodiments.sensor.camera_server.timestamped:build_sensor
+  service: camera
+  options:
+    camera_names:
+    - taccap_left
+    - taccap_right
+    max_frame_age_sec: 0.15
+    clock_jump_tolerance_s: 0.02
+    output_names:
+      taccap_left: left_wrist_camera
+      taccap_right: right_wrist_camera
+policy:
+  config: policy-runtime-step.yaml
+robogui:
+  enabled: true
+  robot: tianji-taccap
+  policy_label: Pi05 / UMI DAgger / 40000 / Step DiffIK / RTC 16 / Step DiffIK
+recording:
+  enabled: true
+inference:
+  decode_forecast_size: 0
+  expected_decode_s: 0.0
+  config: rtc16.yaml
+executor:
+  config: executor.yaml
+  type: direct
+  motion_limits:
+    arm:
+      max_acceleration: 160.0
+policy_server:
+  checkpoint_low_memory: true
+  config: pi05-server.yaml
+camera_server:
+  config: ../../../../embodiment/sensor/cameras/taccap_2_views.yaml
+execution:
+  ik:
+    mode: step
+    backend: diff
+    budget_ms: 5.0
+    pose_speed_limit: null
+    diff_ik:
+      max_velocity_rad_s: 1.5707963267948966
+      max_acceleration_rad_s2: 80.0
+      elbow_guard_deg: 1.0
+      w_pos: 1.0
+      w_rot: 1.0
+      lam: 0.001
+      limit_margin_deg: null
+      j67_margin_deg: null
+      mu_nullspace: 1000.0
+      nullspace_activation_deg: 25.0
+      nullspace_weights: null
+      max_lag_mm: 5.0
+      max_lag_deg: null
+      lag_policy: report

@@ -1,0 +1,372 @@
+# Pack plate: nine checkpoints; TCP chunk/step DiffIK and native joints; one resident model.
+# First entry is the initial selection. Existing experiments are not referenced.
+policy_services:
+  Pi05 / Joint-FK + TacCap mix / 29999:
+    cwd: ../../../../../..
+    command:
+    - XPolicyLab/policy/Pi_05/openpi/.venv/bin/python
+    - -m
+    - manimux.servers.pi05
+    - --experiment
+    - '{config}'
+    - --local
+    - '{local}'
+    env:
+      PYTHONPATH: null
+      XLA_PYTHON_CLIENT_PREALLOCATE: 'false'
+    startup_timeout_s: 600
+    stop_timeout_s: 30
+  Pi05 / Full zero-state / 59999:
+    cwd: ../../../../../..
+    command:
+    - XPolicyLab/policy/Pi_05/openpi/.venv/bin/python
+    - -m
+    - manimux.servers.pi05
+    - --experiment
+    - '{config}'
+    - --local
+    - '{local}'
+    env:
+      PYTHONPATH: null
+      XLA_PYTHON_CLIENT_PREALLOCATE: 'false'
+    startup_timeout_s: 600
+    stop_timeout_s: 30
+  Pi05 / Full zero-state / 20000:
+    cwd: ../../../../../..
+    command:
+    - XPolicyLab/policy/Pi_05/openpi/.venv/bin/python
+    - -m
+    - manimux.servers.pi05
+    - --experiment
+    - '{config}'
+    - --local
+    - '{local}'
+    env:
+      PYTHONPATH: null
+      XLA_PYTHON_CLIENT_PREALLOCATE: 'false'
+    startup_timeout_s: 600
+    stop_timeout_s: 30
+  Pi05 / Inter-hand relative / 59999:
+    cwd: ../../../../../..
+    command:
+    - XPolicyLab/policy/Pi_05/openpi/.venv/bin/python
+    - -m
+    - manimux.servers.pi05
+    - --experiment
+    - '{config}'
+    - --local
+    - '{local}'
+    env:
+      PYTHONPATH: null
+      XLA_PYTHON_CLIENT_PREALLOCATE: 'false'
+    startup_timeout_s: 600
+    stop_timeout_s: 30
+  Pi05 / Inter-hand relative / 20000:
+    cwd: ../../../../../..
+    command:
+    - XPolicyLab/policy/Pi_05/openpi/.venv/bin/python
+    - -m
+    - manimux.servers.pi05
+    - --experiment
+    - '{config}'
+    - --local
+    - '{local}'
+    env:
+      PYTHONPATH: null
+      XLA_PYTHON_CLIENT_PREALLOCATE: 'false'
+    startup_timeout_s: 600
+    stop_timeout_s: 30
+  Pi05 / Wrist-only legacy / 59999:
+    cwd: ../../../../../..
+    command:
+    - XPolicyLab/policy/Pi_05/openpi/.venv/bin/python
+    - -m
+    - manimux.servers.pi05
+    - --experiment
+    - '{config}'
+    - --local
+    - '{local}'
+    env:
+      PYTHONPATH: null
+      XLA_PYTHON_CLIENT_PREALLOCATE: 'false'
+    startup_timeout_s: 600
+    stop_timeout_s: 30
+  Pi05 / Joint-FK + TacCap mix / 29999 / Step DiffIK:
+    cwd: ../../../../../..
+    command:
+    - XPolicyLab/policy/Pi_05/openpi/.venv/bin/python
+    - -m
+    - manimux.servers.pi05
+    - --experiment
+    - '{config}'
+    - --local
+    - '{local}'
+    env:
+      PYTHONPATH: null
+      XLA_PYTHON_CLIENT_PREALLOCATE: 'false'
+    startup_timeout_s: 600
+    stop_timeout_s: 30
+  Pi05 / Full zero-state / 59999 / Step DiffIK:
+    cwd: ../../../../../..
+    command:
+    - XPolicyLab/policy/Pi_05/openpi/.venv/bin/python
+    - -m
+    - manimux.servers.pi05
+    - --experiment
+    - '{config}'
+    - --local
+    - '{local}'
+    env:
+      PYTHONPATH: null
+      XLA_PYTHON_CLIENT_PREALLOCATE: 'false'
+    startup_timeout_s: 600
+    stop_timeout_s: 30
+  Pi05 / Full zero-state / 20000 / Step DiffIK:
+    cwd: ../../../../../..
+    command:
+    - XPolicyLab/policy/Pi_05/openpi/.venv/bin/python
+    - -m
+    - manimux.servers.pi05
+    - --experiment
+    - '{config}'
+    - --local
+    - '{local}'
+    env:
+      PYTHONPATH: null
+      XLA_PYTHON_CLIENT_PREALLOCATE: 'false'
+    startup_timeout_s: 600
+    stop_timeout_s: 30
+  Pi05 / Inter-hand relative / 59999 / Step DiffIK:
+    cwd: ../../../../../..
+    command:
+    - XPolicyLab/policy/Pi_05/openpi/.venv/bin/python
+    - -m
+    - manimux.servers.pi05
+    - --experiment
+    - '{config}'
+    - --local
+    - '{local}'
+    env:
+      PYTHONPATH: null
+      XLA_PYTHON_CLIENT_PREALLOCATE: 'false'
+    startup_timeout_s: 600
+    stop_timeout_s: 30
+  Pi05 / Inter-hand relative / 20000 / Step DiffIK:
+    cwd: ../../../../../..
+    command:
+    - XPolicyLab/policy/Pi_05/openpi/.venv/bin/python
+    - -m
+    - manimux.servers.pi05
+    - --experiment
+    - '{config}'
+    - --local
+    - '{local}'
+    env:
+      PYTHONPATH: null
+      XLA_PYTHON_CLIENT_PREALLOCATE: 'false'
+    startup_timeout_s: 600
+    stop_timeout_s: 30
+  Pi05 / Wrist-only legacy / 59999 / Step DiffIK:
+    cwd: ../../../../../..
+    command:
+    - XPolicyLab/policy/Pi_05/openpi/.venv/bin/python
+    - -m
+    - manimux.servers.pi05
+    - --experiment
+    - '{config}'
+    - --local
+    - '{local}'
+    env:
+      PYTHONPATH: null
+      XLA_PYTHON_CLIENT_PREALLOCATE: 'false'
+    startup_timeout_s: 600
+    stop_timeout_s: 30
+  Pi05 / Joint-FK TCP / 29999:
+    cwd: ../../../../../..
+    command:
+    - XPolicyLab/policy/Pi_05/openpi/.venv/bin/python
+    - -m
+    - manimux.servers.pi05
+    - --experiment
+    - '{config}'
+    - --local
+    - '{local}'
+    env:
+      PYTHONPATH: null
+      XLA_PYTHON_CLIENT_PREALLOCATE: 'false'
+    startup_timeout_s: 600
+    stop_timeout_s: 30
+  Pi05 / Joint-FK TCP / 29999 / Step DiffIK:
+    cwd: ../../../../../..
+    command:
+    - XPolicyLab/policy/Pi_05/openpi/.venv/bin/python
+    - -m
+    - manimux.servers.pi05
+    - --experiment
+    - '{config}'
+    - --local
+    - '{local}'
+    env:
+      PYTHONPATH: null
+      XLA_PYTHON_CLIENT_PREALLOCATE: 'false'
+    startup_timeout_s: 600
+    stop_timeout_s: 30
+  Pi05 / Joint / Wrist / 29999:
+    cwd: ../../../../../..
+    command:
+    - XPolicyLab/policy/Pi_05/openpi/.venv/bin/python
+    - -m
+    - manimux.servers.pi05
+    - --experiment
+    - '{config}'
+    - --local
+    - '{local}'
+    env:
+      PYTHONPATH: null
+      XLA_PYTHON_CLIENT_PREALLOCATE: 'false'
+    startup_timeout_s: 600
+    stop_timeout_s: 30
+  Pi05 / Joint / 3 cameras / 29999:
+    cwd: ../../../../../..
+    command:
+    - XPolicyLab/policy/Pi_05/openpi/.venv/bin/python
+    - -m
+    - manimux.servers.pi05
+    - --experiment
+    - '{config}'
+    - --local
+    - '{local}'
+    env:
+      PYTHONPATH: null
+      XLA_PYTHON_CLIENT_PREALLOCATE: 'false'
+    startup_timeout_s: 600
+    stop_timeout_s: 30
+experiments:
+- id: joint_fk_taccap_mix_29999_serial32
+  policy: Pi05 / Joint-FK + TacCap mix / 29999
+  label: Serial 32
+  config: joint_fk_taccap_mix_29999_serial32.yaml
+- id: joint_fk_taccap_mix_29999_rtc16
+  policy: Pi05 / Joint-FK + TacCap mix / 29999
+  label: RTC 16
+  config: joint_fk_taccap_mix_29999_rtc16.yaml
+- id: full_zero_state_59999_serial32
+  policy: Pi05 / Full zero-state / 59999
+  label: Serial 32
+  config: full_zero_state_59999_serial32.yaml
+- id: full_zero_state_59999_rtc16
+  policy: Pi05 / Full zero-state / 59999
+  label: RTC 16
+  config: full_zero_state_59999_rtc16.yaml
+- id: full_zero_state_20000_serial32
+  policy: Pi05 / Full zero-state / 20000
+  label: Serial 32
+  config: full_zero_state_20000_serial32.yaml
+- id: full_zero_state_20000_rtc16
+  policy: Pi05 / Full zero-state / 20000
+  label: RTC 16
+  config: full_zero_state_20000_rtc16.yaml
+- id: inter_hand_59999_serial32
+  policy: Pi05 / Inter-hand relative / 59999
+  label: Serial 32
+  config: inter_hand_59999_serial32.yaml
+- id: inter_hand_59999_rtc16
+  policy: Pi05 / Inter-hand relative / 59999
+  label: RTC 16
+  config: inter_hand_59999_rtc16.yaml
+- id: inter_hand_20000_serial32
+  policy: Pi05 / Inter-hand relative / 20000
+  label: Serial 32
+  config: inter_hand_20000_serial32.yaml
+- id: inter_hand_20000_rtc16
+  policy: Pi05 / Inter-hand relative / 20000
+  label: RTC 16
+  config: inter_hand_20000_rtc16.yaml
+- id: wrist_only_59999_serial32
+  policy: Pi05 / Wrist-only legacy / 59999
+  label: Serial 32
+  config: wrist_only_59999_serial32.yaml
+- id: wrist_only_59999_rtc16
+  policy: Pi05 / Wrist-only legacy / 59999
+  label: RTC 16
+  config: wrist_only_59999_rtc16.yaml
+- id: joint_fk_taccap_mix_29999_serial32_step_ik
+  policy: Pi05 / Joint-FK + TacCap mix / 29999 / Step DiffIK
+  label: Serial 32 / Step DiffIK
+  config: joint_fk_taccap_mix_29999_serial32_step_ik.yaml
+- id: joint_fk_taccap_mix_29999_rtc16_step_ik
+  policy: Pi05 / Joint-FK + TacCap mix / 29999 / Step DiffIK
+  label: RTC 16 / Step DiffIK
+  config: joint_fk_taccap_mix_29999_rtc16_step_ik.yaml
+- id: full_zero_state_59999_serial32_step_ik
+  policy: Pi05 / Full zero-state / 59999 / Step DiffIK
+  label: Serial 32 / Step DiffIK
+  config: full_zero_state_59999_serial32_step_ik.yaml
+- id: full_zero_state_59999_rtc16_step_ik
+  policy: Pi05 / Full zero-state / 59999 / Step DiffIK
+  label: RTC 16 / Step DiffIK
+  config: full_zero_state_59999_rtc16_step_ik.yaml
+- id: full_zero_state_20000_serial32_step_ik
+  policy: Pi05 / Full zero-state / 20000 / Step DiffIK
+  label: Serial 32 / Step DiffIK
+  config: full_zero_state_20000_serial32_step_ik.yaml
+- id: full_zero_state_20000_rtc16_step_ik
+  policy: Pi05 / Full zero-state / 20000 / Step DiffIK
+  label: RTC 16 / Step DiffIK
+  config: full_zero_state_20000_rtc16_step_ik.yaml
+- id: inter_hand_59999_serial32_step_ik
+  policy: Pi05 / Inter-hand relative / 59999 / Step DiffIK
+  label: Serial 32 / Step DiffIK
+  config: inter_hand_59999_serial32_step_ik.yaml
+- id: inter_hand_59999_rtc16_step_ik
+  policy: Pi05 / Inter-hand relative / 59999 / Step DiffIK
+  label: RTC 16 / Step DiffIK
+  config: inter_hand_59999_rtc16_step_ik.yaml
+- id: inter_hand_20000_serial32_step_ik
+  policy: Pi05 / Inter-hand relative / 20000 / Step DiffIK
+  label: Serial 32 / Step DiffIK
+  config: inter_hand_20000_serial32_step_ik.yaml
+- id: inter_hand_20000_rtc16_step_ik
+  policy: Pi05 / Inter-hand relative / 20000 / Step DiffIK
+  label: RTC 16 / Step DiffIK
+  config: inter_hand_20000_rtc16_step_ik.yaml
+- id: wrist_only_59999_serial32_step_ik
+  policy: Pi05 / Wrist-only legacy / 59999 / Step DiffIK
+  label: Serial 32 / Step DiffIK
+  config: wrist_only_59999_serial32_step_ik.yaml
+- id: wrist_only_59999_rtc16_step_ik
+  policy: Pi05 / Wrist-only legacy / 59999 / Step DiffIK
+  label: RTC 16 / Step DiffIK
+  config: wrist_only_59999_rtc16_step_ik.yaml
+- id: joint_fk_tcp_29999_serial32
+  policy: Pi05 / Joint-FK TCP / 29999
+  label: Serial 32
+  config: joint_fk_tcp_29999_serial32.yaml
+- id: joint_fk_tcp_29999_rtc16
+  policy: Pi05 / Joint-FK TCP / 29999
+  label: RTC 16
+  config: joint_fk_tcp_29999_rtc16.yaml
+- id: joint_fk_tcp_29999_serial32_step_ik
+  policy: Pi05 / Joint-FK TCP / 29999 / Step DiffIK
+  label: Serial 32 / Step DiffIK
+  config: joint_fk_tcp_29999_serial32_step_ik.yaml
+- id: joint_fk_tcp_29999_rtc16_step_ik
+  policy: Pi05 / Joint-FK TCP / 29999 / Step DiffIK
+  label: RTC 16 / Step DiffIK
+  config: joint_fk_tcp_29999_rtc16_step_ik.yaml
+- id: joint_wrist_29999_serial32
+  policy: Pi05 / Joint / Wrist / 29999
+  label: Serial 32
+  config: joint_wrist_29999_serial32.yaml
+- id: joint_wrist_29999_rtc16
+  policy: Pi05 / Joint / Wrist / 29999
+  label: RTC 16
+  config: joint_wrist_29999_rtc16.yaml
+- id: joint_3cam_29999_serial32
+  policy: Pi05 / Joint / 3 cameras / 29999
+  label: Serial 32
+  config: joint_3cam_29999_serial32.yaml
+- id: joint_3cam_29999_rtc16
+  policy: Pi05 / Joint / 3 cameras / 29999
+  label: RTC 16
+  config: joint_3cam_29999_rtc16.yaml
