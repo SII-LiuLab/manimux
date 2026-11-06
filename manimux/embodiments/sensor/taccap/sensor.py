@@ -82,12 +82,15 @@ class TacCapCamera:
         if autostart:
             self.start()
 
+    def _resolve_device(self) -> Path:
+        return find_camera_device(self._camera_serial, self._by_id_root)
+
     def start(self) -> None:
         if self._started:
             return
         if self._camera is not None:
             raise RuntimeError("camera cleanup incomplete; call close before restarting")
-        self.device = find_camera_device(self._camera_serial, self._by_id_root)
+        self.device = self._resolve_device()
         taccap = importlib.import_module("xense.taccap")
         self._camera = taccap.Camera(
             str(self.device), self._width, self._height, float(self._fps), True
@@ -184,6 +187,8 @@ class TacCapSensor(SensorBase):
     settings; start opens the V4L camera, never the gripper serial connection.
     """
 
+    _camera_type = TacCapCamera
+
     def __init__(
         self, *, name: str, camera_serial: str | None = None, clock: Clock | None = None, **options
     ):
@@ -198,7 +203,7 @@ class TacCapSensor(SensorBase):
         if not self._serial:
             raise ValueError("camera_serial is required to start this sensor")
         if self._camera is None:
-            self._camera = TacCapCamera(
+            self._camera = self._camera_type(
                 self._serial, clock=self._clock, autostart=False, **self._options
             )
         self._camera.start()

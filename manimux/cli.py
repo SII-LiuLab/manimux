@@ -197,6 +197,9 @@ def bind_station(config: dict, local: str | Path) -> dict:
             options.get("component_hardware", {}), components
         )
     for sensor in raw.get("sensors", []):
+        component = sensor.get("component")
+        if component in components:
+            sensor["options"] = _merge(sensor.get("options", {}), components[component])
         service = sensor.get("service")
         if service in services:
             sensor.setdefault("options", {})["endpoint"] = services[service]["endpoint"]

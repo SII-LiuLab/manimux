@@ -1,0 +1,8 @@
+# Explicit V4L path supplied by local.robot.components.<name>.device_path.
+type: sensor
+implementation: manimux.embodiments.sensor.uvc:UVCSensor
+options: {}
+hardware:
+  width: 1280
+  height: 720
+  fps: 30
