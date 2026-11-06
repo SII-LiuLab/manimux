@@ -74,9 +74,10 @@ Follow the stages that remain unfinished; do not repeat an already working deplo
    Prepare may connect/move the robot as configured. Each attempt gets a new rollout;
    reset the scene per protocol. Report generation is a separate offline step below.
 
-Selection is idle-only after recovery/evaluation. The catalog is loaded at serve
-startup: disk edits require a runtime restart; model/camera changes may also require
-those services to restart. Never silently restart an active experiment. Templates
+Selection and Reload config are idle-only after recovery/evaluation. Reload config
+re-reads the catalog and its referenced YAMLs without restarting serve. Managed model
+changes restart the owned model; external model/camera changes require their services
+to restart. Code changes still require a restart. Never silently restart an active experiment. Templates
 track layouts/repeats; they do not automatically randomize or schedule a campaign.
 
 ## Evaluate saved trials

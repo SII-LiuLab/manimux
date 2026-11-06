@@ -28,6 +28,29 @@ assemblies retain 100 Hz, 9 deg/s, 0.5 degrees and 5 seconds. Experiment
 `robot.options.hardware.home_motion` may override individual fields; these options
 belong to the assembly and are not forwarded to the arm SDK.
 
+Tianji `hardware.check_measured_position_limits` defaults to `true`. Each arm's
+`hardware.joint_limits` bounds commands. Optional `hardware.measured_joint_limits`
+supplies an independent seven-joint feedback box in radians; it must enclose the
+command box and defaults to the command box when omitted. Feedback outside this
+box stops dispatch and reports the side, joint number, measured angle and bounds.
+Command bounds allow only float64 roundoff (16 eps times each joint's bound
+scale, at least 1 radian); accepted boundary roundoff is snapped to the exact
+configured box before dispatch. Larger excursions are rejected with the joint,
+target, bounds and excess in radians. This is not a physical limit allowance.
+Setting the switch to `false` skips only that measured-range check. Target bounds,
+finite/fresh feedback, hardware faults, mode, speed readback and tracking-error
+checks remain enabled. Runtime has independent measured bounds and a matching
+switch under `executor.command_safety`; configure both layers consistently.
+Tianji `hardware.tracking_error_policy` controls the separate command-to-feedback
+angle threshold `max_tracking_error_deg`: `abort` (default) stops dispatch;
+`report` continues dispatch and logs the largest joint error, target, measured
+angle and threshold at most once per second per arm. It does not change the IK
+`lag_policy` or any other driver checks. The 1022 Pi05 ratio catalog selects
+`report` with the existing 10 degree threshold.
+The 1019 Pi05 pack-plate catalog enables both checks, with a 3 degree command/IK
+margin and a separate 0.5 degree measured margin, each inset from the base joint
+range. Right J6 is therefore ±55 degrees for commands and ±57.5 for feedback.
+
 Document these lifecycle details in the integration's runbook:
 
 - **Read-only execution:** `execute: false` permits only documented read-only
@@ -207,6 +230,15 @@ driver/timestamp conversion before claiming all paths preserve acquisition time.
 Verify RGB ordering, cache behavior, selected source names and lifecycle with a
 fake device. Depth/tactile channels need a declared representation, not a silent
 reinterpretation of the RGB frame.
+
+`manimux.embodiments.sensor.uvc:build_sensor` supports a runtime-owned, explicit
+V4L `device_path`. It reuses the TacCap SDK's generic MJPEG callback capture,
+without opening a gripper link or auto-selecting a camera. A sensor may declare
+`component: <name>`; station binding merges `robot.components.<name>` into its
+options. Declare that sensor component in the robot assembly as well. Construction
+is inert; start opens video, close releases it, and timestamps denote host receipt.
+This lets a three-camera policy own its main view only during its rollout while
+retaining the shared two-wrist camera service.
 
 ## Concrete implementation starting points
 

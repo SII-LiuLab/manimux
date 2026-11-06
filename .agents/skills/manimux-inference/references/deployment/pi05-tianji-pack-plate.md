@@ -90,7 +90,103 @@ step IK near the configured Home pose. It does not establish real-model rollout
 quality, sustained worst-case timing or physical task success. Native IK cannot
 be interrupted; late results are held instead of dispatched.
 
-## Contract and artifact
+## Managed checkpoint comparison (2026-10-19)
+
+`manimux/configs/experiments/pack_plate/pi05/checkpoint_comparison_20261019/catalog.yaml`
+contains nine checkpoints after the 2026-10-20 integration: seven TCP checkpoints
+with chunk/step DiffIK and two native-joint checkpoints without IK. Each offers
+Serial 32 and RTC 16 (32 choices, 16 policy groups). Step variants have separate policy
+groups ending in `/ Step DiffIK`, inline pose decoding and direct execution at
+pi rad/s executor/runtime limits and a pi/2 rad/s QP cap with a 5 ms shared IK budget. The independent QP-cap code change requires one runtime restart. The original chunk Serial configuration is first. The adjacent README
+documents the independent station, frozen control snapshots, training metadata,
+normalization checksum and launch commands. `launch.sh check` is offline;
+`launch.sh runtime` starts the selected model automatically. The Task display label
+is Pack plate, while each model retains its original instruction.
+
+`Joint-FK TCP / 29999` uses the existing relative-TCP adapter.
+`Joint / Wrist / 29999` and `Joint / 3 cameras / 29999` use measured absolute
+16-D left/right joint state and absolute joint targets through `JointAdapter`.
+The 3-camera choice starts a runtime-owned main UVC sensor with its explicit
+`device_path` in the private station. It shares the unchanged wrist camera server.
+Restart runtime once for these code changes; subsequent YAML-only edits can use
+Reload config while idle. No real-weight forward or camera capture was run for
+these three exports during integration; existing services were preserved.
+
+The new recipe remains a 20-D TCP-relative, zero-pose, two-wrist-camera profile;
+Joint-FK describes training labels. Its training metadata confirms full Gemma
+variants, 32 steps at 30 Hz and the existing axis/Rot6D convention. The original
+training transforms are not bundled. Real-weight inference and hardware validation
+are still separate from contract/configuration checks.
+
+## UMI half-speed H50 checkpoint (2026-11-06)
+
+The existing `checkpoint_comparison_20261028/catalog.yaml` now also contains
+`Pi05 / UMI Half Speed H50 / 29999` and its `/ Step DiffIK` group. Existing
+UMI Only, UMI DAgger and DP entries retain their configuration and order.
+The new checkpoint adds nine choices: chunk Serial 50; RTC 16 with None,
+Blend 2 or Waypoint; step Serial 50; step RTC 16 with None or Blend 2;
+and step RTC 12 / Beta 10 / Skip 1 with Blend 1 or Blend 2.
+
+The recipe is
+`manimux/configs/policy/pi05/tianji/pack_plate/umi-half-speed-h50-step29999.yaml`.
+It selects the requested
+`pi05-plate-umi-half-b64-h50-30k-dist-p4-20261105-152316-final-29999/checkpoint-29999`
+under the station's `/home/jw/Desktop/policy` root. Normalization comes only from
+that checkpoint's `assets/umi-half-speed-h50/norm_stats.json`, SHA256
+`6dc735554aef5d2d50449a2188bab49eeabdcdfdf7747b97f1886ace5297d39c`.
+The Orbax metadata has no LoRA leaves. The recipe retains full Gemma 2B/300M,
+20 native coordinates padded to 32 model dimensions and a 50-step horizon.
+The operator confirmed half-speed training resampling, 30 Hz action timing,
+two wrist cameras, zero-pose state and current-TCP-relative actions on 2026-11-06.
+Do not halve the runtime rate. The training source is not bundled;
+`train_config_name` reconstructs deployment transforms rather than claiming an
+original training job name. The task instruction remains
+`place each plate into a bubble wrap sleeve`.
+
+Use the same isolated station at
+`.local/pack_plate/pi05_checkpoint_comparison_20261019/station.yaml`:
+robot `192.168.1.190`, left/right TacCap `0041s`/`0042s`, camera ports 5556/5555
+and managed policy port 8574. No station edits are needed. New rollouts go under
+`data/experiments/pack-plate-20261106/` with a separate directory per method.
+The existing Home, gripper, motion limits and `execute: true` settings are retained.
+Prepare can connect and move hardware; Start rollout executes the model.
+
+From `/home/jw/Desktop/project/manimux`, run this read-only check first:
+
+```bash
+bash manimux/configs/experiments/pack_plate/pi05/checkpoint_comparison_20261028/launch.sh check
+```
+
+Then run each command in a separate terminal, from the same directory:
+
+```bash
+# Terminal 1: wrist camera service (reuse an already compatible camera service).
+bash manimux/configs/experiments/pack_plate/pi05/checkpoint_comparison_20261028/launch.sh camera
+
+# Terminal 2: RoboGUI at http://127.0.0.1:8086.
+bash manimux/configs/experiments/pack_plate/pi05/checkpoint_comparison_20261028/launch.sh gui
+
+# Terminal 3: catalog runtime; starts and switches policy servers automatically.
+bash manimux/configs/experiments/pack_plate/pi05/checkpoint_comparison_20261028/launch.sh runtime
+```
+
+Finish any existing rollout and stop its runtime before starting the new runtime.
+This integration changes Python code, so an existing runtime needs one restart;
+Reload config alone is insufficient. The initial selection remains UMI DAgger.
+While idle, choose `Pi05 / UMI Half Speed H50 / 29999` (or its Step DiffIK group),
+select the method and apply the selection. Wait for the managed policy to be ready,
+then Prepare, Activate Warmup, Start rollout, and Finish. Complete or skip evaluation
+before switching again. Do not start a second manual policy server on port 8574.
+
+Validation: the 29-choice/eight-service catalog, adapters and strategies load offline;
+the new recipe passes the model interpreter's `--check`; TacCap 0.4.2 imports and
+required SDK methods were checked without opening hardware. CPU tests cover H32/H50
+native/absolute round trips, default and RTC hooks, metadata, reset and wrong-horizon
+rejection. Real-weight forward inference, service readiness and physical trials have
+not been run. The broader local suite also has unrelated missing XR1 configuration
+and inter-hand checkpoint assets, plus an outdated RTC-default assertion.
+
+## Original wrist-only contract and artifact
 
 - Recipe: `manimux/configs/policy/pi05/tianji/pack_plate/wrist-only-step59999.yaml`
 - Experiment: `manimux/configs/experiments/pack_plate/pi05/tianji_taccap_pi05_wrist_only_step59999.yaml`

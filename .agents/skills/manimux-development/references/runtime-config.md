@@ -64,10 +64,58 @@ selects a client. In both modes, the next Prepare connects the selected worker a
 identity/capabilities before connecting the robot; an unavailable or wrong backend fails
 that attempt and the idle service allows another selection. Multi-task recipes keep deployment
 identity fixed and supply the actual prompt via run.task in each observation.
-Changing model initialization or YAML on disk requires restarting the affected
-service. Public operation and paths: [Task & method switching](../../../../guideline.html#experiment-lists).
+Runtime YAML can be reloaded from RoboGUI while idle; externally managed model
+changes still require restarting that model. Public operation and paths: [Task & method switching](../../../../guideline.html#experiment-lists).
+
+## Idle configuration reload
+
+RoboGUI's **Reload config** sends a persistent `reload_config_request_id` with the
+current `control_run_dir`. `RuntimeSessionService` consumes it only in the idle
+loop, after evaluation/recovery, and publishes `config_reload` availability,
+acknowledgement, status and message in the durable ready heartbeat. The request
+blocks Prepare/selection/recovery until acknowledgement. Active, paused and warmup
+rollouts must Finish first. Stale session IDs and duplicate request IDs cannot
+reapply edits; failed validation retains the previous config/catalog.
+
+CLI supplies a loader callback for the original single YAML or complete catalog,
+preserving `--local`, `--executor` and `--control-timing`. Each reload re-reads all
+referenced presets through the existing loader. The selected ID is retained if
+present, otherwise the refreshed catalog default is used. A session directory
+factory receives the new config/catalog explicitly, so later selections never
+close over an outdated catalog. Successful reload creates new manifest provenance,
+rebuilds idle recovery capabilities without connecting hardware, and clears old
+rollout identity. Prepare still owns runtime construction and hardware connection.
+
+`ManagedPolicyService.reconfigure` restarts only when the resolved serving/I/O
+contract, policy group or launcher changes, or a failed service needs retry.
+Its active shutdown spec is retained even if that group is removed from the list.
+Runtime-only edits reuse the process. Model start failure remains visible through
+the existing failed/retry controls; configuration acceptance is not model readiness.
+External model settings changes produce a restart message. External cameras are
+not managed: recipe, referenced component file or component-binding changes reject
+the reload. Robot identity/group dimensions and model ownership cannot change in
+place. Code changes and RoboGUI geometry need a process restart. No robot-specific
+reload implementation belongs in a driver or assembly.
 
 ## Inference algorithm versus executor
+
+`executor.command_safety.check_measured_position_limits` defaults to `true`.
+Optional `measured_position_lower` / `measured_position_upper` provide a separate
+feedback envelope. Both maps must match the command groups/dimensions, be finite
+and ordered, and enclose `position_lower` / `position_upper`. Explicit measured
+bounds are checked exactly, without the legacy 1 mrad tolerance. Omitting them
+retains the previous command-bound fallback and tolerance. Invalid settings fail
+at config loading even when the measured check is disabled.
+With `check_measured_position_limits: false`, state/reset still validate group
+layout, shape and finite values. Command bounds and rate checks are unaffected,
+including hold commands copied from measured feedback.
+Tianji independently exposes `hardware.measured_joint_limits` per arm and the
+shared `hardware.check_measured_position_limits` switch. The 1019 catalog enables
+both layers with command/IK margins of 3 degrees and measured margins of 0.5
+degrees from the base range. Runtime gripper feedback allowance retains the
+previous ±0.001 normalized-unit tolerance through its explicit measured bounds.
+Installing independent bounds requires a runtime restart; later YAML changes
+can use idle Reload config.
 
 Current experiment entries explicitly select `executor.type: direct` for every
 inference method. New experiment configs follow that selection; Smooth/MPC remain
@@ -349,6 +397,8 @@ the existing referenced-config loading; do not create another schema/merge syste
 - **Inference YAML**, `configs/inference/`: algorithm request/chunk rules.
 - **Executor YAML**, `configs/executor/`: smoothing and command-generation choices.
 - **Experiment run/robogui/recording**: task, output, lifecycle/UI and rollout settings.
+  Optional `run.task_label` changes the catalog's Task dropdown display only;
+  `run.task` remains the policy instruction, selection key and recorded task identity.
   Private training work stays in the ignored root `training/` workspace.
 
 In the list above, `configs/` means `manimux/configs/`.
@@ -424,7 +474,7 @@ previews use the request observation as the IK seed and never enter the Timeline
 History strategies collect measured observations on every warmup tick and may return
 no submission until a valid window is available; UMI DP supplies its measured two-frame
 window to the delegate's warmup builder. Restart `serve` after changing a catalog's
-warmup settings; the catalog is loaded once at service startup.
+warmup settings, or use Reload config while idle to re-read the catalog.
 
 PAINT implements `build_warmup_submission()` for ordinary and anchored-prefix requests.
 Its `warmup_required_calls` requests two successful calls per branch: the first compiles
@@ -555,6 +605,14 @@ no trajectory time stretching is introduced. See
 for the certificate, units and numerical acceptance rules.
 Ordinary joint adapters need no IK mode and reject `step`.
 
+Step DiffIK may additionally set `execution.ik.diff_ik.elbow_guard_deg: 1.0`
+(default null). It requires the step acceleration constraint and preserves the
+initial M6-40 elbow branch in the QP stopping region. Solver reset and timeline
+gaps retain the branch; only lifecycle `ExecutionPipeline.reset(reanchor=True)`
+or warmup selects a new anchor. A seed inside the guard is rejected before
+tracking. See [the DiffIK contract](tianji-diff-ik.md#optional-step-elbow-branch-protection-2026-10-23).
+
+
 Serial/async support all pose-producing IK adapter families. RTC/PAINT require an
 explicit pose condition codec: OpenWAM YAM and XR1 YAM support both; Pi05 Tianji,
 XR1 Tianji and UMI-DP Tianji support RTC. The other adapters reject conditioned
@@ -605,14 +663,6 @@ execution:
 
 `runtime/execution.py:ExecutionPipeline.step` is the active-tick execution entry.
 It does not receive model responses, accept chunks, change Timeline timestamps,
-Step DiffIK may additionally set `execution.ik.diff_ik.elbow_guard_deg: 1.0`
-(default null). It requires the step acceleration constraint and preserves the
-initial M6-40 elbow branch in the QP stopping region. Solver reset and timeline
-gaps retain the branch; only lifecycle `ExecutionPipeline.reset(reanchor=True)`
-or warmup selects a new anchor. A seed inside the guard is rejected before
-tracking. See [the DiffIK contract](tianji-diff-ik.md#optional-step-elbow-branch-protection-2026-10-23).
-
-
 perform safety validation, or send hardware commands. The control loop retains
 those orchestration/lifecycle duties and records returned execution diagnostics.
 

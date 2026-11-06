@@ -169,13 +169,36 @@ root in four terminals, using the same experiment in cameras, model and runtime.
 </code></pre>
 <p>Open <code>http://127.0.0.1:8086</code>. <code>serve</code> waits for GUI preparation; it does not launch the other
 three services. <strong>Prepare can connect hardware and move to the configured start pose.</strong>
-Use <strong>Prepare → adjust layout → Activate Warmup → Start rollout → Finish</strong>.</p><p>Recovery controls follow the connected runtime's declared capabilities and arm selections. When idle Home is available, <strong>Finish rollout</strong> does not home; use <strong>Return Home</strong>, which applies to all configured arms. Otherwise Finish preserves the experiment's <code>home_on_close</code>. Drag and Release finish an active rollout without homing. Tianji Release offers continuous or five-second cooperative hand-guiding when declared; loss of the recovery lease cancels it.</p><p>Pack-plate deployments select <code>tianji_taccap_pack_plate.yaml</code> for the saved <code>pack_plate_start</code> Home. Update older bound configurations and restart the runtime to load a changed assembly.</p><p>
+Use <strong>Prepare → adjust layout → Activate Warmup → Start rollout → Finish</strong>.</p><p>Recovery controls follow the connected runtime's declared capabilities and arm selections. When idle Home is available, <strong>Finish rollout</strong> does not home; use <strong>Return Home</strong>, which applies to all configured arms. Otherwise Finish preserves the experiment's <code>home_on_close</code>. Drag and Release finish an active rollout without homing. Tianji Release offers continuous or five-second cooperative hand-guiding when declared; loss of the recovery lease cancels it. Release does not enforce ManiMux joint-position limits or a five-degree margin; controller faults and feedback remain monitored.</p><p>Pack-plate deployments select <code>tianji_taccap_pack_plate.yaml</code> for the saved <code>pack_plate_start</code> Home. Update older bound configurations and use Reload config while idle to load changed assembly control settings.</p><p>
 Warmup is explicit when <code>run.warmup_before_start: true</code>; otherwise go directly to Start.
 The button appears after Prepare. Both inline and process action decoding are supported;
 UMI DP waits for a measured two-frame observation window. After changing this setting
-in an experiment list, restart <code>manimux serve</code> to reload the catalog.
+in an experiment list, finish the rollout and click <strong>Reload config</strong> to reload the catalog.
 Follow the selected Finish/Home behavior before
 stopping runtime, then stop model, camera and GUI processes.</p>
+<details><summary>Tianji Pi05 UMI Half Speed H50 / 29999 (2026-11-06)</summary>
+<p>The existing 1028 catalog includes <strong>Pi05 / UMI Half Speed H50 / 29999</strong> and
+its <strong>Step DiffIK</strong> group alongside UMI Only and UMI DAgger. It predicts
+50 steps at 30 Hz. Half speed comes from training data resampling; the deployment
+rate remains 30 Hz. Choose Serial 50 or the existing RTC/Blend/Waypoint variants.</p>
+<pre><code class="language-bash">cd /home/jw/Desktop/project/manimux
+# Offline configuration, adapter and Pi05 artifact checks:
+bash manimux/configs/experiments/pack_plate/pi05/checkpoint_comparison_20261028/launch.sh check
+
+# Run each service in a separate terminal from the same directory:
+bash manimux/configs/experiments/pack_plate/pi05/checkpoint_comparison_20261028/launch.sh camera
+bash manimux/configs/experiments/pack_plate/pi05/checkpoint_comparison_20261028/launch.sh gui
+bash manimux/configs/experiments/pack_plate/pi05/checkpoint_comparison_20261028/launch.sh runtime
+</code></pre>
+<p>Open <code>http://127.0.0.1:8086</code>. The runtime manages the model server on port 8574;
+select the new policy and method while idle and apply the selection. Wait for model readiness
+before Prepare. The runtime initially selects the existing UMI DAgger model.
+Restart the old runtime once to load H50 support. Reuse compatible camera/GUI services;
+do not run duplicate services. Prepare can move to Home. Use
+<strong>Prepare → Activate Warmup → Start rollout → Finish</strong>, then complete or skip
+evaluation before switching models. Configuration and CPU checks passed; real-weight
+inference and physical execution remain untested.</p>
+</details>
 <p>For another method, use its YAML in all experiment-aware commands. For another model,
 replace terminal 3 with that model's environment and launcher; do not reuse Pi05's interpreter.</p>
 <details><summary>Other model-server command forms</summary>
@@ -912,7 +935,7 @@ in the experiment YAML. These are overrides to the same RTC experiment:</p>
   temporal_ensemble:
     enabled: false</code></pre>
 <p>The combination flag defaults to false. Explicit false also overrides an enabled referenced preset.
-After changing YAML, finish the current rollout and restart <code>manimux serve --config ...</code>
+After changing YAML, finish the current rollout and click <strong>Reload config</strong>
 before preparing the next trial. The same model server can stay running for this flag change.
 For a controlled comparison, leave the other settings unchanged.</p>
 <p><code>coefficient: 0</code> still averages predictions with equal weights; it does not disable
@@ -1024,6 +1047,29 @@ Apply the asynchronous overrides above for single-inflight or multi-inflight;
 <li>AutoHorizon with RTC, PAINT, BID or AAC sampling/horizon selection.</li>
 </ul>
 <h3 id="further-configuration">Further configuration</h3>
+<h4 id="pi05-1022-rtc-handoff">Pi05 1022 RTC handoff comparison</h4>
+<p>The <code>checkpoint_comparison_20261022/launch.sh runtime</code> catalog offers
+<code>RTC 16 / None</code>, <code>RTC 16 / Blend 2</code> and
+<code>RTC 16 / Waypoint</code> for each of its five data-ratio checkpoints.
+Select the policy group without the <code>Step DiffIK</code> suffix, then select
+the method while idle. Use <strong>Reload config</strong> to load the new catalog
+in an existing idle runtime. Switching these methods within the same policy group
+reuses its model service.</p>
+<p>All three retain RTC 16, beta 5, zero extra skip, 32 predicted rows at 30 Hz,
+process chunk DiffIK, the Smooth executor and the same joint limits. None means
+<code>handoff: blend</code> with <code>blend_policy_steps: 0</code>; it disables
+additional handoff processing, not the common executor smoothing or safety limits.
+Blend 2 uses two source steps of linear blending (about 66.7 ms).
+Waypoint uses <code>handoff: waypoint</code>, zero blending, and adapter limits
+of 0.4 m/s and 1.2 rad/s. It joins from the outgoing reference and limits TCP
+target segments while preserving their row times; it does not bound measured
+physical speed. The first chunk has no outgoing waypoint reference.</p>
+<p>These variants use separate recording conditions and output directories.
+Step DiffIK remains a separate execution comparison: its optional per-tick
+<code>execution.ik.pose_speed_limit</code> is not this decode-time waypoint path.
+Run the catalog's hardware-free checks from the repository root:</p>
+<pre><code class="language-bash">bash manimux/configs/experiments/pack_plate/pi05/checkpoint_comparison_20261022/launch.sh check
+</code></pre>
 <p>For model-specific sampler options, use the <a href=".agents/skills/manimux-inference/references/inference-matrix.md">sampling matrix</a>.
 For executor smoothing, limits and IK, use <a href=".agents/skills/manimux-development/references/execution.md">execution and IK</a>.
 Algorithm sources and derivations are kept in the <a href=".agents/skills/manimux-inference/references/reproductions/README.md">reproduction records</a>;
@@ -1189,6 +1235,12 @@ experiments:
     config: ../experiments/stack_blocks_small/pi05/yam_pi05_mixed300ep_rtc_step30000.yaml
 </code></pre>
 <p><code>id</code> must be unique. <code>config</code> is relative to the list file. Optional <code>label</code> is shown as Method / Config and defaults to the ID. Optional <code>policy</code> groups methods under a model; omitted values belong to the same <code>default</code> group. Task and algorithm come from the resolved experiment. Give parameter variants distinct labels within each policy/task and distinct output directories across the entire list.</p>
+<p>An experiment may set <code>run.task_label: Pack plate</code> for the Task dropdown. This changes only the displayed name: <code>run.task</code> remains the model instruction and task identity. Omit the label to display the instruction as before.</p>
+<p>The Tianji pack-plate Pi05 catalog is <code>manimux/configs/experiments/pack_plate/pi05/checkpoint_comparison_20261019/catalog.yaml</code>. It contains nine checkpoints: seven TCP policies with Serial 32 and RTC 16 in chunk or step DiffIK, plus two native-joint policies with Serial 32 and RTC 16 (32 choices), defaulting to Joint-FK + TacCap mix step29999 / Serial 32 with chunk IK. Select a Policy group ending in <strong>/ Step DiffIK</strong> for the new per-tick variants: inline pose decoding, direct execution, pi rad/s executor/runtime arm limits, a pi/2 rad/s DiffIK cap and a shared 5 ms IK budget. Original chunk configurations are retained. The added <strong>Joint-FK TCP / 29999</strong> uses the TCP decoder; <strong>Joint / Wrist / 29999</strong> and <strong>Joint / 3 cameras / 29999</strong> use measured absolute 16-D joint state and absolute joint targets with no IK. The 3-camera choice owns its main USB camera during the rollout; <code>local.robot.components.main_camera.device_path</code> binds the real device, while the shared wrist camera server stays unchanged. Restart runtime once for the 2026-10-20 code changes. Use <strong>Reload config</strong> while idle for later YAML-only edits. Run its <code>launch.sh check</code>, then <code>launch.sh runtime</code>; reuse the matching camera and RoboGUI services. The catalog manages one model at a time on its private station endpoint. Each checkpoint/method has its own recording directory. See the adjacent README for frozen controls and additional checkpoint requirements.</p>
+<p>As of 2026-10-20, all 32 choices use independent command and measured joint bounds. Commands and IK keep a <strong>3° margin</strong> inside the base range; measured feedback keeps a <strong>0.5° margin</strong> inside that same base range. Right J6 therefore allows commands within ±55° and feedback within ±57.5°; left J6 allows ±57° and ±59.5°, respectively. These margins replace the earlier 2° setting. Both driver and runtime measured checks are enabled. Chunk and step DiffIK also inherit a 3° wrist-constraint margin.</p>
+<p>The study robot YAML uses <code>options.limit_margin_deg</code>, <code>hardware.joint_limits</code> and independent <code>hardware.measured_joint_limits</code> for each arm. Runtime uses matching <code>executor.command_safety.position_lower/upper</code> and <code>measured_position_lower/upper</code>. Both <code>check_measured_position_limits</code> switches are true. Explicit measured bounds are checked without an additional implicit tolerance. Command violations, stale/invalid feedback, tracking-error violations and hardware faults can still stop the rollout; this includes out-of-bounds hold targets. The Tianji driver accepts only float64 roundoff at command bounds (16 eps times each joint's bound scale, at least 1 radian), snapping accepted roundoff to the exact configured bound before sending. Larger excursions still fail, with joint number, target, bounds and excess reported; no physical joint range is expanded.</p>
+<p>Executor and runtime arm-velocity limits remain pi rad/s (180°/s), with pi/2 rad/s (90°/s) chunk and step DiffIK caps. Arm acceleration and gripper settings are unchanged. After finishing the rollout, restart runtime once to install independent measured-bound support. Later YAML-only edits can use <strong>Reload config</strong> while idle, then Prepare again.</p>
+<p>These Pi05 comparison entries use <code>policy_server.checkpoint_low_memory: true</code> to reduce host RAM peaks during checkpoint loading. It serializes parameter reads, limits TensorStore file I/O and decompression workers to one, and waits for each device transfer. Checkpoint values and the inference dtype stay unchanged. GPU preallocation settings do not limit these host buffers. After a failed startup, <strong>Retry policy</strong> reloads the experiment and model code.</p>
 <h3 id="initial-pose-presets">Initial pose presets</h3>
 <p>Lists or individual entries may set <code>initial_poses: initial_poses/yam.yaml</code>.
 The file contains named <code>poses</code> with a label, joints for every robot group and
@@ -1245,7 +1297,11 @@ Existing recordings and private station configurations retain their paths.</p>
 <p>Launch cameras, RoboGUI and one runtime with <code>serve --config-list &lt;list.yaml&gt;</code>; do not separately start these managed models. The runtime starts the first policy. In RoboGUI choose <strong>Policy → Switch policy</strong>. Wait for stopping/loading to complete, choose Task and Method / Config, then Prepare. Switching preserves the task and method label when available and never starts a rollout. Switching methods within the same policy keeps its model loaded.</p>
 <p>Commands are argument lists, executed without a shell. <code>cwd</code> is relative to the list; <code>{config}</code> and <code>{local}</code> expand to the selected absolute paths. Environment values are strings; null removes an inherited variable. Managed endpoints must be explicit loopback addresses. Every policy group needs a launcher when <code>policy_services</code> is present. Managed models may share a port because the old process is stopped first.</p>
 <p>The GUI shows stopping, loading, listening or failure. Prepare remains disabled during startup. TCP listening means the server can be contacted; Prepare still verifies model identity and sampling capabilities. On failure, inspect the displayed <code>policy-server.log</code>, then use <strong>Retry policy</strong> or select another model. Startup and stop timeouts default to 180 and 30 seconds. Stop requests use SIGTERM, followed by SIGKILL for an owned process that exceeds its timeout. Runtime shutdown stops its owned model; an existing external process is never adopted or killed, and an occupied port is reported.</p>
-<p>Omit <code>policy_services</code> to keep models externally managed: launch them separately on distinct endpoints and switching only changes the runtime client. Restart RoboGUI and runtime after upgrading from a version without policy selection. YAML edits still require restarting runtime.</p>
+<p>Omit <code>policy_services</code> to keep models externally managed: launch them separately on distinct endpoints and switching only changes the runtime client. Restart RoboGUI and runtime after upgrading from a version without policy selection. Use <strong>Reload config</strong> for runtime YAML edits while idle.</p>
+<h3 id="reload-config">Reload configuration from RoboGUI</h3>
+<p>After editing YAML, use <strong>Finish → save/skip evaluation (if needed) → Reload config → Prepare</strong>. The button works with both <code>serve --config</code> and <code>serve --config-list</code>. It reloads the original source, its referenced presets and station bindings with the same CLI overrides. Added or removed catalog entries appear immediately; the active entry stays selected if it still exists, otherwise the new default is selected. Reload never prepares a rollout or moves hardware.</p>
+<p>Reload is disabled during a prepared/active rollout (including pause and warmup), recovery, evaluation or model startup/shutdown. Invalid configuration displays an error and leaves the active session configuration and catalog unchanged. Every successful reload creates a new session directory and manifest; the next Prepare builds a fresh runtime, adapter, executor and warmup state. An outstanding request blocks Prepare until the service acknowledges it.</p>
+<p>Changing only runtime settings keeps a managed model loaded. Changing its resolved recipe, policy I/O contract or launcher restarts the owned model using the existing stop/start lifecycle; Prepare waits for readiness and still checks backend identity. Externally managed models must be restarted separately after model-setting changes. Camera recipe, referenced camera component or camera binding changes are rejected with a restart instruction. Robot identity/group changes and changes between managed/external model ownership also require a restart. Python code and GUI geometry are not hot-reloaded. Restart RoboGUI and runtime once after installing this feature; later supported YAML edits use the button.</p>
 <h3 id="latest300ep-launch">Current Pi05 30k experiment list</h3>
 <p><code>manimux/configs/experiment_lists/yam_pi05_latest300ep.yaml</code> contains <strong>five tasks × six methods = 30 configurations</strong>. Tasks: coin (<code>put_the_coin_into_the_bin2</code>), medium blocks, bottles, rotating clock and moving cube. Methods: RTC, Serial, Async, AutoHorizon, PAINT and backward-only BID. Every entry uses <code>executor.type: direct</code>. The checkpoint was trained on six tasks; the experiment list does not include small blocks.</p>
 <p>The shared recipe is <code>manimux/configs/policy/pi05/yam/latest300/joint-step30000.yaml</code>. Configure its checkpoint and normalization paths for your station. BID uses 16 candidates and backward coherence; it is not the full bidirectional algorithm. The older mixed300ep list selects a different checkpoint.</p>
@@ -1297,7 +1353,7 @@ envs/yam/.venv/bin/python -m manimux serve \
 <tr><td>Runtime method / parameters</td><td>Create a fresh runtime on the next Prepare: new worker, strategy, timeline and warmup. No old chunk or ensemble history is reused.</td></tr>
 <tr><td>Checkpoint, normalization, model initialization, policy adapter or action timing</td><td>May differ between explicit policy groups. Managed mode stops the old model and launches the new one; external mode requires separate service endpoints. Within one policy group the shared model and I/O contracts must match. The next Prepare creates the selected worker and adapter and checks backend identity and sampling capabilities.</td></tr>
 <tr><td>Camera-server recipe or robot configuration</td><td>Must match across the entire list, including robot control settings. Use a separate runtime for a different station contract.</td></tr>
-<tr><td>YAML edited on disk</td><td>Lists are loaded and validated at serve startup. Restart serve to load edits; model/camera changes also require their services to restart.</td></tr>
+<tr><td>YAML edited on disk</td><td>Reload config re-reads and validates the list and referenced YAMLs while idle. It refreshes choices and opens a new session manifest. Managed model changes restart only that model; external camera changes require a service restart.</td></tr>
 </tbody></table>
 <p>Task/config selection is disabled while preparing, running, recovering or awaiting evaluation. Switching never starts a rollout. Backend identity and sampling capability checks remain enabled. In the mixed recipe, task_name identifies the shared deployment; <code>run.task</code> owns the actual instruction.</p>
 <h3 id="experiment-list-records">Output and provenance</h3>
@@ -2244,6 +2300,9 @@ Bind the recorded checkpoint and resolved setting; do not pool trials by folder 
 <p><strong>NLDLJ ↓</strong> uses <code>ln(T³ × ∫||jerk||²dt / peak_speed²)</code>; jerk stencils crossing plan changes are excluded. <strong>NSPARC ↓</strong> uses positive spectral arc length of speed and retains switches. Both use scheduled EE references, with verified constant commands replacing historical hold placeholders. Pause/reset, identity breaks and long gaps split segments. Duration-weight valid segments, then equally weight active channels and rollouts; this is not a score of measured tracking accuracy.</p>
 <p>The report generates handoff, overlap and outcome/smoothness figures when data is available. Colored manipulation-area overlays require a <code>manipulation_scope</code> profile; inference coverage must use that method's recorded state points. Speed-distribution diagnostics have a <a href=".agents/skills/manimux-experiments/references/chunk-speed.md">separate entry point</a>.</p>
 <p>Each report is a new immutable version. <code>latest.json</code> points to its HTML and summary. The CLI leaves raw recordings and human labels unchanged; <code>episode-metrics.json</code> preserves exclusions and metric provenance.</p>
+<h3 id="offline-executor-tuning">Offline executor parameter screening</h3>
+<p>For recorded UMI-DP Tianji plate/bottle chunks, <code>scripts/validation/tune_umi_execution.py --root &lt;recorded-campaign&gt;</code> reproduces baseline arm commands before screening filter cutoff, acceleration caps and limiter mode. It preserves controller-gap <code>handoff_skip_steps</code>, velocity limits, inference timing and gripper settings. Results and review-only candidate YAMLs go to a new <code>data/analysis/umi-executor-tuning/</code> directory; deployment configs remain unchanged.</p>
+<p>This is a frozen-reference executor intervention, not a closed-loop or hardware simulation. Step IK and unrecorded feedback/lookahead are excluded. Session splits, partial attempts, individual regressions and offline TCP checks remain visible. See the <a href=".agents/skills/manimux-experiments/references/executor-tuning.md">tuning protocol, command and evidence boundaries</a> before interpreting candidates.</p>
 <p>Invalid and unreviewed counts stay visible; missing metrics remain missing. Keep different rubric
 snapshots separate. The report CLI computes reference seams and smoothness offline; it does not run a robot or PRM inference. <a href=".agents/skills/manimux-experiments/references/evaluation-reports.md">Report schema and metric options</a>
 · <a href=".agents/skills/manimux-experiments/references/prm.md">PRM workflow</a>
@@ -2307,7 +2366,7 @@ decisions and result tables; it is not a second public guide.</p>
 </tr>
 <tr>
 <td>Changed template not visible</td>
-<td>Finish the current attempt and restart runtime with the updated YAML</td>
+<td>Finish the current attempt and use Reload config with the updated YAML</td>
 </tr>
 <tr>
 <td>Missing report score</td>
@@ -2379,6 +2438,7 @@ run:
 <p>Direct execution remains active as an outer limiter. Configure its limits above the QP's so ordinary commands pass unchanged. The final executor output is validated before dispatch. Failed or late solves and timeline gaps use bounded deceleration for both arms, retaining velocity history; <code>step_ik_brake</code> records the cause and <code>fallback: brake</code>. An unsafe output or a state without a valid braking command stops execution explicitly. Pause, Home and emergency handling retain their separate lifecycle behavior. With acceleration disabled, the existing failure hold remains. <code>lag_policy: report</code> permits bounded progress with residual error; <code>abort</code> rejects excessive lag.</p>
 <p>The <code>checkpoint_comparison_20261022</code> catalog's 12 Step variants use <strong>pi/2 rad/s, 80 rad/s² in DiffIK</strong> and <strong>pi rad/s, 160 rad/s² in the executor</strong>. Other variants retain the 80 rad/s² executor cap. The QP starts slowing near boundaries to retain a feasible stop; this does not impose a fixed target delay or guarantee continuous acceleration. Restart runtime after installing this implementation, then Prepare again. Later YAML-only edits can use idle Reload config. Successful ticks retain <code>step_diff_ik</code> residual diagnostics; these describe solved-command FK, not measured tracking. See the <a href=".agents/skills/manimux-development/references/tianji-diff-ik.md#acceleration-aware-step-execution-2026-10-23">constraint contract</a> for numerical reserves and offline checks.</p>
 <p><strong>Step DiffIK elbow protection:</strong> <code>execution.ik.diff_ik.elbow_guard_deg: 1.0</code> preserves the starting elbow side and keeps one degree away from full extension. The 1022 catalog enables it for all twelve Step variants, with unchanged QP velocity, acceleration and damping. The bound participates in QP braking and final command checks; it does not change the physical-limit nullspace cost. QP failures and timeline gaps retain the chosen side. Home or pause reanchors it from the next execution seed. An initial pose already in the protection zone is rejected with a Home/reposition instruction; the solver never moves it automatically. Intentional elbow-side changes need a separate transition. The option defaults to disabled, requires a finite step acceleration cap, and supports the verified Tianji M6-40 geometry only.</p>
+<p><strong>Tianji command-to-measured tracking guard:</strong> <code>robot.options.hardware.max_tracking_error_deg</code> overrides the assembly threshold for both chunk and step execution. The shipped TacCap assemblies use 10 degrees. <code>robot.options.hardware.tracking_error_policy</code> selects <code>abort</code> (default) or <code>report</code>: above the threshold, abort stops execution; report continues dispatch and logs the largest joint error, target, measured angle and threshold at most once per second per arm. The 1022 Pi05 ratio catalog sets <code>hardware.tracking_error_policy: report</code> in its robot YAML with the existing 10 degree threshold. This setting is separate from IK <code>lag_policy: report</code>. This is independent of IK residuals and command velocity/acceleration limits. Explicit <code>null</code> disables only this guard; <code>0</code> does not disable it, and omitting the override inherits the assembly setting. Disabling the guard does not fix physical tracking lag. Position, rate, feedback freshness, control-mode and device-fault checks remain active. Use Reload config while idle to reload experiment/catalog edits; restart the runtime after driver code changes.</p>
 <p>Recorded step episodes keep committed plans in TCP space and scheduled tick references in joint space. Reference seam/overlap metrics read TCP positions directly; scheduled smoothness uses FK of the recorded post-IK joint references. These are reference metrics, not measured physical tracking error.</p>
 <p>The current pose is interpolated with linear position/gripper and quaternion SLERP, then analytic IK is seeded from the current measured joint state; differential IK is seeded from the last dispatched command. Both arms share the budget; a failed or late solution brakes both arms when differential IK acceleration constraints are enabled, otherwise it holds the previous command. Watch the <code>step_ik</code> timing stage and <code>step_ik_hold</code>/<code>step_ik_brake</code> events. The budget is cooperative: native calls cannot always be interrupted, so verify control timing on the target machine. Pose-space interpolation can produce a different joint path from interpolating a pre-solved joint chunk.</p>
 <p><strong>Optional TCP target speed limit (off by default):</strong> set <code>execution.ik.pose_speed_limit</code> to a mapping with <code>max_linear_m_s</code> and/or <code>max_angular_rad_s</code>. Values must be positive and finite. Omit it or use <code>null</code> to disable. This setting applies to step IK only.</p>
