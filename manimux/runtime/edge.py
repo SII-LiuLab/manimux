@@ -270,6 +270,9 @@ class EdgeRuntime:
             position_upper=command_safety["position_upper"],
             max_velocity=command_safety["max_velocity"],
             max_acceleration=command_safety["max_acceleration"],
+            check_measured_position_limits=command_safety.get("check_measured_position_limits", True),
+            measured_position_lower=command_safety.get("measured_position_lower"),
+            measured_position_upper=command_safety.get("measured_position_upper"),
             control_dt_s=self._control_dt_ns / 1_000_000_000,
         )
         self._robogui = RoboGUIBridge(

@@ -222,8 +222,8 @@ class TianjiTaccapRobot(RobotBase):
     ) -> None:
         """Hand-guide in native cooperative release, with calibrated tool loads.
 
-        Duration starts after confirmed entry. Stop, timeout, feedback faults or
-        the five-degree joint-boundary margin all trigger controller cleanup.
+        Duration starts after confirmed entry. Stop, timeout or feedback faults
+        trigger controller cleanup.
         Cameras and grippers are never opened by this recovery operation.
         """
         groups = tuple(dict.fromkeys(groups))
@@ -247,8 +247,6 @@ class TianjiTaccapRobot(RobotBase):
                 return
             self.controller.connect()
             try:
-                initial = self.controller.get_states()
-                self._check_release_limits({side: initial[side].joints for side in sides})
                 if self.controller.begin_release(sides, stop):
                     deadline = None if duration_s is None else time.monotonic() + duration_s
                     if on_active is not None:
@@ -257,7 +255,7 @@ class TianjiTaccapRobot(RobotBase):
                         remaining = None if deadline is None else deadline - time.monotonic()
                         if remaining is not None and remaining <= 0:
                             break
-                        self._check_release_limits(self.controller.read_release(sides))
+                        self.controller.read_release(sides)
                         stop.wait(0.02 if remaining is None else min(0.02, remaining))
             except Exception as error:
                 try:
@@ -268,15 +266,6 @@ class TianjiTaccapRobot(RobotBase):
                     ) from None
                 raise
             self.controller.close()
-
-    def _check_release_limits(self, joints: Mapping[str, FloatArray]) -> None:
-        margin = math.radians(5.0)
-        for side, q in joints.items():
-            lower, upper = self.controller.settings[side].joint_limits
-            near = np.flatnonzero((q <= lower + margin) | (q >= upper - margin))
-            if len(near):
-                labels = ", ".join(f"J{int(index) + 1}" for index in near)
-                raise RuntimeError(f"{side}: release stopped within 5 degrees of {labels} limit")
 
     def recover_home(self, stop: threading.Event | None = None) -> None:
         """Idle Return Home, also the path after an E-stop: clear faults, then home."""

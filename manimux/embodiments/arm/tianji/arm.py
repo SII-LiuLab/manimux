@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import ipaddress
+import logging
 import threading
 import time
 from collections.abc import Callable, Mapping
@@ -27,6 +28,7 @@ _DRAG_HZ = 250.0
 _DRAG_TRACK_RATE_DEG_S = 15.0
 _COMMAND_BUFFER_TIMEOUT_S = 0.02
 _COMMAND_BUFFER_POLL_S = 0.001
+_LOG = logging.getLogger(__name__)
 
 
 def resolve_rate_contract(
@@ -79,12 +81,15 @@ class TianjiArmSettings:
 
     drag_tool is the mounted tool's Marvin load, {kine: XYZABC mm/deg (6),
     dynamic: mass, centre of mass and inertia (10)}; drag() requires it.
+    measured_joint_limits optionally supplies wider feedback bounds; omission
+    retains joint_limits for both commands and feedback.
     """
 
     joint_limits: tuple[FloatArray, FloatArray]
     velocity_ratio: int
     acceleration_ratio: int
     drag_tool: Mapping[str, tuple[float, ...]] | None = None
+    measured_joint_limits: tuple[FloatArray, FloatArray] | None = None
 
     def __post_init__(self) -> None:
         for ratio in (self.velocity_ratio, self.acceleration_ratio):
@@ -102,6 +107,26 @@ class TianjiArmSettings:
         lower.setflags(write=False)
         upper.setflags(write=False)
         object.__setattr__(self, "joint_limits", (lower, upper))
+        if self.measured_joint_limits is not None:
+            measured_lower, measured_upper = (
+                np.array(v, dtype=float, copy=True) for v in self.measured_joint_limits
+            )
+            if (
+                measured_lower.shape != (7,)
+                or measured_upper.shape != (7,)
+                or not np.isfinite(measured_lower).all()
+                or not np.isfinite(measured_upper).all()
+                or np.any(measured_lower >= measured_upper)
+                or np.any(measured_lower > lower)
+                or np.any(measured_upper < upper)
+            ):
+                raise ValueError(
+                    "measured_joint_limits must contain finite ordered seven-joint bounds "
+                    "enclosing joint_limits"
+                )
+            measured_lower.setflags(write=False)
+            measured_upper.setflags(write=False)
+            object.__setattr__(self, "measured_joint_limits", (measured_lower, measured_upper))
         if self.drag_tool is not None:
             if set(self.drag_tool) != {"kine", "dynamic"}:
                 raise ValueError("drag_tool must contain exactly kine and dynamic")
@@ -135,12 +160,21 @@ class TianjiController(ArmController):
         stale_timeout_s: float = 0.2,
         ready_timeout_s: float = 3.0,
         max_tracking_error_deg: float | None = None,
+        tracking_error_policy: str = "abort",
+        check_measured_position_limits: bool = True,
     ) -> None:
         if not settings or set(settings) - _ARM.keys():
             raise ValueError("settings must configure left, right, or both")
         for timeout in (stale_timeout_s, ready_timeout_s):
             if not np.isfinite(timeout) or timeout <= 0:
                 raise ValueError("timeouts must be finite and positive")
+        if not isinstance(check_measured_position_limits, bool):
+            raise ValueError("check_measured_position_limits must be boolean")
+        self.check_measured_position_limits = check_measured_position_limits
+        if tracking_error_policy not in ("abort", "report"):
+            raise ValueError("tracking_error_policy must be 'abort' or 'report'")
+        self.tracking_error_policy = tracking_error_policy
+        self._tracking_report_ns: dict[str, int] = {}
         self.settings = MappingProxyType({n: settings[n] for n in _ARM if n in settings})
         self._ip = ip
         self._clock = clock if clock is not None else SystemClock()
@@ -182,6 +216,7 @@ class TianjiController(ArmController):
                 self._robot, self._buffer = sdk.Marvin_Robot(), sdk.DCSS()
                 self._check(self._robot.connect(self._ip), "connect")
                 self._serial.clear()
+                self._tracking_report_ns.clear()
                 _, modes, _ = self._read()
                 if any(mode != 0 for mode in modes.values()):
                     raise RuntimeError("configured arms must be disabled before connecting")
@@ -346,22 +381,53 @@ class TianjiController(ArmController):
             if q.shape != (7,) or not np.isfinite(q).all():
                 raise ValueError(f"{name}: expected seven finite arm targets")
             lower, upper = self.settings[name].joint_limits
-            if np.any(q < lower) or np.any(q > upper):
-                raise ValueError(f"{name}: target exceeds joint limits")
+            # Degree/radian conversion and q + dt*qdot can land a few float64
+            # ULPs outside the same mathematical bound. Accept only roundoff;
+            # send_commands canonicalizes it to the exact configured box.
+            roundoff = 16 * np.finfo(float).eps * np.maximum(
+                1.0, np.maximum(np.abs(lower), np.abs(upper))
+            )
+            excess = np.maximum(lower - q, q - upper)
+            if np.any(excess > roundoff):
+                index = int(np.flatnonzero(excess > roundoff)[0])
+                raise ValueError(
+                    f"{name}: target exceeds joint limits; J{index + 1}="
+                    f"{np.degrees(q[index]):.12f} deg, bounds="
+                    f"[{np.degrees(lower[index]):.12f}, {np.degrees(upper[index]):.12f}] deg, "
+                    f"excess={excess[index]:.17g} rad"
+                )
 
     def send_commands(self, targets: Mapping[str, FloatArray]) -> None:
         with self._lock:
             self._require_ready()
             targets = {name: np.array(q, dtype=float, copy=True) for name, q in targets.items()}
             self.validate_commands(targets)
+            for name, q in targets.items():
+                lower, upper = self.settings[name].joint_limits
+                np.clip(q, lower, upper, out=q)
             try:
                 self.get_states()
                 measured, modes, feedback = self._read()
-                # Retain the old command-to-measured tracking bound before any write.
+                # Command-to-feedback tracking is independent of the IK residual policy.
                 if self._max_tracking is not None:
                     for name, target in targets.items():
-                        if np.max(np.abs(target - measured[name])) > self._max_tracking:
-                            raise RuntimeError(f"{name}: command exceeds tracking error limit")
+                        errors = np.abs(target - measured[name])
+                        index = int(np.argmax(errors))
+                        if errors[index] > self._max_tracking:
+                            if self.tracking_error_policy == "abort":
+                                raise RuntimeError(f"{name}: command exceeds tracking error limit")
+                            now_ns = self._clock.now_ns()
+                            previous_ns = self._tracking_report_ns.get(name)
+                            if previous_ns is None or now_ns - previous_ns >= 1_000_000_000:
+                                _LOG.warning(
+                                    "%s: command exceeds tracking error limit; J%d error=%.3f deg, "
+                                    "target=%.3f deg, measured=%.3f deg, limit=%.3f deg; "
+                                    "tracking_error_policy=report, continuing dispatch",
+                                    name, index + 1, np.degrees(errors[index]),
+                                    np.degrees(target[index]), np.degrees(measured[name][index]),
+                                    np.degrees(self._max_tracking),
+                                )
+                                self._tracking_report_ns[name] = now_ns
                 pending = set(targets) - self._enabled
                 for name in targets:
                     cfg = self.settings[name]
@@ -374,9 +440,22 @@ class TianjiController(ArmController):
                             or settings["joint_acc_ratio"] != cfg.acceleration_ratio
                         ):
                             raise RuntimeError(f"{name}: controller speed settings changed")
-                    lower, upper = cfg.joint_limits
-                    if np.any(measured[name] < lower) or np.any(measured[name] > upper):
-                        raise ValueError(f"{name}: measured joints outside limits")
+                    lower, upper = (
+                        cfg.joint_limits if cfg.measured_joint_limits is None
+                        else cfg.measured_joint_limits
+                    )
+                    if self.check_measured_position_limits and (
+                        np.any(measured[name] < lower) or np.any(measured[name] > upper)
+                    ):
+                        index = int(np.flatnonzero(
+                            (measured[name] < lower) | (measured[name] > upper)
+                        )[0])
+                        raise ValueError(
+                            f"{name}: measured joints outside limits; J{index + 1}="
+                            f"{np.degrees(measured[name][index]):.6f} deg, bounds="
+                            f"[{np.degrees(lower[index]):.6f}, "
+                            f"{np.degrees(upper[index]):.6f}] deg"
+                        )
                 if pending:
                     previous = dict(self._serial)
                     self._enabled.update(pending)  # cleanup even on partial enable failure

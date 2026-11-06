@@ -118,9 +118,9 @@ force the brakes open. Cameras and grippers remain closed.
 
 Continuous release lasts until **Exit release**, recovery lease loss or service shutdown.
 The five-second duration starts after confirmed mode entry and can also be stopped early.
-The assembly monitors controller feedback and stops on faults, stale feedback, an
-unexpected mode change, or a joint entering the five-degree margin of its configured
-limits. Every exit closes the owned arm controller, disabling enabled arms first;
+The assembly monitors controller feedback and stops on faults, stale feedback or an
+unexpected mode change. Release does not enforce ManiMux joint-position limits or
+the five-degree margin. Every exit closes the owned arm controller, disabling enabled arms first;
 cleanup failures are reported in RoboGUI. Mode selection, duration and cleanup live in
 the Tianji assembly/controller; the session only dispatches cancellable handlers. During
 a rollout, **Stop rollout & release** finishes it without homing before starting recovery.

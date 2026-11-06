@@ -21,6 +21,30 @@ class RuntimeState(StrEnum):
 _POSITION_LIMIT_TOLERANCE = 1e-3
 
 
+def _validate_measured_bounds(lower, upper, command_lower, command_upper):
+    """Validate an optional independent state box, including its command envelope."""
+    if not lower and not upper:
+        return
+    if (
+        not command_lower or not command_upper
+        or set(lower) != set(command_lower) or set(upper) != set(command_upper)
+    ):
+        raise ValueError("measured_position_lower/upper must both match command position groups")
+    for name in command_lower:
+        lo, hi = np.asarray(lower[name], dtype=float), np.asarray(upper[name], dtype=float)
+        cmd_lo, cmd_hi = np.asarray(command_lower[name]), np.asarray(command_upper[name])
+        if (
+            lo.ndim != 1 or not lo.size or lo.shape != hi.shape
+            or lo.shape != cmd_lo.shape or hi.shape != cmd_hi.shape
+            or not np.isfinite(lo).all() or not np.isfinite(hi).all()
+            or np.any(lo >= hi) or np.any(lo > cmd_lo) or np.any(hi < cmd_hi)
+        ):
+            raise ValueError(
+                f"measured position bounds for {name!r} must be finite, ordered "
+                "and enclose command position bounds"
+            )
+
+
 class SafetyGuard:
     def __init__(
         self,
@@ -32,7 +56,13 @@ class SafetyGuard:
         max_velocity: dict[str, list[float]] | None = None,
         max_acceleration: dict[str, list[float]] | None = None,
         control_dt_s: float | None = None,
+        check_measured_position_limits: bool = True,
+        measured_position_lower: dict[str, list[float]] | None = None,
+        measured_position_upper: dict[str, list[float]] | None = None,
     ) -> None:
+        if not isinstance(check_measured_position_limits, bool):
+            raise ValueError("check_measured_position_limits must be boolean")
+        self._check_measured_position_limits = check_measured_position_limits
         self._group_dims = dict(group_dims)
         self._position_limit_abs = position_limit_abs
         raw_limits = (position_lower, position_upper, max_velocity)
@@ -43,6 +73,11 @@ class SafetyGuard:
             )
         self._position_lower = self._normalize_limits("position_lower", position_lower)
         self._position_upper = self._normalize_limits("position_upper", position_upper)
+        self._measured_lower = self._normalize_limits("measured_position_lower", measured_position_lower)
+        self._measured_upper = self._normalize_limits("measured_position_upper", measured_position_upper)
+        _validate_measured_bounds(
+            self._measured_lower, self._measured_upper, self._position_lower, self._position_upper,
+        )
         self._max_velocity = self._normalize_limits("max_velocity", max_velocity)
         self._max_acceleration = self._normalize_limits("max_acceleration", max_acceleration)
         self._rate_limits_enabled = bool(self._max_velocity)
@@ -74,16 +109,20 @@ class SafetyGuard:
         return normalized
 
     def _validate_positions(self, name: str, values: FloatArray, *, label: str) -> None:
-        if self._position_lower:
-            below = values < self._position_lower[name] - _POSITION_LIMIT_TOLERANCE
-            above = values > self._position_upper[name] + _POSITION_LIMIT_TOLERANCE
+        explicit_measured = label == "state" and bool(self._measured_lower)
+        lower = self._measured_lower if explicit_measured else self._position_lower
+        upper = self._measured_upper if explicit_measured else self._position_upper
+        # Explicit state bounds already include their configured allowance.
+        tolerance = 0.0 if explicit_measured else _POSITION_LIMIT_TOLERANCE
+        if lower:
+            below = values < lower[name] - tolerance
+            above = values > upper[name] + tolerance
             if np.any(below | above):
                 index = int(np.flatnonzero(below | above)[0])
                 raise ValueError(
                     f"{label} group {name!r} joint {index} position "
                     f"{values[index]:.6f} is outside "
-                    f"[{self._position_lower[name][index]:.6f}, "
-                    f"{self._position_upper[name][index]:.6f}]"
+                    f"[{lower[name][index]:.6f}, {upper[name][index]:.6f}]"
                 )
 
     def validate_state(self, state: RobotState) -> None:
@@ -93,7 +132,8 @@ class SafetyGuard:
             values = state.groups[name]
             if values.shape != (dim,) or not np.isfinite(values).all():
                 raise ValueError(f"state group {name!r} is invalid")
-            self._validate_positions(name, values, label="state")
+            if self._check_measured_position_limits:
+                self._validate_positions(name, values, label="state")
 
     def reset(self, state: RobotState) -> None:
         """Synchronize the rate checker to an achieved hardware state."""
@@ -157,8 +197,17 @@ def command_safety_parameters(**options) -> dict:
         "position_upper": {},
         "max_velocity": {},
         "max_acceleration": {},
+        "check_measured_position_limits": True,
+        "measured_position_lower": {},
+        "measured_position_upper": {},
         **options,
     }
+    if not isinstance(values["check_measured_position_limits"], bool):
+        raise ValueError("command_safety.check_measured_position_limits must be boolean")
+    _validate_measured_bounds(
+        values["measured_position_lower"], values["measured_position_upper"],
+        values["position_lower"], values["position_upper"],
+    )
     values["max_acceleration"] = values["max_acceleration"] or {}
     mappings: tuple[dict[str, list[float]], ...] = (
         values["position_lower"],
