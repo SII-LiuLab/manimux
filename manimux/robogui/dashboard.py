@@ -123,6 +123,8 @@ class PolicyRoboGUI:
         self._experiment_choices: list[dict[str, Any]] = []
         self._experiment_id = ""
         self._pending_experiment_id = ""
+        self._reload_request_id = ""
+        self._reload_available = False
         self._policy_service_state: dict[str, Any] = {"status": "external"}
         self._start_identity: dict[str, Any] | None = None
         self.warmup_requested = False
@@ -283,6 +285,10 @@ class PolicyRoboGUI:
                 "Switch policy", color="blue", disabled=True, visible=False,
             )
             self.policy_service_status = self.server.gui.add_markdown("", visible=False)
+            self.reload_config_btn = self.server.gui.add_button(
+                "Reload config", disabled=True, visible=False,
+            )
+            self.config_reload_status = self.server.gui.add_markdown("", visible=False)
             self.experiment_task = self.server.gui.add_dropdown(
                 "Task", ("—",), disabled=True, visible=False,
             )
@@ -449,6 +455,10 @@ class PolicyRoboGUI:
         def _switch_policy(_event: Any) -> None:
             with self.lock:
                 self._request_policy()
+
+        @self.reload_config_btn.on_click
+        def _reload_config(_event: Any) -> None:
+            self._request_config_reload()
 
         @self.experiment_task.on_update
         def _select_task(event: Any) -> None:
@@ -858,7 +868,8 @@ class PolicyRoboGUI:
                 if not self._recovery_pending() and not self.recovery_lease:
                     return
             else:
-                if not self.recovery_available or self._recovery_pending():
+                if (not self.recovery_available or self._recovery_pending()
+                        or self._reload_request_id):
                     return
                 if kind not in self.recovery_actions:
                     return
@@ -939,7 +950,8 @@ class PolicyRoboGUI:
         if not hasattr(self, "home_btn"):
             return
         idle = self.service_ready and not self.episode_active and not self.preparing_rollout
-        allowed = idle and self.recovery_available and not self._recovery_pending()
+        allowed = (idle and self.recovery_available and not self._recovery_pending()
+                   and not self._reload_request_id)
         can_clear = allowed and "clear_error" in self.recovery_actions
         can_drag = (allowed and self._supports_hand_guiding("drag")) or (
             self._can_stop_and_drag() and not self._recovery_pending()
@@ -1246,8 +1258,13 @@ class PolicyRoboGUI:
 
     def _set_setup_controls_enabled(self, enabled: bool) -> None:
         allowed = (enabled and self.evaluation_complete and not self._recovery_pending()
-                   and not self._pending_experiment_id)
+                   and not self._pending_experiment_id and not self._reload_request_id)
         can_prepare = allowed and not self.preparing_rollout and not self.episode_active
+        self.reload_config_btn.disabled = (
+            not can_prepare or not self._reload_available
+            or self._policy_service_state.get("status") in {"starting", "stopping"}
+            or self.recovery_lease or self._policy_selection_changed()
+        )
         self.experiment_policy.disabled = not can_prepare
         retry = self._policy_service_state.get("status") == "failed"
         changed_policy = self._policy_selection_changed()
@@ -1320,6 +1337,10 @@ class PolicyRoboGUI:
         self.experiment_policy.value = policy
         choices = [c for c in self._experiment_choices if c.get("policy", "default") == policy]
         self.experiment_task.options = tuple(dict.fromkeys(c["task"] for c in choices))
+        task_labels = {c["task"]: c.get("task_label", c["task"]) for c in choices}
+        self.experiment_task.display_labels = tuple(
+            task_labels[task] for task in self.experiment_task.options
+        )
         self.experiment_task.value = choice["task"]
         self.experiment_config.options = tuple(dict.fromkeys(
             c["label"] for c in choices if c["task"] == choice["task"]
@@ -1358,7 +1379,8 @@ class PolicyRoboGUI:
 
     def _request_experiment(self, choice_id: str) -> None:
         if (not self.service_ready or not self.evaluation_complete or self.preparing_rollout
-                or self.episode_active or self._recovery_pending() or self._pending_experiment_id):
+                or self.episode_active or self._recovery_pending() or self._pending_experiment_id
+                or self._reload_request_id):
             return
         if (choice_id == self._experiment_id
                 and self._policy_service_state.get("status") != "failed"):
@@ -1366,6 +1388,17 @@ class PolicyRoboGUI:
         self._pending_experiment_id = choice_id
         self._update_prepare_enabled()
         self.rollout_setup_status.content = "🟠 Switching experiment configuration…"
+
+    def _request_config_reload(self) -> None:
+        with self.lock:
+            self._update_prepare_enabled()
+            if self.reload_config_btn.disabled:
+                return
+            self._reload_request_id = uuid.uuid4().hex
+            self.config_reload_status.visible = True
+            self.config_reload_status.content = "Reloading configuration from disk…"
+            self._update_prepare_enabled()
+            self._update_recovery_controls()
 
     def _refresh_layout_visibility(self) -> None:
         show_layout = not (self.preparing_rollout or self.episode_active) or self.experiment_mode
@@ -1465,7 +1498,8 @@ class PolicyRoboGUI:
 
     def _prepare_rollout(self, *, experiment_mode: bool) -> None:
         with self.lock:
-            if (self._recovery_pending() or not self.service_ready or not self.evaluation_complete
+            if (self._reload_request_id or self._recovery_pending()
+                    or not self.service_ready or not self.evaluation_complete
                     or self.preparing_rollout or self.episode_active or self._pending_experiment_id
                     or self._policy_selection_changed()
                     or self._policy_service_state.get("status") not in {"ready", "external"}):
@@ -1562,6 +1596,7 @@ class PolicyRoboGUI:
         self._rollout_request = {}
         self.preparing_rollout = False
         self._pending_experiment_id = ""
+        self._reload_request_id = ""
         self.episode_active = False
         self.current_episode_dir = None
         self._episode_id = ""
@@ -1690,6 +1725,9 @@ class PolicyRoboGUI:
                 "recovery_lease": getattr(self, "recovery_lease", False),
                 "new_rollout_requested": self.new_rollout_requested,
                 "select_experiment_id": self._pending_experiment_id,
+                "reload_config_request_id": self._reload_request_id,
+                "episode_active": self.episode_active,
+                "preparing_rollout": self.preparing_rollout,
                 "evaluation_complete": self.evaluation_complete,
                 **deepcopy(self._rollout_request),
             }
@@ -2163,6 +2201,14 @@ class PolicyRoboGUI:
             first_service_announcement = self.launch_mode != "serve" or new_service or selection_discovered
             if new_service:
                 self._reset_for_new_service()
+            reload = metadata.get("config_reload", {})
+            self._reload_available = reload.get("available") is True
+            self.reload_config_btn.visible = self._reload_available
+            if reload.get("ack") == self._reload_request_id:
+                self._reload_request_id = ""
+            if not self._reload_request_id:
+                self.config_reload_status.visible = bool(reload.get("message"))
+                self.config_reload_status.content = str(reload.get("message", ""))
             if first_service_announcement:
                 self._configure_experiment_choices(metadata)
                 self._configure_research(metadata)

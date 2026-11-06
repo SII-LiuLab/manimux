@@ -28,6 +28,7 @@ class ExperimentChoice:
             "label": self.label,
             "config_path": str(self.path),
             "task": self.config["run"]["task"],
+            "task_label": self.config["run"].get("task_label", self.config["run"]["task"]),
             "method": self.config["inference"]["algorithm"],
             "policy": self.policy,
             "initial_pose": deepcopy(self.config["run"].get(

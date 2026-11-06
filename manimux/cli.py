@@ -368,30 +368,31 @@ def _serve(
     from manimux.runtime.lock import RuntimeLockError
     from manimux.session import RuntimeSessionService
 
-    catalog = None
-    if config_list is not None:
-        from manimux.experiment_list import load_experiment_list
+    def reload_config():
+        if config_list is not None:
+            from manimux.experiment_list import load_experiment_list
 
-        catalog = load_experiment_list(
-            config_list, local=local, executor=executor, control_timing=control_timing,
-        )
-        first = catalog.choices[catalog.default_id]
-        config_path, config = first.path, deepcopy(first.config)
-    else:
-        config = _load_config(config_path, executor, local=local, control_timing=control_timing)
+            loaded = load_experiment_list(
+                config_list, local=local, executor=executor, control_timing=control_timing,
+            )
+            return deepcopy(loaded.choices[loaded.default_id].config), loaded
+        return _load_config(config_path, executor, local=local, control_timing=control_timing), None
 
-    def create_selection_dir(choice_id: str) -> Path:
-        choice = catalog.choices[choice_id]
-        return _create_run_dir(choice.config, choice.path, mode="serve",
-                               experiment_selection=catalog.selection(choice_id))
+    config, catalog = reload_config()
+    if catalog is not None:
+        config_path = catalog.choices[catalog.default_id].path
+
+    def create_session_dir(selected_config: dict, loaded, choice_id: str) -> Path:
+        path = loaded.choices[choice_id].path if loaded else config_path
+        return _create_run_dir(selected_config, path, mode="serve",
+                               experiment_selection=loaded.selection(choice_id) if loaded else None)
 
     try:
         with _runtime_lock(config, config_path, mode="serve"):
-            run_dir = (create_selection_dir(catalog.default_id) if catalog else
-                       _create_run_dir(config, config_path, mode="serve"))
+            run_dir = create_session_dir(config, catalog, catalog.default_id if catalog else "")
             RuntimeSessionService(
                 config, run_dir, experiment_list=catalog,
-                selection_dir_factory=create_selection_dir if catalog else None,
+                session_dir_factory=create_session_dir, config_loader=reload_config,
             ).serve()
     except KeyboardInterrupt:
         print("runtime service stopped by operator")

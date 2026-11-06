@@ -103,6 +103,7 @@ class ManagedPolicyService:
         self._deadline = 0.0
         self._after_stop = "idle"
         self._kill_sent = False
+        self._active_spec: PolicyServiceSpec | None = None
 
     @property
     def ready(self) -> bool:
@@ -129,10 +130,10 @@ class ManagedPolicyService:
             with suppress(ProcessLookupError):
                 os.killpg(self.process.pid, sig)
 
-    def request(self, choice, run_dir: Path) -> None:
+    def request(self, choice, run_dir: Path, *, force_restart: bool = False) -> None:
         same = self.target is not None and self.target[0].policy == choice.policy
         self.target = (choice, run_dir)
-        if same and self.status in {"starting", "ready"}:
+        if same and not force_restart and self.status in {"starting", "ready"}:
             return
         self.error = ""
         if self.process is not None:
@@ -143,16 +144,23 @@ class ManagedPolicyService:
         else:
             self._start()
 
+    def reconfigure(self, specs, choice, run_dir: Path, *, force_restart: bool = False) -> None:
+        """Replace a validated catalog; retain the old process's shutdown settings."""
+        force_restart |= self._active_spec != specs[choice.policy]
+        self.specs = specs
+        self.request(choice, run_dir, force_restart=force_restart)
+
     def _stop(self, after: str) -> None:
         self._after_stop = after
         self.status = "stopping"
         self._kill_sent = False
-        self._deadline = time.monotonic() + self.specs[self.active_policy].stop_timeout_s
+        self._deadline = time.monotonic() + self._active_spec.stop_timeout_s
         self._signal(signal.SIGTERM)
 
     def _start(self) -> None:
         choice, run_dir = self.target
         spec = self.specs[choice.policy]
+        self._active_spec = spec
         self.active_policy = choice.policy
         self.log_path = run_dir / "policy-server.log"
         try:
@@ -223,7 +231,7 @@ class ManagedPolicyService:
         if self.process is not None:
             self._signal(signal.SIGTERM)
             try:
-                self.process.wait(timeout=self.specs[self.active_policy].stop_timeout_s)
+                self.process.wait(timeout=self._active_spec.stop_timeout_s)
             except subprocess.TimeoutExpired:
                 self._signal(signal.SIGKILL)
                 self.process.wait()
