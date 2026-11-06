@@ -1,0 +1,57 @@
+# Export training_run.json defines the contract; normalize with this checkpoint's assets.
+policy_name: Pi_05
+protocol: ws
+host: 127.0.0.1
+port: 8571
+bench_name: ManiMux
+task_name: plate
+ckpt_name: null
+env_cfg_type: tianji_dual
+robot_action_dim_info:
+  arm_dim:
+  - 7
+  - 7
+  ee_dim:
+  - 1
+  - 1
+num_envs: 1
+seed: 42
+gpu_id: 0
+action_type: joint
+eval_batch: false
+checkpoint_variant: pi05_pack_plate_joint_3cam_step29999
+checkpoint_source: pi05-plate-joint-3cam-full-30k-20261019-055917-r1-final-29999
+checkpoint_num: 29999
+norm_stats_source: sha256_e20129a3702f35056e20cd6586db1df72e2d38c50508b0ec84d37732d02a18c2
+norm_stats_sha256: e20129a3702f35056e20cd6586db1df72e2d38c50508b0ec84d37732d02a18c2
+train_config_name: pi05_pack_plate_joint_three_camera_full_30k
+paligemma_variant: gemma_2b
+action_expert_variant: gemma_300m
+observation_profile: tianji_taccap_pi05_pack_plate_joint
+model_state_encoding: absolute
+output_format: xpolicylab
+action_semantics: absolute_joint_position
+action_horizon: 32
+num_steps: 10
+repo_id: local/pack-plate-joint-native-20261019
+model_path: pi05-plate-joint-3cam-full-30k-20261019-055917-r1-final-29999/checkpoint-29999
+norm_stats_path: pi05-plate-joint-3cam-full-30k-20261019-055917-r1-final-29999/checkpoint-29999/assets/joint-native-h32
+backend_identity:
+  fields:
+  - policy_name
+  - task_name
+  - checkpoint_variant
+  - checkpoint_source
+  - norm_stats_source
+  - train_config_name
+  - observation_profile
+  - model_state_encoding
+  - action_horizon
+  - num_steps
+  - action_type
+  - output_format
+  - action_semantics
+  - camera_mode
+  - gripper_clip_tolerance
+camera_mode: wrist_main
+gripper_clip_tolerance: 0.1

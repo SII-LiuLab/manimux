@@ -79,7 +79,9 @@ def _resolved_contract(config_path: Path, config: dict[str, Any]) -> dict[str, A
             "runtime_status": "environment_present_forward_not_verified"
                 if MODEL_PYTHON.is_file() else "blocked_missing_model_environment",
         }
-    if config.get("observation_profile") == "tianji_taccap_pi05_pack_plate":
+    if config.get("observation_profile") in {
+        "tianji_taccap_pi05_pack_plate", "tianji_taccap_pi05_pack_plate_joint"
+    }:
         from XPolicyLab.policy.Pi_05.pack_plate_contract import validate_artifacts
 
         return {

@@ -560,6 +560,15 @@ class Pi05PackPlateTacCapAdapter(_Pi05TianjiEEAdapter):
     """Pack-plate identity gate over the same Tianji absolute EE decoder."""
 
     _CHECKPOINT_VARIANTS = {
+        "pi05_pack_plate_umi_half_speed_h50_step29999": "zero_pose",
+        "pi05_pack_plate_umi_dagger_step40000": "zero_pose",
+        "pi05_pack_plate_umi_only_step40000": "zero_pose",
+        **{
+            f"pi05_pack_plate_ratio_umi{umi:03d}_tele{100 - umi:03d}_step29999": "zero_pose"
+            for umi in (0, 25, 50, 75, 90, 95, 100)
+        },
+        "pi05_pack_plate_joint_fk_tcp_zero_state_step29999": "zero_pose",
+        "pi05_pack_plate_joint_fk_taccap_mix_zero_state_step29999": "zero_pose",
         "pi05_pack_plate_wrist_only_step59999": "zero_pose",
         "pi05_pack_plate_full_zero_state_pack_instruction_step59999": "zero_pose",
         "pi05_pack_plate_full_zero_state_pack_instruction_step20000": "zero_pose",
@@ -569,9 +578,13 @@ class Pi05PackPlateTacCapAdapter(_Pi05TianjiEEAdapter):
 
     def validate(self, robot: dict, policy: dict) -> None:
         super().validate(robot, policy)
-        if self._horizon_steps != 32 or abs(self._action_dt_s - 1 / 30) > 1e-9:
-            raise ValueError("Pi05 pack-plate requires 32 steps at 30 Hz")
         identity = (policy.get("expected_backend") or {}).get("model", {})
+        horizon = (
+            50 if identity.get("checkpoint_variant")
+            == "pi05_pack_plate_umi_half_speed_h50_step29999" else 32
+        )
+        if self._horizon_steps != horizon or abs(self._action_dt_s - 1 / 30) > 1e-9:
+            raise ValueError(f"Pi05 pack-plate requires {horizon} steps at 30 Hz")
         required = {
             "policy_name": "Pi_05",
             "task_name": "plate",
@@ -581,7 +594,7 @@ class Pi05PackPlateTacCapAdapter(_Pi05TianjiEEAdapter):
             ),
             "output_format": "xpolicylab",
             "action_semantics": "absolute_per_arm_base_xyz_wxyz",
-            "action_horizon": 32,
+            "action_horizon": horizon,
         }
         if (
             any(identity.get(key) != value for key, value in required.items())
