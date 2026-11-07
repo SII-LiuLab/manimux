@@ -12,6 +12,15 @@ fixed-coordinate mapping; it must never treat J7 as a gripper. Flexiv examples
 use bare flange targets in physical arm-base coordinates. Keep backend handshake
 semantics, camera requirements, horizon checks and whole-chunk IK rejection.
 
+For absolute dual-arm pose policies, execution-time IK may retain pose RTC
+conditions. `PoseRequest.sampling_request` preserves the RTC fields while
+`model_state` supplies measured FK anchors. Conditions use left/right Hx16
+absolute xyz+wxyz+opening rows on the current observation grid; zero-weight rows
+may be zero padding. The model framework owns conversion to its trained relative
+space and normalization. This is separate from chunk IK and unsupported for
+relative-output PoseAdapter semantics. `ResponseLog` retains the RTC condition,
+weights, beta, measured model state and request identity without duplicating images.
+
 Do not infer the integration layer from an upstream repository name or from the fact
 that it contains model code. Establish which of these changes is being introduced:
 

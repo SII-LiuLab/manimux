@@ -2,7 +2,7 @@
 
 import uuid
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 
@@ -12,13 +12,15 @@ from manimux.policies.actions import action_groups
 from manimux.policies.base import action_interval
 from manimux.policy_adapter.gripper_mapping import clip_aperture
 from manimux.policy_adapter.kinematics import KinematicAdapter
-from manimux.policy_adapter.pose_output import pose_chunk
+from manimux.policy_adapter.pose_output import POSE_SPACE, pose_chunk, validate_pose_rows
+from manimux.runtime.rtc.request import RtcInferenceRequest
 from manimux.types import ActionChunk, InferenceRequest
 
 
 @dataclass(slots=True)
 class PoseRequest(InferenceRequest):
     model_state: dict = field(default_factory=dict)
+    sampling_request: InferenceRequest | None = None
 
 
 class PoseAdapter(KinematicAdapter):
@@ -33,6 +35,7 @@ class PoseAdapter(KinematicAdapter):
     supports_context_only_decode = True
 
     supports_step_ik = True
+    pose_condition_modes = ("rtc",)
 
     def __init__(self, robot, policy, *, kinematics=None):
         super().__init__(robot, policy, kinematics=kinematics)
@@ -154,8 +157,38 @@ class PoseAdapter(KinematicAdapter):
         return snapshot
 
     def prepare_request(self, request):
-        if type(request) is not InferenceRequest:
-            raise ValueError("PoseAdapter supports default inference requests only")
+        if type(request) not in (InferenceRequest, RtcInferenceRequest):
+            raise ValueError("PoseAdapter supports default and RTC inference requests only")
+        sampling = request
+        if isinstance(request, RtcInferenceRequest):
+            if self.semantics != "absolute_per_arm_base_xyz_wxyz" or not self.decode_pose_only:
+                raise ValueError("Pose RTC requires absolute targets and execution.ik.mode=step")
+            if tuple(self.robot["group_dims"]) != ("left_arm", "right_arm") or any(
+                layout["gripper_dofs"] != 1 for layout in self.layouts.values()
+            ):
+                raise ValueError("Pose RTC requires left_arm/right_arm with one gripper each")
+            condition, weights = request.action_condition, request.condition_weights
+            if (condition is None) != (weights is None):
+                raise ValueError("Pose RTC condition and weights must be supplied together")
+            if condition is not None:
+                if request.action_condition_space != POSE_SPACE:
+                    raise ValueError("Pose RTC requires absolute_tcp_pose conditions")
+                condition = np.array(condition, dtype=float, copy=True)
+                weights = np.array(weights, dtype=float, copy=True)
+                if (
+                    condition.shape != (self.horizon, 16) or weights.shape != (self.horizon,)
+                    or not np.isfinite(condition).all() or not np.isfinite(weights).all()
+                    or np.any((weights < 0) | (weights > 1))
+                ):
+                    raise ValueError("Pose RTC requires finite (H,16) poses and (H,) [0,1] weights")
+                active = weights > 0
+                for offset in (0, 8):
+                    if active.any():
+                        condition[active, offset:offset + 8] = validate_pose_rows(
+                            condition[active, offset:offset + 8]
+                        )
+                condition[~active] = 0
+                sampling = replace(request, action_condition=condition, condition_weights=weights)
         poses = self.kinematics.fk(request.observation.state.groups)
         state = {}
         for group, prefix in self.prefixes.items():
@@ -169,6 +202,8 @@ class PoseAdapter(KinematicAdapter):
             request.observation,
             request.instruction,
             state,
+            sampling,
+            action_condition_space=request.action_condition_space,
         )
 
     def decode_action(self, raw, context):

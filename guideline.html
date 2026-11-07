@@ -577,6 +577,17 @@ Bind camera components <code>left_wrist_camera</code>, <code>head_camera</code>,
 <code>right_wrist_camera</code>, arm/gripper devices, and <code>paths.checkpoints</code>
 in one private station. The checkpoint root contains the exported run directory;
 normalization is pinned by SHA256. Execution and automatic enable are disabled.</p>
+<p>For RTC, select
+<code>manimux/configs/experiments/example-flexiv-pi05/stack_cube/rtc.yaml</code>.
+It inherits the Serial model, cameras, executor and limits, and uses the shared
+RTC scheduler and Pi05 JAX sampler: full 50-step predictions, a 16-step execution-window
+floor, beta 5, single-inflight requests and latency trimming. Initial delay comes
+from warmup; the delay buffer keeps ten samples. Conditions remain absolute
+16-coordinate joint/opening targets and pass through the checkpoint's ordinary
+normalization and padding. PyTorch remains default-only. Preserve private station
+calibration when applying these inference overrides; existing services and local
+configs are not switched automatically. CPU integration checks do not establish
+real-weight RTC latency or physical task success.</p>
 <p>The experiment selects the collection's <code>force_position</code> gripper mode:
 100 Hz inner control, kp/kd 8/0.2, reference speed 1.2 rad/s, acceleration 6 rad/s²
 and encoded MIT PD torque budget 0.3 Nm. This is separate from the executor's
@@ -3344,7 +3355,7 @@ decisions and result tables; it is not a second public guide.</p>
 run:
   control_timing: true</code></pre>
 <p>Merge these fields into an experiment with a direct executor and inline action decoding. The optional budget defaults to half the control period and must be shorter than that period. Add them to a variant whose adapter uses IK (for example OpenWAM YAM or XR1 YAM). Existing experiments remain in chunk mode.</p>
-<p>Step mode supports serial/async for IK adapters. OpenWAM YAM and XR1 YAM also support pose-space RTC/PAINT; Pi05 Tianji, XR1 Tianji and UMI-DP Tianji support pose-space RTC. Unsupported combinations fail at configuration validation. Smooth/MPC, joint candidate scoring, temporal ensembling, executor-based RTC forecasts, cubic joint blends, waypoint handoff and decoder diffIK substeps require chunk mode.</p>
+<p>Step mode supports serial/async for IK adapters. OpenWAM YAM and XR1 YAM also support pose-space RTC/PAINT; Pi05 Tianji, Pi05 Flexiv EE, XR1 Tianji and UMI-DP Tianji support pose-space RTC. Unsupported combinations fail at configuration validation. Smooth/MPC, joint candidate scoring, temporal ensembling, executor-based RTC forecasts, cubic joint blends, waypoint handoff and decoder diffIK substeps require chunk mode.</p>
 <p>The current pose is interpolated with linear position/gripper and quaternion SLERP, then IK is seeded from the current measured joint state. Both arms share the budget; under the default failure policy, a failed or late solution holds both arms and grippers at the previous command. Watch the <code>step_ik</code> timing stage and <code>step_ik_hold</code> events. The budget is cooperative: native calls cannot always be interrupted, so verify control timing on the target machine. Pose-space interpolation can produce a different joint path from interpolating a pre-solved joint chunk.</p>
 <p><strong>Optional TCP target speed limit (off by default):</strong> set <code>execution.ik.pose_speed_limit</code> to a mapping with <code>max_linear_m_s</code> and/or <code>max_angular_rad_s</code>. Values must be positive and finite. Omit it or use <code>null</code> to disable. This setting applies to step IK only.</p>
 <pre><code>execution:
