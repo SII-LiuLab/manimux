@@ -333,6 +333,13 @@ class PolicyWarmup:
             self._execution_ms, self._ik_status = self.planner.tick(
                 snapshot.state, loop_started_ns=loop_started_ns
             )
+            gripper_clips = getattr(self.planner.execution.executor, "gripper_clip_diagnostics", {})
+            if gripper_clips:
+                self._event(
+                    "warmup_gripper_clipped", executor="direct", stage="executor",
+                    step=self.planner.steps, monotonic_ns=self.clock.now_ns(),
+                    plan_id=self.planner._timeline.active_plan_id, groups=gripper_clips,
+                )
             for kind, fields in self.strategy.take_runtime_events(step=self.planner.steps):
                 self._event("warmup_strategy_event", strategy_event=kind, **fields)
         if self.phase == "draining" and not self._pending and self.ready:

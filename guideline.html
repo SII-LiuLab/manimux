@@ -252,6 +252,15 @@ retains the velocity of the emitted command, and rejects an infeasible state ins
 clipping it into range. Inference-gap holds also respect these limits. Raw policy predictions remain
 available unchanged in the recording. Direct and MPC commands pass the same final
 validation; this does not add smoothing to those executors.</p>
+<p>Direct clips explicitly declared normalized gripper coordinates to [0, 1] before
+applying shared motion limits and bounds the final gripper command again. It does not
+clip arm joints or modify the saved model plans. Each affected control tick records
+<code>gripper_clipped</code> in <code>events.jsonl</code>, with the plan ID, timestamp,
+coordinate index, raw aperture, clipped target, command before/after final clipping
+and signed clipping deltas. These are executor decisions before hardware dispatch;
+they do not establish that a command was sent. Warmup uses the same executor and
+records <code>warmup_gripper_clipped</code> separately. Large model overshoots remain
+visible for diagnosis; clipping does not validate the model prediction.</p>
 <p>With <code>robot.options.execute: false</code>, command shape, configured safety limits
 and the controller's pure command validation still apply, without command transmission.
 This does not test motor readiness or successful physical execution. The resolved shared

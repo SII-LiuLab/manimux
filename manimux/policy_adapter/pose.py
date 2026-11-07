@@ -10,6 +10,7 @@ from manimux.embodiments.layout import group_layouts
 from manimux.kinematics.poses import matrix_pose, pose_matrix
 from manimux.policies.actions import action_groups
 from manimux.policies.base import action_interval
+from manimux.policy_adapter.gripper_mapping import clip_aperture
 from manimux.policy_adapter.kinematics import KinematicAdapter
 from manimux.policy_adapter.pose_output import pose_chunk
 from manimux.types import ActionChunk, InferenceRequest
@@ -36,6 +37,9 @@ class PoseAdapter(KinematicAdapter):
     def __init__(self, robot, policy, *, kinematics=None):
         super().__init__(robot, policy, kinematics=kinematics)
         options = policy["adapter"]
+        self.gripper_output = options.get("gripper_output", "reject")
+        if self.gripper_output not in {"reject", "clip"}:
+            raise ValueError("Pose gripper_output must be reject or clip")
         self.layouts = group_layouts(robot["group_dims"], options)
         if any(layout["gripper_dofs"] not in (0, 1) for layout in self.layouts.values()):
             raise ValueError("PoseAdapter supports zero or one normalized gripper per arm")
@@ -173,6 +177,19 @@ class PoseAdapter(KinematicAdapter):
             raise ValueError("Pose action semantics mismatch")
         if any(len(rows) != self.horizon for rows in actions.values()):
             raise ValueError("Pose action horizon mismatch")
+        gripper_metadata = {}
+        raw_actions = actions
+        if self.gripper_output == "clip":
+            apertures, gripper_metadata = clip_aperture(
+                {
+                    name: rows[:, 7]
+                    for name, rows in actions.items()
+                    if self.layouts[name]["gripper_dofs"]
+                }
+            )
+            actions = {name: rows.copy() for name, rows in actions.items()}
+            for name, values in apertures.items():
+                actions[name][:, 7] = values
         if context.ik_seed is None:
             raise ValueError("Pose IK requires a decode seed")
         if self.semantics.startswith("delta_observation_") and context.observation_state is None:
@@ -184,7 +201,8 @@ class PoseAdapter(KinematicAdapter):
             seed = np.array(context.ik_seed.groups[group], dtype=float, copy=True)
             anchor = model.fk(
                 context.observation_state.groups[group]
-                if self.semantics.startswith("delta_observation_") else seed
+                if self.semantics.startswith("delta_observation_")
+                else seed
             )
             sequence = self.ik_sequence(group, seed)
             solved = []
@@ -223,7 +241,7 @@ class PoseAdapter(KinematicAdapter):
                 # command for one action interval; do not consume another delta.
                 groups[group] = np.repeat(groups[group], 2, axis=0)
         if self.decode_pose_only:
-            return pose_chunk(context, groups, self.dt_ns)
+            return pose_chunk(context, groups, self.dt_ns, metadata=gripper_metadata)
         return ActionChunk(
             f"pose-{context.request_seq}-{uuid.uuid4().hex[:8]}",
             context.request_seq,
@@ -233,12 +251,14 @@ class PoseAdapter(KinematicAdapter):
             self.dt_ns,
             groups,
             metadata={
+                **gripper_metadata,
                 "ik": diagnostics,
                 "action_semantics": self.semantics,
                 "decoded_policy_steps": self.decode_steps,
                 "terminal_hold_endpoint": self.decode_steps == 1,
                 "raw_model_eef": {
-                    group: actions[group][: self.decode_steps].tolist() for group in selected_groups
+                    group: raw_actions[group][: self.decode_steps].tolist()
+                    for group in selected_groups
                 },
             },
         )
