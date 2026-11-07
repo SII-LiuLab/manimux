@@ -1,0 +1,17 @@
+id: example-flexiv-pi05-models
+policy_switching: on_demand
+recording:
+  root: ../../../data/experiments
+experiments:
+- id: joint_serial
+  label: Pi05 JOINT 29999 / Serial / Smooth
+  config: ../experiments/example-flexiv-pi05/model_selection/joint_serial.yaml
+- id: joint_rtc
+  label: Pi05 JOINT 29999 / RTC / Smooth
+  config: ../experiments/example-flexiv-pi05/model_selection/joint_rtc.yaml
+- id: ee_serial
+  label: Pi05 EE 29999 / Serial / diffIK
+  config: ../experiments/example-flexiv-pi05/model_selection/ee_serial.yaml
+- id: ee_rtc
+  label: Pi05 EE 29999 / RTC / diffIK
+  config: ../experiments/example-flexiv-pi05/model_selection/ee_rtc.yaml

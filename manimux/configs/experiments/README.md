@@ -10,6 +10,7 @@ Only the `example-*` studies are published; they are also the runtime examples:
 | [`example-yam-poke/`](example-yam-poke/serial.yaml) | Hosted Poke API, YAM | `serial` |
 | [`example-tianji-pi05/`](example-tianji-pi05/README.md) | Pi05 pack-plate through XPolicyLab, Tianji Marvin + TacCap, actuation off | `pack_plate/{serial,async,rtc}` |
 | [`example-flexiv-pi05/`](example-flexiv-pi05/stack_cube/rtc.yaml) | Pi05 stack-cube joint and flange EE / UMI, Flexiv + OmniGripper, actuation off | `stack_cube/{rtc,ee_umi_serial,ee_umi_async,ee_umi_diffik_serial,ee_umi_diffik_async}` |
+| [`example-flexiv-pi05/model_selection/`](example-flexiv-pi05/model_selection/joint_serial.yaml) | One shared station; on-demand model selection, actuation off | `{joint_serial,joint_rtc,ee_serial,ee_rtc}` |
 | [`example-franka/`](example-franka/_base_.yaml) | Franka FR3, XPolicyLab joint policy, read-only | `pick_yellow_block/{pi05_droid,rpent}` |
 | [`example-rpent-synthetic/`](example-rpent-synthetic/_base_.yaml) | Synthetic robot and tool policy, no hardware | `demo/{rpent,rpent_gui,rpent_gui_debug,rpent_gui_primitives}` |
 

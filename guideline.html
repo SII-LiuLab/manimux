@@ -528,6 +528,29 @@ A failed or late solve holds both arms and both grippers, or raises with
 (<code>step_ik_limited</code>). Select the diffIK config for all services using
 the same launch procedure; the examples keep actuation disabled.</p>
 
+<h4 id="pi05-flexiv-model-selection">Switch Joint / EE and Serial / RTC</h4>
+<p>The <code>example-flexiv-pi05-models.yaml</code> config list exposes four
+Method choices for <code>stack cube</code>: Joint Serial, Joint RTC, EE Serial
+(diffIK), and EE RTC (diffIK). The local station list is
+<code>pi05-flexiv-stack-cube-models.yaml</code>. Serial uses the full H50 chunk;
+RTC uses a 16-step minimum window, beta 10 and conditions sampled from the
+executing timeline. The EE model re-expresses absolute flange conditions against
+its new request observation before training normalization. Both EE choices use
+100 Hz Direct execution with the same diffIK limits.</p>
+<p><code>policy_switching: on_demand</code> enables model changes through the
+list's shared policy service. Launch that service with
+<code>python -m manimux.servers.policy --config-list &lt;list&gt;</code> without
+<code>--experiment-id</code>, and launch the runtime with the same list/station.
+Select a Method in RoboGUI after Finish, evaluation and recovery are complete.
+Next Prepare loads the selected model if necessary; the same model's Serial/RTC
+choices reuse weights. Activate Warmup before Start; a new model must compile
+its sampler again. Only one model occupies GPU memory at a time.</p>
+<p>Model changes retain strict backend identity checks. Changing an active
+rollout or replacing a model with an open client connection is rejected.
+Robot and camera bindings must match across the catalog. Each method records
+into its own directory under the list's recording root. The complete service
+commands are in the Pi05 Flexiv deployment runbook.</p>
+
 <p>To emulate collection compression on individual deployment images, install the
 runtime <code>image-processing</code> extra and set
 <code>run.sensor_reading.mode: background</code> with
