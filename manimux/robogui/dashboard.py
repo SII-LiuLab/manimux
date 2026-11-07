@@ -1053,13 +1053,18 @@ class PolicyRoboGUI:
         """Show recovery controls from the assembly declaration, not the robot name."""
         declared = bool(self.recovery_actions)
         has_clear = "clear_error" in self.recovery_actions
+        has_home = (
+            self.active_home_available if self.episode_active
+            else "home" in self.recovery_actions
+        )
         has_drag = self._supports_hand_guiding("drag")
         has_release = any(
             self._supports_hand_guiding(action) for action in ("release", "release_5s")
         )
         has_hand_guiding = has_drag or has_release
-        self.recovery_folder.visible = has_clear or has_hand_guiding
+        self.recovery_folder.visible = has_clear or has_home or has_hand_guiding
         self.clear_error_btn.visible = has_clear
+        self.home_btn.visible = has_home
         self.drag_arm.visible = has_hand_guiding
         self.drag_btn.visible = has_drag
         self.release_btn.visible = has_release
