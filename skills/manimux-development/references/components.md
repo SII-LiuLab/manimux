@@ -372,8 +372,8 @@ in the private station file. This is a configuration fragment, not a shipped dri
 
 ## Hardware exit safety
 
-Flexiv policy joint safety lives in `embodiments/arm/flexiv/safety.py` and is
-selected by the Pi05 experiment's per-arm `joint_safety` settings. It reproduces
+Flexiv policy joint shaping is the private `_JointTargetGuard` in
+`embodiments/arm/flexiv/controller.py`, selected by the Pi05 experiment's per-arm `joint_safety` settings. It reproduces
 collection's measured/reference velocity and tracking envelope before a final
 SDK-bound clip. Keep the seven-radian joint contract and policy-independent
 controller entry; do not add model-specific J5 handling or Cartesian nullspace

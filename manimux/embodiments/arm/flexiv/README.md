@@ -5,6 +5,23 @@ recording and RoboGUI. Each arm contributes seven absolute joint angles in radia
 in RDK J1..J7 order. There is no dummy gripper. Physical left/right mapping comes
 from station serials, never discovery order.
 
+## Code ownership
+
+- `arm.py`: component registration and offline model construction.
+- `controller.py`: RDK session, commands and the private `_JointTargetGuard`.
+  The guard uses SDK bounds and feedback, and advances history only after a
+  successful send. It also protects joint policies that never call IK.
+- `kinematics.py`: URDF flange FK, Jacobian and bounded numerical IK.
+- `manimux/kinematics/flexiv_diff.py`: `FlexivDifferentialIK`, alongside Tianji's
+  differential solver. It computes a bounded Cartesian-to-joint increment;
+  automatic nullspace limit avoidance remains, without manual teleop bias state.
+
+The controller guard and differential solver share directional slowdown math,
+but have distinct contracts: controller position shaping permits a zero-width
+hold interval and tracks persistent feedback error; the velocity least-squares
+solver requires a nonempty velocity interval. Their time sources and bounds also
+differ. Neither replaces the shared executor's velocity/acceleration shaping.
+
 ## Configuration
 
 - Assembly: `manimux/configs/embodiment/robot/flexiv_dual.yaml`.
@@ -301,7 +318,7 @@ collision planner. The runtime's shared IK failure policy owns hold/reject.
 The `flexiv_omnigripper_ee` assembly selects 0.15 rad and 0.001 for the H50 Pi05
 flange policy. Keep calibrated geometry in the station's private assembly.
 
-`diff_ik.py` also ports the Flexiv teleop bounded differential solver from
+`manimux/kinematics/flexiv_diff.py` ports the Flexiv teleop bounded differential solver from
 [tianji-control revision 4d20258](https://github.com/SII-LiuLab/tianji-control/blob/4d20258bdf8d53d66798da07691d7c5bbcb4c023/algos/flexiv_diff_ik.py).
 It uses this component's calibrated/nominal URDF Jacobian, without SDK calls.
 Select it through `execution.ik.solver: differential` in step mode; the

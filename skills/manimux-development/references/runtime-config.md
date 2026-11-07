@@ -859,7 +859,7 @@ Both use 100 Hz Direct execution, inline absolute-pose decoding and a shared
 behavior. The optional `create_differential_ik()` model factory must be supported;
 unsupported models and invalid options fail during offline configuration checks.
 
-The solver is adapted from [tianji-control's Flexiv teleop solver](https://github.com/SII-LiuLab/tianji-control/blob/4d20258bdf8d53d66798da07691d7c5bbcb4c023/algos/flexiv_diff_ik.py).
+The solver, `kinematics/flexiv_diff.py:FlexivDifferentialIK`, is adapted from [tianji-control's Flexiv teleop solver](https://github.com/SII-LiuLab/tianji-control/blob/4d20258bdf8d53d66798da07691d7c5bbcb4c023/algos/flexiv_diff_ik.py).
 It uses the selected nominal or calibrated URDF's flange FK and spatial Jacobian,
 bounded least squares for joint velocity, Cartesian speed caps, joint-limit
 velocity damping, measured/command tracking bounds, and nullspace limit avoidance.
