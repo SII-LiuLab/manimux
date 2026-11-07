@@ -19,8 +19,14 @@ for commands and environment selection.
 | `manimux.robogui.dashboard` | Operator controls and visualization |
 
 `--experiment-id` selects a service configuration when a config list contains
-incompatible entries. Without it, ambiguity is rejected. Switching runtime entries
-does not reload model weights or reconnect a different camera set automatically.
+incompatible entries. Without it, ambiguity is rejected unless the list explicitly
+sets `policy_switching: on_demand`. That opt-in uses `model_catalog.py`: one owned
+model child at a time, transparent WebSocket routes and connection leases. Launch
+the generic policy service with the list and no `--experiment-id`. The next
+Prepare loads the selected recipe; Serial/RTC for the same recipe reuse its child.
+Linux and one model environment compatible with all selected recipes are required.
+The catalog never reconnects different robot/camera hardware. See the
+[Flexiv model-selection runbook](../../skills/manimux-inference/references/deployment/pi05-flexiv.md#joint--ee-and-serial--rtc-config-list).
 
 Camera-only component recipes use the advanced `--camera-config` flag. Camera
 `--config` always means a full runtime config. The old `--experiment` spelling is

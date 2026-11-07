@@ -62,6 +62,9 @@ def fingerprint(config: dict) -> str:
     # actions or scoring. Preserve its value in manifests, not scientific identity.
     if isinstance(fields.get("policy"), dict):
         fields["policy"].get("options", {}).pop("warmup_request_timeout_s", None)
+        # Adding another catalog entry does not change this variant's model or
+        # execution conditions. Its routed recipe and expected identity remain.
+        fields["policy"].get("options", {}).pop("model_catalog", None)
     # Xiaomi's mask is consumed only by RTC guidance. Enabling it on a shared
     # server must not hide completed ordinary/PAINT trials from the same study.
     if ((fields.get("policy_server") or {}).get("policy_name") == "Xiaomi_Robotics_1"
@@ -103,6 +106,12 @@ def fingerprint(config: dict) -> str:
 
 def service_contract(config: dict) -> dict:
     contract = shared_service_contract(config)
+    catalog = config["policy"].get("options", {}).get("model_catalog")
+    if catalog is not None:
+        # The router owns these model processes. Prepare rebuilds the adapter and
+        # performs the usual backend identity/capability check on its routed socket.
+        contract["policy_server"] = {"model_catalog": catalog}
+        contract["policy"] = {"worker": config["policy"]["worker"], "model_catalog": catalog}
     robot = deepcopy(contract["robot"])
     for key in ("start_joints", "start_duration_s", "move_to_start_on_connect"):
         robot.get("options", {}).pop(key, None)
@@ -205,8 +214,12 @@ def _read_collection(path: str | Path, local: Path | None):
 
     source = Path(path).expanduser().resolve()
     raw = read_yaml(source)
-    if not isinstance(raw, dict) or set(raw) - {"id", "recording", "experiments", "local"}:
-        raise ValueError("Collection accepts id, recording, experiments and optional local")
+    if not isinstance(raw, dict) or set(raw) - {
+        "id", "recording", "experiments", "local", "policy_switching"
+    }:
+        raise ValueError("Collection accepts id, recording, experiments, local and policy_switching")
+    if raw.get("policy_switching") not in (None, "on_demand"):
+        raise ValueError("policy_switching must be on_demand or omitted")
     safe_id(raw.get("id"), "collection id")
     recording = raw.get("recording", {})
     if (
@@ -254,6 +267,10 @@ def load_collection(
         choice_id = entry["id"]
         config_path = (source.parent / entry["config"]).resolve()
         config = _load_config(config_path, local=station)
+        if raw.get("policy_switching") == "on_demand":
+            from manimux.servers.model_catalog import route_config
+
+            route_config(config, source)
         from manimux.configuration import compose
 
         if "output_dir" in compose(config_path)[0].get("run", {}):
@@ -334,6 +351,10 @@ def load_collection(
             )
         )
     catalog = ExperimentList(source, choices, hashlib.sha256(source.read_bytes()).hexdigest())
+    if raw.get("policy_switching") == "on_demand":
+        reference = service_contract(choices[0].config)
+        if any(service_contract(c.config) != reference for c in choices[1:]):
+            raise ValueError("On-demand model switching requires identical robot/camera services")
     if experiment is not None:
         if experiment not in catalog.choices:
             raise ValueError(

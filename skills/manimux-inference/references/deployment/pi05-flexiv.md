@@ -373,3 +373,79 @@ Offline validation on 2026-11-05:
 
 No controller was constructed or connected. These results qualify offline
 integration only; physical stack-cube performance remains untested.
+
+### Joint / EE and Serial / RTC config list
+
+`lists/example-flexiv-pi05-models.yaml` provides four portable choices with
+actuation disabled. The reference station's private list is
+`lists/pi05-flexiv-stack-cube-models.yaml`; paths here are relative to
+`manimux/configs/`. It retains the installed station's calibrated EE assembly,
+100 Hz control, image processing, controller and executor limits. The two joint
+choices use Smooth; the two EE choices use Direct plus execution-time diffIK.
+
+| Choice | Model | Inference |
+| --- | --- | --- |
+| `joint_serial` | Joint step 29999 | Serial, full H50 |
+| `joint_rtc` | Joint step 29999 | RTC, minimum window 16, beta 10 |
+| `ee_serial` | EE UMI step 29999 | Serial, full H50, diffIK |
+| `ee_rtc` | EE UMI step 29999 | RTC, minimum window 16, beta 10, diffIK |
+
+These windows preserve the installed joint comparison's H50 Serial and K16 RTC
+choices; they are not the separate YAM K32 study. Both RTC variants condition on
+the executing timeline at the new observation timestamps. For EE, absolute flange
+poses are converted to right/left training Rot6D/tool axes, then re-expressed
+against the new measured anchor before zero-pose state encoding, normalization
+and action padding. No future IK is solved to construct the condition. Joint
+conditions are never treated as pose rows. Entirely zero-weight RTC requests use
+the default sampler graph to avoid bf16 graph-dependent drift after RNG reset.
+
+The list opts into `policy_switching: on_demand`. Run the generic policy launcher
+in the Pi05 environment; do not use the single-recipe Pi05 launcher or pass a
+model-service `--experiment-id`. The router snapshots the resolved recipes,
+passes XPolicyLab messages unchanged, and owns one model child at a time. It
+refuses replacement while a client is connected. Same-model Serial/RTC switching
+reuses weights; cross-model switching terminates only its owned child and loads
+the other checkpoint. Normal HELLO identity, capability validation and RESET fences
+remain mandatory. A failed load leaves no selected model and surfaces an error;
+retrying does not connect hardware. Graceful shutdown and Linux parent-death
+signalling release the owned model child.
+
+In RoboGUI, finish the active rollout, evaluation and recovery, then select the
+Method label for the desired model/algorithm. The next Prepare creates a fresh
+worker, adapter, strategy, timeline and warmup state. Activate Warmup and wait
+before Start. Adding a catalog entry does not change existing variants' scientific
+fingerprints. Recordings remain separated by collection/task/variant; no layout
+or repeat budget is invented for this station list.
+
+Use the same list/station for all services. Finish the existing session before
+replacing its runtime or occupied model service; existing camera/GUI services
+can be reused when their configuration matches. The private station's list has
+execution and enable-on-connect enabled; the operator owns physical controls.
+
+```bash
+cd <manimux-checkout>
+MM_LIST=manimux/configs/lists/pi05-flexiv-stack-cube-models.yaml
+MM_LOCAL=.local/flexiv/pi05_ee/station_run.yaml
+
+envs/flexiv/.venv/bin/python -m manimux inspect --config-list "$MM_LIST" --local "$MM_LOCAL"
+envs/flexiv/.venv/bin/python -m manimux.servers.camera.server --config-list "$MM_LIST" --local "$MM_LOCAL" --check
+third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python -m manimux.servers.policy --config-list "$MM_LIST" --local "$MM_LOCAL" --check
+
+# Separate terminals; define MM_LIST/MM_LOCAL in each.
+XLA_PYTHON_CLIENT_PREALLOCATE=false third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python -m manimux.servers.policy --config-list "$MM_LIST" --local "$MM_LOCAL"
+envs/flexiv/.venv/bin/python -m manimux.servers.camera.server --config-list "$MM_LIST" --local "$MM_LOCAL"
+envs/flexiv/.venv/bin/python -m manimux.robogui.dashboard --config .local/flexiv/pi05_ee/robogui.yaml --host 127.0.0.1 --port 8086
+envs/flexiv/.venv/bin/python -m manimux run --config-list "$MM_LIST" --local "$MM_LOCAL" --experiment-id ee_serial
+```
+
+Recorded-image/real-weight validation on 2026-11-05 passed all four choices,
+including joint -> EE -> joint child replacement, same-model process reuse,
+backend identity and zero-weight/default equivalence. Model loading took about
+7–8 s; first RTC compilation about 7 s. EE steady conditioned inference was about
+164 ms. The actual RTC runtime completed 1800 disconnected-sink ticks, accepted
+33 plans and rejected none. Host frequency was 99.74 Hz; 21 dual-arm 5 ms budget
+misses produced complete holds. Warmup completed one ordinary and two conditioned
+calls with zero hardware sends. These timings do not establish motor timing or
+physical task success. Provider responses and generated commands remain in the
+private verification artifacts; the router tests also cover active leases,
+unknown routes, failed loading and idle-only selection.
