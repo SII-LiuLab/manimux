@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TextIO
@@ -35,7 +34,6 @@ class _TickRecord:
     inference_ms: float | None
     camera_times_ns: dict[str, int]
     sent_commands: dict[str, dict]
-    image_processing: dict[str, dict]
 
 
 @dataclass(slots=True)
@@ -162,13 +160,6 @@ class EpisodeRecorder:
                            for key, value in sample.items()}
                     for name, sample in (sent_commands or {}).items()
                 },
-                image_processing={
-                    name: {**deepcopy(frame.camera_meta["image_processing"]),
-                           "source_sequence": frame.sequence,
-                           "source_capture_ns": frame.capture_monotonic_ns}
-                    for name, frame in (frames or {}).items()
-                    if (frame.camera_meta or {}).get("image_processing") is not None
-                },
             )
         )
         self._video.submit(frames or {})
@@ -243,32 +234,6 @@ class EpisodeRecorder:
                     dtype=np.int64,
                 ),
             )
-
-        processed_names = sorted({name for record in self._ticks for name in record.image_processing})
-        if processed_names:
-            processing = ticks.create_group("image_processing")
-            processing.attrs["semantics"] = (
-                "Per-control-tick samples of background processing. Repeated completion timestamps "
-                "are cached frames, not repeated codec work; intermediate source frames may be unsampled. "
-                "batch_total_ms includes snapshot copying and all newly processed cameras; "
-                "deduplicate batch_completed_monotonic_ns before aggregating batch costs."
-            )
-            for name in processed_names:
-                group = processing.create_group(name)
-                samples = [record.image_processing.get(name) for record in self._ticks]
-                first = next(s for s in samples if s is not None)
-                group.attrs.update({k: first[k] for k in ("parameters", "versions", "semantics")})
-                for key in ("source_sequence", "source_capture_ns", "started_monotonic_ns",
-                            "completed_monotonic_ns", "batch_completed_monotonic_ns"):
-                    group.create_dataset(key, data=np.asarray([
-                        -1 if sample is None else sample.get(key, -1) for sample in samples
-                    ], dtype=np.int64))
-                for key in ("jpeg_encode_ms", "jpeg_decode_ms", "h264_encode_ms",
-                            "h264_decode_ms", "total_ms", "batch_total_ms"):
-                    group.create_dataset(key, data=np.asarray([
-                        np.nan if sample is None else sample["timings_ms"].get(key, np.nan)
-                        for sample in samples
-                    ], dtype=np.float64))
 
         plans = root.create_group("plans")
         for index, record in enumerate(self._plans):

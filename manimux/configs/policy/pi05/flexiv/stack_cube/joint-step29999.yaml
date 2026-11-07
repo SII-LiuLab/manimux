@@ -34,6 +34,8 @@ use_delta_joint_actions: false
 action_horizon: 50
 num_steps: 10
 inference_seed: 0
+# Optional deployment compression before model resize; disabled by default.
+image_processing: null
 backend_identity:
   fields:
   - task_name
@@ -48,6 +50,7 @@ backend_identity:
   - action_horizon
   - num_steps
   - inference_seed
+  - image_processing
   aliases:
     model_root: model_path
   model:

@@ -32,6 +32,8 @@ action_semantics: absolute_per_arm_base_xyz_wxyz
 action_horizon: 50
 num_steps: 10
 inference_seed: 0
+# Optional deployment compression before model resize; disabled by default.
+image_processing: null
 backend_identity:
   fields:
   - task_name
@@ -46,6 +48,7 @@ backend_identity:
   - action_horizon
   - num_steps
   - inference_seed
+  - image_processing
   - model_state_encoding
   - pose_frame
   - native_action_encoding
