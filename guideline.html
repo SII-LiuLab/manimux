@@ -476,6 +476,44 @@ for SDK setup, frame conventions, retryable cleanup and future gripper integrati
 The pose template uses chunk IK; <code>execution.ik.mode: step</code> is rejected for
 zero-gripper groups because step IK currently requires a trailing aperture coordinate.</p>
 <h3 id="pi05-flexiv">Pi05 stack cube on Flexiv + OmniGripper</h3>
+<p>Flexiv arm tracking mode is selectable per arm under
+<code>robot.options.component_hardware</code>. Set <code>control_mode: joint_impedance</code>,
+<code>joint_stiffness_scale: 1.0</code> and <code>joint_damping_ratio: 0.7</code>
+to reproduce the stack-cube collection's configured joint impedance path.
+The default remains <code>joint_position</code>. Home keeps position control;
+hand guiding uses its separate gains. Mode and gain changes require a runtime
+restart and are not applied to an active rollout by editing YAML. The collection
+metadata identifies its configuration, not a per-frame measurement of SDK mode.</p>
+<p>To keep Flexiv policy execution running when joint targets reach limits, set
+<code>joint_limit_policy: clip</code>, <code>joint_margin: 0.0</code> and
+<code>joint_clip_margin: 0.0</code> per arm under
+<code>robot.options.component_hardware</code>. The driver clips each finite target
+to that joint's SDK-reported bounds without an inward offset (a larger configured joint margin
+still applies). <code>joint_target_clipped</code> logs requested and SDK-submitted
+degrees on entry and once per second while clipping continues; inference and other
+coordinates keep advancing. Executor recordings retain the values before driver
+clipping. The default is <code>reject</code>. Home validation, feedback health checks
+and SDK errors remain active. Set
+<code>joint_limit_tolerance: 0.0005235987755982988</code> (0.03 degree) to distinguish
+small target excursions from larger ones. This diagnostic threshold never expands
+SDK command bounds. <code>joint_target_clipped</code> reports
+<code>within_tolerance</code> at INFO and <code>beyond_tolerance</code> at WARNING;
+both continue through clipping. Severity changes are logged immediately. These
+diagnostics describe executor targets; raw prediction recordings remain unchanged.
+Apply changes by restarting the runtime.</p>
+<p>The Pi05 Flexiv profile additionally enables <code>joint_safety</code> with
+<code>slowdown_zone: 0.17453292519943295</code> (10 degrees),
+<code>tracking_limit: 0.08726646259971647</code> (5 degrees),
+<code>max_dt_s: 0.016</code> and <code>tracking_timeout_s: 0.5</code>.
+These reproduce collection's directional joint-speed and measured-tracking
+envelopes. Outward motion slows near a boundary; inward motion remains possible.
+The first send seeds from measured joints. Persistent tracking failure stops
+execution; hard clipping remains the final bound. Home retains strict validation.
+<code>joint_target_guarded</code> logs shaping separately from clipping; metadata
+includes the last SDK-submitted target. Recorded tick commands remain executor
+outputs. This is a command constraint, not a guarantee against physical overshoot.
+Collection stored RDK <code>q_d</code> with zero extra margin, so its targets near
+J5 = −170 degrees conflict with the old 2-degree deployment margin.</p>
 <p>The step-29999 deployment uses three Gemini RGB views, 16 absolute joint/opening
 coordinates, 50-step predictions at 30 Hz and Serial inference. It selects the
 <code>flexiv_joint</code> profile in XPolicyLab Pi_05, with seven joints and one

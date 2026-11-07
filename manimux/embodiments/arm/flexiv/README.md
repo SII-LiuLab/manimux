@@ -27,6 +27,23 @@ schema after installing cameras; model image keys use `policy.adapter.camera_map
 The illustrative 20 Hz action grid and 16-step horizon must match the eventual
 checkpoint. NRT command frequency is 50 Hz and must stay within 1..100 Hz.
 
+Policy target tracking selects `hardware.control_mode`: `joint_position` (default)
+or `joint_impedance`. Experiments can override it per arm through
+`robot.options.component_hardware`. In impedance mode, `joint_stiffness_scale`
+(default 1.0, range [0,1]) multiplies that arm's device-reported `K_q_nom`, and
+`joint_damping_ratio` (default 0.7, range [0.3,0.8]) applies to all seven joints.
+Both flat and grouped APIs set impedance after switching modes and before sending
+the first target; Stop/resume reapplies the settings. Invalid parameters or a
+failed mode/impedance setup prevent target dispatch. Connection and read-only
+sessions do not switch modes or set impedance. Runtime metadata records the
+selected mode, gains and the last successfully configured policy stiffness.
+
+Home explicitly keeps joint position control, independently of policy mode.
+Hand guiding retains its separate low-stiffness settings; the next policy send
+reapplies policy impedance. This does not change target units, internal trajectory
+velocity/acceleration limits, joint margins or gripper control. Configuration is
+loaded by the runtime process; editing YAML does not switch an active controller.
+
 After supplying the model and cameras, launch the existing runtime:
 
 ```bash
@@ -114,7 +131,7 @@ Rizon firmware, rather than upgrading it to match an example.
 | Connect | Construct session, read limits/feedback; no Home, fault clear or motion-mode switch. Enables only when the Enable row applies. |
 | Enable | Only with experiment execute=true AND station enable_on_connect=true; otherwise sending requires an already operational arm |
 | State | Measured q; repeated device timestamp retains host time and sequence |
-| Send | Validate joints against device limits with margin, check freshness/health, prepare NRT joint mode, submit zero terminal velocity and configured rate limits |
+| Send | Reject or clip policy joints according to configured device-limit handling, check freshness/health, prepare NRT joint mode, submit zero terminal velocity and configured rate limits |
 | Stop | Blocking RDK Stop to IDLE for owned active sessions; no torque-off or Home; next send prepares NRT again |
 | Close | Stop if owned, release SDK object; failed stop retains the handle for retry |
 | Read-only | No Enable/ServoOn, mode change, target, Stop, fault clear or Home, including failed-startup cleanup |
@@ -128,7 +145,86 @@ calls can block; this integration does not promise bounded emergency-stop latenc
 Default controller limits: 0.15 rad/s, 0.3 rad/s², 2-degree joint-limit margin.
 Examples set matching executor rate limits. `position_limit_abs: null` avoids
 incorrectly clipping J6 at pi; the driver checks actual per-joint limits. Invalid
-targets are rejected rather than clipped.
+targets are rejected by default. To continue inference and execution when a policy
+target reaches a limit, select `joint_limit_policy: clip`, `joint_margin: 0.0`
+and `joint_clip_margin: 0.0` per arm under
+`robot.options.component_hardware`. Immediately before SDK submission, finite
+policy targets saturate to each device-reported joint interval inset by
+`max(joint_margin, joint_clip_margin)`. With both margins zero, clipping uses
+the SDK bounds exactly, without the previous 0.1-degree inward offset.
+Targets inside that interval pass unchanged before optional dynamic shaping. This does not
+wrap angles or use the nominal URDF limits.
+
+`joint_target_clipped` logs the channel, joint numbers (1..7), requested/submitted
+degrees and cumulative clipped-command count on entry, severity changes and at
+most once per second during unchanged clipping severity. Recovery is logged when targets return inside the
+interval. Runtime metadata includes the selected policy and resolved clip bounds.
+The ordinary command recording remains the executor output before driver clipping;
+the clipping log reports SDK-submitted values, not measured arrival. Raw model
+predictions remain unchanged. Home targets remain strictly validated and are never
+clipped. Nonfinite/malformed targets, stale feedback and SDK faults still fail.
+Editing these settings requires a runtime restart to apply.
+
+The Pi05 profile sets `joint_limit_tolerance: 0.0005235987755982988` (0.03 degree).
+This is a diagnostic threshold for the controller's input target (executor output),
+relative to raw SDK limits. It never expands the final command bounds. Clipping
+within tolerance logs `severity=within_tolerance` at INFO; larger excess logs
+`severity=beyond_tolerance` at WARNING immediately, even after a mild clip in the
+same second. Both continue through hard clipping; large finite targets alone do
+not abort execution. Metadata records the tolerance, successful command count
+beyond tolerance and maximum requested excess. Failed sends do not update them.
+Raw model horizons remain unchanged in their existing recording; these driver
+counters are not counts of raw prediction rows or measured-limit excursions.
+
+### Collection-aligned joint safety
+
+The Pi05 Flexiv experiment also selects `joint_safety` per arm:
+
+```yaml
+joint_safety:
+  slowdown_zone: 0.17453292519943295  # 10 degrees
+  tracking_limit: 0.08726646259971647  # 5 degrees
+  max_dt_s: 0.016
+  tracking_timeout_s: 0.5
+```
+
+This implements the joint envelope from collection's `FlexivDiffIK.solve`:
+outward speed decreases linearly in the last 10 degrees, using the nearer of
+the previous submitted reference and measured position. Inward motion remains
+available. The command rate is capped by the smaller of `max_velocity` and all
+SDK `dq_max` values; elapsed command time is capped to avoid banking delayed
+ticks. Each step intersects these bounds with the measured +/-5-degree tracking
+interval. The first policy send, including after Stop, seeds from bounded measured
+joints. Failed SDK sends do not advance the reference.
+
+If the previous reference leaves the tracking interval or the step is infeasible,
+the arm holds its last reference; persistent failure raises after 0.5 seconds and
+the shared runtime stops execution. Teleop instead disengages its clutch and
+rebases. Feedback may slightly exceed raw SDK bounds, but excess beyond the
+5-degree tracking envelope fails. A device `recovery()` indication also fails;
+there is no automatic recovery. Home bypasses dynamic policy shaping and keeps
+strict target validation; hand guiding retains its independent limits.
+
+Hard clipping remains an independent final command bound, inset by
+`max(joint_margin, joint_clip_margin)`. This profile uses zero extra collection
+margin and no hard inset. Dynamic shaping uses the same SDK bounds. It does
+not add Cartesian IK, nullspace avoidance, workspace/collision checking or alter
+raw model predictions. RDK still owns physical interpolation and acceleration;
+a bounded submitted reference does not prove bounded measured motion.
+
+`joint_target_guarded` reports requested/submitted angles at most once per second.
+`joint_target_clipped` separately reports requested, hard-bounded and submitted
+angles. Metadata records the safety settings, effective velocity, guard count
+and last successful SDK submission. Tick command recordings remain executor
+outputs, not driver-shaped targets or measured arrival. `joint_safety: null`
+keeps the generic component's previous behavior; the Pi05 profile enables it.
+
+The November 2026 stack-cube collection stores controller `Robot.actions().q_d`,
+not the host's bounded IK command. Its recorded margin is zero. A 2-degree
+deployment margin therefore rejects valid collection-region targets near J5's
+-170-degree lower limit. Slight recorded q_d/encoder excursions and learned
+predictions beyond the training range also require a final command clip; do not
+expand the SDK limits to the dataset minimum.
 
 ## Geometry and future grippers
 

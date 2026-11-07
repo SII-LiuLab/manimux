@@ -224,7 +224,7 @@ class FlexivRobot(RobotBase):
         # Validate every target before enabling or commanding either arm.
         for group, q in targets.items():
             c = self.arm_components[group].controller
-            c.validate_commands({c.channel: q})
+            c.validate_home_commands({c.channel: q})
         duration = max(
             (np.pi / 2) * np.max(np.abs(targets[g] - start[g])) /
             min(np.deg2rad(settings["peak_velocity_deg_s"]),
@@ -250,7 +250,7 @@ class FlexivRobot(RobotBase):
                 for group, q in targets.items():
                     self._check_cancel(stop)
                     c = self.arm_components[group].controller
-                    c.send_commands({c.channel: start[group] + weight * (q - start[group])})
+                    c.send_home_commands({c.channel: start[group] + weight * (q - start[group])})
                 stop.wait(1 / settings["control_hz"])
             # Leave arms in IDLE before opening the tools; subsequent execution prepares NRT.
             self._close_home_motion()
