@@ -555,25 +555,21 @@ Robot and camera bindings must match across the catalog. Each method records
 into its own directory under the list's recording root. The complete service
 commands are in the Pi05 Flexiv deployment runbook.</p>
 
-<p>To emulate collection compression on individual deployment images, install the
-runtime <code>image-processing</code> extra and set
-<code>run.sensor_reading.mode: background</code> with
-<code>run.sensor_reading.image_processing.type: jpeg_h264_single_frame</code>.
-Defaults are JPEG quality 80, H.264 CRF 20, ultrafast/zerolatency, yuv420p,
-30 fps/GOP 30 and two codec threads per camera. <code>workers: 3</code> processes
-three cameras concurrently; the reader publishes the complete bundle after all
-workers succeed. Each new source frame is processed once;
-cached reads retain its original capture time. This reproduces a single-frame
-compression path, not the temporal prediction of training videos. Model resize,
-padding and normalization still run in the model framework.</p>
-<p>Rollouts save processing timings in
-<code>data.zarr/ticks/image_processing/&lt;camera&gt;/</code>: JPEG encode/decode,
-H.264 encode/decode, total and batch milliseconds, plus source identity and
-completion timestamps. Repeated completion timestamps indicate cache reuse;
-deduplicate them when computing processing latency statistics. Request events also
-include <code>camera_processing</code>. Background processing adds frame age and
-may reduce achieved polling frequency; it is not included in model inference time.
-The feature is off by default and requires a runtime restart to apply.</p>
+<p>Optional collection-compression simulation belongs to the Pi05 Flexiv model
+inputs. Set <code>policy_server.image_processing.type: jpeg_h264_single_frame</code>
+in the experiment (or <code>image_processing</code> in its model recipe).
+The default is disabled. Joint and EE share a processor before training resize;
+defaults are JPEG quality 80 and H.264 CRF 20, ultrafast/zerolatency, yuv420p,
+30 fps/GOP 30 and two codec threads. The model environment needs PyAV with
+libx264/H.264 support. Each image is an independent I-frame, without temporal
+video prediction.</p>
+<p>Remove the former <code>run.sensor_reading.image_processing</code> option and
+its <code>workers</code> setting. Processing now runs for each model input-transform
+invocation and contributes to request latency; it does not alter camera capture,
+GUI images or recorded sensor video. Model-service INFO logs report per-image
+timings and source hashes; model metadata reports compression settings. New episodes
+no longer write the former sensor-processing timing datasets. Use a new experiment
+variant ID to keep results separate from the earlier background-processing setup.</p>
 <p>Flexiv arm tracking mode is selectable per arm under
 <code>robot.options.component_hardware</code>. Set <code>control_mode: joint_impedance</code>,
 <code>joint_stiffness_scale: 1.0</code> and <code>joint_damping_ratio: 0.7</code>

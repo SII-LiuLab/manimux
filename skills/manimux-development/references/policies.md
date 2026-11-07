@@ -21,6 +21,15 @@ space and normalization. This is separate from chunk IK and unsupported for
 relative-output PoseAdapter semantics. `ResponseLog` retains the RTC condition,
 weights, beta, measured model state and request identity without duplicating images.
 
+Pi05 Flexiv's optional JPEG/H.264 compression simulation belongs to its XPolicyLab
+input transforms. `SingleFrameCompression` in `policy/Pi_05/flexiv_joint.py` is
+shared by the Joint and EE input classes before training resize. Select it through
+`policy_server.image_processing`, not `run.sensor_reading`. Keep the raw RGB
+observation, GUI and episode video unchanged; do not put checkpoint preprocessing
+back into the sensor reader. Recipe identity includes the explicit compression
+setting. Effective defaults and model-side per-image timing logs describe the
+transformed model input; raw request hashes and captures remain sensor evidence.
+
 Do not infer the integration layer from an upstream repository name or from the fact
 that it contains model code. Establish which of these changes is being introduced:
 

@@ -42,7 +42,6 @@ tianji-diff-ik = [
   "osqp>=1,<2",
 ]
 replay = ["av>=12"]
-image-processing = ["av>=12", "opencv-python>=4.8"]
 
 # Model frameworks run in separate environments; these extras provide transport only.
 dream = ["dreamlabs-client==1.0.3"]

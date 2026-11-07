@@ -6,7 +6,6 @@ import math
 import threading
 import time
 from collections.abc import Sequence
-from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 
 from manimux.clock import Clock
@@ -15,8 +14,6 @@ from manimux.types import SensorFrame
 
 
 def sensor_reading_parameters(**options) -> dict:
-    options = dict(options)
-    processing = options.pop("image_processing", None)
     values = {
         "mode": "inline",
         "poll_hz": 100.0,
@@ -36,11 +33,6 @@ def sensor_reading_parameters(**options) -> dict:
             raise ValueError(f"sensor_reading.{name} must be a positive finite number")
         if not math.isfinite(value) or value <= 0:
             raise ValueError(f"sensor_reading.{name} must be a positive finite number")
-    if processing is not None:
-        from .image_processing import image_processing_parameters
-        if values["mode"] != "background":
-            raise ValueError("image_processing requires background sensor reading")
-        values["image_processing"] = image_processing_parameters(processing)
     return values
 
 
@@ -114,16 +106,7 @@ class SensorReader:
         return {} if incomplete else frames
 
     def _run(self) -> None:
-        processing_pool = None
         try:
-            processor = None
-            if self._options.get("image_processing") is not None:
-                from .image_processing import SingleFrameCompression
-                processor = SingleFrameCompression(self._options["image_processing"], self._clock)
-                processing_pool = ThreadPoolExecutor(
-                    max_workers=self._options["image_processing"]["workers"],
-                    thread_name_prefix="manimux-image",
-                )
             for sensor in self._sensors:
                 if self._stop.is_set():
                     return
@@ -137,9 +120,6 @@ class SensorReader:
                 if previous and frames.keys() != previous.keys():
                     raise RuntimeError("Sensor snapshot lost or changed its frame names")
                 snapshot = {}
-                processing_started = time.perf_counter_ns()
-                processed_names = []
-                pending = {}
                 for name, frame in frames.items():
                     old = previous.get(name)
                     if old is not None and (
@@ -164,21 +144,6 @@ class SensorReader:
                             depth=None if frame.depth is None else frame.depth.copy(),
                             camera_meta=deepcopy(frame.camera_meta),
                         )
-                        if processor is not None:
-                            pending[name] = processing_pool.submit(processor.process, snapshot[name])
-                            processed_names.append(name)
-                # Workers own only independent frame copies, never sensor sockets.
-                # Publish atomically after every camera succeeds; do not mix a new
-                # successful camera with stale output from a failed peer.
-                for name, future in pending.items():
-                    snapshot[name] = future.result()
-                if processed_names:
-                    batch_ms = (time.perf_counter_ns() - processing_started) / 1e6
-                    completed_ns = self._clock.now_ns()
-                    for name in processed_names:
-                        detail = snapshot[name].camera_meta["image_processing"]
-                        detail["timings_ms"]["batch_total_ms"] = batch_ms
-                        detail["batch_completed_monotonic_ns"] = completed_ns
                 if snapshot:
                     with self._lock:
                         self._frames = snapshot
@@ -191,8 +156,6 @@ class SensorReader:
             self._ready.set()
         finally:
             try:
-                if processing_pool is not None:
-                    processing_pool.shutdown(wait=True, cancel_futures=True)
                 self._close_sources()
             except BaseException as exc:
                 with self._lock:

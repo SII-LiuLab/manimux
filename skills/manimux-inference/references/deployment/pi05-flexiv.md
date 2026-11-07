@@ -37,6 +37,29 @@ The recipe's normalization SHA256 is checked before loading weights; the client
 also checks paired backend identity, including checkpoint, profile, horizon and
 `preprocessing_contract: stack_cube_joint_3cam_v1`.
 
+## Optional model-side compression (2026-11-07)
+
+Joint and EE recipes accept `policy_server.image_processing` in the experiment,
+or top-level `image_processing` in the referenced model recipe. The default is
+`null`. Enable `type: jpeg_h264_single_frame` to simulate the collection's JPEG80
+then H.264 CRF20 path before model resize; codec parameters are documented in
+the XPolicyLab Pi05 README. Install PyAV with libx264/H.264 in the model environment.
+
+This replaces the earlier `run.sensor_reading.image_processing` setting. Remove
+that reader option and its `workers` setting; sensor reading now always preserves
+the original pixels. The shared `SingleFrameCompression` class belongs to the
+Flexiv model inputs, not a camera driver. The model processes each supplied image
+on each input-transform invocation. Source-frame caching and cross-camera runtime
+workers are no longer involved. GUI images and episode videos remain raw.
+
+Model metadata reports the selected and effective settings; model-service INFO
+logs report per-image timings, source RGB hashes and codec versions. New episodes
+do not emit the old `ticks/image_processing` datasets or
+`inference_submitted.camera_processing` fields. Existing recordings are untouched.
+Processing now contributes to model-request latency, so previous latency results
+below predate this migration. Use a new variant ID for the changed conditions;
+the two prepared private studies use the `_model_compression` suffix.
+
 ## RTC
 
 The portable Pi05 Flexiv experiment selects the collection-aligned joint safety

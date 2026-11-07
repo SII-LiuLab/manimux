@@ -1613,16 +1613,6 @@ class EdgeRuntime(PlanningContext):
                         recorder.event(
                             "inference_submitted",
                             request_seq=request_seq,
-                            camera_processing={
-                                name: {
-                                    "source_sequence": frame.sequence,
-                                    "source_capture_ns": frame.capture_monotonic_ns,
-                                    "completed_monotonic_ns": frame.camera_meta["image_processing"]["completed_monotonic_ns"],
-                                    "timings_ms": frame.camera_meta["image_processing"]["timings_ms"],
-                                }
-                                for name, frame in frames.items()
-                                if (frame.camera_meta or {}).get("image_processing") is not None
-                            },
                             **submission.event_fields,
                         )
                         active_horizon = self._timeline.active_horizon()
