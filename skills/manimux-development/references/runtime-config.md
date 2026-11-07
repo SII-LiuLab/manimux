@@ -870,7 +870,7 @@ constants explicitly. No SDK IK, controller connection or external checkout is u
 Each solve receives the **last emitted command**, **current measured state** and
 nominal control period separately. The integration interval is capped by
 `max_step_dt_s`; missed ticks never accumulate a catch-up jump. The reference
-observation used to decode model poses remains unchanged. A `DifferentialIKResult`
+observation used to decode model poses remains unchanged. A `DifferentialIKStepResult`
 reports an accepted bounded increment, not exact pose convergence. Joint velocity
 or soft-limit saturation is valid progress; an infeasible tracking box, solver
 failure or expired shared budget invokes the same all-arm-and-gripper hold/reject

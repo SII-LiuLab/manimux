@@ -240,9 +240,10 @@ never drop bounds, tolerances or failure behavior to fit a common signature.
 RoboGUI display placement is not a calibrated arm-base transform.
 
 Models may implement `create_differential_ik(**options)` to supply an independent
-execution-time controller. `kinematics/differential.py` defines its step result
-and manipulator protocol: target, previous command, measured coordinates, time
-step and fixed tool coordinates are separate inputs. An accepted differential
+execution-time controller. `kinematics/base.py` defines `DifferentialIKStepResult`
+and the manipulator protocol; `composed.py` owns arm/tool composition. Like Tianji,
+the controller exposes `solve(target, previous, dt_s, ...)` and an `ok` result flag.
+Measured coordinates and fixed tool coordinates are explicit keyword inputs. An accepted differential
 increment includes admissible command bounds and does not claim exact-pose IK
 convergence. Composed models remove the requested tool offset once and delegate
 to the optional flange controller. Unsupported models raise explicitly; the
