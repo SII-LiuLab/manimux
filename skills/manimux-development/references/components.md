@@ -265,6 +265,36 @@ fixture to check geometry propagation, not a new runtime calibration mechanism.
 
 ## Cameras and runtime sensors
 
+Optional `run.sensor_reading.image_processing` applies collection compression in
+the background reader only. Type `jpeg_h264_single_frame` performs JPEG encode/decode
+followed by an independent in-memory MP4/H.264 encode/decode for each new RGB source
+frame. Defaults: JPEG quality 80, libx264 CRF 20, ultrafast/zerolatency, yuv420p,
+30 fps/GOP 30 and two codec threads per camera. `workers` defaults to 3; separate
+camera images are processed concurrently in a persistent thread pool. Sensor
+sockets remain owned by the reader, and only complete successful bundles are
+published. Shutdown joins codec work before releasing sources. Every image is encoded independently as an
+I-frame; this is not equivalent to the P/B-frame history of a training video.
+Install the `image-processing` extra in the runtime environment. This option is
+disabled by default, rejects inline reading, and fails startup on missing codecs.
+
+Source capture time and sequence are retained; repeated reads reuse the processed
+frame. Model resize, padding and normalization remain owned by the model framework.
+Failures propagate through the ordinary sensor failure path; do not silently fall
+back to unprocessed images. Processing can lower the achieved sensor polling rate
+and increase frame age even though it does not run on the control thread.
+
+`SensorFrame.camera_meta.image_processing` carries codec settings/versions and
+per-frame JPEG encode/decode, H.264 encode/decode and total elapsed milliseconds.
+JPEG encode timing includes RGB-to-BGR conversion; H.264 decode includes RGB output.
+`batch_total_ms` is wall time including snapshot copying and waiting for all newly
+processed cameras; concurrent per-camera times must not be summed as batch latency.
+The recorder persists sampled values under `ticks/image_processing/<camera>/` in
+`data.zarr`. Deduplicate `completed_monotonic_ns` for per-frame summaries and
+`batch_completed_monotonic_ns` for bundle summaries; repeated control ticks are not
+repeated processing. These are consumed-frame samples, not a lossless codec log.
+`inference_submitted.camera_processing` links the current processed snapshots and
+timings to each request. Startup/first-call timings may differ from steady state.
+
 Read `manimux/embodiments/sensor/base.py` and its sibling `__init__.py`.
 `SensorBase` is inert until `start()`, `read()` returns a `SensorFrame` or named
 bundle, and `close()` releases resources including after partial startup.

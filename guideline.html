@@ -528,6 +528,25 @@ A failed or late solve holds both arms and both grippers, or raises with
 (<code>step_ik_limited</code>). Select the diffIK config for all services using
 the same launch procedure; the examples keep actuation disabled.</p>
 
+<p>To emulate collection compression on individual deployment images, install the
+runtime <code>image-processing</code> extra and set
+<code>run.sensor_reading.mode: background</code> with
+<code>run.sensor_reading.image_processing.type: jpeg_h264_single_frame</code>.
+Defaults are JPEG quality 80, H.264 CRF 20, ultrafast/zerolatency, yuv420p,
+30 fps/GOP 30 and two codec threads per camera. <code>workers: 3</code> processes
+three cameras concurrently; the reader publishes the complete bundle after all
+workers succeed. Each new source frame is processed once;
+cached reads retain its original capture time. This reproduces a single-frame
+compression path, not the temporal prediction of training videos. Model resize,
+padding and normalization still run in the model framework.</p>
+<p>Rollouts save processing timings in
+<code>data.zarr/ticks/image_processing/&lt;camera&gt;/</code>: JPEG encode/decode,
+H.264 encode/decode, total and batch milliseconds, plus source identity and
+completion timestamps. Repeated completion timestamps indicate cache reuse;
+deduplicate them when computing processing latency statistics. Request events also
+include <code>camera_processing</code>. Background processing adds frame age and
+may reduce achieved polling frequency; it is not included in model inference time.
+The feature is off by default and requires a runtime restart to apply.</p>
 <p>Flexiv arm tracking mode is selectable per arm under
 <code>robot.options.component_hardware</code>. Set <code>control_mode: joint_impedance</code>,
 <code>joint_stiffness_scale: 1.0</code> and <code>joint_damping_ratio: 0.7</code>
