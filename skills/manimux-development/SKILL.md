@@ -49,6 +49,11 @@ do not require other Harnesses to copy RPent's Toolkit, HTTP transport or planne
 Matching method names alone is insufficient. Fail explicitly for unsupported modes.
 - For components, use the [operation contract](references/components.md#shared-behavior-across-embodiments).
   SDK device semantics must not leak into caller-side robot-name branches.
+- Before adding an embodiment, compare the closest existing components and follow
+  the [component layout rules](references/components.md#new-embodiment-layout).
+  Keep device-specific code in its owning component; reuse existing infrastructure
+  and add files only for a concrete responsibility. Review new files and abstractions
+  for redundancy before delivery.
 - XPolicyLab deployment recipes own `robot_action_dim_info` and `num_envs`; use its
   shared helpers and contribution rules. Preserve sampling flags through adapters and
   transport. Configuration cannot create a model-side sampler hook.
