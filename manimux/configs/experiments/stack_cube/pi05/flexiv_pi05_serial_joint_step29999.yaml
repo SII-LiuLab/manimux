@@ -18,6 +18,20 @@ robot:
     execute: false
     # Match the force-position controller used for teleoperation collection.
     component_hardware:
+      left_flexiv: &policy_arm_safety
+        control_mode: joint_impedance
+        joint_stiffness_scale: 1.0
+        joint_damping_ratio: 0.7
+        joint_margin: 0.0
+        joint_limit_policy: clip
+        joint_clip_margin: 0.0  # Clip at SDK bounds; no inward offset
+        joint_limit_tolerance: 0.0005235987755982988  # 0.03 degrees, diagnostics only
+        joint_safety:
+          slowdown_zone: 0.17453292519943295  # 10 degrees, collection velocity damper
+          tracking_limit: 0.08726646259971647  # 5 degrees, measured/reference envelope
+          max_dt_s: 0.016  # Collection cap; do not bank time after a delayed tick
+          tracking_timeout_s: 0.5
+      right_flexiv: *policy_arm_safety
       left_omnigripper: &collection_gripper
         control_mode: force_position
         control_hz: 100.0

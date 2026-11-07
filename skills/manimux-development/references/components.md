@@ -89,6 +89,13 @@ velocity/acceleration settings are separate from Home and policy limits. Keep
 controller health/freshness checks and cleanup; policy target margins do not
 apply to manual guiding. Native torque floating is not part of the selected path.
 Each bare arm has seven radians and zero gripper coordinates. The driver adapts
+policy target limits with `joint_limit_policy: reject|clip` (default reject).
+Clip saturates finite policy commands at SDK submission using device limits inset
+by `max(joint_margin, joint_clip_margin)`; the clip margin must be nonnegative.
+It logs requested/submitted joint values without interrupting inference. Home
+uses strict validation; health checks and SDK exceptions remain effective.
+Executor recordings precede this driver saturation; clipping logs identify the
+SDK-submitted targets. The driver supports
 flat/grouped RDK APIs; feedback host time is first observation of a new device
 timestamp. Nominal URDF poses use physical base_link, which may differ from RDK
 world/mounting coordinates. Calibrated private URDFs must preserve that convention.
@@ -352,6 +359,18 @@ the offline tool model owns flange-to-TCP geometry. Put actual addresses and ser
 in the private station file. This is a configuration fragment, not a shipped driver.
 
 ## Hardware exit safety
+
+Flexiv policy joint safety lives in `embodiments/arm/flexiv/safety.py` and is
+selected by the Pi05 experiment's per-arm `joint_safety` settings. It reproduces
+collection's measured/reference velocity and tracking envelope before a final
+SDK-bound clip. Keep the seven-radian joint contract and policy-independent
+controller entry; do not add model-specific J5 handling or Cartesian nullspace
+motion to joint predictions. Failed sends cannot advance the guard reference;
+Stop, Home and hand-guiding transitions reset it. Home remains strict. See the
+Flexiv component README for parameters, feedback tolerance and timeout semantics.
+Zero `joint_margin` and `joint_clip_margin` clip at the actual SDK bounds.
+`joint_limit_tolerance` is only a diagnostic threshold on executor targets; it
+must never expand those bounds, relax Home, or count failed sends as successful.
 
 An episode failure and actuator release are separate operations. Before granting
 release, audit the loaded driver rather than relying on method names.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import logging
 import sys
 import threading
 import time
@@ -12,6 +13,10 @@ import numpy as np
 
 from manimux.clock import SystemClock
 from manimux.embodiments.arm.base import ArmController, ArmState
+
+from .safety import JointSafety
+
+logger = logging.getLogger(__name__)
 
 
 class FlexivController(ArmController):
@@ -35,7 +40,14 @@ class FlexivController(ArmController):
         enable_on_connect=False,
         max_velocity=0.15,
         max_acceleration=0.3,
+        control_mode="joint_position",
+        joint_stiffness_scale=1.0,
+        joint_damping_ratio=0.7,
         joint_margin=0.03490658503988659,
+        joint_limit_policy="reject",
+        joint_clip_margin=0.0,
+        joint_limit_tolerance=0.0,
+        joint_safety=None,
         feedback_timeout_s=0.2,
         enable_timeout_s=20.0,
         clock=None,
@@ -46,6 +58,38 @@ class FlexivController(ArmController):
             raise ValueError("supply the actual Flexiv serial in the local station")
         if backend not in {"flexivpy", "flexivrdk"}:
             raise ValueError("backend must be flexivpy or flexivrdk")
+        if control_mode not in {"joint_position", "joint_impedance"}:
+            raise ValueError("Flexiv control_mode must be joint_position or joint_impedance")
+        if (not np.isfinite([joint_stiffness_scale, joint_damping_ratio]).all()
+                or not 0 <= joint_stiffness_scale <= 1
+                or not 0.3 <= joint_damping_ratio <= 0.8):
+            raise ValueError("Flexiv joint_stiffness_scale must be in [0,1] and joint_damping_ratio in [0.3,0.8]")
+        self.control_mode = control_mode
+        self.joint_stiffness_scale = float(joint_stiffness_scale)
+        self.joint_damping_ratio = float(joint_damping_ratio)
+        self._policy_stiffness = None
+        self._prepared_mode = None
+        if joint_limit_policy not in {"reject", "clip"}:
+            raise ValueError("Flexiv joint_limit_policy must be reject or clip")
+        if not np.isfinite(joint_clip_margin) or joint_clip_margin < 0:
+            raise ValueError("Flexiv joint_clip_margin must be finite and nonnegative")
+        if not np.isfinite(joint_limit_tolerance) or joint_limit_tolerance < 0:
+            raise ValueError("Flexiv joint_limit_tolerance must be finite and nonnegative")
+        self.joint_limit_policy = joint_limit_policy
+        self.joint_clip_margin = float(joint_clip_margin)
+        self.joint_limit_tolerance = float(joint_limit_tolerance)
+        self._beyond_tolerance_count = 0
+        self._max_requested_excess = 0.0
+        self._clip_severity = None
+        self._joint_safety = None if joint_safety is None else JointSafety(**joint_safety)
+        self._guard_count = 0
+        self._guard_report_ns = None
+        self._last_submitted = None
+        self._effective_velocity = max_velocity
+        self._clip_count = 0
+        self._clip_active = False
+        self._clip_report_ns = None
+        self._clip_lower = self._clip_upper = None
         if interfaces is None:
             interfaces = ()
         if isinstance(interfaces, str) or not all(
@@ -90,7 +134,19 @@ class FlexivController(ArmController):
             # A closed handle has no owned session; clear any stale flags before
             # constructing the new one so a fresh connection cannot inherit them.
             self._prepared = self._owned = self._enable_pending = False
+            self._prepared_mode = self._policy_stiffness = None
             self._state = self._stamp = None
+            self._clip_count = 0
+            self._clip_active = False
+            self._clip_report_ns = None
+            self._beyond_tolerance_count = 0
+            self._max_requested_excess = 0.0
+            self._clip_severity = None
+            self._clip_lower = self._clip_upper = None
+            self._guard_count = 0
+            self._guard_report_ns = self._last_submitted = None
+            if self._joint_safety is not None:
+                self._joint_safety.reset()
             if self._sdk is None:
                 if self.sdk_path is not None:
                     path = str(Path(self.sdk_path).expanduser().resolve())
@@ -126,10 +182,24 @@ class FlexivController(ArmController):
                     if len(groups) != 1:
                         raise ValueError("Flexiv requires exactly one selected single-arm group")
                     self._group = groups[0]
-                self._lower = self._vector(self._value(info.q_min)) + self.joint_margin
-                self._upper = self._vector(self._value(info.q_max)) - self.joint_margin
+                self._device_lower = self._vector(self._value(info.q_min))
+                self._device_upper = self._vector(self._value(info.q_max))
+                self._lower = self._device_lower + self.joint_margin
+                self._upper = self._device_upper - self.joint_margin
                 if np.any(self._lower >= self._upper):
                     raise ValueError("invalid Flexiv device limits or joint margin")
+                # Clip clearance is a minimum inset from the device limits;
+                # preserve a larger explicitly configured joint margin.
+                extra = max(0.0, self.joint_clip_margin - self.joint_margin)
+                self._clip_lower = self._lower + extra
+                self._clip_upper = self._upper - extra
+                if self.joint_limit_policy == "clip" and np.any(self._clip_lower >= self._clip_upper):
+                    raise ValueError("invalid Flexiv device limits or clip margin")
+                if self._joint_safety is not None:
+                    velocity = self._vector(self._value(info.dq_max))
+                    if np.any(velocity <= 0):
+                        raise ValueError("Flexiv SDK joint velocity limits must be positive")
+                    self._effective_velocity = min(self.max_velocity, float(np.min(velocity)))
                 self.get_states()
                 if self.execute and self.enable_on_connect:
                     self._health(require_operational=False)
@@ -168,6 +238,9 @@ class FlexivController(ArmController):
             raise RuntimeError("Flexiv is disconnected")
         if self._robot.fault():
             raise RuntimeError("Flexiv fault; recovery must be explicit")
+        recovery = getattr(self._robot, "recovery", None)
+        if callable(recovery) and recovery():
+            raise RuntimeError(f"Flexiv {self.channel}: controller requires joint recovery")
         if require_operational and not self._robot.operational():
             raise RuntimeError(
                 f"Flexiv {self.channel} is not operational; enable must be explicit; "
@@ -224,43 +297,160 @@ class FlexivController(ArmController):
                 self._stamp = stamp
             if not 0 <= now - self._state.monotonic_ns <= self.feedback_timeout_s * 1e9:
                 raise RuntimeError("Flexiv feedback timestamp stopped advancing")
+            if self._joint_safety is not None:
+                q = self._state.joints
+                outside = np.abs(q - np.clip(q, self._device_lower, self._device_upper))
+                if np.any(outside > self._joint_safety.tracking_limit):
+                    raise RuntimeError(f"Flexiv {self.channel}: joint feedback outside tracking envelope")
             return {self.channel: self._state}
 
     def validate_commands(self, targets):
+        self._command_target(targets, clip=self.joint_limit_policy == "clip")
+
+    def validate_home_commands(self, targets):
+        """Home must reach its configured target, never a saturated substitute."""
+        self._command_target(targets, clip=False)
+
+    def _command_target(self, targets, *, clip):
         if set(targets) != {self.channel}:
             raise ValueError("Flexiv command must name this controller's serial channel")
         q = self._vector(targets[self.channel])
         if self._robot is None:
             raise RuntimeError("Flexiv device limits are unavailable before connect")
+        if clip:
+            return np.clip(q, self._clip_lower, self._clip_upper)
         if np.any(q < self._lower) or np.any(q > self._upper):
-            raise ValueError("Flexiv target exceeds device joint limits with configured margin")
+            bad = np.flatnonzero((q < self._lower) | (q > self._upper))
+            details = "; ".join(
+                f"J{i + 1}={np.rad2deg(q[i]):.6f}deg allowed "
+                f"[{np.rad2deg(self._lower[i]):.6f}, {np.rad2deg(self._upper[i]):.6f}]deg"
+                for i in bad
+            )
+            raise ValueError(
+                f"Flexiv {self.channel} target exceeds device joint limits with configured margin: {details}"
+            )
+        return q
 
     def send_commands(self, targets):
+        self._send_commands(targets, control_mode=self.control_mode,
+                            clip=self.joint_limit_policy == "clip", guard=True)
+
+    def send_home_commands(self, targets):
+        """Preserve position-mode Home independently of policy impedance settings."""
+        self._send_commands(targets, control_mode="joint_position")
+
+    def _send_commands(self, targets, *, control_mode, clip=False, guard=False):
         with self._lock:
             if not self.execute:
                 raise PermissionError("Flexiv session is read-only")
             if not self._ready:
                 raise RuntimeError("Flexiv is not connected")
-            self.validate_commands(targets)
-            self.get_states()
+            q = self._command_target(targets, clip=clip)
+            measured = self.get_states()[self.channel].joints
             self._health()
-            mode = self._sdk.Mode.NRT_JOINT_POSITION
-            if not self._prepared:
+            bounded = q.copy()
+            now = self.clock.now_ns()
+            if guard and self._joint_safety is not None:
+                lower, upper = ((self._clip_lower, self._clip_upper) if clip
+                                else (self._lower, self._upper))
+                q = self._joint_safety.target(
+                    q, measured, lower, upper, self._effective_velocity, now,
+                )
+                # Independent last line of defense after dynamic shaping.
+                q = np.clip(q, lower, upper)
+            mode = getattr(self._sdk.Mode, "NRT_" + control_mode.upper())
+            if self._prepared and self._robot.mode() != self._prepared_mode:
+                raise RuntimeError("Flexiv motion mode changed during execution")
+            if not self._prepared or self._prepared_mode != mode:
+                stiffness = None
+                if control_mode == "joint_impedance":
+                    nominal = self._vector(self._value(self._robot.info().K_q_nom))
+                    if np.any(nominal <= 0):
+                        raise ValueError("Flexiv nominal joint stiffness must be positive")
+                    stiffness = (nominal * self.joint_stiffness_scale).tolist()
+                    setter = self._robot.SetJointImpedance
+                self._prepared = False
                 self._owned = True
                 self._robot.SwitchMode(mode)
+                if self._robot.mode() != mode:
+                    raise RuntimeError("Flexiv motion mode switch did not complete")
+                if stiffness is not None:
+                    damping = [self.joint_damping_ratio] * 7
+                    if self._grouped:
+                        setter(self._group, stiffness, damping)
+                    else:
+                        setter(stiffness, damping)
+                    self._policy_stiffness = stiffness
+                self._prepared_mode = mode
                 self._prepared = True
             if self._robot.mode() != mode:
                 raise RuntimeError("Flexiv motion mode changed during execution")
             args = (
-                self._vector(targets[self.channel]).tolist(),
+                q.tolist(),
                 [0.0] * 7,
-                [self.max_velocity] * 7,
+                [self._effective_velocity] * 7,
                 [self.max_acceleration] * 7,
             )
             if self._grouped:
                 self._robot.SendJointPosition({self._group: self._sdk.NrtJointPositionCmd(*args)})
             else:
                 self._robot.SendJointPosition(*args)
+            self._last_submitted = q.copy()
+            if self._joint_safety is not None:
+                if guard:
+                    self._joint_safety.commit(q, now)
+                    if not np.array_equal(q, bounded):
+                        self._guard_count += 1
+                        if self._guard_report_ns is None or now - self._guard_report_ns >= 1_000_000_000:
+                            logger.warning(
+                                "joint_target_guarded channel=%s requested_deg=%s submitted_deg=%s "
+                                "guarded_commands=%d", self.channel,
+                                np.rad2deg(targets[self.channel]).tolist(),
+                                np.rad2deg(q).tolist(), self._guard_count,
+                            )
+                            self._guard_report_ns = now
+                else:
+                    self._joint_safety.reset()
+            if clip:
+                self._report_joint_clip(self._vector(targets[self.channel]), bounded, submitted=q)
+
+    def _report_joint_clip(self, requested, bounded, *, submitted):
+        changed = np.flatnonzero(requested != bounded)
+        if changed.size:
+            self._clip_count += 1
+            # Tolerance classifies the executor's requested target; it never
+            # expands the command bounds or changes strict Home validation.
+            excess = np.maximum(np.maximum(self._device_lower - requested,
+                                           requested - self._device_upper), 0.0)
+            beyond = ((requested < self._device_lower - self.joint_limit_tolerance)
+                      | (requested > self._device_upper + self.joint_limit_tolerance))
+            severity = ("beyond_tolerance" if np.any(beyond) else
+                        "within_tolerance" if np.any(excess > 0) else "within_sdk_bounds")
+            self._beyond_tolerance_count += int(np.any(beyond))
+            self._max_requested_excess = max(self._max_requested_excess, float(np.max(excess)))
+            now = self.clock.now_ns()
+            if (not self._clip_active or severity != self._clip_severity
+                    or self._clip_report_ns is None or now - self._clip_report_ns >= 1_000_000_000):
+                logger.log(
+                    logging.WARNING if np.any(beyond) else logging.INFO,
+                    "joint_target_clipped channel=%s joints=%s requested_deg=%s "
+                    "bounded_deg=%s submitted_deg=%s clipped_commands=%d "
+                    "severity=%s excess_deg=%s tolerance_deg=%.6f beyond_tolerance_commands=%d",
+                    self.channel, (changed + 1).tolist(),
+                    np.rad2deg(requested[changed]).tolist(),
+                    np.rad2deg(bounded[changed]).tolist(),
+                    np.rad2deg(submitted[changed]).tolist(), self._clip_count,
+                    severity, np.rad2deg(excess[changed]).tolist(),
+                    np.rad2deg(self.joint_limit_tolerance), self._beyond_tolerance_count,
+                )
+                self._clip_report_ns = now
+            self._clip_active = True
+            self._clip_severity = severity
+        elif self._clip_active:
+            logger.info("joint_target_clip_recovered channel=%s clipped_commands=%d",
+                        self.channel, self._clip_count)
+            self._clip_active = False
+            self._clip_severity = None
 
     def stop(self):
         with self._lock:
@@ -271,6 +461,9 @@ class FlexivController(ArmController):
                 self._enable_pending = False
             self._robot.Stop()  # Blocking stop and transition to IDLE, without ServoOff.
             self._prepared = self._owned = False
+            self._prepared_mode = None
+            if self._joint_safety is not None:
+                self._joint_safety.reset()
 
     def enable(self, stop):
         """Explicit recovery enable; cancellation is checked between RDK calls."""
@@ -331,6 +524,8 @@ class FlexivController(ArmController):
                 raise InterruptedError("Flexiv hand guiding cancelled")
             self._owned = True
             self._prepared = False
+            if self._joint_safety is not None:
+                self._joint_safety.reset()
             self._robot.SwitchMode(self._sdk.Mode.NRT_JOINT_IMPEDANCE)
             if stop.is_set():
                 raise InterruptedError("Flexiv hand guiding cancelled")
@@ -369,6 +564,7 @@ class FlexivController(ArmController):
             self._robot = None  # RDK releases its connection through its destructor.
             self._state = self._stamp = None
             self._prepared = self._owned = self._enable_pending = False
+            self._prepared_mode = self._policy_stiffness = None
 
     def runtime_metadata(self):
         return {
@@ -380,6 +576,23 @@ class FlexivController(ArmController):
             "max_velocity_rad_s": self.max_velocity,
             "max_acceleration_rad_s2": self.max_acceleration,
             "joint_margin_rad": self.joint_margin,
+            "joint_limit_policy": self.joint_limit_policy,
+            "joint_clip_margin_rad": self.joint_clip_margin,
+            "joint_limit_tolerance_rad": self.joint_limit_tolerance,
+            "joint_targets_beyond_tolerance": self._beyond_tolerance_count,
+            "max_requested_joint_excess_rad": self._max_requested_excess,
+            "joint_clipped_commands": self._clip_count,
+            "joint_safety": self._joint_safety.metadata() if self._joint_safety else None,
+            "joint_guarded_commands": self._guard_count,
+            "effective_max_velocity_rad_s": self._effective_velocity,
+            "last_sdk_submitted_rad": self._last_submitted.tolist() if self._last_submitted is not None else None,
+            "joint_clip_lower_rad": self._clip_lower.tolist() if self._clip_lower is not None else None,
+            "joint_clip_upper_rad": self._clip_upper.tolist() if self._clip_upper is not None else None,
+            "control_mode": self.control_mode,
+            "home_control_mode": "joint_position",
+            "joint_stiffness_scale": self.joint_stiffness_scale,
+            "joint_damping_ratio": self.joint_damping_ratio,
+            "policy_joint_stiffness_nm_per_rad": self._policy_stiffness,
             "dispatch": "NRT internal interpolation; independent arms are not atomic",
             "stop": "blocking RDK Stop to IDLE; next send prepares NRT mode",
         }
