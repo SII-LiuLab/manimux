@@ -66,6 +66,7 @@ class ResponseLog:
             self.token = _current.set(self)
             return self
         request = self.request
+        sampling = getattr(request, "sampling_request", None) or request
         self.write(
             "request.json",
             {
@@ -77,6 +78,15 @@ class ResponseLog:
                 "expected_backend": self.config.get("expected_backend"),
                 "started_ns": self.started_ns,
                 "state": request.observation.state.groups,
+                "model_state": getattr(request, "model_state", None),
+                "sampling": {
+                    name: getattr(sampling, name)
+                    for name in (
+                        "action_condition", "condition_weights", "rtc_beta",
+                        "action_condition_space",
+                    )
+                    if hasattr(sampling, name)
+                },
                 "cameras": {
                     name: {
                         "sha256": hashlib.sha256(frame.data.tobytes()).hexdigest(),

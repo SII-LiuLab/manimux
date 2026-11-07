@@ -1,0 +1,19 @@
+type: arm
+implementation: manimux.embodiments.arm.flexiv:FlexivArm
+controller: manimux.embodiments.arm.flexiv:FlexivController
+action_layout: {arm_dofs: 7, gripper_dofs: 0}
+options: {}
+hardware:
+  backend: flexivpy
+  enable_on_connect: false
+  control_mode: joint_position  # joint_impedance is an explicit deployment choice
+  joint_stiffness_scale: 1.0  # fraction of device K_q_nom in impedance mode
+  joint_damping_ratio: 0.7  # per-joint impedance damping ratio
+  max_velocity: 0.15  # rad/s, RDK internal trajectory limit
+  max_acceleration: 0.3  # rad/s^2
+  joint_margin: 0.03490658503988659  # 2 degrees inside device-reported limits
+  joint_limit_policy: reject  # clip reports saturation and continues policy execution
+  joint_clip_margin: 0.0  # Additional inset; joint_margin still applies
+  joint_limit_tolerance: 0.0  # Diagnostic tolerance only; never expands SDK bounds
+  feedback_timeout_s: 0.2
+  joint_safety: null  # Opt-in collection envelope; see Pi05 Flexiv experiment

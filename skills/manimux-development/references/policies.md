@@ -5,6 +5,31 @@ Source paths below are relative to the repository root. Read
 
 ## Classify the integration first
 
+The shared `policy_adapter.pose:PoseAdapter` supports either zero tool coordinates
+or one trailing normalized gripper per group. Pose rows have `7 + gripper_dofs`
+values: xyz, quaternion wxyz, then optional aperture. Bare-arm IK receives an empty
+fixed-coordinate mapping; it must never treat J7 as a gripper. Flexiv examples
+use bare flange targets in physical arm-base coordinates. Keep backend handshake
+semantics, camera requirements, horizon checks and whole-chunk IK rejection.
+
+For absolute dual-arm pose policies, execution-time IK may retain pose RTC
+conditions. `PoseRequest.sampling_request` preserves the RTC fields while
+`model_state` supplies measured FK anchors. Conditions use left/right Hx16
+absolute xyz+wxyz+opening rows on the current observation grid; zero-weight rows
+may be zero padding. The model framework owns conversion to its trained relative
+space and normalization. This is separate from chunk IK and unsupported for
+relative-output PoseAdapter semantics. `ResponseLog` retains the RTC condition,
+weights, beta, measured model state and request identity without duplicating images.
+
+Pi05 Flexiv's optional JPEG/H.264 compression simulation belongs to its XPolicyLab
+input transforms. `SingleFrameCompression` in `policy/Pi_05/flexiv_joint.py` is
+shared by the Joint and EE input classes before training resize. Select it through
+`policy_server.image_processing`, not `run.sensor_reading`. Keep the raw RGB
+observation, GUI and episode video unchanged; do not put checkpoint preprocessing
+back into the sensor reader. Recipe identity includes the explicit compression
+setting. Effective defaults and model-side per-image timing logs describe the
+transformed model input; raw request hashes and captures remain sensor evidence.
+
 Do not infer the integration layer from an upstream repository name or from the fact
 that it contains model code. Establish which of these changes is being introduced:
 

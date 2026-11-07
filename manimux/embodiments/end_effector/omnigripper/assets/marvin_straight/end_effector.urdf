@@ -1,0 +1,132 @@
+<?xml version="1.0"?>
+<robot name="marvin_straight_gripper">
+  <link name="flange">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <mass value="0" />
+      <inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" />
+    </inertial>
+  </link>
+
+  <link name="gripper_mount">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <mass value="0" />
+      <inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" />
+    </inertial>
+  </link>
+
+  <link name="gripper_base">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/omnigripper_straight.STL" />
+      </geometry>
+      <material name="gripper_base_mat">
+        <color rgba="0.79216078 0.81961176 0.92941569 1.00000000" />
+      </material>
+    </visual>
+    <collision name="gripper_base_geom_1">
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/omnigripper_straight.STL" />
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="-0.000142 0.005641 0.0488811" rpy="0 0 0" />
+      <mass value="0.4064271" />
+      <inertia ixx="0.0002976" ixy="-0.0000024" ixz="0.0000011" iyy="0.0004831" iyz="-0.0000721" izz="0.0004721" />
+    </inertial>
+  </link>
+
+  <link name="left_finger">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Left_Chipper_Base.STL" />
+      </geometry>
+      <material name="gripper_finger_mat">
+        <color rgba="0.60392549 0.60392549 0.60392549 1.00000000" />
+      </material>
+    </visual>
+    <collision name="left_finger_geom_1">
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Left_Chipper_Base.STL" />
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="-0.0166753 -0.0028108 0.0127051" rpy="0 0 0" />
+      <mass value="0.031395" />
+      <inertia ixx="0.0000116" ixy="-0.0000013" ixz="0" iyy="0.0000048" iyz="0" izz="0.0000102" />
+    </inertial>
+  </link>
+
+  <link name="right_finger">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Right_Chipper_Base.STL" />
+      </geometry>
+      <material name="gripper_finger_mat">
+        <color rgba="0.60392549 0.60392549 0.60392549 1.00000000" />
+      </material>
+    </visual>
+    <collision name="right_finger_geom_1">
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/Right_Chipper_Base.STL" />
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0.0089293 -0.0028108 0.0127051" rpy="0 0 0" />
+      <mass value="0.031395" />
+      <inertia ixx="0.0000116" ixy="-0.0000013" ixz="0" iyy="0.0000048" iyz="0" izz="0.0000102" />
+    </inertial>
+  </link>
+
+  <link name="tool0">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <mass value="0" />
+      <inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" />
+    </inertial>
+  </link>
+
+  <joint name="flange_to_gripper_mount" type="fixed">
+    <parent link="flange" />
+    <child link="gripper_mount" />
+    <origin xyz="0 0 0" rpy="0 0 -1.5707963" />
+  </joint>
+
+  <joint name="gripper_mount_to_gripper_base" type="fixed">
+    <parent link="gripper_mount" />
+    <child link="gripper_base" />
+    <origin xyz="0 0 0" rpy="0 0 0" />
+  </joint>
+
+  <joint name="left_finger_joint" type="prismatic">
+    <parent link="gripper_base" />
+    <child link="left_finger" />
+    <origin xyz="0.105 -0.01 0.0916374" rpy="1.5777046 -0.0094492 -3.1190022" />
+    <axis xyz="1 0 0" />
+    <limit lower="0" upper="0.05" effort="30" velocity="0" />
+    <dynamics damping="8" friction="0.2" />
+  </joint>
+
+  <joint name="right_finger_joint" type="prismatic">
+    <parent link="gripper_base" />
+    <child link="right_finger" />
+    <origin xyz="-0.05 -0.002 0.1105" rpy="1.5372318 0.0098779 0.0227581" />
+    <axis xyz="1 0 0" />
+    <limit lower="0" upper="0.05" effort="0" velocity="0" />
+    <dynamics damping="8" friction="0.2" />
+    <mimic joint="left_finger_joint" multiplier="1" offset="0" />
+  </joint>
+
+  <joint name="gripper_base_to_tool0" type="fixed">
+    <parent link="gripper_base" />
+    <child link="tool0" />
+    <origin xyz="0 0 0" rpy="0 -1.5707963 -1.5707963" />
+  </joint>
+</robot>

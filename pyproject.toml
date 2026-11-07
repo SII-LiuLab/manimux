@@ -37,6 +37,7 @@ dependencies = [
 franka = ["pylibfranka>=0.20.2,<0.22"]
 robotiq = ["pymodbus>=3.10,<4", "pyserial>=3.5"]
 realsense = ["pyrealsense2>=2.55"]
+omnigripper = ["pyserial>=3.5,<4"]
 tianji-diff-ik = [
   "osqp>=1,<2",
 ]

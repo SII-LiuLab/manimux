@@ -9,6 +9,8 @@ capacity, closed-loop stability, or task success.
 | Deployment | Serial / Async / ACT ensemble | RTC | PAINT | AAC | AutoHorizon |
 |---|---|---|---|---|---|
 | Pi05 JAX joint | Existing | Existing | Existing | Existing; full chunk decoding fixed | Existing |
+| Pi05 Flexiv JAX absolute joint | Existing | Shared Pi05 hook; CPU integration checked | Not enabled | Not enabled | Not enabled |
+| Pi05 Flexiv JAX flange EE / UMI H50 | Real weights + recorded observations, offline IK/runtime checked | Pose conditions + diffIK; real weights/runtime checked | Not enabled | Not enabled | Not enabled |
 | Xiaomi XR1 | Existing | Existing | Added flow hook | Added independent batched candidates | Added action attention hook |
 | LingBot-VLA2 | Existing | Withdrawn (2026-10-18; latency budget failure) | Added flow hook | Added repeated independent inference | Added action attention hook |
 | DP U-Net DDPM | Existing runtime paths | Added VP guidance adaptation | Not applicable | Added batched candidates | Not applicable |

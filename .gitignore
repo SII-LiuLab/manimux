@@ -48,6 +48,9 @@ logs/
 /manimux/assets/tianji/
 /manimux/assets/end_effectors/umi_follower/
 
+# Operator-supplied stand CAD; no verified redistribution license.
+/manimux/robogui/robots/flexiv/assets/dual_arm_stand_20260523.stl
+
 # Ship public MIT-licensed YAM models with the component; retain assets tracked before refactoring.
 !/manimux/embodiments/arm/yam/assets/
 !/manimux/embodiments/arm/yam/assets/**
@@ -59,6 +62,10 @@ logs/
 # Public standard PiPER meshes retain the official MIT notice in the component.
 !/manimux/embodiments/arm/piper/assets/
 !/manimux/embodiments/arm/piper/assets/**
+
+# Hand-authored OmniGripper flange-reference frame, without proprietary CAD.
+!/manimux/embodiments/end_effector/omnigripper/assets/
+!/manimux/embodiments/end_effector/omnigripper/assets/**
 
 # Public Apache-2.0 Franka FR3 geometry retains upstream LICENSE and NOTICE.
 !/manimux/embodiments/arm/franka/assets/

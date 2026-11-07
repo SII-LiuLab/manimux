@@ -86,6 +86,19 @@ Optional `nullspace_weights` must contain seven finite nonnegative weights;
 `nullspace_activation_deg: null` selects the original global quadratic cost.
 Weights, regularization, activation, lag and margin settings are strictly validated.
 
+## Interface and ownership
+
+Tianji (`kinematics/tianji_diff.py`) and Flexiv (`kinematics/flexiv_diff.py`)
+keep their offline differential algorithms in parallel modules. Both use `reset()`, `solve(target, previous, dt_s, ...)` and result
+fields `ok`, `reason`, and `joints`. Their additional inputs/results remain
+explicit: Flexiv requires live measured coordinates and admissible command bounds;
+Tianji retains its QP, flange-lag and interference diagnostics. Execution-time
+contracts live in `kinematics/base.py`, and arm/tool composition in `composed.py`.
+This naming alignment does not make the solvers interchangeable: Tianji still
+solves while decoding chunks, while Flexiv runs its bounded least-squares step
+in execution. Solver mathematics, units, acceptance criteria and reset timing
+are unchanged.
+
 ## Algorithm and failure behavior
 
 Each step solves the original velocity QP:

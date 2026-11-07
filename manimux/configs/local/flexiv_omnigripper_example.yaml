@@ -1,0 +1,7 @@
+# Copy to a private station. Replace every serial, port and measured travel.
+robot:
+  components:
+    left_flexiv: {serial: REPLACE_LEFT_SERIAL, backend: flexivpy, enable_on_connect: false}
+    right_flexiv: {serial: REPLACE_RIGHT_SERIAL, backend: flexivpy, enable_on_connect: false}
+    left_omnigripper: {port: /dev/serial/by-path/REPLACE_LEFT, open_rad: -0.02, closed_rad: 1.10}
+    right_omnigripper: {port: /dev/serial/by-path/REPLACE_RIGHT, open_rad: -0.02, closed_rad: 1.10}

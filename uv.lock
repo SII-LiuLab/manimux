@@ -584,6 +584,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+omnigripper = [
+    { name = "pyserial" },
+]
 dream = [
     { name = "dreamlabs-client" },
 ]
@@ -636,6 +639,7 @@ requires-dist = [
     { name = "pylibfranka", marker = "extra == 'franka'", specifier = ">=0.20.2,<0.22" },
     { name = "pymodbus", marker = "extra == 'robotiq'", specifier = ">=3.10,<4" },
     { name = "pyrealsense2", marker = "extra == 'realsense'", specifier = ">=2.55" },
+    { name = "pyserial", marker = "extra == 'omnigripper'", specifier = ">=3.5,<4" },
     { name = "pyserial", marker = "extra == 'robotiq'", specifier = ">=3.5" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "pyzmq", specifier = ">=26" },
@@ -646,7 +650,7 @@ requires-dist = [
     { name = "yourdfpy", specifier = ">=0.0.58" },
     { name = "zarr", specifier = ">=2.18,<3" },
 ]
-provides-extras = ["franka", "robotiq", "realsense", "tianji-diff-ik", "replay", "dream", "starvla", "xpolicylab"]
+provides-extras = ["omnigripper", "franka", "robotiq", "realsense", "tianji-diff-ik", "replay", "dream", "starvla", "xpolicylab"]
 
 [package.metadata.requires-dev]
 dev = [

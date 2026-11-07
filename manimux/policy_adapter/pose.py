@@ -2,7 +2,7 @@
 
 import uuid
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 
@@ -10,14 +10,17 @@ from manimux.embodiments.layout import group_layouts
 from manimux.kinematics.poses import matrix_pose, pose_matrix
 from manimux.policies.actions import action_groups
 from manimux.policies.base import action_interval
+from manimux.policy_adapter.gripper_mapping import clip_aperture
 from manimux.policy_adapter.kinematics import KinematicAdapter
-from manimux.policy_adapter.pose_output import pose_chunk
+from manimux.policy_adapter.pose_output import POSE_SPACE, pose_chunk, validate_pose_rows
+from manimux.runtime.rtc.request import RtcInferenceRequest
 from manimux.types import ActionChunk, InferenceRequest
 
 
 @dataclass(slots=True)
 class PoseRequest(InferenceRequest):
     model_state: dict = field(default_factory=dict)
+    sampling_request: InferenceRequest | None = None
 
 
 class PoseAdapter(KinematicAdapter):
@@ -32,13 +35,17 @@ class PoseAdapter(KinematicAdapter):
     supports_context_only_decode = True
 
     supports_step_ik = True
+    pose_condition_modes = ("rtc",)
 
     def __init__(self, robot, policy, *, kinematics=None):
         super().__init__(robot, policy, kinematics=kinematics)
         options = policy["adapter"]
+        self.gripper_output = options.get("gripper_output", "reject")
+        if self.gripper_output not in {"reject", "clip"}:
+            raise ValueError("Pose gripper_output must be reject or clip")
         self.layouts = group_layouts(robot["group_dims"], options)
-        if any(layout["gripper_dofs"] != 1 for layout in self.layouts.values()):
-            raise ValueError("PoseAdapter requires one trailing normalized gripper per arm")
+        if any(layout["gripper_dofs"] not in (0, 1) for layout in self.layouts.values()):
+            raise ValueError("PoseAdapter supports zero or one normalized gripper per arm")
         self.prefixes = options["group_prefixes"]
         parallel = options.get("parallel_ik", False)
         if type(parallel) is not bool:
@@ -87,10 +94,23 @@ class PoseAdapter(KinematicAdapter):
         self.required_cameras = tuple(options.get("camera_map", {}).values())
         for group, dim in robot["group_dims"].items():
             coordinates = self.kinematics.models[group].coordinates
-            if len(coordinates) != dim or coordinates[-1].unit != "normalized":
+            has_gripper = self.layouts[group]["gripper_dofs"] == 1
+            if len(coordinates) != dim or (has_gripper and coordinates[-1].unit != "normalized"):
                 raise ValueError(
-                    f"{group} requires matching geometry with a normalized trailing gripper"
+                    f"{group} geometry must match the declared arm/tool coordinate layout"
                 )
+        pose_frame = options.get("pose_frame", "tcp")
+        if pose_frame not in {"tcp", "flange"}:
+            raise ValueError("Pose pose_frame must be tcp or flange")
+        if pose_frame == "flange":
+            for group, layout in self.layouts.items():
+                model = self.kinematics.models[group]
+                if not hasattr(model, "flange_target"):
+                    raise ValueError(f"{group} cannot verify a flange-reference TCP")
+                for opening in (0.0, 1.0):
+                    tool = np.array([opening]) if layout["gripper_dofs"] else np.empty(0)
+                    if not np.allclose(model.flange_target(np.eye(4), tool), np.eye(4), atol=1e-9):
+                        raise ValueError(f"{group} policy requires TCP coincident with flange")
         warmup = options.get("ik_warmup_joints")
         self._warmup_joints = {}
         if warmup is not None:
@@ -101,7 +121,7 @@ class PoseAdapter(KinematicAdapter):
                 if (
                     q.shape != (robot["group_dims"][group],)
                     or not np.isfinite(q).all()
-                    or not 0 <= q[-1] <= 1
+                    or (self.layouts[group]["gripper_dofs"] == 1 and not 0 <= q[-1] <= 1)
                 ):
                     raise ValueError(f"Invalid ik_warmup_joints for {group}")
                 self._warmup_joints[group] = q
@@ -121,7 +141,11 @@ class PoseAdapter(KinematicAdapter):
             result = model.ik(
                 model.fk(seed),
                 seed.copy(),
-                fixed_coordinates={model.coordinates[-1].name: float(seed[-1])},
+                fixed_coordinates=(
+                    {model.coordinates[-1].name: float(seed[-1])}
+                    if self.layouts[group]["gripper_dofs"]
+                    else {}
+                ),
             )
             if not result.converged:
                 raise ValueError(f"Pose IK warmup failed: group={group} reason={result.reason}")
@@ -133,8 +157,38 @@ class PoseAdapter(KinematicAdapter):
         return snapshot
 
     def prepare_request(self, request):
-        if type(request) is not InferenceRequest:
-            raise ValueError("PoseAdapter supports default inference requests only")
+        if type(request) not in (InferenceRequest, RtcInferenceRequest):
+            raise ValueError("PoseAdapter supports default and RTC inference requests only")
+        sampling = request
+        if isinstance(request, RtcInferenceRequest):
+            if self.semantics != "absolute_per_arm_base_xyz_wxyz" or not self.decode_pose_only:
+                raise ValueError("Pose RTC requires absolute targets and execution.ik.mode=step")
+            if tuple(self.robot["group_dims"]) != ("left_arm", "right_arm") or any(
+                layout["gripper_dofs"] != 1 for layout in self.layouts.values()
+            ):
+                raise ValueError("Pose RTC requires left_arm/right_arm with one gripper each")
+            condition, weights = request.action_condition, request.condition_weights
+            if (condition is None) != (weights is None):
+                raise ValueError("Pose RTC condition and weights must be supplied together")
+            if condition is not None:
+                if request.action_condition_space != POSE_SPACE:
+                    raise ValueError("Pose RTC requires absolute_tcp_pose conditions")
+                condition = np.array(condition, dtype=float, copy=True)
+                weights = np.array(weights, dtype=float, copy=True)
+                if (
+                    condition.shape != (self.horizon, 16) or weights.shape != (self.horizon,)
+                    or not np.isfinite(condition).all() or not np.isfinite(weights).all()
+                    or np.any((weights < 0) | (weights > 1))
+                ):
+                    raise ValueError("Pose RTC requires finite (H,16) poses and (H,) [0,1] weights")
+                active = weights > 0
+                for offset in (0, 8):
+                    if active.any():
+                        condition[active, offset:offset + 8] = validate_pose_rows(
+                            condition[active, offset:offset + 8]
+                        )
+                condition[~active] = 0
+                sampling = replace(request, action_condition=condition, condition_weights=weights)
         poses = self.kinematics.fk(request.observation.state.groups)
         state = {}
         for group, prefix in self.prefixes.items():
@@ -148,6 +202,8 @@ class PoseAdapter(KinematicAdapter):
             request.observation,
             request.instruction,
             state,
+            sampling,
+            action_condition_space=request.action_condition_space,
         )
 
     def decode_action(self, raw, context):
@@ -159,11 +215,28 @@ class PoseAdapter(KinematicAdapter):
         return self._decode_action(raw, context, (partition,))
 
     def _decode_action(self, raw, context, selected_groups):
-        actions = action_groups(raw, {group: 8 for group in self.layouts}, format="pose")
+        actions = action_groups(
+            raw,
+            {group: 7 + layout["gripper_dofs"] for group, layout in self.layouts.items()},
+            format="pose",
+        )
         if raw.get("action_semantics", self.semantics) != self.semantics:
             raise ValueError("Pose action semantics mismatch")
         if any(len(rows) != self.horizon for rows in actions.values()):
             raise ValueError("Pose action horizon mismatch")
+        gripper_metadata = {}
+        raw_actions = actions
+        if self.gripper_output == "clip":
+            apertures, gripper_metadata = clip_aperture(
+                {
+                    name: rows[:, 7]
+                    for name, rows in actions.items()
+                    if self.layouts[name]["gripper_dofs"]
+                }
+            )
+            actions = {name: rows.copy() for name, rows in actions.items()}
+            for name, values in apertures.items():
+                actions[name][:, 7] = values
         if context.ik_seed is None:
             raise ValueError("Pose IK requires a decode seed")
         if self.semantics.startswith("delta_observation_") and context.observation_state is None:
@@ -175,15 +248,19 @@ class PoseAdapter(KinematicAdapter):
             seed = np.array(context.ik_seed.groups[group], dtype=float, copy=True)
             anchor = model.fk(
                 context.observation_state.groups[group]
-                if self.semantics.startswith("delta_observation_") else seed
+                if self.semantics.startswith("delta_observation_")
+                else seed
             )
             sequence = self.ik_sequence(group, seed)
             solved = []
             for row in rows[: self.decode_steps]:
                 target = pose_matrix(row[:7])
-                aperture = float(row[7])
-                if not 0 <= aperture <= 1:
-                    raise ValueError("Pose gripper must be a normalized opening in [0, 1]")
+                fixed = {}
+                if self.layouts[group]["gripper_dofs"]:
+                    aperture = float(row[7])
+                    if not 0 <= aperture <= 1:
+                        raise ValueError("Pose gripper must be a normalized opening in [0, 1]")
+                    fixed[model.coordinates[-1].name] = aperture
                 if self.semantics == "delta_observation_tool_xyz_wxyz":
                     target = anchor @ target
                 elif self.semantics in {
@@ -193,12 +270,14 @@ class PoseAdapter(KinematicAdapter):
                     target[:3, 3] += anchor[:3, 3]
                     target[:3, :3] = target[:3, :3] @ anchor[:3, :3]
                 if self.decode_pose_only:
+                    if not self.layouts[group]["gripper_dofs"]:
+                        raise ValueError("Pose-only decoding requires a normalized gripper")
                     solved.append(np.r_[matrix_pose(target), aperture])
                     continue
                 result = model.ik(
                     target,
                     sequence.current,
-                    fixed_coordinates={model.coordinates[-1].name: aperture},
+                    fixed_coordinates=fixed,
                 )
                 seed = sequence.resolve(result.converged, result.joints, reason=result.reason)
                 solved.append(seed)
@@ -209,7 +288,7 @@ class PoseAdapter(KinematicAdapter):
                 # command for one action interval; do not consume another delta.
                 groups[group] = np.repeat(groups[group], 2, axis=0)
         if self.decode_pose_only:
-            return pose_chunk(context, groups, self.dt_ns)
+            return pose_chunk(context, groups, self.dt_ns, metadata=gripper_metadata)
         return ActionChunk(
             f"pose-{context.request_seq}-{uuid.uuid4().hex[:8]}",
             context.request_seq,
@@ -219,12 +298,14 @@ class PoseAdapter(KinematicAdapter):
             self.dt_ns,
             groups,
             metadata={
+                **gripper_metadata,
                 "ik": diagnostics,
                 "action_semantics": self.semantics,
                 "decoded_policy_steps": self.decode_steps,
                 "terminal_hold_endpoint": self.decode_steps == 1,
                 "raw_model_eef": {
-                    group: actions[group][: self.decode_steps].tolist() for group in selected_groups
+                    group: raw_actions[group][: self.decode_steps].tolist()
+                    for group in selected_groups
                 },
             },
         )
