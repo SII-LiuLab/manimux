@@ -3,6 +3,36 @@
 Source paths below are relative to the repository root. Read the current interface before copying
 an implementation; controller/session work can evolve independently.
 
+## New embodiment layout
+
+Before creating files, inspect the relevant base interface and comparable existing
+components. For arms, YAM, Franka and Tianji show the established component/controller
+boundaries; select the closest hardware ownership pattern and check it against the
+operation contract below. Align directory structure, configuration loading and public
+behavior, while keeping vendor-specific SDK semantics explicit.
+
+- Keep device implementations and assets under `embodiments/<kind>/<name>/`.
+  For arms, `arm.py` implements `ArmBase` and owns `load_model()`; controller-local
+  calibration, command limits and release checks belong with the controller.
+  Assembly behavior belongs under `embodiments/robot/<name>/` when an existing
+  assembly cannot supply it. Use the corresponding existing interfaces for tools
+  and sensors.
+- Start with the smallest useful layout. A short helper used only by a controller
+  stays in that module. Split out `controller.py`, `kinematics.py` or `session.py`
+  when a substantial implementation, dependency boundary or process owner warrants
+  it; these names are not a checklist of files to create. Avoid forwarding-only
+  wrappers, speculative base classes, empty scaffolding and duplicate guides.
+- Reuse existing factories, loaders, assemblies and FK/IK solvers. Extract a new
+  shared helper only for actual consumers with the same contract and a clear owning
+  layer. Similar code in two drivers does not by itself justify an intermediate
+  base class. Do not put device-specific helpers in the shared `arm/` or
+  `embodiments/` root, or disguise six-joint, integrated-gripper or CAN assumptions
+  as a general arm interface. An underscore prefix does not establish ownership.
+- Before delivery, review each added file's responsibility and callers, remove
+  redundant indirection and obsolete imports, and update the existing code map.
+  Verify the selected YAML through the real loader and the existing component
+  interface; directory alignment must preserve units, geometry and lifecycle behavior.
+
 ## Shared behavior across embodiments
 
 The same base-class operation has the same public meaning on every supported
