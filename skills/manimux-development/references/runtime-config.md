@@ -839,7 +839,7 @@ Ordinary joint adapters need no IK mode and reject `step`.
 
 Serial/async support all pose-producing IK adapter families. RTC/PAINT require an
 explicit pose condition codec: OpenWAM YAM and XR1 YAM support both; Pi05 Tianji,
-XR1 Tianji and UMI-DP Tianji support RTC. The other adapters reject conditioned
+Pi05 Flexiv EE, XR1 Tianji and UMI-DP Tianji support RTC. The other adapters reject conditioned
 step modes. RTC executor forecasts are unsupported. `InferenceRequest` carries
 `action_condition_space` explicitly, since Tianji joint and dual-pose arrays can
 both have width 16. A pose condition goes directly back to model coordinates;

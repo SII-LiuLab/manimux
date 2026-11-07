@@ -23,16 +23,65 @@ robot driver, transport or inference scheduler is needed.
   Smooth execution is separate from the model. Arm velocity/acceleration limits
   are 0.15 rad/s and 0.3 rad/s². Continuous gripper shaping saturates to [0,1],
   with opening velocity/acceleration limits of 0.4/s and 1.0/s².
-- Only default sampling is advertised for this profile. Specialized modes have
-  not been validated for this deployment.
+- The JAX profile supports default and RTC sampling through the shared Pi05
+  sampler. PyTorch remains default-only; PAINT/AAC/AutoHorizon are not enabled
+  for Flexiv. Artifact checks describe the JAX profile contract; the loaded
+  backend's HELLO remains authoritative.
 
 Recipe: `manimux/configs/policy/pi05/flexiv/stack_cube/joint-step29999.yaml`.
 Experiment: `manimux/configs/experiments/stack_cube/pi05/flexiv_pi05_serial_joint_step29999.yaml`.
+RTC variant: `manimux/configs/experiments/example-flexiv-pi05/stack_cube/rtc.yaml`.
 Camera recipe: `manimux/configs/embodiment/sensor/cameras/gemini_3_views.yaml`.
 Station `paths.checkpoints` names the parent of the downloaded run directory.
 The recipe's normalization SHA256 is checked before loading weights; the client
 also checks paired backend identity, including checkpoint, profile, horizon and
 `preprocessing_contract: stack_cube_joint_3cam_v1`.
+
+## RTC
+
+The portable Pi05 Flexiv experiment selects the collection-aligned joint safety
+profile for both arms: joint impedance with nominal stiffness and damping 0.7,
+zero extra joint margin, a 10-degree outward velocity damper, a 5-degree
+measured/reference tracking envelope, 0.016-second maximum integrated timestep,
+and a 0.5-second persistent tracking timeout. A final clip keeps submitted
+targets at SDK bounds without an inward offset (`joint_clip_margin: 0.0`).
+`joint_limit_tolerance: 0.0005235987755982988` classifies controller-input excursions
+up to 0.03 degree as mild; larger excursions warn but still clip. This diagnostic
+threshold does not expand hardware bounds. Serial and RTC inherit this same controller
+path; private Async variants must select it through their shared baseline too.
+Keep existing operator velocity/acceleration limits. See the
+[Flexiv component](../../../../manimux/embodiments/arm/flexiv/README.md#collection-aligned-joint-safety)
+for configuration, evidence and limitations. Give changed experiment conditions
+a new variant ID instead of mixing them into existing recorded conditions.
+
+The RTC variant inherits the Serial experiment's checkpoint, cameras, 30 Hz
+action grid, 50 Hz control, Smooth executor and motion limits. It selects the
+shared `RtcInferenceStrategy`, single-inflight algorithm admission, latency
+trimming and the full 50-row prediction. Its execution-window floor is 16 policy
+steps, guidance beta is 5, and the ten-sample delay buffer starts from warmup
+latency (`initial_delay_policy_steps: null`). These are initial settings, not
+measured optimal values. Keep the inherited read-only setting until station
+qualification; loading an RTC YAML does not authorize robot execution.
+
+The existing `JointAdapter` and XPolicyLab client carry canonical `(50,16)`
+absolute targets and `(50,)` weights. `Model.get_action_rtc` validates them;
+OpenPI's ordinary input transforms quantile-normalize and pad targets to 32
+coordinates before the same JAX Pi0 guidance used by YAM. Output transforms
+restore physical units and retain the 16 native coordinates. Unlike Tianji's
+pose policy, this joint profile needs no FK or observation-relative conversion.
+Scheduling stays in ManiMux runtime; sampling stays in XPolicyLab/OpenPI.
+
+When switching a private station, apply only the RTC variant's inference
+overrides and a separate output directory to its existing resolved configuration.
+Preserve its calibrated robot model, bindings and operator-selected limits.
+Reload the model service to advertise RTC and the runtime to select the variant;
+the existing Serial deployment is not changed automatically.
+
+CPU regression coverage uses the real loader, HELLO/INFER dispatch, RTC strategy,
+JointAdapter, checkpoint transforms and Pi0 Euler/VJP sampler with a small fake
+network. It checks condition order/normalization/padding, zero-weight equivalence,
+guidance, reset and invalid requests. This is not a real-weight RTC latency or
+physical-task qualification; those checks remain required before deployment.
 
 ## Environment and operation
 
