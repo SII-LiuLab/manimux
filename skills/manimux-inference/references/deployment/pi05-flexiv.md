@@ -172,3 +172,106 @@ camera polling is paused after the fresh-frame preflight and restarted after
 blocking robot initialization, preserving the upstream failure attribution and
 latched pause-hold behavior. Main-merge checks use fake devices and offline
 artifact inspection; they do not operate or restart physical hardware.
+
+## Flexiv flange EE / UMI checkpoint (2026-11-05)
+
+The separate `flexiv_ee_umi` profile in `Pi_05/flexiv_ee.py` selects the full
+Gemma 2B/300M checkpoint `pi05-stackcube-flexiv-ee-umi-b64-h50-30k-p2-20261105-060841/29999`.
+Its recipe is `policy/pi05/flexiv/stack_cube/ee-umi-step29999.yaml`; runnable
+examples are `experiments/example-flexiv-pi05/stack_cube/ee_umi_serial.yaml` and
+`ee_umi_async.yaml`, relative to `manimux/configs/`. Both keep actuation disabled.
+Bind `paths.checkpoints` to the parent of the downloaded run directory.
+
+The submitted training source establishes these differences from the joint policy:
+
+- Stored targets are the next measured **flange** pose, clamped at episode ends;
+  H50 therefore predicts t+1 through t+50. No gripper-tip offset is trained.
+- Native rows are right then left, each xyz metres, first-two-rows Rot6D and
+  normalized opening. Tool-axis conversion is `R_train = R_flange @ C.T`, with
+  the existing HiFi-UMI optical-from-FLU matrix `C`.
+- All targets in a chunk share this request's measured observation anchor.
+  Relative translation and rotation are expressed in the anchor tool frame.
+  Pose state is zeroed before normalization and again before tokenization;
+  openings retain quantile normalization. Full three-camera RGB preprocessing
+  matches the joint recipe's PIL resize/padding, without color swaps.
+- The provider reconstructs absolute flange targets from the saved request
+  anchor. `PoseAdapter` supplies measured FK to the provider and converts the
+  returned left/right xyz+wxyz+opening targets with the independently selected
+  execution-reference IK seed. Reference joints never replace model observations.
+- The checkpoint's normalization SHA256 is
+  `e3e065af9199dab8cfbaf55e4c1912fdd8b7e4e020b30a92d8436b962be289aa`.
+  Its values exactly equal the preparation report's normalization; the export's
+  JSON formatting accounts for the different file hash.
+
+`embodiment/robot/flexiv_omnigripper_ee.yaml` selects the existing offline Flexiv
+solver with `ik_max_joint_step_rad: 0.15` and `ik_joint_motion_cost: 0.001` on
+each arm. Like YAM's nearby IK, it bounds each solve around the last accepted
+joint vector and regularizes joint motion; unlike YAM's approximate DLS acceptance,
+it retains the original 0.1 mm / 0.0001 rad acceptance criteria. The box is a
+branch-continuity constraint, not a physical velocity limit. Existing Smooth and
+controller limits still apply. Seeds outside model bounds fail explicitly.
+Keep calibrated URDF paths in a private assembly, copying these two model options.
+
+`policy.adapter.pose_frame: flange` checks that mount and tool geometry cancel
+to the flange at both gripper limits. A fingertip TCP is rejected. The opt-in
+`gripper_output: clip` saturates finite regression overshoot with diagnostic
+metadata before IK; raw poses/openings remain in evidence. Other pose recipes
+retain their strict default. `execution.ik.failure_policy: hold_last_valid` holds
+the complete previous arm-and-tool command at an unsuccessful solve and retries
+later targets. `reject` rejects the chunk. Chunk decoding runs in independent
+processes, one per arm, so IK does not block control ticks. Pre-Start warmup uses
+these same processes and drains them before acknowledging backend reset.
+
+The JAX integration supports **default and RTC sampling**. Serial and ordinary
+Async remain available. RTC uses absolute pose conditions through step IK; joint
+RTC conditions must not be sent to this EE profile. PAINT/AAC are not enabled. The portable Serial recipe
+inherits the joint recipe's 30 Hz action grid, 50 Hz control and 16-step prefix;
+Async retains all 50 rows. Private station variants may retain the operator's
+existing control rate, image processing and motion limits.
+
+Validation used recorded `stack_cube_1` observations at frames 0, 120 and 240,
+real checkpoint weights and a temporary loopback WebSocket server. Training and
+deployment inputs/outputs were array-equal across four image shapes, including
+zero-state normalization, tokens, action padding and UMI reconstruction. All 300
+arm targets across the three requests solved. Cold inference was about 8 seconds,
+steady inference about 117 ms, and sequential full dual-arm IK about 0.9 seconds.
+The recording's per-arm reference differs from offline FK by approximately +/-90
+degrees about Y; after a fixed reference alignment, the three samples differed
+by at most 0.37 mm and 0.00053 rad. Zero-pose input and tool-relative actions are
+invariant to a fixed per-arm reference transform; this does not certify all
+workspace calibration.
+
+The actual Async runtime with process decoding completed 1200 synthetic control
+ticks in about 12.7 seconds, admitted 15 plans and rejected none. Process warmup
+completed its reset fence with zero hardware sends; its maximum measured tick
+was about 1.2 ms. Failure/recovery tests changed gripper targets across an
+unreachable pose and verified both hold and reject behavior. Request-associated
+raw wire responses, image hashes and would-be commands were retained locally.
+Malformed-pose and timeout injection also verified rejection and persisted
+request/error records; malformed wire data was saved before shape validation.
+These are offline software results with recorded pixels, not live sensor or
+physical task qualification. No motor driver was constructed or connected.
+
+For a one-off EE trial, use the same selected config and station for all services.
+The following commands are an operator handoff, not permission to connect hardware:
+
+```bash
+MM_EE_CONFIG=manimux/configs/experiments/example-flexiv-pi05/stack_cube/ee_umi_serial.yaml
+MM_EE_LOCAL=manimux/configs/local/station.yaml
+
+envs/flexiv/.venv/bin/python -m manimux inspect --config "$MM_EE_CONFIG" --local "$MM_EE_LOCAL"
+envs/flexiv/.venv/bin/python -m manimux.servers.camera.server --config "$MM_EE_CONFIG" --local "$MM_EE_LOCAL" --check
+third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python -m manimux.servers.pi05 --experiment "$MM_EE_CONFIG" --local "$MM_EE_LOCAL" --check
+
+# Each service runs in its own terminal after offline checks and operator authorization.
+envs/flexiv/.venv/bin/python -m manimux.servers.camera.server --config "$MM_EE_CONFIG" --local "$MM_EE_LOCAL"
+XLA_PYTHON_CLIENT_PREALLOCATE=false third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python -m manimux.servers.pi05 --experiment "$MM_EE_CONFIG" --local "$MM_EE_LOCAL"
+envs/flexiv/.venv/bin/python -m manimux.robogui.dashboard --robot flexiv_omnigripper
+envs/flexiv/.venv/bin/python -m manimux run --config "$MM_EE_CONFIG" --local "$MM_EE_LOCAL"
+```
+
+RoboGUI has no `--check` option; validate its YAML with `load_robogui_config` and
+`load_robot_view` offline. For a calibrated station, select its private EE assembly
+and matching RoboGUI YAML instead of the nominal preset. The operator owns
+Prepare, Activate Warmup, Start and Finish. Keep the joint deployment and its
+recordings separate; these configs do not switch running services.

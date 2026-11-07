@@ -485,6 +485,30 @@ for SDK setup, frame conventions, retryable cleanup and future gripper integrati
 The pose template uses chunk IK; <code>execution.ik.mode: step</code> is rejected for
 zero-gripper groups because step IK currently requires a trailing aperture coordinate.</p>
 <h3 id="pi05-flexiv">Pi05 stack cube on Flexiv + OmniGripper</h3>
+<h4 id="pi05-flexiv-ee">Flange EE / UMI checkpoint</h4>
+<p>Select <code>manimux/configs/experiments/example-flexiv-pi05/stack_cube/ee_umi_serial.yaml</code>
+or <code>ee_umi_async.yaml</code> for the November 5 step-29999 checkpoint.
+This profile predicts observation-relative flange poses with zeroed pose state
+and live gripper openings. It uses the same three-camera RGB preprocessing and
+30 Hz action grid as the joint profile. Its H50 targets begin at the next
+measured frame. The model service restores absolute poses from each request's
+observation; the runtime performs IK using the selected execution reference.</p>
+<p>Use <code>flexiv_omnigripper_ee.yaml</code> as the assembly template and retain
+station-calibrated URDFs in a private copy. Each arm's model options select
+<code>ik_max_joint_step_rad: 0.15</code> and
+<code>ik_joint_motion_cost: 0.001</code>. These constrain redundant IK motion
+without changing the original pose acceptance tolerances or controller limits.
+The adapter verifies that the configured TCP coincides with the flange.
+An IK failure holds the complete arm-and-gripper command under
+<code>execution.ik.failure_policy: hold_last_valid</code>; <code>reject</code>
+is also supported. Explicit aperture saturation records its maximum correction.</p>
+<p>Full chunks decode in separate per-arm processes, including warmup. Start waits
+for pending decoding and the backend reset fence. Raw provider responses are saved
+under <code>data/diagnostics/pi05-flexiv-ee-umi</code>. This initial profile supports
+Serial, ordinary Async and pose-conditioned RTC. Other specialized samplers are not enabled.
+The examples keep hardware execution disabled. Recorded-image, real-weight
+checks passed through WebSocket, FK/IK, asynchronous admission and Smooth into a
+disconnected command sink; physical task execution remains unvalidated.</p>
 <p>Flexiv arm tracking mode is selectable per arm under
 <code>robot.options.component_hardware</code>. Set <code>control_mode: joint_impedance</code>,
 <code>joint_stiffness_scale: 1.0</code> and <code>joint_damping_ratio: 0.7</code>

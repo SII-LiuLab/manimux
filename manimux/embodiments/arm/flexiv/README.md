@@ -285,3 +285,18 @@ limits). Guiding limits are independent of policy and Home limits. Mode, health
 and feedback checks remain active, without applying policy target margins to
 manual guiding. Stop uses blocking RDK Stop to IDLE. Active tool/load settings
 remain unchanged. Physical acceptance of tuned parameters is still required.
+
+
+## Bounded offline EE IK
+
+The arm model accepts `ik_max_joint_step_rad` (positive, optional) and
+`ik_joint_motion_cost` (nonnegative, default zero) in component `options`.
+An explicit step bound intersects the URDF limits with a box around the supplied
+seed. A nonzero motion cost adds seed regularization and requires that bound.
+Seeds outside model bounds fail in bounded mode. Successful solutions retain the
+original 0.1 mm position and 0.0001 rad orientation acceptance criteria; residuals
+are not relaxed. Default geometry/IK behavior for existing assemblies is unchanged.
+These options are offline model choices, not controller velocity limits or a
+collision planner. The runtime's shared IK failure policy owns hold/reject.
+The `flexiv_omnigripper_ee` assembly selects 0.15 rad and 0.001 for the H50 Pi05
+flange policy. Keep calibrated geometry in the station's private assembly.

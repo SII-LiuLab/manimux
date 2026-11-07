@@ -931,3 +931,19 @@ service heartbeat. Recheck the metadata/result/label revision at confirmation.
 Refresh repeat history and existing derived indexes after deletion/restoration.
 Imported history is read-only in this panel. Test path boundaries, partial records,
 changed labels, rollback, ID allocation, progress and GUI lifecycle interlocks.
+
+
+### Pose decoding and process warmup
+
+`PoseAdapter` accepts optional `gripper_output: reject|clip` (default reject).
+Clipping applies only to finite normalized apertures before IK, records the maximum
+correction, and leaves `raw_model_eef` unchanged. Failed solves still hold the entire
+previous arm/tool command through `execution.ik.failure_policy`.
+`pose_frame: flange` requires the configured assembled TCP to coincide with the
+flange at both opening limits; ordinary `tcp` remains the default.
+
+Pre-Start warmup supports `policy.action_decoding: process` for the existing
+Serial/Async/RTC decoder paths. It borrows the runtime decoder exclusively,
+uses the same offline geometry and failure policy, drains pending results and
+awaits backend reset before Start. Parallel pose decoding retains each arm's
+configured kinematics. Warmup never owns a hardware command sink.

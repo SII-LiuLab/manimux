@@ -96,6 +96,18 @@ class PoseAdapter(KinematicAdapter):
                 raise ValueError(
                     f"{group} geometry must match the declared arm/tool coordinate layout"
                 )
+        pose_frame = options.get("pose_frame", "tcp")
+        if pose_frame not in {"tcp", "flange"}:
+            raise ValueError("Pose pose_frame must be tcp or flange")
+        if pose_frame == "flange":
+            for group, layout in self.layouts.items():
+                model = self.kinematics.models[group]
+                if not hasattr(model, "flange_target"):
+                    raise ValueError(f"{group} cannot verify a flange-reference TCP")
+                for opening in (0.0, 1.0):
+                    tool = np.array([opening]) if layout["gripper_dofs"] else np.empty(0)
+                    if not np.allclose(model.flange_target(np.eye(4), tool), np.eye(4), atol=1e-9):
+                        raise ValueError(f"{group} policy requires TCP coincident with flange")
         warmup = options.get("ik_warmup_joints")
         self._warmup_joints = {}
         if warmup is not None:
