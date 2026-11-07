@@ -32,11 +32,12 @@ rotation is in radians, relative to the corresponding arm flange. The mounts
 include the -6.31 mm seating offset; the source gripper URDF already includes its own
 -90 degree Z rotation. Restart RoboGUI after editing the mounts.
 
-The local calibrated station uses `.local/flexiv/omnigripper_robot.yaml` and
-`.local/flexiv/omnigripper_robogui.yaml`; these preserve each arm's calibrated URDF
-and recorded Home pose. Update the local assembly's mounts when fitting this
-station. Its dashboard can be launched with
-`--config .local/flexiv/omnigripper_robogui.yaml --host 127.0.0.1 --port 8086`.
+The current local calibrated station uses `.local/flexiv/pi05_ee/robot.yaml` and
+`.local/flexiv/pi05_ee/robogui.yaml`; these preserve each arm's calibrated URDF
+and the selected assembly's Home pose. The display loads the supplied CAD stand
+with 750 mm from its column center to the nearest table edge. Update the selected
+local assembly's mounts when fitting this station. Its dashboard uses
+`--config .local/flexiv/pi05_ee/robogui.yaml --host 127.0.0.1 --port 8086`.
 
 ## Vendor examples
 

@@ -48,6 +48,9 @@ logs/
 /manimux/assets/tianji/
 /manimux/assets/end_effectors/umi_follower/
 
+# Operator-supplied stand CAD; no verified redistribution license.
+/manimux/robogui/robots/flexiv/assets/dual_arm_stand_20260523.stl
+
 # Ship public MIT-licensed YAM models with the component; retain assets tracked before refactoring.
 !/manimux/embodiments/arm/yam/assets/
 !/manimux/embodiments/arm/yam/assets/**

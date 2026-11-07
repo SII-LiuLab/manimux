@@ -449,6 +449,10 @@ from the chosen deployment. They are not additional services to run alongside Pi
 </code></pre>
 </details>
 <h3 id="flexiv-launch">Flexiv Rizon4s dual arms</h3>
+<p>The public Flexiv and Flexiv + OmniGripper RoboGUI presets show a schematic mounting stand,
+with 500 mm arm-center spacing and mounting centers 1305 mm above the floor.
+The table edge nearest the robot is 750 mm horizontally from the column center.
+Arm display origins follow its front mounting faces; these placements do not change controller frames or FK/IK.</p>
 <p>Use <code>manimux/configs/experiments/example-flexiv/flexiv_joint.yaml</code> for seven absolute joint angles per arm,
 or <code>manimux/configs/experiments/example-flexiv/flexiv_pose.yaml</code> for xyz + quaternion wxyz flange poses in each
 physical arm base. Both reserve <code>left_wrist</code> and <code>right_wrist</code> camera streams,
@@ -654,7 +658,7 @@ envs/flexiv/.venv/bin/python -m manimux.servers.camera.server --experiment "$MM_
 XLA_PYTHON_CLIENT_PREALLOCATE=false third_party/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
   -m manimux.servers.pi05 --experiment "$MM_PI05_EXPERIMENT"
 envs/flexiv/.venv/bin/python -m manimux.robogui.dashboard \
-  --config .local/flexiv/pi05_stack_cube_robogui.yaml
+  --config .local/flexiv/pi05_ee/robogui.yaml
 envs/flexiv/.venv/bin/python -m manimux run --config "$MM_PI05_EXPERIMENT"
 </code></pre>
 <p>The Pi05 experiment enables <code>run.warmup_before_start: true</code>.
@@ -662,6 +666,11 @@ In RoboGUI use <strong>Prepare Run → Activate Warmup → Start</strong>.
 Warmup previews use the selected planner and Smooth executor without dispatching
 predicted commands; Prepare still connects the hardware. Start drains pending
 warmup requests and waits for backend reset before formal execution.</p>
+<p>The public <code>flexiv</code> and <code>flexiv_omnigripper</code> presets use
+schematic stand geometry. The operator-supplied stand STL stays local because its
+redistribution license is unverified. Use a private RoboGUI <code>--config</code>
+file under <code>manimux/configs/robogui/</code> to display that CAD; keep its filename
+outside the published <code>example-*</code> pattern.</p>
 <p>The <code>flexiv_omnigripper</code> preset uses the shared left camera overlay:
 <code>gemini_main</code> above <code>gemini_left_wrist</code> and
 <code>gemini_right_wrist</code>. Copy its <code>cameras</code> and

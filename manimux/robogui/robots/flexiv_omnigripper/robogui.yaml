@@ -1,5 +1,6 @@
 # Display-only mounts rotated 180 degrees about the shared world Y axis.
 # Left/right and up/down are reversed; arm identities remain unchanged.
+# Mount origins are display-only; the public stand is a schematic made of boxes.
 # Display placement is independent of embodiment FK/IK and Home joint values.
 label: Flexiv + OmniGripper (Marvin straight grippers)
 model: ../../../configs/embodiment/robot/flexiv_omnigripper_dual.yaml
@@ -16,7 +17,7 @@ groups:
   left_arm:
     label: Left Arm (A)
     robogui_display_frame:
-      xyz: [0.45, 0.71, 1.72]
+      xyz: [0.25, 0.685, 1.305]
       rpy: [1.5707963267948966, -1.5707963267948966, 0.0]
     prediction_color: [52, 111, 255]
     trail_color: [33, 180, 106]
@@ -28,7 +29,7 @@ groups:
   right_arm:
     label: Right Arm (B)
     robogui_display_frame:
-      xyz: [-0.45, 0.71, 1.72]
+      xyz: [-0.25, 0.685, 1.305]
       rpy: [1.5707963267948966, 1.5707963267948966, 0.0]
     prediction_color: [255, 94, 87]
     trail_color: [255, 170, 0]
@@ -39,20 +40,22 @@ groups:
     aperture: gripper
 scene:
   view:
-    camera_position: [2.4, -3.7, 2.5]
-    camera_look_at: [0.0, 0.25, 1.35]
+    camera_position: [2.0, -3.2, 2.2]
+    camera_look_at: [0.0, 0.35, 0.9]
     grid_position: [0.0, 0.0, -0.01]
     grid_size: [2.0, 2.0]
   boxes:
+  # Detailed operator-supplied CAD belongs in a private --config preset.
   - name: flexiv_column
-    dimensions: [0.22, 0.18, 1.64]
-    position: [0.0, 0.8, 0.82]
+    dimensions: [0.22, 0.18, 1.225]
+    position: [0.0, 0.8, 0.6125]
     color: [238, 238, 238]
   - name: flexiv_top_beam
-    dimensions: [1.2, 0.18, 0.16]
-    position: [0.0, 0.8, 1.72]
+    dimensions: [0.7, 0.23, 0.16]
+    position: [0.0, 0.8, 1.305]
     color: [238, 238, 238]
   - name: table
     dimensions: [1.6, 0.9, 0.04]
-    position: [0.0, 0.2, 0.68]
+    # Column center Y=0.8 to near table edge Y=0.05: 0.75 m.
+    position: [0.0, -0.4, 0.68]
     color: [240, 240, 240]
