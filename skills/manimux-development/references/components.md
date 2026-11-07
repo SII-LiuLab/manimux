@@ -239,6 +239,17 @@ requirements must remain explicit through supported solver configuration/API;
 never drop bounds, tolerances or failure behavior to fit a common signature.
 RoboGUI display placement is not a calibrated arm-base transform.
 
+Models may implement `create_differential_ik(**options)` to supply an independent
+execution-time controller. `kinematics/differential.py` defines its step result
+and manipulator protocol: target, previous command, measured coordinates, time
+step and fixed tool coordinates are separate inputs. An accepted differential
+increment includes admissible command bounds and does not claim exact-pose IK
+convergence. Composed models remove the requested tool offset once and delegate
+to the optional flange controller. Unsupported models raise explicitly; the
+runtime does not select a solver by robot name. See the
+[Flexiv execution contract](runtime-config.md#flexiv-execution-time-differential-ik)
+for failure handling and post-executor bound validation.
+
 YAM IK settings belong in the arm component's `options`, shared by model adapters.
 `pos_threshold` defaults to `0.0001` metres. An explicit YAML `null` disables only
 final position-residual acceptance in chunk and step IK. Optimization still pursues

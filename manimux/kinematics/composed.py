@@ -106,6 +106,11 @@ class ComposedManipulatorKinematics(ManipulatorKinematicsBase):
         """Official arm solver; useful for its optional differential IK support."""
         return self._arm
 
+    def create_differential_ik(self, **options):
+        from manimux.kinematics.differential import ComposedDifferentialIK
+
+        return ComposedDifferentialIK(self, self.arm.create_differential_ik(**options))
+
     def _offset_inverse(self, tool_state: FloatArray) -> FloatArray:
         """Return the inverse tool offset, reusing it while tool state is unchanged."""
         key = tool_state.tobytes()
