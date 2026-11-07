@@ -14,6 +14,7 @@ import numpy as np
 
 from manimux.clock import Clock, SystemClock
 from manimux.configuration import initial_pose_metadata, initial_pose_targets
+from manimux.embodiments.layout import action_contract_group_indices
 from manimux.embodiments.robot import RobotBase, build_robot
 from manimux.embodiments.robot.release import observe_release
 from manimux.embodiments.sensor import build_sensor
@@ -338,7 +339,10 @@ class EdgeRuntime(PlanningContext):
     def _build_executor(self) -> Executor:
         control_dt_s = self._control_dt_ns / 1_000_000_000
         if self._config["executor"]["type"] == "direct":
-            return DirectExecutor(self._config["executor"]["motion_limits"], control_dt_s)
+            return DirectExecutor(
+                self._config["executor"]["motion_limits"], control_dt_s,
+                gripper_indices=action_contract_group_indices(self._config),
+            )
         if self._config["executor"]["type"] == "smooth":
             return SmoothExecutor(
                 self._config["executor"]["smooth"], control_dt_s,
@@ -1697,6 +1701,13 @@ class EdgeRuntime(PlanningContext):
                     }
                     if execution.ik_status is not None and not execution.ik_status["success"]:
                         recorder.event("step_ik_hold", step=steps, **execution.ik_status)
+                    gripper_clips = getattr(self._executor, "gripper_clip_diagnostics", {})
+                    if gripper_clips:
+                        recorder.event(
+                            "gripper_clipped", executor="direct", stage="executor",
+                            step=steps, monotonic_ns=command.monotonic_ns,
+                            plan_id=reference.plan_id, groups=gripper_clips,
+                        )
                     if isinstance(self._executor, SmoothExecutor) and (
                         self._config["executor"]["smooth"]["release_guard"] is not None
                         or self._executor.uses_close_latch

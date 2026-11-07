@@ -152,6 +152,20 @@ Current experiment entries explicitly select `executor.type: direct` for every
 inference method. New experiment configs follow that selection; Smooth/MPC remain
 available implementations, not the current experiment baseline.
 
+Direct bounds normalized grippers using explicit action-contract indices (or the
+existing shared motion-limit indices), including when no rate limits are configured.
+It clips the requested aperture before rate shaping and the final command afterwards;
+rate history retains the emitted position increment at saturation. It never infers a
+gripper from group width or clips arm coordinates. The input reference and recorded
+`infra_output`, `canonical_raw` and committed plans remain untouched. Formal ticks
+with clipping emit `gripper_clipped`; warmup emits `warmup_gripper_clipped` through
+the preview event channel. Each event identifies plan/tick/time and per-group
+`coordinate_index`, `raw_aperture`, `clipped_aperture`,
+`unclipped_command_aperture`, `command_aperture`, `reference_clip_delta` and
+`command_clip_delta`. Deltas are after minus before. Events describe executor
+decisions before dispatch, not sent-command evidence. Large overshoots remain
+recorded rather than being relabelled as valid model outputs.
+
 Ordinary asynchronous chunking is named **Async** (`inference.algorithm: async`).
 Serial selects `inference.algorithm: serial`; its schedule defaults to `serial`.
 Both use the same chunk strategy implementation with unchanged timing behavior.
