@@ -88,7 +88,8 @@ Weights, regularization, activation, lag and margin settings are strictly valida
 
 ## Interface and ownership
 
-Tianji and Flexiv use `reset()`, `solve(target, previous, dt_s, ...)` and result
+Tianji (`kinematics/tianji_diff.py`) and Flexiv (`kinematics/flexiv_diff.py`)
+keep their offline differential algorithms in parallel modules. Both use `reset()`, `solve(target, previous, dt_s, ...)` and result
 fields `ok`, `reason`, and `joints`. Their additional inputs/results remain
 explicit: Flexiv requires live measured coordinates and admissible command bounds;
 Tianji retains its QP, flange-lag and interference diagnostics. Execution-time

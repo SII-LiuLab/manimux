@@ -59,9 +59,9 @@ class FlexivKinematics(FlangeKinematicsBase):
             return self._urdf.get_transform("flange", "base_link").copy()
 
     def create_differential_ik(self, **options):
-        from .diff_ik import FlexivDiffIK
+        from manimux.kinematics.flexiv_diff import FlexivDifferentialIK
 
-        return FlexivDiffIK(self, **options)
+        return FlexivDifferentialIK(self, **options)
 
     def fk_flange_jacobian(self, joints):
         """Return flange pose and spatial geometric Jacobian in physical base_link."""

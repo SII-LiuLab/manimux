@@ -2,7 +2,9 @@
 
 Derived from SII-LiuLab/tianji-control, algos/flexiv_diff_ik.py at
 4d20258bdf8d53d66798da07691d7c5bbcb4c023. Uses ManiMux's calibrated URDF and
-base/flange transforms, with no SDK or external checkout dependency.
+base/flange transforms, with no SDK or external checkout dependency. Automatic
+joint-limit nullspace avoidance is retained; teleoperation-only manual nullspace
+bias and its direction-continuity state are not part of policy deployment.
 """
 
 import numpy as np
@@ -12,7 +14,7 @@ from scipy.spatial.transform import Rotation
 from manimux.kinematics.base import DifferentialIKStepResult, rigid_transform
 
 
-class FlexivDiffIK:
+class FlexivDifferentialIK:
     """One velocity-bounded increment from the previous command, not exact IK."""
 
     def __init__(
@@ -73,17 +75,16 @@ class FlexivDiffIK:
         if np.any(self.lower >= self.upper):
             raise ValueError("differential IK joint margin leaves no valid range")
         self.weights = np.array([1, 1, 1, *([rotation_weight_m] * 3)])
-        self.direction = None
 
     def reset(self):
-        self.direction = None
+        """Satisfy the solver lifecycle; deployment solving retains no history."""
 
-    def solve(self, target, previous, dt_s, *, measured, bias_rate_rad_s=0.0):
+    def solve(self, target, previous, dt_s, *, measured):
         target = rigid_transform(target, "differential IK target_flange")
         q = self.model._joints(previous)
         measured = self.model._joints(measured)
-        if not np.isfinite(dt_s) or dt_s < 0 or not np.isfinite(bias_rate_rad_s):
-            raise ValueError("invalid differential IK timestep/bias")
+        if not np.isfinite(dt_s) or dt_s < 0:
+            raise ValueError("invalid differential IK timestep")
         if np.any(q < self.lower) or np.any(q > self.upper):
             return DifferentialIKStepResult(False, reason="seed_outside_model_bounds")
         dt = min(dt_s, self.max_step_dt_s)
@@ -123,22 +124,12 @@ class FlexivDiffIK:
 
         preferred = np.zeros(7)
         moving = np.linalg.norm(error[:3]) > 1e-9 or np.linalg.norm(error[3:]) > 1e-8
-        if moving or abs(bias_rate_rad_s) > 1e-9:
-            _, singular, vh = np.linalg.svd(jacobian, full_matrices=True)
-            direction = vh[-1]
-            if self.direction is not None and np.dot(direction, self.direction) < 0:
-                direction = -direction
-            if self.direction is None and direction[np.argmax(np.abs(direction))] < 0:
-                direction = -direction
-            self.direction = direction.copy()
-            if self.nullspace_enabled:
-                push = np.clip(1 - (q - self.lower) / self.avoidance_zone_rad, 0, 1) ** 2
-                push -= np.clip(1 - (self.upper - q) / self.avoidance_zone_rad, 0, 1) ** 2
-                preferred = (np.eye(7) - np.linalg.pinv(jacobian, rcond=1e-4) @ jacobian) @ (
-                    self.nullspace_rate_rad_s * push
-                )
-            if singular[-1] >= 1e-4:
-                preferred += direction / max(np.max(np.abs(direction)), 1e-12) * bias_rate_rad_s
+        if moving and self.nullspace_enabled:
+            push = np.clip(1 - (q - self.lower) / self.avoidance_zone_rad, 0, 1) ** 2
+            push -= np.clip(1 - (self.upper - q) / self.avoidance_zone_rad, 0, 1) ** 2
+            preferred = (np.eye(7) - np.linalg.pinv(jacobian, rcond=1e-4) @ jacobian) @ (
+                self.nullspace_rate_rad_s * push
+            )
 
         matrix = np.vstack((self.weights[:, None] * jacobian, self.damping * np.eye(7)))
         rhs = np.r_[self.weights * twist, self.damping * preferred]
