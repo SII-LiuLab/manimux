@@ -58,6 +58,27 @@ class FlexivKinematics(FlangeKinematicsBase):
             self._urdf.update_cfg(q)
             return self._urdf.get_transform("flange", "base_link").copy()
 
+    def create_differential_ik(self, **options):
+        from .diff_ik import FlexivDiffIK
+
+        return FlexivDiffIK(self, **options)
+
+    def fk_flange_jacobian(self, joints):
+        """Return flange pose and spatial geometric Jacobian in physical base_link."""
+        q = self._joints(joints)
+        with self._lock:
+            self._urdf.update_cfg(q)
+            pose = self._urdf.get_transform("flange", "base_link").copy()
+            jacobian = np.empty((6, 7))
+            for index, joint in enumerate(self._urdf.actuated_joints):
+                if joint.type != "revolute":
+                    raise ValueError("Flexiv differential IK requires seven revolute joints")
+                frame = self._urdf.get_transform(joint.child, "base_link")
+                axis = frame[:3, :3] @ joint.axis
+                jacobian[:3, index] = np.cross(axis, pose[:3, 3] - frame[:3, 3])
+                jacobian[3:, index] = axis
+            return pose, jacobian
+
     def ik_flange(self, target_flange, seed_joints):
         target = rigid_transform(target_flange, "target_flange")
         seed = self._joints(seed_joints)

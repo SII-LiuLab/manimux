@@ -32,7 +32,10 @@ class ExecutionPipeline:
         self.pose_limiter = None
         if options["mode"] == "step":
             self.resolver = StepIKResolver(
-                kinematics, budget_ms=options["budget_ms"] or control_dt_ns / 2e6
+                kinematics,
+                budget_ms=options["budget_ms"] or control_dt_ns / 2e6,
+                differential=options["differential"],
+                control_dt_s=control_dt_ns / 1e9,
             )
             if options["pose_speed_limit"] is not None:
                 self.pose_limiter = PoseSpeedLimiter(kinematics, options["pose_speed_limit"])
@@ -60,37 +63,44 @@ class ExecutionPipeline:
                 target = reference
                 if self.pose_limiter is not None:
                     target, limited_groups = self.pose_limiter.apply(reference, last_command)
-                resolved = self.resolver.resolve(target, state.groups, deadline_ns=deadline)
+                resolved = self.resolver.resolve(
+                    target, state.groups, deadline_ns=deadline, previous=last_command
+                )
                 ik_status = {
                     **self.resolver.last_result,
                     "elapsed_ms": (time.monotonic_ns() - started) / 1e6,
                     "pose_speed_limited": limited_groups,
                 }
             if resolved is None:
-                # Atomic hold belongs to execution, not to the mathematical IK solver.
-                held = {
-                    name: failed_ik_command(
-                        q,
-                        policy=self.ik_failure_policy,
-                        reason=ik_status["reason"],
-                    )
-                    for name, q in last_command.items()
-                }
-                ik_status["failure_policy"] = self.ik_failure_policy
-                with stage("executor_step"):
-                    self.executor.reset(RobotState(held, now_ns, state.sequence))
-                    command = RobotCommand(copy_group_vector(held), now_ns, reference.plan_id)
-                reference = replace(
-                    reference,
-                    groups={g: q[None, :] for g, q in held.items()},
-                    action_space="joint_position",
-                    tracking_groups=None,
-                    hold_groups=(),
-                )
-                return ExecutionResult(reference, command, ik_status)
+                return self._failed_step(now_ns, state, reference, last_command, ik_status)
             reference = resolved
         if reference.action_space != "joint_position":
             raise ValueError("joint executor requires a joint_position reference")
         with stage("executor_step"):
             command = self.executor.step(now_ns, state, reference)
+        if self.resolver is not None:
+            violation = self.resolver.command_violation(command.groups)
+            if violation is not None:
+                ik_status.update(success=False, reason=violation)
+                self.resolver.reset()
+                return self._failed_step(now_ns, state, reference, last_command, ik_status)
+        return ExecutionResult(reference, command, ik_status)
+
+    def _failed_step(self, now_ns, state, reference, last_command, ik_status):
+        # Atomic hold belongs to execution, not to the mathematical IK solver.
+        held = {
+            name: failed_ik_command(q, policy=self.ik_failure_policy, reason=ik_status["reason"])
+            for name, q in last_command.items()
+        }
+        ik_status["failure_policy"] = self.ik_failure_policy
+        with stage("executor_step"):
+            self.executor.reset(RobotState(held, now_ns, state.sequence))
+            command = RobotCommand(copy_group_vector(held), now_ns, reference.plan_id)
+        reference = replace(
+            reference,
+            groups={g: q[None, :] for g, q in held.items()},
+            action_space="joint_position",
+            tracking_groups=None,
+            hold_groups=(),
+        )
         return ExecutionResult(reference, command, ik_status)

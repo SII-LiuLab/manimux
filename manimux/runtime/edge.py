@@ -1701,6 +1701,10 @@ class EdgeRuntime(PlanningContext):
                     }
                     if execution.ik_status is not None and not execution.ik_status["success"]:
                         recorder.event("step_ik_hold", step=steps, **execution.ik_status)
+                    elif execution.ik_status is not None and any(
+                        group["limited"] for group in execution.ik_status.get("groups", {}).values()
+                    ):
+                        recorder.event("step_ik_limited", step=steps, **execution.ik_status)
                     gripper_clips = getattr(self._executor, "gripper_clip_diagnostics", {})
                     if gripper_clips:
                         recorder.event(

@@ -1,6 +1,7 @@
 """Execution-time TCP resolution; joint references retain their existing path."""
 
 import time
+from collections.abc import Mapping
 from dataclasses import replace
 
 import numpy as np
@@ -12,7 +13,14 @@ from manimux.runtime.pose_limits import pose_speed_limit_parameters
 
 
 def ik_parameters(**options):
-    unknown = set(options) - {"mode", "budget_ms", "pose_speed_limit", "failure_policy"}
+    unknown = set(options) - {
+        "mode",
+        "budget_ms",
+        "pose_speed_limit",
+        "failure_policy",
+        "solver",
+        "differential",
+    }
     if unknown:
         raise ValueError(f"unknown execution.ik fields: {sorted(unknown)}")
     values = {
@@ -20,10 +28,21 @@ def ik_parameters(**options):
         "budget_ms": None,
         "pose_speed_limit": None,
         "failure_policy": DEFAULT_FAILURE_POLICY,
+        "solver": "native",
+        "differential": None,
         **options,
     }
     if values["mode"] not in {"chunk", "step"}:
         raise ValueError("execution.ik.mode must be chunk or step")
+    if values["solver"] not in {"native", "differential"}:
+        raise ValueError("execution.ik.solver must be native or differential")
+    if values["solver"] == "differential":
+        if values["mode"] != "step" or not isinstance(values["differential"], Mapping):
+            raise ValueError(
+                "differential IK requires mode=step and a differential options mapping"
+            )
+    elif values["differential"] is not None:
+        raise ValueError("differential options require execution.ik.solver=differential")
     validate_failure_policy(values["failure_policy"])
     budget = values["budget_ms"]
     if budget is not None and (not np.isfinite(budget) or budget <= 0):
@@ -101,25 +120,57 @@ def validate_ik_config(config):
         )
     if options.get("ik_backend", "analytic") != "analytic":
         raise ValueError(
-            "step IK currently requires the robot native solver (ik_backend: analytic); "
-            "decode-time diffIK is not interchangeable"
+            "step IK requires ik_backend: analytic (no decode-time solver); "
+            "select execution-time differential IK with execution.ik.solver"
         )
     budget = config["execution"]["ik"]["budget_ms"]
     if budget is not None and budget >= 1000 / config["robot"]["control_hz"]:
         raise ValueError("step IK budget must leave time for the rest of the control tick")
+    if config["execution"]["ik"].get("solver") == "differential":
+        from manimux.embodiments.robot.base import RobotModel
+
+        # Offline capability/configuration check before any controller connects.
+        models = RobotModel.from_config(config["robot"]["config"]).kinematics.models
+        for model in models.values():
+            model.create_differential_ik(**config["execution"]["ik"]["differential"])
 
 
 class StepIKResolver:
-    """Solve the current target from measured joints; return None if any arm fails.
+    """Resolve one target from measured state; return None if any arm fails.
 
-    A late native solve is rejected, never sent. Native solvers without deadline
+    Differential steps also use the separate previous command and nominal dt.
+    A late solve is rejected, never sent. Native solvers without deadline
     support cannot be preempted; timing metrics expose control-period overruns.
     """
 
-    def __init__(self, kinematics, *, budget_ms):
+    def __init__(self, kinematics, *, budget_ms, differential=None, control_dt_s=None):
         self.models = kinematics.models
         self.budget_ns = int(budget_ms * 1e6)
         self.last_result = {}
+        self.control_dt_s = control_dt_s
+        self.differential = None
+        self.command_bounds = {}
+        if differential is not None:
+            if control_dt_s is None or not np.isfinite(control_dt_s) or control_dt_s <= 0:
+                raise ValueError("differential IK requires a positive control period")
+            self.differential = {
+                name: model.create_differential_ik(**differential)
+                for name, model in self.models.items()
+            }
+
+    def reset(self):
+        self.command_bounds = {}
+        if self.differential is not None:
+            for solver in self.differential.values():
+                solver.reset()
+
+    def command_violation(self, groups):
+        """Executor acceleration limiting must not bypass the differential bounds."""
+        for name, bounds in self.command_bounds.items():
+            q = np.asarray(groups[name])
+            if np.any(q < bounds[:, 0] - 1e-10) or np.any(q > bounds[:, 1] + 1e-10):
+                return f"{name}:executor_outside_differential_bounds"
+        return None
 
     def poses_from_joints(self, groups):
         return {
@@ -127,18 +178,30 @@ class StepIKResolver:
         }
 
     def warmup(self, groups):
-        # Initialize native solvers before Start, without sending robot commands.
+        # Initialize the selected solvers before Start, without robot commands.
+        self.reset()
         for name, q in groups.items():
             model = self.models[name]
-            model.ik(model.fk(q), q, fixed_coordinates={model.coordinates[-1].name: float(q[-1])})
+            fixed = {model.coordinates[-1].name: float(q[-1])}
+            if self.differential is None:
+                model.ik(model.fk(q), q, fixed_coordinates=fixed)
+            else:
+                self.differential[name].step(
+                    model.fk(q), q, q, dt_s=self.control_dt_s, fixed_coordinates=fixed
+                )
+        self.reset()
 
-    def resolve(self, reference, measured, *, deadline_ns=None):
+    def resolve(self, reference, measured, *, deadline_ns=None, previous=None):
         if reference.action_space != POSE_SPACE or set(reference.groups) != set(measured):
             raise ValueError("step IK requires a complete pose reference matching measured groups")
+        if self.differential is not None and (previous is None or set(previous) != set(measured)):
+            raise ValueError("differential IK requires the separate last command for every group")
         started = time.monotonic_ns()
         deadline = min(started + self.budget_ns, deadline_ns or started + self.budget_ns)
         output = {}
+        self.command_bounds = {}
         failure = None
+        group_status = {}
         for name, rows in reference.groups.items():
             if time.monotonic_ns() >= deadline:
                 failure = "budget_exceeded"
@@ -147,8 +210,23 @@ class StepIKResolver:
             target = rows[0]
             fixed = {model.coordinates[-1].name: float(target[7])}
             bounded = getattr(model, "ik_deadline", None)
-            if bounded is None:
+            if self.differential is not None:
+                result = self.differential[name].step(
+                    pose_matrix(target[:7]),
+                    previous[name],
+                    measured[name],
+                    dt_s=self.control_dt_s,
+                    fixed_coordinates=fixed,
+                )
+                accepted = result.accepted
+                group_status[name] = {
+                    "accepted": accepted,
+                    "limited": result.limited,
+                    "reason": result.reason,
+                }
+            elif bounded is None:
                 result = model.ik(pose_matrix(target[:7]), measured[name], fixed_coordinates=fixed)
+                accepted = result.converged
             else:
                 result = bounded(
                     pose_matrix(target[:7]),
@@ -156,22 +234,28 @@ class StepIKResolver:
                     fixed_coordinates=fixed,
                     deadline_ns=deadline,
                 )
-            if not result.converged:
+                accepted = result.converged
+            if not accepted:
                 failure = f"{name}:{result.reason}"
                 break
             q = np.asarray(result.joints, dtype=float)
             if q.shape != measured[name].shape or not np.isfinite(q).all():
                 raise ValueError(f"step IK returned an invalid solution for {name}")
             output[name] = q.copy()
+            if self.differential is not None:
+                self.command_bounds[name] = result.position_bounds
         elapsed = time.monotonic_ns() - started
         if time.monotonic_ns() > deadline:
             failure = "budget_exceeded"
         self.last_result = {
             "elapsed_ms": elapsed / 1e6,
             "success": failure is None,
-            "reason": failure or "converged",
+            "reason": failure or ("bounded_step" if self.differential is not None else "converged"),
+            "solver": "differential" if self.differential is not None else "native",
+            "groups": group_status,
         }
         if failure:
+            self.reset()
             return None
         return replace(
             reference,

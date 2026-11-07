@@ -300,3 +300,14 @@ These options are offline model choices, not controller velocity limits or a
 collision planner. The runtime's shared IK failure policy owns hold/reject.
 The `flexiv_omnigripper_ee` assembly selects 0.15 rad and 0.001 for the H50 Pi05
 flange policy. Keep calibrated geometry in the station's private assembly.
+
+`diff_ik.py` also ports the Flexiv teleop bounded differential solver from
+[tianji-control revision 4d20258](https://github.com/SII-LiuLab/tianji-control/blob/4d20258bdf8d53d66798da07691d7c5bbcb4c023/algos/flexiv_diff_ik.py).
+It uses this component's calibrated/nominal URDF Jacobian, without SDK calls.
+Select it through `execution.ik.solver: differential` in step mode; the
+`ee_umi_diffik_serial.yaml` and `ee_umi_diffik_async.yaml` examples supply all
+parameters. It produces bounded incremental commands using separate previous
+command and measured joints, rather than claiming exact pose convergence.
+See the [execution contract](../../../../skills/manimux-development/references/runtime-config.md#flexiv-execution-time-differential-ik)
+for limits, shared failures and recording. The static `ik_flange()` solver remains
+available for chunk/native-step IK and geometric queries.

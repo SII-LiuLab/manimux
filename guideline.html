@@ -509,6 +509,25 @@ Serial, ordinary Async and pose-conditioned RTC. Other specialized samplers are 
 The examples keep hardware execution disabled. Recorded-image, real-weight
 checks passed through WebSocket, FK/IK, asynchronous admission and Smooth into a
 disconnected command sink; physical task execution remains unvalidated.</p>
+<p>For the teleop Flexiv differential solver, select
+<code>ee_umi_diffik_serial.yaml</code> or <code>ee_umi_diffik_async.yaml</code>
+in the same example directory. These use <code>execution.ik.mode: step</code>,
+<code>solver: differential</code>, inline pose decoding and the Direct executor
+at 100 Hz, with a 5 ms shared dual-arm IK budget. The solver uses the calibrated
+URDF Jacobian and bounded least squares; it does not call SDK IK. Each tick uses
+the previous emitted command, current measured joints and a capped nominal time
+step. It retains teleop's 10-degree joint-limit slowdown, 5-degree tracking
+envelope and 25-degree nullspace avoidance zone; all speed and solver parameters
+are explicit under <code>execution.ik.differential</code>.</p>
+<p>diffIK returns a bounded increment toward the target; it does not guarantee
+arrival at each policy waypoint. Existing executor motion limits still apply,
+and the final command must remain inside the solver's joint/tracking envelope.
+A failed or late solve holds both arms and both grippers, or raises with
+<code>failure_policy: reject</code>. Recordings distinguish failed holds
+(<code>step_ik_hold</code>) from accepted joint-limit/rate saturation
+(<code>step_ik_limited</code>). Select the diffIK config for all services using
+the same launch procedure; the examples keep actuation disabled.</p>
+
 <p>Flexiv arm tracking mode is selectable per arm under
 <code>robot.options.component_hardware</code>. Set <code>control_mode: joint_impedance</code>,
 <code>joint_stiffness_scale: 1.0</code> and <code>joint_damping_ratio: 0.7</code>

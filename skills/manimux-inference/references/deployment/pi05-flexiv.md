@@ -275,3 +275,52 @@ RoboGUI has no `--check` option; validate its YAML with `load_robogui_config` an
 and matching RoboGUI YAML instead of the nominal preset. The operator owns
 Prepare, Activate Warmup, Start and Finish. Keep the joint deployment and its
 recordings separate; these configs do not switch running services.
+
+### Optional Flexiv teleop diffIK
+
+Use `experiments/example-flexiv-pi05/stack_cube/ee_umi_diffik_serial.yaml` or
+`ee_umi_diffik_async.yaml` for execution-time differential IK. Set `MM_EE_CONFIG`
+to that variant in the complete service/check sequence above. Keep the same EE
+checkpoint, calibrated private assembly, station bindings and RoboGUI geometry.
+The local variant should inherit the station's current motion limits. These
+examples preserve the joint baseline's executor limits; they do not automatically
+raise them to the teleop solver's velocity ceiling.
+
+The configuration selects `execution.ik.mode: step`, `solver: differential`,
+inline pose decoding, Direct execution at 100 Hz and a shared 5 ms solve budget.
+All solver constants are explicit in `execution.ik.differential`. The solver
+ports `tianji-control/algos/flexiv_diff_ik.py` at revision
+`4d20258bdf8d53d66798da07691d7c5bbcb4c023` (source SHA256
+`ed9df3e3848cecf386eeab582436b0be0942cc577cf005ed5e5783df18c9c328`).
+It uses offline calibrated URDF FK/Jacobians, not SDK IK. Previous command,
+measured joints and nominal dt remain independent. Teleop's bounded velocity
+solve, Cartesian speed caps, soft joint-limit damping, 5-degree tracking envelope
+and nullspace avoidance are preserved. Commands are bounded increments, not
+claims of exact waypoint convergence. See the
+[execution contract](../../../manimux-development/references/runtime-config.md#flexiv-execution-time-differential-ik)
+for reset, failure, final-command bounds and recording semantics.
+
+Offline validation on 2026-11-05:
+
+- 600 comparisons against the source algorithm, including joint boundaries,
+  measurement lag, capped dt and nullspace bias: 60 matching tracking failures;
+  maximum accepted joint difference `4.44e-16 rad`. Calibrated-URDF Jacobians
+  matched central differences to `1.52e-10` maximum element error.
+- Real step-29999 weights, recorded three-camera frames 0/120/240, WebSocket,
+  pose decoding, timeline and Direct commands: 492 control samples. With each
+  recorded measured state held fixed, six post-executor envelope violations
+  triggered complete holds; 486 steps were accepted. No observation was replaced
+  by a predicted command. Dual-arm solve p50 was about 1.35 ms.
+- The actual Async runtime with a disconnected synthetic plant and recorded
+  camera images ran 1200 ticks in 12.48 s, admitted 49 plans and rejected none.
+  Host control frequency was 99.47 Hz; dual-arm IK p50/p95/p99 was
+  2.09/3.37/5.48 ms. Seventeen 5 ms deadline misses produced recorded atomic
+  holds; 861 accepted steps reported active joint bounds. These counts are
+  command-generation evidence, not motor timing or real tracking performance.
+- Warmup used the same differential pipeline and reset fence with no hardware
+  sends. Failure/recovery, reject, shared deadline, tool transform and final
+  executor-envelope tests passed. Raw responses and generated commands were
+  retained privately. Camera/model `--check` and config inspection passed.
+
+No controller was constructed or connected. These results qualify offline
+integration only; physical stack-cube performance remains untested.

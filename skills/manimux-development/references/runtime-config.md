@@ -816,7 +816,7 @@ interpolation and blending use linear xyz/gripper and shortest-arc quaternion
 SLERP. Record `absolute_tcp_pose` plan chunks; scheduled/command rows remain joints.
 RoboGUI draws pose-plan positions directly, without FK on pose rows.
 
-The execution stages are built once and IK is warmed before the control loop. IK starts from
+The execution stages are built once and IK is warmed before the control loop. Native IK starts from
 the current control tick's measured joint state and solves only the current target.
 The pipeline receives the last sent command separately for failure holds and
 optional target limiting; the IK solver does not choose fallback commands. A shared budget
@@ -831,8 +831,10 @@ budget, not a hard real-time guarantee or proof of physical tracking.
 Step mode requires direct execution, inline pose decoding, atomic groups, and
 linear blend handoff. Smooth/MPC future-joint references, joint candidate scoring,
 temporal ensembling, command-cubic blending, waypoint handoff and decoder diffIK
-substeps are rejected explicitly. Use the robot's native IK (`ik_backend: analytic`
-where that adapter exposes the option); do not silently substitute it for diffIK.
+substeps are rejected explicitly. `execution.ik.solver: native` is the default
+(`ik_backend: analytic` where that adapter exposes the option). Execution-time
+`solver: differential` is a separate optional model capability, described below;
+it does not select the adapters' decode-time diffIK.
 Ordinary joint adapters need no IK mode and reject `step`.
 
 Serial/async support all pose-producing IK adapter families. RTC/PAINT require an
@@ -845,6 +847,47 @@ conditioning does not solve future IK.
 
 Example: `configs/experiments/{openwam-study}/put_bottles/<serial-step-ik-variant>.yaml` (station-local; build it like the [example study](../../../manimux/configs/lists/example-yam-pi05.yaml)).
 Existing presets retain chunk IK; the new example is not activated automatically.
+
+### Flexiv execution-time differential IK
+
+Select `execution.ik: {mode: step, solver: differential, differential: {...}}`.
+The complete parameter example is
+`configs/experiments/example-flexiv-pi05/stack_cube/ee_umi_diffik_serial.yaml`;
+`ee_umi_diffik_async.yaml` uses ordinary Async with the same controller.
+Both use 100 Hz Direct execution, inline absolute-pose decoding and a shared
+5 ms dual-arm solve budget. Existing chunk and native-step choices retain their
+behavior. The optional `create_differential_ik()` model factory must be supported;
+unsupported models and invalid options fail during offline configuration checks.
+
+The solver is adapted from [tianji-control's Flexiv teleop solver](https://github.com/SII-LiuLab/tianji-control/blob/4d20258bdf8d53d66798da07691d7c5bbcb4c023/algos/flexiv_diff_ik.py).
+It uses the selected nominal or calibrated URDF's flange FK and spatial Jacobian,
+bounded least squares for joint velocity, Cartesian speed caps, joint-limit
+velocity damping, measured/command tracking bounds, and nullspace limit avoidance.
+Tool/mount transforms are removed exactly once by the composed model. All public
+parameters use metres, radians and seconds; the YAML records the collection
+constants explicitly. No SDK IK, controller connection or external checkout is used.
+
+Each solve receives the **last emitted command**, **current measured state** and
+nominal control period separately. The integration interval is capped by
+`max_step_dt_s`; missed ticks never accumulate a catch-up jump. The reference
+observation used to decode model poses remains unchanged. A `DifferentialIKResult`
+reports an accepted bounded increment, not exact pose convergence. Joint velocity
+or soft-limit saturation is valid progress; an infeasible tracking box, solver
+failure or expired shared budget invokes the same all-arm-and-gripper hold/reject
+policy as native step IK. There is no final-target residual acceptance test: a
+distant or unreachable target may produce bounded motion without ever arriving.
+
+The Direct executor retains configured arm/gripper motion limits. Its final
+command is checked against the differential solver's admissible position interval;
+acceleration limiting cannot silently override joint/tracking bounds. A violation
+uses the same atomic hold/reject path and resets executor history. Only roundoff
+at the solver's joint bounds is clipped. Solver history resets after a discarded
+step and during initialization; warmup uses an independent solver and no dispatch.
+`step_ik_hold` records failures; `step_ik_limited` records accepted steps with an
+active joint-velocity bound. Cartesian twist caps may apply without activating a
+joint bound. Control timing records the shared solve stage. These are soft
+deadlines, not hard real-time guarantees, collision checking or physical tracking
+qualification.
 
 
 ### Optional pose target speed limit

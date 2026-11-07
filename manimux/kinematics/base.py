@@ -127,6 +127,10 @@ class ManipulatorKinematicsBase(ABC):
         """Dimension of FK input, IK seed and successful IK result."""
         return len(self.coordinates)
 
+    def create_differential_ik(self, **options):
+        """Optional independent DifferentialIKSolver; never an exact-pose IK alias."""
+        raise NotImplementedError("this manipulator has no execution-time differential IK")
+
     @property
     @abstractmethod
     def base_frame(self) -> str:
@@ -201,6 +205,10 @@ class FlangeKinematicsBase(ABC):
     def num_arm_joints(self) -> int:
         """Number of arm joints, excluding the end effector."""
         raise NotImplementedError
+
+    def create_differential_ik(self, **options):
+        """Optional flange step solver with separate previous/measured joints and dt."""
+        raise NotImplementedError("this arm has no execution-time differential IK")
 
     @abstractmethod
     def fk_flange(self, joints: FloatArray) -> FloatArray:
