@@ -260,11 +260,8 @@ def validate_runtime_parameters(config: dict) -> None:
         and config["policy"]["action_decoding"] != "inline"
     ):
         raise ValueError("multi_inflight currently requires inline action decoding")
-    if config["run"].get("warmup_before_start", False):
-        if not config["robogui"]["enabled"]:
-            raise ValueError("run.warmup_before_start requires RoboGUI Start control")
-        if config["policy"]["action_decoding"] != "inline":
-            raise ValueError("pre-Start warmup currently requires inline action decoding")
+    if config["run"].get("warmup_before_start", False) and not config["robogui"]["enabled"]:
+        raise ValueError("run.warmup_before_start requires RoboGUI Start control")
     motion = config["executor"]["motion_limits"]
     if motion is not None:
         for group, index in motion["gripper"]["group_indices"].items():
