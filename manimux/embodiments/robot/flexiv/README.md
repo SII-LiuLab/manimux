@@ -19,9 +19,12 @@ straight-gripper meshes with articulated fingers. The provisional gripper mounts
 are configured per component; their calibration remains pending.
 
 The RoboGUI display mounts are rotated 180 degrees about the world Y axis
-through their shared midpoint. Left A is at `[0.45, 0.71, 1.72]` and right B at
-`[-0.45, 0.71, 1.72]` m; the rotation reverses both horizontal and vertical
-orientation without changing A/B identity. The stand and table remain fixed.
+through their shared midpoint. Left A is at `[0.25, 0.685, 1.305]` and right B at
+`[-0.25, 0.685, 1.305]` m; the rotation reverses both horizontal and vertical
+orientation without changing A/B identity. Both public Flexiv presets use a
+schematic stand with 500 mm mounting-center spacing. The supplied CAD stays
+local because its redistribution license is unverified; see its
+[asset notes](../../../robogui/robots/flexiv/assets/README.md).
 These are provisional display placements, independent of controller frames.
 
 The joint and pose examples in `configs/experiments/example-flexiv/flexiv_omnigripper_*.yaml` use
