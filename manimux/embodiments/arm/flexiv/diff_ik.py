@@ -9,8 +9,7 @@ import numpy as np
 from scipy.optimize import lsq_linear
 from scipy.spatial.transform import Rotation
 
-from manimux.kinematics.base import rigid_transform
-from manimux.kinematics.differential import DifferentialIKResult
+from manimux.kinematics.base import DifferentialIKStepResult, rigid_transform
 
 
 class FlexivDiffIK:
@@ -79,17 +78,17 @@ class FlexivDiffIK:
     def reset(self):
         self.direction = None
 
-    def step(self, target, previous, measured, *, dt_s, bias_rate_rad_s=0.0):
+    def solve(self, target, previous, dt_s, *, measured, bias_rate_rad_s=0.0):
         target = rigid_transform(target, "differential IK target_flange")
         q = self.model._joints(previous)
         measured = self.model._joints(measured)
         if not np.isfinite(dt_s) or dt_s < 0 or not np.isfinite(bias_rate_rad_s):
             raise ValueError("invalid differential IK timestep/bias")
         if np.any(q < self.lower) or np.any(q > self.upper):
-            return DifferentialIKResult(False, reason="seed_outside_model_bounds")
+            return DifferentialIKStepResult(False, reason="seed_outside_model_bounds")
         dt = min(dt_s, self.max_step_dt_s)
         if dt == 0:
-            return DifferentialIKResult(True, q, position_bounds=np.column_stack((q, q)))
+            return DifferentialIKStepResult(True, joints=q, position_bounds=np.column_stack((q, q)))
         here, jacobian = self.model.fk_flange_jacobian(q)
         error = np.r_[
             target[:3, 3] - here[:3, 3],
@@ -120,7 +119,7 @@ class FlexivDiffIK:
             upper, np.minimum(self.upper - q, measured + self.tracking_limit_rad - q) / dt
         )
         if np.any(lower >= upper):
-            return DifferentialIKResult(False, reason="tracking")
+            return DifferentialIKStepResult(False, reason="tracking")
 
         preferred = np.zeros(7)
         moving = np.linalg.norm(error[:3]) > 1e-9 or np.linalg.norm(error[3:]) > 1e-8
@@ -147,10 +146,12 @@ class FlexivDiffIK:
             matrix, rhs, bounds=(lower, upper), method="bvls", tol=1e-9, max_iter=30
         )
         if not result.success or not np.isfinite(result.x).all():
-            return DifferentialIKResult(False, reason="solver")
+            return DifferentialIKStepResult(False, reason="solver")
         candidate = np.clip(q + result.x * dt, self.lower, self.upper)
         limited = bool(np.any(result.active_mask))
         near_limit = np.any(np.minimum(low_distance, high_distance) < self.slowdown_zone_rad)
         reason = ("soft_joint_limit" if near_limit else "joint_rate_limit") if limited else ""
         bounds = np.column_stack((q + lower * dt, q + upper * dt))
-        return DifferentialIKResult(True, candidate, limited, reason, bounds)
+        return DifferentialIKStepResult(
+            True, reason, joints=candidate, limited=limited, position_bounds=bounds
+        )

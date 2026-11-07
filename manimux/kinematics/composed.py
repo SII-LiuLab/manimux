@@ -5,6 +5,8 @@ from collections.abc import Mapping
 import numpy as np
 
 from manimux.kinematics.base import (
+    DifferentialIKStepResult,
+    DifferentialIKStepSolver,
     FlangeKinematicsBase,
     FloatArray,
     IKResult,
@@ -106,9 +108,7 @@ class ComposedManipulatorKinematics(ManipulatorKinematicsBase):
         """Official arm solver; useful for its optional differential IK support."""
         return self._arm
 
-    def create_differential_ik(self, **options):
-        from manimux.kinematics.differential import ComposedDifferentialIK
-
+    def create_differential_ik(self, **options) -> DifferentialIKStepSolver:
         return ComposedDifferentialIK(self, self.arm.create_differential_ik(**options))
 
     def _offset_inverse(self, tool_state: FloatArray) -> FloatArray:
@@ -168,3 +168,43 @@ class ComposedManipulatorKinematics(ManipulatorKinematicsBase):
         if position_error > self._position_tolerance or rotation_error > self._rotation_tolerance:
             return IKResult(False, reason="tcp_pose_tolerance")
         return IKResult(True, joints=solution)
+
+
+class ComposedDifferentialIK:
+    """Convert a configured TCP to a flange once, with the requested tool state."""
+
+    def __init__(self, model, arm_solver):
+        self.model = model
+        self.arm_solver = arm_solver
+
+    def reset(self):
+        self.arm_solver.reset()
+
+    def solve(self, target, previous, dt_s, *, measured, fixed_coordinates):
+        model = self.model
+        previous = model._configuration(previous)
+        measured = model._configuration(measured)
+        arm_size = model.arm.num_arm_joints
+        tool_names = [c.name for c in model.coordinates[arm_size:]]
+        if set(fixed_coordinates) != set(tool_names):
+            raise NotImplementedError("differential IK requires all tool coordinates fixed")
+        candidate = previous.copy()
+        candidate[arm_size:] = [fixed_coordinates[name] for name in tool_names]
+        candidate = model._configuration(candidate)
+        target_flange = model.flange_target(target, candidate[arm_size:])
+        result = self.arm_solver.solve(
+            target_flange, previous[:arm_size], dt_s, measured=measured[:arm_size]
+        )
+        if not result.ok:
+            return result
+        if result.joints.shape != (arm_size,):
+            raise ValueError("differential flange solver returned an invalid joint layout")
+        candidate[:arm_size] = result.joints
+        tool_bounds = [
+            [0.0, 1.0] if c.unit == "normalized" else [value, value]
+            for c, value in zip(model.coordinates[arm_size:], candidate[arm_size:], strict=True)
+        ]
+        bounds = np.vstack((result.position_bounds, np.asarray(tool_bounds).reshape(-1, 2)))
+        return DifferentialIKStepResult(
+            True, result.reason, joints=candidate, limited=result.limited, position_bounds=bounds
+        )

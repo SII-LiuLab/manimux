@@ -186,8 +186,8 @@ class StepIKResolver:
             if self.differential is None:
                 model.ik(model.fk(q), q, fixed_coordinates=fixed)
             else:
-                self.differential[name].step(
-                    model.fk(q), q, q, dt_s=self.control_dt_s, fixed_coordinates=fixed
+                self.differential[name].solve(
+                    model.fk(q), q, self.control_dt_s, measured=q, fixed_coordinates=fixed
                 )
         self.reset()
 
@@ -211,14 +211,14 @@ class StepIKResolver:
             fixed = {model.coordinates[-1].name: float(target[7])}
             bounded = getattr(model, "ik_deadline", None)
             if self.differential is not None:
-                result = self.differential[name].step(
+                result = self.differential[name].solve(
                     pose_matrix(target[:7]),
                     previous[name],
-                    measured[name],
-                    dt_s=self.control_dt_s,
+                    self.control_dt_s,
+                    measured=measured[name],
                     fixed_coordinates=fixed,
                 )
-                accepted = result.accepted
+                accepted = result.ok
                 group_status[name] = {
                     "accepted": accepted,
                     "limited": result.limited,
