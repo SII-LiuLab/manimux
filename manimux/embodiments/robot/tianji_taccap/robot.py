@@ -439,18 +439,18 @@ class TianjiTaccapRobot(RobotBase):
         # Runtime shaping consumes the rated capability; the SDK only needs percentages.
         control.pop("rated_joint_velocity_rad_s")
         overrides = dict(component_hardware or {})
-        for name, options in overrides.items():
-            # The rate contract derives runtime limits from the shared ratio only.
-            shared = {"velocity_ratio", "acceleration_ratio"}.intersection(options)
-            if shared:
-                raise ValueError(
-                    f"component_hardware.{name} cannot set {sorted(shared)}; set them in "
-                    "robot.options.hardware so the runtime limits use the same ratio"
-                )
         bound = {name: dict(entry["hardware"]) for name, entry in model.components.items()}
-        # Apply local bindings by component name; dictionary lookup reports misspelled names directly.
+        # Bindings use component names; the lookup rejects misspelled names.
         for name, options in overrides.items():
             bound[name].update(options)
+        for name, options in bound.items():
+            # The rate contract derives runtime limits from the shared ratio only.
+            shared = shared_arm_hardware.keys() & options.keys()
+            if shared:
+                raise ValueError(
+                    f"Tianji component {name} cannot set {sorted(shared)}; set them in "
+                    "robot.options.hardware so the runtime limits use the same ratio"
+                )
         # Both arms share one native controller session; groups retain their YAML order.
         settings, sides = {}, {}
         for name, group in model.groups.items():
