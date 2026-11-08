@@ -92,9 +92,13 @@ fields. The same wait applies to position commands, disable commands and drag
 transitions. A buffer that stays busy raises a timeout; `send_cmd()` failures are
 still surfaced without replaying a possibly submitted command. Feedback, fault
 and state-transition checks remain required.
+Stop checks and confirms each owned arm separately, so one stale channel cannot
+prevent a disable attempt for an arm with valid feedback.
 
 Recovery lives on the assembly, not in the session. `clear_errors()` clears latched
-controller faults over a short SDK session before `connect()`. `home()` moves the
+controller faults over a short SDK session before `connect()`. If that session fails
+to release, the next connection or clear request retries its release before opening
+another session. `home()` moves the
 connected arms to `home.joints_deg` on a 9 deg/s cosine profile, settles within 0.5
 degrees and then fully opens the grippers when end-effector control is enabled.
 `drag(groups, stop)` opens only the arm controller, enters Marvin joint-space drag with

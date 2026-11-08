@@ -11,6 +11,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
+from typing import Any
 
 import numpy as np
 
@@ -20,6 +21,9 @@ from manimux.embodiments.arm.tianji.kinematics import TianjiSDKKinematics
 from manimux.kinematics.base import FlangeKinematicsBase, FloatArray, KinematicCoordinate
 
 _CONTROL_SESSION = threading.Lock()
+# A failed clear-error session can outlive the assembly that opened it.
+# Access the pending SDK handle only while holding _CONTROL_SESSION.
+_pending_clear_session: Any = None
 _ARM = {"left": ("A", 0), "right": ("B", 1)}
 _TORQUE_MODE = 3
 _RELEASE_MODE = 4
@@ -166,6 +170,20 @@ class TianjiController(ArmController):
         if not result:
             raise RuntimeError(f"Marvin {operation} failed")
 
+    def _acquire_session(self) -> None:
+        global _pending_clear_session
+        if not _CONTROL_SESSION.acquire(blocking=False):
+            raise RuntimeError("another TianjiController owns the process-wide SDK session")
+        try:
+            if _pending_clear_session is not None:
+                self._check(
+                    _pending_clear_session.release_robot(), "release previous clear-error session"
+                )
+                _pending_clear_session = None
+        except BaseException:
+            _CONTROL_SESSION.release()
+            raise
+
     def connect(self) -> None:
         with self._lock:
             if self._ready:
@@ -174,8 +192,7 @@ class TianjiController(ArmController):
                 raise RuntimeError("cleanup incomplete; call close before reconnecting")
             # Hardware binding is needed only when opening the controller.
             ipaddress.IPv4Address(self._ip)
-            if not _CONTROL_SESSION.acquire(blocking=False):
-                raise RuntimeError("another TianjiController owns the process-wide SDK session")
+            self._acquire_session()
             self._owns_session = True
             try:
                 sdk = importlib.import_module("manimux.embodiments.arm.tianji.sdk.marvin.fx_robot")
@@ -210,6 +227,7 @@ class TianjiController(ArmController):
         clear; fresh feedback, not that return value, is the confirmation. An
         engaged physical E-stop keeps the fault and fails after four attempts.
         """
+        global _pending_clear_session
         with self._lock:
             sides = tuple(self.settings) if sides is None else tuple(dict.fromkeys(sides))
             if not sides or set(sides) - self.settings.keys():
@@ -217,8 +235,7 @@ class TianjiController(ArmController):
             if self._owns_session:
                 raise RuntimeError("clear_errors requires a disconnected controller")
             ipaddress.IPv4Address(self._ip)
-            if not _CONTROL_SESSION.acquire(blocking=False):
-                raise RuntimeError("another TianjiController owns the process-wide SDK session")
+            self._acquire_session()
             try:
                 sdk = importlib.import_module("manimux.embodiments.arm.tianji.sdk.marvin.fx_robot")
                 robot, buffer = sdk.Marvin_Robot(), sdk.DCSS()
@@ -248,17 +265,22 @@ class TianjiController(ArmController):
                             robot.clear_error(_ARM[name][0])
                         time.sleep(0.2)
                 finally:
-                    self._check(robot.release_robot(), "release_robot")
+                    try:
+                        self._check(robot.release_robot(), "release_robot")
+                    except BaseException:
+                        _pending_clear_session = robot
+                        raise
             finally:
                 _CONTROL_SESSION.release()
 
-    def _read(self, *, allow_fault: bool = False):
+    def _read(self, *, sides: tuple[str, ...] | None = None, allow_fault: bool = False):
         data = self._robot.subscribe(self._buffer)
         if not data:
             raise RuntimeError("Marvin feedback unavailable")
         joints, modes = {}, {}
         now = self._clock.now_ns()
-        for name in self.settings:
+        selected = self.settings if sides is None else sides
+        for name in selected:
             _, index = _ARM[name]
             output, status = data["outputs"][index], data["states"][index]
             serial = int(output["frame_serial"])
@@ -279,10 +301,12 @@ class TianjiController(ArmController):
             joints[name] = q
         return joints, modes, data
 
-    def _wait(self, predicate, *, allow_fault: bool = False) -> None:
+    def _wait(
+        self, predicate, *, sides: tuple[str, ...] | None = None, allow_fault: bool = False
+    ) -> None:
         deadline = time.monotonic() + self._ready_timeout
         while True:
-            _, modes, data = self._read(allow_fault=allow_fault)
+            _, modes, data = self._read(sides=sides, allow_fault=allow_fault)
             if predicate(modes, data):
                 return
             if time.monotonic() >= deadline:
@@ -556,7 +580,7 @@ class TianjiController(ArmController):
             # disable request reaching the other arm or another owned arm.
             for name in tuple(self._enabled):
                 try:
-                    _, modes, _ = self._read(allow_fault=True)
+                    _, modes, _ = self._read(sides=(name,), allow_fault=True)
                     if modes[name] in {0, 100}:
                         self._enabled.remove(name)
                         continue
@@ -566,6 +590,7 @@ class TianjiController(ArmController):
                         lambda modes, data, name=name, previous=previous: (
                             self._serial[name] != previous and modes[name] in {0, 100}
                         ),
+                        sides=(name,),
                         allow_fault=True,
                     )
                     self._enabled.remove(name)

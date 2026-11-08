@@ -5,15 +5,18 @@ from pathlib import Path
 
 import yaml
 
+from manimux.configuration import compose
 
-def assembly_action_contract(path: str | Path) -> dict | None:
+
+def assembly_action_contract(path: str | Path, *, assembly: dict | None = None) -> dict | None:
     """Resolve component action widths without loading geometry or opening hardware.
 
     Integrated arms declare both widths. A separate end effector contributes its
     own coordinates. Existing assemblies with action_contract remain readable.
     """
     source = Path(path)
-    assembly = yaml.safe_load(source.read_text())
+    if assembly is None:
+        assembly, _ = compose(source)
     contract = dict(assembly.get("action_contract") or {})
     layouts = {}
     for name, group in assembly["groups"].items():
