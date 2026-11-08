@@ -1,4 +1,4 @@
-"""File-relative experiment composition, without constructing runtime components."""
+"""File-relative configuration composition, without constructing runtime components."""
 
 from __future__ import annotations
 
@@ -70,7 +70,7 @@ def compose(path: str | Path, stack: tuple[Path, ...] = ()) -> tuple[dict, dict[
             return value
         return {
             key: str((source.parent / Path(v).expanduser()).resolve())
-            if key in {"config", "control_profile", "local"} and isinstance(v, str)
+            if key in {"config", "control_profile", "initial_poses", "local"} and isinstance(v, str)
             else resolve(v)
             for key, v in value.items()
         }
@@ -124,10 +124,10 @@ def apply_initial_pose(raw: dict) -> None:
             raise ValueError("Initial pose requires move_to_start_on_connect")
         path = Path(selection["config"])
     elif robot.get("config"):
-        assembly_path = Path(robot["config"])
-        reference = read_yaml(assembly_path).get("initial_poses")
+        assembly, _ = compose(robot["config"])
+        reference = assembly.get("initial_poses")
         if reference:
-            path = (assembly_path.parent / reference).resolve()
+            path = Path(reference)
     if path is None:
         return
     presets = read_yaml(path)["poses"]

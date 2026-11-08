@@ -162,7 +162,9 @@ def read_experiment(
     robot = raw.setdefault("robot", {})
     if robot.get("config") is not None:
         robot["config"] = str((source.parent / robot["config"]).resolve())
-        contract = assembly_action_contract(robot["config"])
+        assembly, assembly_sources = compose(robot["config"])
+        sources.update(assembly_sources)
+        contract = assembly_action_contract(robot["config"], assembly=assembly)
         if contract is not None:
             apply_action_contract(raw, contract)
     if raw.get("control_profile") is not None:
@@ -758,6 +760,7 @@ def prepare_experiment(**options) -> dict:
 
 def load_config(path: str | Path, *, local: str | Path | None = None) -> dict:
     """Run the complete entry-point loading flow, preserving the shared control parameter merge rules."""
+    from manimux.configuration import compose
     from manimux.embodiments.robot import (
         action_contract_group_indices,
         shared_robot_parameters,
@@ -777,7 +780,7 @@ def load_config(path: str | Path, *, local: str | Path | None = None) -> dict:
         if profile_raw.get("rate_contract") is not None:
             from manimux.embodiments.arm.tianji.arm import resolve_rate_contract
 
-            assembly = read_yaml(raw["robot"]["config"])
+            assembly, _ = compose(raw["robot"]["config"])
             controller = _merge(
                 assembly.get("hardware", {}),
                 raw.get("robot", {}).get("options", {}).get("hardware", {}),

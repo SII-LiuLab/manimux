@@ -29,8 +29,8 @@ selected by the policy adapter (`policy.adapter.dls_ik` / `diff_ik`).
 Starting poses: YAM keeps named poses in
 [`initial_poses/yam.yaml`](initial_poses/yam.yaml); a task or variant picks one with
 `initial_pose: {config, id}`. Tianji keeps its Home in the assembly (`home.joints_deg`)
-because recovery and Finish & Home drive to it; a task with another Home uses a copy of
-the assembly, as `tianji_taccap_pack_plate.yaml` does.
+because recovery and Finish & Home drive to it. The Tianji assembly variants use
+`_base_` to share their components and control settings and specify their own Home.
 
 Component code, SDK notes and calibration live with each implementation under
 [`manimux/embodiments/`](../../embodiments/); station bindings are described in the

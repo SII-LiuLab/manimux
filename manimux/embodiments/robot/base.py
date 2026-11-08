@@ -14,6 +14,7 @@ import yaml
 from scipy.spatial.transform import Rotation
 
 from manimux.clock import Clock, SystemClock
+from manimux.configuration import compose
 from manimux.embodiments.arm.base import ArmBase, ArmController, ArmModel
 from manimux.embodiments.end_effector.base import EndEffectorModel
 from manimux.embodiments.end_effector.gripper import GripperBase, GripperCommand
@@ -556,7 +557,7 @@ class RobotModel:
     @classmethod
     def from_config(cls, path: Path | str) -> RobotModel:
         source = Path(path).expanduser().resolve()
-        spec = _read_mapping(source)
+        spec, _ = compose(source)
         name = spec["name"]
         declarations = spec["components"]
         components, arm_models, tool_models, mounts = {}, {}, {}, {}
@@ -652,7 +653,7 @@ class RobotModel:
                 q.setflags(write=False)
                 home_joints[group_name] = q
         kin = RobotKinematics({key: value.kinematics for key, value in groups.items()})
-        contract = assembly_action_contract(source)
+        contract = assembly_action_contract(source, assembly=spec)
         layouts = (
             group_layouts({name: model.num_coordinates for name, model in kin.models.items()},
                          contract) if contract else {}
