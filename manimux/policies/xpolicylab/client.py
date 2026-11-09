@@ -309,6 +309,7 @@ class XPolicyLabWsPolicyModel:
             return {
                 "mode": "train_time_rtc",
                 "prefix_steps": request.prefix_steps,
+                **({"repair_prefix": True} if request.repair_prefix else {}),
                 "action_condition": condition,
                 "condition_weights": weights,
             }
