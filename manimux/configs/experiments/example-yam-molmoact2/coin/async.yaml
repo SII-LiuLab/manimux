@@ -1,0 +1,9 @@
+_base_: ../_base_.yaml
+inference:
+  algorithm: async
+  inference_schedule: single_inflight
+  request_trigger: progress
+  chunk_policy_steps: 10
+  action_start_mode: drop_infer_latency
+robogui:
+  policy_label: MolmoAct2 latest300 30k - Async 30 Hz
