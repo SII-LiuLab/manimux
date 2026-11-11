@@ -34,11 +34,17 @@ class TrainTimeRtcInferenceStrategy(RtcInferenceStrategy):
         self._delay_estimator = config["inference"]["train_time_rtc"]["delay_estimator"]
         self._fixed_prefix_steps = config["inference"]["train_time_rtc"]["fixed_prefix_steps"]
         identity = (config["policy"].get("expected_backend") or {}).get("model", {})
+        continuation_method = identity.get("continuation", {}).get("method")
+        if (continuation_method is None and identity.get("policy_family") == "openwam"
+                and config.get("policy_server", {}).get("policy_name") == "OpenWAM_TrainRTC"):
+            # Existing OpenWAM recipes pin the training config hash instead of
+            # repeating its continuation fields in expected_backend.
+            continuation_method = "train_time_rtc"
         if config["inference"]["train_time_rtc"]["repair_prefix"] and (
-            identity.get("policy_family") != "pi05"
-            or identity.get("continuation", {}).get("method") != "train_time_rtc"
+            identity.get("policy_family") not in {"pi05", "openwam"}
+            or continuation_method != "train_time_rtc"
         ):
-            raise ValueError("repair_prefix currently requires the Pi05 train-time RTC backend")
+            raise ValueError("repair_prefix requires a Pi05 or OpenWAM train-time RTC backend")
         self._action_offset_ns = round(
             config["policy"]
             .get("adapter", {})

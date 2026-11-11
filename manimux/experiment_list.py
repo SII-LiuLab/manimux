@@ -47,6 +47,11 @@ def shared_service_contract(config: dict) -> dict:
         key: value for key, value in (policy.get("adapter") or {}).items()
         if key not in {"ik_backend", "dls_ik"}
     }
+    # XPolicyLab receives the execution frequency from each fresh runtime client;
+    # the action adapter also rebuilds its timestamps at Prepare. This interval
+    # is not server initialization. Any server-side rate remains in policy_server.
+    if policy.get("worker") == "xpolicylab_ws":
+        policy.pop("action_dt_s", None)
     return {
         "policy_server": config.get("policy_server"),
         "camera_server": config.get("camera_server"),

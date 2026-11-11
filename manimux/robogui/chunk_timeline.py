@@ -31,6 +31,7 @@ class ChunkLane:
     condition_from_index: int | None = None
     condition_steps: int | None = None
     latency_from_index: int | None = None
+    inference_schedule: str | None = None
     gripper_closed_steps_by_group: dict[str, tuple[bool, ...]] = field(default_factory=dict)
 
 
@@ -64,7 +65,6 @@ class ChunkTimelineView:
         self._warmup_configured = False
         self._warmup_phase: str | None = None
         self._warmup_completed = 0
-        self._warmup_configured = False
         self._warmup_blocked = False
         self._closed_warmup_episodes: set[tuple[str, str]] = set()
 
@@ -190,6 +190,14 @@ class ChunkTimelineView:
         action_dt = float(message.get("action_dt", 0))
         if not math.isfinite(action_dt) or action_dt <= 0:
             return
+        configured = bool(metadata.get("configured_planning", False))
+        plan_metadata = {k: v for k, v in metadata.items() if k != "warmup_preview"}
+        if configured:
+            # A missing runtime boundary is an invalid message, not permission to
+            # substitute a stale display cursor. Validate before changing the view.
+            for key in ("previous_chunk_id", "previous_chunk_index"):
+                if key not in metadata:
+                    raise ValueError(f"Configured warmup preview missing {key}")
         lane = WarmupPreviewLane(
             chunk_id=chunk_id,
             horizon_steps=horizon,
@@ -204,22 +212,24 @@ class ChunkTimelineView:
         self.warmup_lanes = [*self.warmup_lanes, lane][-2:]
         self._warmup_phase = "warming"
         animation = self._warmup_animation_view()
-        self._advance_warmup_playback()
-        previous = animation.active_chunk_id
-        previous_lane = (
-            animation.lanes[animation._lane_by_chunk[previous]] if previous is not None else None
-        )
-        # Current previews carry runtime-owned progress/condition metadata.
-        # Legacy recordings retain local animation as a display-only fallback.
-        self._warmup_configured = bool(metadata.get("configured_planning", False))
-        plan_metadata = {k: v for k, v in metadata.items() if k != "warmup_preview"}
+        if not configured:
+            # Historical previews without a runtime planner used a local animation.
+            # This compatibility path must never supply live planning metadata.
+            self._advance_warmup_playback()
+            previous = animation.active_chunk_id
+            previous_lane = (
+                animation.lanes[animation._lane_by_chunk[previous]] if previous is not None else None
+            )
+            plan_metadata.update(
+                previous_chunk_id=previous,
+                previous_chunk_index=0 if previous_lane is None else previous_lane.cursor,
+            )
+        self._warmup_configured = configured
         animation.update({
             **message,
             "metadata": {
                 **plan_metadata,
                 "runtime": self.runtime,
-                "previous_chunk_id": previous,
-                "previous_chunk_index": 0 if previous_lane is None else previous_lane.cursor,
                 "timeline_latency_ms": lane.e2e_ms,
                 "decode_stage_ms": (metadata.get("warmup_timing") or {}).get("decode_ms"),
                 "gripper_closed_steps_by_group": metadata.get("gripper_closed_steps_by_group", {}),
@@ -454,6 +464,7 @@ class ChunkTimelineView:
             timeline_latency_ms=optional_ms("timeline_latency_ms"),
             decode_stage_ms=optional_ms("decode_stage_ms"),
             state="active",
+            inference_schedule=metadata.get("inference_schedule"),
             conditioned=conditioned,
             source_chunk_id=(None if previous_chunk_id is None else int(previous_chunk_id)),
             gripper_closed_steps_by_group=grouped_gripper,
@@ -523,7 +534,13 @@ class ChunkTimelineView:
             return "handoff-skipped"
         committed_index = index - lane.trimmed_steps
         raw_cursor = lane.trimmed_steps + lane.cursor
-        if lane.latency_from_index is not None and lane.latency_from_index <= index < raw_cursor:
+        # Serial requests begin after playback ends. Waiting for the next result
+        # must not recolor completed actions as an overlapping handoff interval.
+        if (
+            lane.inference_schedule != "serial"
+            and lane.latency_from_index is not None
+            and lane.latency_from_index <= index < raw_cursor
+        ):
             return "latency"
         if committed_index < lane.cursor:
             return "executed"

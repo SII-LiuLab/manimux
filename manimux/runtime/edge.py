@@ -1294,13 +1294,6 @@ class EdgeRuntime(PlanningContext):
                                 _group_action_summary(chunk.groups),
                             )
                             previous_reference = self._timeline.sample(now_ns)
-                            previous_horizon = self._timeline.active_horizon()
-                            previous_chunk_id = (
-                                None
-                                if self._timeline.accepted_request_seq < 0
-                                else self._timeline.accepted_request_seq
-                            )
-                            previous_chunk_index = self._timeline.cursor(now_ns)
                             commit = self._strategy.commit_settings(
                                 response=response,
                                 measured=state.groups,
@@ -1450,6 +1443,7 @@ class EdgeRuntime(PlanningContext):
                                         committed=committed,
                                         metadata={
                                             "runtime": self._strategy.name,
+                                            "inference_schedule": self._scheduler.mode,
                                             "raw_horizon_steps": chunk.horizon_steps,
                                             "committed_horizon_steps": committed.horizon_steps,
                                             "time_trimmed_steps": result.time_trimmed_steps,
@@ -1460,21 +1454,15 @@ class EdgeRuntime(PlanningContext):
                                             "decode_stage_ms": chunk.metadata.get(
                                                 "decode_stage_ms"
                                             ),
-                                            "previous_chunk_id": previous_chunk_id,
-                                            "previous_chunk_index": previous_chunk_index,
+                                            "previous_chunk_id": result.previous_chunk_id,
+                                            "previous_chunk_index": result.previous_chunk_index,
                                             "previous_chunk_horizon_steps": (
-                                                0
-                                                if previous_horizon is None
-                                                else previous_horizon.horizon_steps
+                                                result.previous_chunk_horizon_steps
                                             ),
-                                            "superseded_steps": (
-                                                0
-                                                if previous_horizon is None
-                                                else max(
-                                                    0,
-                                                    previous_horizon.horizon_steps
-                                                    - previous_chunk_index,
-                                                )
+                                            "superseded_steps": max(
+                                                0,
+                                                result.previous_chunk_horizon_steps
+                                                - result.previous_chunk_index,
                                             ),
                                             **submission_visuals,
                                             **event_fields,

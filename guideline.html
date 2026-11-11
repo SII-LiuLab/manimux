@@ -342,6 +342,127 @@ selects the articulated Robotiq 2F-85 display with
 Use <code>frames</code> when the installed tool has no matching visual model. Display
 selection preserves the assembly's measured mounting/TCP and normalized gripper
 command contract; the nominal finger animation does not measure object contact.</p>
+<h3 id="yam-set-home">YAM fixture zeroing with old Home coordinates</h3>
+<p><a href="scripts/setup/yam_set_home.py"><code>yam_set_home.py</code></a> requires
+an explicit historical reference. Its disconnected preview displays those saved
+angles without importing the SDK, opening CAN, or creating a report:</p>
+<pre><code>envs/yam/.venv/bin/python scripts/setup/yam_set_home.py --arms left right --reference /path/to/fixture-reference.json</code></pre>
+<p>The reference JSON contains a <code>reference_id</code>,
+<code>coordinate_frame: "motor_raw_rad"</code>, <code>units: "rad"</code>, and
+<code>arms.left</code>/<code>arms.right</code> entries with <code>captured_at</code>
+and six <code>positions_rad</code> values in J1–J6 order. Preserve the raw motor
+coordinate system: the hardware zeros must be unchanged since those readings.</p>
+<p>The script does not move the arms to the reference. Before explicitly applying,
+the selected arms must already be supported at their saved fixture poses, with motors
+disabled and other CAN users stopped. <code>--apply --fixture-supported --report /path/to/new-report.jsonl</code>
+first checks all selected joints with fresh, non-actuating status queries. Each of
+three readings must match its historical target within <code>0.001 rad</code>
+(about 0.057 degrees); any mismatch prevents the entire zeroing loop. Joints default
+to 1–6; <code>--joints</code> selects a subset and gripper ID 7 is excluded.</p>
+<p>If the operator has installed the calibration fixture again and intends to use
+that current pose as the new zero, add <code>--current-fixture</code>. This explicitly
+selects the current physical fixture instead of matching historical angles. The
+script captures fresh disabled readings for all selected joints, verifies stability
+within <code>0.001 rad</code>, saves them before any enable, and rechecks each joint
+against that captured pose immediately before zeroing. Historical angles and their
+differences remain in the report; the reference JSON is not overwritten, and the
+same usage ledger still blocks retries after a zero request. The disconnected
+preview identifies this mode but cannot display current hardware readings.</p>
+<p><strong>Physical support is required.</strong> The official SDK zero operation
+sends a zero-gain/zero-torque command, and this script disables motors afterward.
+It cannot maintain continuous motor-supported holding without a fixture. Calls
+without <code>--fixture-supported</code> are rejected before SDK/CAN or report access;
+do not supply that flag unless the selected arms really are supported.</p>
+<p>Each joint is then enabled, checked against the selected target again, and zeroed
+through the official SDK. Actual pre-write readings are saved and synced to disk before requesting zero.
+Readback must be within <code>0.001 rad</code> of zero. The JSONL report stores the
+reference, <code>before_rad</code>, <code>after_rad</code>, and the old zero Home in
+new coordinates, <code>after_rad - before_rad</code>. Each enabled joint is disabled
+again before proceeding. A locked <code>.state.jsonl</code> beside the reference
+records write requests before transmission; already requested joints are blocked
+even when a different report filename is supplied. On interruption or partial failure,
+inspect both files rather than deleting the state file to repeat an uncertain write.</p>
+<p>The report is a coordinate record, not a Flash backup. It does not move to or
+re-zero the old Home automatically, and immediate readback is not a power-cycle
+persistence test. This script does not edit Home targets, model data, or station
+configuration.</p>
+<h3 id="yam-backlash">YAM joint feedback and manual backlash measurements</h3>
+<p>The standalone joint measurement UI displays all six arm joints on each selected
+YAM arm. Select a joint, align the physical reference marks while approaching from
+increasing sensor angles, hold the alignment throughout the sampling window and
+record it. Repeat while approaching from decreasing angles. Opposite-direction
+captures on the same joint form a pair; repeating the same direction replaces only
+the pending selection and retains every capture in the session evidence. The UI
+shows the signed difference (decreasing minus increasing), its absolute value and
+each capture's sample count and peak-to-peak variation. Repeat pairs to assess
+repeatability. The result includes visual alignment, load and compliance effects;
+it is not an independently calibrated measurement of gear backlash.</p>
+<pre><code class="language-bash"># Disconnected preview; no CAN or controller connection.
+python -m scripts.setup.yam_backlash --mode demo --check
+python -m scripts.setup.yam_backlash --mode demo
+
+# Validate station bindings without opening sockets.
+python -m scripts.setup.yam_backlash --mode passive --local /path/to/station.yaml --check
+# After operator authorization, subscribe to existing feedback only.
+python -m scripts.setup.yam_backlash --mode passive --local /path/to/station.yaml
+# For powered, idle motors, request status replies without enabling control.
+python -m scripts.setup.yam_backlash --mode read --local /path/to/station.yaml
+</code></pre>
+<p>Open <code>http://127.0.0.1:8768</code>. Use <code>--arms left</code> or
+<code>--arms right</code> to select one arm, <code>--window 0.5</code> for the trailing
+capture window in seconds, and <code>--port</code> or <code>--out</code> to select the
+local port or evidence directory. CAN channels come from the station's
+<code>robot.components.left_yam.channel</code> and
+<code>robot.components.right_yam.channel</code>. Passive mode requires Linux SocketCAN
+and an already configured interface. It never starts or restarts a controller,
+changes gains, enables motors, requests motion, sends feedback queries or changes
+calibration. Closing the page or server leaves any existing controller unchanged.
+Without existing feedback traffic the UI stays missing/stale and disables capture.</p>
+<p><code>--mode read</code> provides a manual <strong>Refresh angles</strong> button
+and keeps the last real readings with their ages. There are no background motor
+queries. A refresh requests one reply per joint. Recording either approach instead
+requests a short burst to fill the sampling window, then saves that joint's fresh
+samples; keep the marks aligned during recording. This mode sends only DAMIAO's documented
+<code>refresh_motor_status</code> requests: CAN ID <code>0x7FF</code>, payload
+<code>[motor_id, 0, 0xCC, 0, 0, 0, 0, 0]</code>, for arm motors 1–6 at at most 10 Hz
+per motor while a user-requested acquisition is in progress.
+This does not construct the robot SDK, enable motors, clear faults, change settings,
+command torque/position, or control the gripper. Powered motors and firmware support
+are required; missing replies remain missing. Protocol source:
+<a href="https://github.com/dmBots/motor-sdk/blob/main/Python%E4%BE%8B%E7%A8%8B/u2can/DM_CAN.py">DAMIAO motor SDK</a>.</p>
+<p>If an existing CAN interface briefly goes down, the listener remains attached
+and another manual refresh can read after the interface returns. Its warning clears
+only after valid feedback arrives. This does not reconfigure or restart the CAN
+interface; removing the USB adapter entirely requires restarting this UI server.</p>
+<p>Feedback is the standard YAM motor position field, with a wire step of about
+<strong>0.022 degrees</strong>; additional displayed decimals or averaging do not
+establish absolute accuracy. SDK software offsets and wrap tracking are not applied.
+The gripper is excluded. The UI uses kernel CAN receive timestamps, checks freshness
+per joint and rejects incomplete, interrupted or faulted capture windows. It records
+raw samples, source mode, channels, timestamps and notes under a unique session in
+<code>.local/backlash</code>. CSV exports completed pairs; JSON exports all captures,
+pending selections and pairs. <code>events.jsonl</code> and <code>session.json</code>
+retain evidence after a restart; each server run starts a new session.</p>
+<h3 id="yam-leader-backlash">Independent YAM leader joint readout</h3>
+<p>For motorized YAM leaders, open a separate blue <strong>Leader backlash bench</strong>
+on port <code>8769</code>. The existing follower page on <code>8768</code> can remain
+running. Both pages provide manual Refresh, opposite-direction alignment recordings
+and exports. The leader page reads only its explicit station bindings:</p>
+<pre><code class="language-yaml">robot:
+  components:
+    left_yam_leader: {channel: YOUR_LEFT_LEADER_CAN}
+    right_yam_leader: {channel: YOUR_RIGHT_LEADER_CAN}
+</code></pre>
+<pre><code class="language-bash">python -m scripts.setup.yam_leader_backlash --mode read --local /path/to/station.yaml --check
+python -m scripts.setup.yam_leader_backlash --mode read --local /path/to/station.yaml
+</code></pre>
+<p>This entry point requires motorized YAM leaders using the same six DAMIAO joint
+feedback IDs as the follower. Passive GELLO encoders and the teaching-handle trigger
+are outside its scope. It does not construct a leader controller or start teleoperation.
+Missing leader bindings fail explicitly; configured follower channels cannot be reused.
+Leader sessions are stored separately under <code>.local/backlash-leader</code>, with
+<code>arm_role: leader</code> in their metadata and <code>leader-backlash</code> export filenames.
+The original follower entry point, page and default port remain unchanged.</p>
 <p>Private state, resolved plans and logs live under <code>.local/deployment</code> by default.
 Use the same <code>--deployment-dir</code> for all commands when overriding it. Repeated up
 reuses an unchanged healthy deployment owned by this tool. Changed configurations, partial
@@ -1078,7 +1199,7 @@ continue from the previous IK solution. This leaves measured model observations 
 and does not impose a joint-step limit or guarantee IK branch continuity.</p>
 </section>
 <section aria-labelledby="train-time-rtc" class="guide-page" data-page-id="train-time-rtc" data-title="Train-time RTC" hidden=""><h2 id="train-time-rtc">Train-time RTC</h2>
-<p>Pi05 supports <code>inference.train_time_rtc.repair_prefix: true</code> (default: <code>false</code>). After sampling and output transforms, it exactly restores the request-aligned old-chunk prefix before latency trimming. New suffix actions and scheduling are unchanged. This option currently requires the Pi05 train-time RTC backend; use a new experiment variant ID for repaired trials.</p>
+<p>Pi05 and OpenWAM support <code>inference.train_time_rtc.repair_prefix: true</code> (default: <code>false</code>). After sampling and output transforms, it exactly restores the request-aligned old-chunk prefix before latency trimming. New suffix actions and scheduling are unchanged. This option requires a Pi05 or OpenWAM train-time RTC backend (not Legato); use a new experiment variant ID for repaired trials.</p>
 <p>Prefix-trained UMI-DP checkpoints use <code>algorithm: train_time_rtc</code> and <code>inference_schedule: single_inflight</code>. They advertise the separate <code>train_time_rtc</code> sampling capability; ordinary RTC guidance checkpoints do not support this mode.</p>
 <p>The pack-plate recipe fixes five leading action rows with <code>delay_estimator: fixed</code> and <code>fixed_prefix_steps: 5</code>. The first request and unavailable committed prefixes are unconditioned. Fixed prefixes do not guarantee latency coverage. Dynamic <code>decode_max</code> and <code>end_to_end_max</code> estimators are also available.</p>
 <p>Use <code>action_start_mode: drop_infer_latency</code>, <code>blend_policy_steps: 0</code> and <code>handoff_skip_steps: 0</code>. Both inline and process decoding are supported. Put these settings in your experiment variant, organized like the <a href="#example-study">example study</a>.</p>
@@ -1587,6 +1708,10 @@ Progress requires the built-in Async strategy with single-inflight scheduling.</
 <td>DP environment; <code>manimux.servers.dp --experiment</code></td>
 </tr>
 <tr>
+<td><a href="skills/manimux-inference/references/deployment/molmoact2-yam.md">MolmoAct2 / YAM</a></td>
+<td>MolmoAct2 environment; <code>manimux.servers.policy --config</code>; absolute joints, Serial/Async</td>
+</tr>
+<tr>
 <td><a href="skills/manimux-inference/references/deployment/openwam-yam.md">OpenWAM / YAM</a></td>
 <td>OpenWAM environment; <code>manimux.servers.policy --config-list</code></td>
 </tr>
@@ -1691,6 +1816,7 @@ Once any rollout record exists, including a partial rollout, condition checks ap
 </code></pre>
 <p>Restarting the same config list resumes progress from the same destination. Selecting an entry in RoboGUI and using <code>--experiment-id</code> resolve to the same identity and directory. Each launch/selection creates a session; repeats create rollouts, not new YAML files. The same variant launched through <code>run --config</code> is an unscored trial. It does not load study history or consume repeat slots. Trial recordings default to <code>data/trials/&lt;task&gt;/&lt;variant&gt;/session-…</code>; <code>--output-dir</code> selects another trial root. For standalone configs without experiment identity, the directory uses the filename and a hash of its absolute path. If configured, <code>run.output_dir</code> replaces <code>data</code> as the parent of <code>trials/</code>.</p>
 <p>Session manifests freeze the resolved configuration, component/base hashes and config list identity. Changed scientific conditions under an already recorded variant ID are rejected: create a clearly named variant. Labels and trial budgets can change without pretending that the model or algorithm changed.</p>
+<p>Adding unrelated devices to a shared station does not change an experiment's conditions. Bindings used by the selected robot assembly or camera recipe remain part of the condition check; complete station bindings remain in session manifests.</p>
 <p>Existing recordings keep their paths, raw contents and recorded configurations. A config list entry may declare <code>history: [old-study/step32/coin/rtc_beta10]</code>, relative to <code>recording.root</code>. Only sessions with matching saved effective conditions count toward current progress. Canonical paths deduplicate aliases. Finalized, valid scored experiments count; partial, unlabelled and invalid attempts remain distinguishable. Under the Layout selector, RoboGUI lists every method of the current task with its remaining trials and the exact missing layout/repeat slots, so a skipped slot stays visible before switching methods. Historical 16-step data are preserved for analysis and never relabelled as 32-step trials.</p>
 <p><code>inspect --config-list … --index</code> refreshes the derived <code>recordings-index-v2.json</code> inside the config list's recording directory. It inventories real session directories without following aliases. It is a snapshot, not the score authority; labels are read from recordings. The earlier <code>recordings-index.json</code> and migration/deletion receipts remain historical records. Index generation never rewrites raw episode files.</p>
 <h3 id="delete-recordings">Delete recordings and retest</h3>
@@ -1766,6 +1892,7 @@ envs/yam/.venv/bin/python -m manimux run \
 <h3 id="experiment-switch-boundaries">Switching boundaries</h3>
 <table><thead><tr><th>Change</th><th>Behavior</th></tr></thead><tbody>
 <tr><td>Compatible task, method, parameters or named starting pose</td><td>Idle-only selection after recovery/evaluation. A fresh runtime on Prepare clears previous chunks and sampling state.</td></tr>
+<tr><td>XPolicyLab action frequency (<code>policy.action_dt_s</code>)</td><td>May switch between completed trials with unchanged service recipes. Prepare rebuilds the client and action timing; no model restart is needed.</td></tr>
 <tr><td>Different camera set, checkpoint, robot or model initialization</td><td>May coexist in a config list, but cannot hot-switch. Select <code>--experiment-id ID</code> for runtime and matching services; restart affected services explicitly.</td></tr>
 <tr><td>Ambiguous camera/model launch</td><td>Without an explicit ID, that service's configurations must agree across the config list; otherwise launch fails with a selection error.</td></tr>
 <tr><td>YAML edited on disk</td><td>Restart runtime to reload. Restart model/camera services if their configuration changed. No automatic hardware restart.</td></tr>

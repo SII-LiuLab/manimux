@@ -215,10 +215,20 @@ class PolicyWarmup:
                     "warmup_e2e_ms": elapsed_ns / 1e6,
                     "warmup_timing": breakdown,
                     "configured_planning": True,
+                    "inference_schedule": self.config["inference"]["inference_schedule"],
                     "conditioned": job.branch == "conditioned",
                     "trimmed_steps": result.trimmed_steps,
                     "time_trimmed_steps": result.time_trimmed_steps,
                     "handoff_skipped_steps": result.handoff_skipped_steps,
+                    "previous_chunk_id": (
+                        None if result.previous_chunk_id is None
+                        else -(result.previous_chunk_id + 1)
+                    ),
+                    "previous_chunk_index": result.previous_chunk_index,
+                    "previous_chunk_horizon_steps": result.previous_chunk_horizon_steps,
+                    "superseded_steps": max(
+                        0, result.previous_chunk_horizon_steps - result.previous_chunk_index
+                    ),
                     "committed_horizon_steps": (
                         self.planner._timeline.active_horizon().horizon_steps
                     ),

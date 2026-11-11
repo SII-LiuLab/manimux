@@ -145,8 +145,22 @@ their settings; use a distinct variant when comparing compilation.
 RTC can use native DiT caching via `dit_cache_modes: [default, rtc]`; PAINT and
 AutoHorizon remain uncached. See the [cache settings and commands](../../../../guideline.html#openwam-rtc-cache). CPU/dummy tests do not establish GPU inference,
 training convergence, task success, or real-robot safety.
+The trained-continuation copies `OpenWAM_TrainRTC` and `OpenWAM_Legato` opt into
+compilation and caching with `dit_cache_modes: [default, train_time_rtc]`; both
+default off. Legato's cache tests stability on free rows only and always runs the
+final step, because its trained prefix velocity shrinks to zero rather than staying
+constant (see the `OpenWAM_Legato` README). Its eager and cache-compile variants
+use distinct recipes and recording identities.
 
 ## Local latest300 study (2026-10-20)
+
+For `OpenWAM_TrainRTC`, `inference.train_time_rtc.repair_prefix: true` enables
+exact restoration of the physical EEF20 condition after output transforms and
+before pose decoding/latency trimming. It defaults to `false`; use a distinct
+experiment variant for repaired trials. The suffix and scheduling are unchanged.
+The setting is supported for eager and cached sampling, but not `OpenWAM_Legato`.
+Reload the model service and runtime configuration to apply it; leave the operator
+in control of Finish/Home and the next Start.
 
 `manimux/configs/lists/{openwam-latest300-study}.yaml` (station-local; build it like the [example study](../../../../manimux/configs/lists/example-yam-pi05.yaml)) contains five
 tasks with Serial/Async only, 20/32 source steps, compilation and native DiT

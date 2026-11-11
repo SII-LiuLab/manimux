@@ -58,6 +58,27 @@ def fingerprint(config: dict) -> str:
             "recording",
         )
     }
+    # A shared station also binds devices used by other assemblies. Only the
+    # selected assembly and camera recipe consume these per-component bindings.
+    # Keep the full resolved configuration in manifests; normalize this copy only.
+    robot = fields.get("robot") or {}
+    assembly_path = robot.get("config")
+    bindings = robot.get("options", {}).get("component_hardware", {})
+    if assembly_path and Path(assembly_path).is_file():
+        from manimux.cli import read_yaml
+
+        assembly = read_yaml(assembly_path)
+        # Without a known assembly, conservatively retain every binding.
+        if isinstance(assembly, dict) and isinstance(assembly.get("components"), dict):
+            components = set(assembly["components"])
+            components.update(
+                camera["component"]
+                for camera in (fields.get("camera_server") or {}).get("cameras", {}).values()
+                if "component" in camera
+            )
+            robot.setdefault("options", {})["component_hardware"] = {
+                name: options for name, options in bindings.items() if name in components
+            }
     # Display-only cold-start wait does not change rollout inference deadlines,
     # actions or scoring. Preserve its value in manifests, not scientific identity.
     if isinstance(fields.get("policy"), dict):
