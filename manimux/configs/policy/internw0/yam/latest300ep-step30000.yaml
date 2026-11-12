@@ -19,9 +19,9 @@ num_envs: 1
 action_type: joint
 eval_batch: false
 memory_source: request
-# Normalization must be the checkpoint's own: the stats shipped with the policy are the RoboDojo
-# release's and differ. train_config_path stays the shipped model config; the checkpoint's own
-# config.yaml carries a training_time_rtc key the vendored runtime rejects (same architecture).
+# The runtime is the official InternW0-Delta source, so the checkpoint's own config.yaml and
+# dataset_stats.json are used (the stats shipped with the policy are the RoboDojo release's and differ).
+train_config_path: ${paths.checkpoints}/finetuned/InternW0/internw0_latest300_b64_step30000_20261109/config.yaml
 checkpoint_path: ${paths.checkpoints}/finetuned/InternW0/internw0_latest300_b64_step30000_20261109/robodojo.pt
 dataset_stats_path: ${paths.checkpoints}/finetuned/InternW0/internw0_latest300_b64_step30000_20261109/dataset_stats.json
 base_model_dir: ${paths.checkpoints}/internw0-assets/Wan-AI/Wan2.2-TI2V-5B
@@ -37,7 +37,10 @@ text_cfg_scale: 1.0
 negative_prompt: ""
 rand_device: cpu
 tiled: false
-timing_enabled: true
+timing_enabled: false
+# Compiles the 10 action denoise steps (official --compile-action); the server precompiles both
+# memory shapes at start, so loading takes about 30 s longer and no request pays for it.
+compile_action: true
 allow_dummy_policy: false
 default_instruction: follow the instruction
 seed: 0
