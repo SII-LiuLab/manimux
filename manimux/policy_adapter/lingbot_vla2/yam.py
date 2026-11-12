@@ -17,7 +17,7 @@ import numpy as np
 
 from manimux.embodiments.layout import group_layouts
 from manimux.policies.actions import action_groups
-from manimux.policies.base import action_interval
+from manimux.policies.base import action_interval_ns
 from manimux.policy_adapter.base import PolicyAdapter
 from manimux.types import ActionChunk, ActionContext, InferenceRequest, ObservationSnapshot
 
@@ -39,7 +39,7 @@ class LingBotVLA2YamAdapter(PolicyAdapter):
         self._dimensions = dict(robot["group_dims"])
         self._camera_map = dict(policy["adapter"].get("camera_map", DEFAULT_CAMERA_MAP))
         self._required_cameras = tuple(self._camera_map.values())
-        self._action_dt_ns = int(action_interval(policy) * 1_000_000_000)
+        self._action_dt_ns = action_interval_ns(policy)
         self._horizon_steps = policy["horizon_policy_steps"]
         self._anchors: OrderedDict[int, dict[str, np.ndarray]] = OrderedDict()
         self.validate(robot, policy)

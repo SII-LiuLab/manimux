@@ -93,6 +93,7 @@ robogui:
   robot: tianji-taccap
   policy_label: UMI DP / CalibWrist 1028 / Train-time RTC
 recording:
+  config: recording.yaml
   enabled: true
 inference:
   algorithm: train_time_rtc

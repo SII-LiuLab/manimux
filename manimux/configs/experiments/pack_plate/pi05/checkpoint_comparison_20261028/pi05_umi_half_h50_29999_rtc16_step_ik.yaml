@@ -58,6 +58,7 @@ robogui:
   robot: tianji-taccap
   policy_label: Pi05 / UMI Half Speed H50 / 29999 / Step DiffIK / RTC 16 / Step DiffIK
 recording:
+  config: recording.yaml
   enabled: true
 inference:
   decode_forecast_size: 0

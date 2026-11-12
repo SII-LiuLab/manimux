@@ -14,11 +14,13 @@ from manimux.types import (
     ActionChunk,
     ActionHorizon,
     GroupVector,
+    InferenceRequest,
     RobotState,
     SensorFrame,
     copy_action_chunk,
 )
 
+from .inputs import AsyncInputRecorder
 from .video import AsyncVideoRecorder
 
 logger = logging.getLogger(__name__)
@@ -56,6 +58,8 @@ class EpisodeRecorder:
         video_fps: float = 0.0,
         video_codec: str = "mp4v",
         video_queue_size: int = 8,
+        inference_inputs: bool = False,
+        input_queue_size: int = 2,
         control_timing: LoopTiming | None = None,
     ) -> None:
         self._partial_dir = run_dir / f"{episode_id}.partial"
@@ -74,6 +78,9 @@ class EpisodeRecorder:
             fps=video_fps,
             codec=video_codec,
             queue_size=video_queue_size,
+        )
+        self._inputs = AsyncInputRecorder(
+            self._partial_dir, enabled=inference_inputs, queue_size=input_queue_size
         )
         self._write_json(self._metadata_path, self._metadata)
         self.event("episode_started", episode_id=episode_id)
@@ -98,6 +105,10 @@ class EpisodeRecorder:
     def update_metadata(self, **fields: object) -> None:
         self._metadata.update(fields)
         self._write_json(self._metadata_path, self._metadata)
+
+    @timed("recording.input")
+    def record_input(self, request: InferenceRequest) -> dict:
+        return self._inputs.submit(request)
 
     @staticmethod
     def _copy_horizon(horizon: ActionHorizon) -> ActionHorizon:
@@ -262,6 +273,15 @@ class EpisodeRecorder:
                 )
                 for name, plan_values in chunk.groups.items():
                     stage.create_dataset(name, data=plan_values)
+                if chunk.runtime_trajectory is not None:
+                    trajectory = chunk.runtime_trajectory
+                    dense = stage.create_group("runtime_trajectory")
+                    dense.attrs.update({
+                        "start_time_ns": trajectory.start_time_ns,
+                        "dt_ns": trajectory.dt_ns,
+                    })
+                    for name, plan_values in trajectory.groups.items():
+                        dense.create_dataset(name, data=plan_values)
             committed = plan.create_group("committed")
             committed.attrs.update(
                 {
@@ -306,6 +326,7 @@ class EpisodeRecorder:
             steps=steps,
         )
         self._events.close()
+        inputs = self._inputs.close()
         video = self._video.close()
         self._write_zarr()
         self._write_json(
@@ -316,6 +337,7 @@ class EpisodeRecorder:
                 "steps": steps,
                 "wall_time_s": wall_time_s,
                 **timing_status,
+                "input_recording": inputs,
                 "video_recording": {
                     "enabled": video.enabled,
                     "frames_written": video.frames_written,
@@ -333,6 +355,7 @@ class EpisodeRecorder:
         timing_status = self._save_control_timing()
         self.event("episode_aborted", terminal_reason=reason, detail=detail)
         self._events.close()
+        inputs = self._inputs.close()
         video = self._video.close()
         self._write_zarr()
         self._write_json(
@@ -344,6 +367,7 @@ class EpisodeRecorder:
                 "steps": len(self._ticks),
                 "incomplete": True,
                 **timing_status,
+                "input_recording": inputs,
                 "video_recording": {
                     "enabled": video.enabled,
                     "frames_written": video.frames_written,

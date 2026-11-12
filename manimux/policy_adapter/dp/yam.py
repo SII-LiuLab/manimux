@@ -8,6 +8,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 
 from manimux.policies.actions import action_groups
+from manimux.policies.base import action_interval_ns
 from manimux.policy_adapter.kinematics import KinematicAdapter
 from manimux.policy_adapter.pose_output import pose_chunk
 from manimux.policy_adapter.umi_dp.history import MeasuredHistory
@@ -89,7 +90,7 @@ class DPYamAdapter(KinematicAdapter):
         super().__init__(robot, policy, kinematics=kinematics)
 
         self.groups = ("left_arm", "right_arm")
-        self.dt = round(policy["action_dt_s"] * 1e9)
+        self.dt = action_interval_ns(policy)
         self.horizon = policy["horizon_policy_steps"]
         self.camera_map = policy["adapter"]["camera_map"]
         self.anchors = {}

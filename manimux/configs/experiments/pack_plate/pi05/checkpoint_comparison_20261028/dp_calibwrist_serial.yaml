@@ -93,6 +93,7 @@ robogui:
   robot: tianji-taccap
   policy_label: UMI DP / CalibWrist 1028
 recording:
+  config: recording.yaml
   enabled: true
 inference:
   algorithm: serial

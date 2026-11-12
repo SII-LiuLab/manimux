@@ -186,6 +186,85 @@ rejection. Real-weight forward inference, service readiness and physical trials 
 not been run. The broader local suite also has unrelated missing XR1 configuration
 and inter-hand checkpoint assets, plus an outdated RTC-default assertion.
 
+## Processed2 native-world H50 with half-speed playback (2026-11-08)
+
+The 1028 catalog now starts with `Pi05 / Processed2 Native World H50 / 29999`.
+Its three methods are `Serial 32 / 15 Hz`, `RTC 16 / 15 Hz`, and
+`Async 16 / 15 Hz`. All use one managed Pi05 service and the existing DP robot,
+camera, executor, Home, gripper and recording settings. Existing entries remain
+available. The previous initial UMI DAgger export currently lacks
+`checkpoint-40000/params/_METADATA`; restoring that artifact is separate from
+this integration. No running service was stopped or switched during integration.
+
+The selecting recipe is
+`manimux/configs/policy/pi05/tianji/pack_plate/processed2-native-world-h50-step29999.yaml`.
+It points to
+`pi05-processed2-native-world-p2-retry-20261108-035036-final-29999/checkpoint-29999`
+under the existing station checkpoint root. Its checkpoint-local normalization
+asset is `processed2-h50-zero-pose`, SHA256
+`4ef9bd5ad46798da7d5f9774e8daa6b09175099cf139874a972a72fb5a64615c`.
+
+The original training configuration was read from QZ job
+`705c527b-105b-4fd4-9ecd-ec4d7ab56961`, project directory
+`/inspire/hdd3/project/agent-driven-world-model/public/ky26302/pi05-pack-plate-processed2-20261106`.
+`configs/train_half.json`, `configs/data_half.json`, the prepared manifest,
+`scripts/prepare_pack_plate.py` and `src/pass_ball/openpi_adapter.py` confirm:
+full Gemma 2B/300M, H50 at native 30 Hz, two wrist RGB views with a masked base view,
+zero-pose model state, normalized absolute grippers, right/left 20-D native order,
+first-two-row Rot6D, `axis_change: tool`, and current-TCP-relative action chunks.
+The task prompt remains `place each plate into a bubble wrap sleeve`.
+The run name does not imply a different deployment world-coordinate transform.
+The prepared statistics have different JSON serialization but identical numeric
+contents; the remote checkpoint's statistics match the local file byte-for-byte.
+Private source copies and hashes are preserved under
+`.local/pack_plate/pi05_processed2_20261108/training_source/`, with numerical
+comparison results in the adjacent `verification.json`.
+
+Slowdown uses `policy.playback_hz: 15.0`; native `action_dt_s: 1/30` and the
+100 Hz robot servo remain unchanged. Each model output retains all 50 action rows.
+Serial executes a 32-row prefix (about 2.13 s including the final-row hold), then
+requests again. RTC uses a 16-row query window, beta 5 and an initial eight-row
+delay estimate; the runtime subsequently updates the estimate. Ordinary Async uses
+`request_trigger: progress`, single inflight admission and a 16-row progress window,
+retaining the full horizon until replacement. RTC sends remaining-action conditions;
+Async sends default sampling requests. Both use latency trimming and no extra blend,
+skip or waypoint handoff. A 16-row window is about 1.07 s at 15 Hz; inference and
+admission timing also determine actual handoffs. This Pi05 RTC is inference-time
+guidance, not DP's trained-prefix sampler.
+
+Read-only check from the ManiMux root:
+
+```bash
+bash manimux/configs/experiments/pack_plate/pi05/checkpoint_comparison_20261028/launch.sh \
+  check --policy 'Pi05 / Processed2 Native World H50 / 29999'
+```
+
+This loads all 36 catalog choices and 13 policy service definitions, then checks
+the selected three adapters, strategies and artifacts. Omitting `--policy` still
+checks every model and reports missing old artifacts instead of silently skipping them.
+
+After finishing the current rollout and stopping its runtime, restart it once for
+the new Python identity gate:
+
+```bash
+bash manimux/configs/experiments/pack_plate/pi05/checkpoint_comparison_20261028/launch.sh runtime
+```
+
+Reuse the running camera service and RoboGUI at `http://127.0.0.1:8086`.
+For a fresh launch, run `launch.sh camera` and `launch.sh gui` in separate terminals
+using the same full script path. Runtime starts the selected model automatically
+on station port 8574. Select the new policy and method, wait for readiness, then
+Prepare, Activate Warmup, Start rollout and Finish. Prepare can move to Home.
+The Action playback field defaults to 15 Hz and is fixed per rollout; changing it
+before Prepare changes playback without retraining or restarting the model.
+
+Validation includes model `--check`, catalog and adapter loading, synthetic H50
+decode at 15 Hz with native 30 Hz wire metadata, old H32/H50 regression tests,
+and a numerical comparison against the downloaded QZ source with 50 randomized
+dual-arm targets. Observation encoding, relative labels, decoded absolute poses
+and RTC conditions agree within 1e-6. No real-weight forward, live service
+handshake or physical rollout was run for this checkpoint.
+
 ## Original wrist-only contract and artifact
 
 - Recipe: `manimux/configs/policy/pi05/tianji/pack_plate/wrist-only-step59999.yaml`

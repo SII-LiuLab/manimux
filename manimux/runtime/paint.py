@@ -7,7 +7,7 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 
-from manimux.policies.base import action_interval
+from manimux.policies.base import action_interval_ns
 from manimux.policy_adapter.base import PolicyAdapter
 from manimux.runtime.candidates import sample_reference
 from manimux.runtime.inference import (
@@ -101,7 +101,7 @@ class PaintInferenceStrategy:
 
     def seed_warmup(self, *, latency_ns: Sequence[int]) -> None:
         """Retain steady E2E samples across reset, with the configured initial floor."""
-        dt_ns = int(action_interval(self._config["policy"]) * 1_000_000_000)
+        dt_ns = action_interval_ns(self._config["policy"])
         recent = [int(value) for value in latency_ns][-self._delay_buffer_size :]
         if any(value < 0 for value in recent):
             raise ValueError("warmup latency_ns must be nonnegative")
@@ -202,7 +202,7 @@ class PaintInferenceStrategy:
         if self._time_aligned and delay:
             valid, prefix = sample_reference(
                 timeline, origin_ns=snapshot.state.monotonic_ns,
-                dt_ns=int(action_interval(self._config["policy"]) * 1e9),
+                dt_ns=action_interval_ns(self._config["policy"]),
                 steps=delay, group_order=self._group_order,
             )
             if not valid.all():
@@ -332,7 +332,7 @@ class PaintInferenceStrategy:
         self._conditioned_requests.discard(response.request_seq)
         if started_ns is not None and forecast > 0:
             elapsed_ns = max(0, response.finished_time_ns - started_ns)
-            dt_ns = int(action_interval(self._config["policy"]) * 1_000_000_000)
+            dt_ns = action_interval_ns(self._config["policy"])
             self._delay_forecast.append(int(np.ceil(elapsed_ns / dt_ns)))
 
     def _forget_request(self, seq):

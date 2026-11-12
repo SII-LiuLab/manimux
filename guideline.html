@@ -176,11 +176,38 @@ UMI DP waits for a measured two-frame observation window. After changing this se
 in an experiment list, finish the rollout and click <strong>Reload config</strong> to reload the catalog.
 Follow the selected Finish/Home behavior before
 stopping runtime, then stop model, camera and GUI processes.</p>
+<details><summary>Tianji Pi05 Processed2 Native World H50 / 29999 (2026-11-08)</summary>
+<p>The 1028 catalog now defaults to <strong>Pi05 / Processed2 Native World H50 / 29999</strong>.
+Choose <strong>Serial 32 / 15 Hz</strong>, <strong>RTC 16 / 15 Hz</strong> or
+<strong>Async 16 / 15 Hz</strong>. QZ training source confirms the existing tool-axis,
+two-wrist, zero-pose TCP-relative contract, with a native 50-step prediction at 30 Hz.</p>
+<p>All three use <code>policy.playback_hz: 15.0</code>: action targets stay unchanged,
+their timing doubles, and robot control remains 100 Hz. Serial executes a 32-row prefix.
+RTC and ordinary Async use 16-row replan windows while retaining H50; Async uses progress
+triggering without action conditioning. Adjust <strong>Action playback (Hz)</strong> before Prepare.</p>
+<pre><code class="language-bash">cd /home/jw/Desktop/project/manimux
+bash manimux/configs/experiments/pack_plate/pi05/checkpoint_comparison_20261028/launch.sh \
+  check --policy 'Pi05 / Processed2 Native World H50 / 29999'
+# Finish the current rollout and stop its runtime, then restart once for the new code:
+bash manimux/configs/experiments/pack_plate/pi05/checkpoint_comparison_20261028/launch.sh runtime
+</code></pre>
+<p>Reuse the existing camera and GUI services. For a fresh setup, use the same script's
+<code>camera</code> and <code>gui</code> commands in separate terminals.
+The runtime manages the model service; open <code>http://127.0.0.1:8086</code>.
+The full catalog check currently reports missing metadata in the old UMI DAgger artifact;
+the explicit policy filter checks the new model while still loading the entire catalog.
+Offline checks passed; real-weight inference and physical trials remain untested.</p>
+</details>
 <details><summary>Tianji Pi05 UMI Half Speed H50 / 29999 (2026-11-06)</summary>
 <p>The existing 1028 catalog includes <strong>Pi05 / UMI Half Speed H50 / 29999</strong> and
 its <strong>Step DiffIK</strong> group alongside UMI Only and UMI DAgger. It predicts
 50 steps at 30 Hz. Half speed comes from training data resampling; the deployment
 rate remains 30 Hz. Choose Serial 50 or the existing RTC/Blend/Waypoint variants.</p>
+<p>The catalog also includes the 2026-11-05 Processed2 UMI DP scratch and RTC-finetuned
+checkpoints. Each offers Serial 32 and train-time RTC 16 with a fixed prefix of 5;
+both checkpoints report trained prefix lengths 0, 4 and 5. These DP choices use
+chunk DiffIK and the smooth executor. The Pi05 Step DiffIK choices instead select
+the direct executor; the remaining choices use the smooth executor.</p>
 <pre><code class="language-bash">cd /home/jw/Desktop/project/manimux
 # Offline configuration, adapter and Pi05 artifact checks:
 bash manimux/configs/experiments/pack_plate/pi05/checkpoint_comparison_20261028/launch.sh check
@@ -323,7 +350,12 @@ execution windows and ACT query intervals still limit submissions.</p>
 <tr>
 <td><code>policy.action_dt_s</code></td>
 <td>Required</td>
-<td>Seconds per model action row, unless <code>trajectory_duration_s</code> overrides it. Keep the checkpoint's interval.</td>
+<td>Native seconds per model action row. Keep the checkpoint's interval, including when changing playback speed.</td>
+</tr>
+<tr>
+<td><code>policy.playback_hz</code></td>
+<td><code>null</code></td>
+<td>Optional action-row playback frequency. Positive finite Hz; null preserves native timing. Independent of the robot control rate.</td>
 </tr>
 <tr>
 <td><code>policy.horizon_policy_steps</code></td>
@@ -381,15 +413,49 @@ execution windows and ACT query intervals still limit submissions.</p>
 and decoding. Outside refill mode, only the default <code>0.4</code> is tolerated and ignored;
 other explicit values, including <code>null</code>, are rejected. If a preset supplies another
 value, use a different preset or override it to <code>0.4</code> when changing triggers.</p>
+<h4 id="action-playback-speed">Action playback speed</h4>
+<p>For a native 30 Hz model, set <code>policy.playback_hz</code> to 15 for half-speed
+playback, or 40, 50 or 60 for faster playback. Each returned row keeps its action
+value; its time on the execution trajectory changes. A 100 Hz control loop continues
+to interpolate and apply the configured motion limits at 100 Hz.</p>
+<p>Add this override to the <code>policy:</code> section of your existing experiment
+YAML, preserving its model config reference, native interval and horizon:</p>
+<pre><code class="language-yaml">policy:
+  # Keep your existing config reference and other fields here.
+  playback_hz: 15.0
+</code></pre>
+<p>With <code>manimux serve</code>, set <strong>Action playback (Hz)</strong> in RoboGUI
+before <strong>Prepare</strong>. The value is fixed for that rollout. Changing an
+experiment or reloading its config restores its YAML default. With
+<code>manimux run</code>, use the YAML setting. No model restart is needed for a
+playback-only change. Episode metadata records native action spacing, playback Hz
+and control Hz.</p>
+<p>Step-based query windows, RTC alignment and IK use the playback interval. Camera
+and model observation-history rates remain unchanged. UMI's default first-action
+offset scales with playback; an explicit <code>adapter.execution_offset_s</code>
+remains in seconds. Timeouts and other durations specified in seconds remain fixed.
+Faster playback does not make inference compute faster: a late next chunk can still
+cause a hold, and motion limits can restrict the achieved physical speed.</p>
+<p><strong>RTC and train-time RTC:</strong> conditions are aligned to the new
+observation's playback clock, including fractional action-row offsets. A fixed
+five-row prefix remains five rows: the interval from its first row to the first
+free row is about 333 ms at 15 Hz, 167 ms at 30 Hz, or 83 ms at 60 Hz, plus the
+configured first-row offset from the observation. Camera age, inference and IK
+consume that time. Acceptance events record <code>conditioned_prefix_steps</code>,
+<code>prefix_rows_remaining_at_commit</code> and <code>prefix_exhausted_at_commit</code>.
+If the fixed rows expire before commit, the remaining free suffix can still be
+accepted. A completely expired horizon is rejected. Faster playback therefore
+does not guarantee that a fixed prefix still covers inference latency.</p>
 <p><code>first_step_when_ready</code> starts row zero when the result is accepted. Use it for the
 serial examples below. <code>drop_infer_latency</code> keeps the observation-based action
 clock and discards source rows whose times have passed before acceptance. Use it
 for the asynchronous examples. Neither setting changes the recorded observation
 timestamp. A late reply can have too few usable rows and be rejected.</p>
 <h3 id="meaning-of-chunk_policy_steps">Meaning of <code>chunk_policy_steps</code></h3>
-<p>Step counts are <strong>model action rows</strong>, not control-loop ticks. The row interval dt
-is normally <code>policy.action_dt_s</code>. If <code>policy.trajectory_duration_s</code> is set, it
-overrides dt with <code>trajectory_duration_s / (H - 1)</code>.</p>
+<p>Step counts are <strong>model action rows</strong>, not control-loop ticks. The runtime row interval dt
+is <code>1 / policy.playback_hz</code> when set, otherwise <code>policy.action_dt_s</code>.
+The legacy <code>policy.trajectory_duration_s</code> sets dt to
+<code>trajectory_duration_s / (H - 1)</code>; do not combine it with <code>playback_hz</code>.</p>
 <p>K rows span <code>(K - 1) * dt</code> between their first and last targets. Ordinary serial,
 serial ACT and BID additionally hold the last row for one interval, giving K * dt
 for K usable rows. AAC/AutoHorizon do not add that interval. Thus 12 rows at 30 Hz
@@ -746,7 +812,10 @@ Keep blending and handoff skip at zero.</p>
   <code>2 * initial_delay_policy_steps &lt;= H</code>.</li>
 <li><code>delay_buffer_size</code> sets the number of recent samples whose maximum predicts delay.</li>
 <li><code>beta</code> controls conditioning strength and must be finite and positive.</li>
-<li><code>condition_source</code> defaults to <code>canonical</code> (decoded model rows).
+<li><code>condition_source</code> defaults to <code>canonical</code> (decoded model rows
+resampled on the new observation clock, with no extrapolation). An already-applied
+handoff skip advances the outgoing rows' clock for subsequent conditions; the
+incoming request's future skip does not shift its condition.
 <code>timeline</code> samples the accepted, blended trajectory on the observation clock.
 <code>executor</code> forecasts Smooth commands from its current filter history on the same
 clock, including recent issued commands. It requires standalone RTC and a stateless
@@ -760,6 +829,31 @@ robot motion. Row skipping is unsupported for timeline/executor conditions.</li>
   decoding. Without calibration samples, the initial estimate is zero. See the
   <a href="manimux/configs/inference/README.md">preset guide</a> for warmup controls.</li>
 </ul>
+<h3 id="rtc-adaptive-speed">Experimental: RTC Adaptive Speed</h3>
+<p>The Processed2 Native World H50 policy group offers <strong>RTC Adaptive Speed / 15 Hz</strong>
+as a separate method. It combines partial speed equalization, bounded fractional-progress
+matching and a 0.20 s velocity bridge. The 15 Hz setting targets half the native 30 Hz
+path speed; acceleration limits, protected pauses and handoffs can change measured speed.</p>
+<pre><code class="language-yaml">inference:
+  algorithm: rtc
+  strategy: manimux.runtime.rtc.retimed:RetimedRtcStrategy
+  chunk_policy_steps: 32
+  handoff_skip_steps: 0
+  blend_policy_steps: 0
+  rtc_retime:
+    strength: 0.5
+    match_window_s: 0.6
+    bridge_s: 0.20
+</code></pre>
+<p>Use the complete <a href="manimux/configs/experiments/pack_plate/pi05/checkpoint_comparison_20261028/pi05_processed2_native_world_h50_29999_rtc_retime.yaml">experiment YAML</a>.
+Both arms share one time map; gripper events are protected. Subsequent RTC conditions
+sample the accepted dense execution reference. Incompatible incoming paths are rejected;
+the outgoing plan continues, with the normal hold if it expires. This remains an experimental
+execution transform and cannot correct a wrong predicted path. It supports joint-space,
+single-inflight RTC without additional skip, blend, waypoint, source cap or ACT.</p>
+<p>Restart runtime for the code change, select the policy and this method in RoboGUI,
+then Prepare. Source-to-execution mapping and dense trajectories are saved in rollout
+records. See the <a href=".agents/skills/manimux-inference/references/inference.md#experimental-rtc-with-adaptive-execution-speed">timing and evidence contract</a>.</p>
 <p>SAPolicy can separately select <code>policy.adapter.ik_seed_source: previous_plan</code>
 to seed IK from the accepted joint trajectory at the first decoded source row's timestamp.
 If that timestamp has no accepted reference, it uses the runtime seed. Subsequent rows
@@ -1486,6 +1580,42 @@ exactly for score 1. Keep longer judgment criteria in the study record, not unkn
 <p>Use one rubric across compared methods. Version <code>rubric_id</code> when criteria change.
 Each rollout saves a snapshot; later YAML edits do not change historical scores.
 <a href="manimux/configs/evaluation/coin.yaml">Current coin template</a> · <a href="manimux/configs/evaluation/stack_blocks.yaml">Stacking template</a></p>
+<h3 id="record-video-inputs">Record video and selected model inputs</h3>
+<p>YAM and Tianji share the same CPU video recorder. Install the runtime's <code>video</code>
+extra (<code>uv sync --extra video</code>, retaining other required extras), then configure:</p>
+<pre><code>recording:
+  enabled: true
+  video_fps: 30.0
+  inference_inputs: true
+  input_queue_size: 2
+</code></pre>
+<p>The Tianji pack-plate checkpoint comparison recipes already select a shared
+<a href="manimux/configs/experiments/pack_plate/pi05/checkpoint_comparison_20261028/recording.yaml">recording.yaml</a>
+with these settings. Reload configuration and prepare a new rollout to apply them.
+Video FPS, model playback Hz and the 100 Hz robot control loop are independent.</p>
+<p><code>videos/*.mp4</code> provides a view of the rollout. Align frames using
+<code>videos/index.json</code>, because camera gaps and pauses are not represented by
+constant-rate MP4 playback. Videos are sampled and lossy.</p>
+<p><code>inference_inputs/request-*.npz</code> preserves the RGB images selected for each
+formal request, including DP history, image timestamps and sequences, measured state,
+instruction, converted model state and RTC / fixed-prefix conditions. The boundary is
+after adapter preparation and before worker inference; model-server preprocessing and
+random seeds are not captured. Warmup requests are excluded. A worker may coalesce a
+submitted request, so join <code>request_seq</code> to response / plan events before
+counting it as an inference.</p>
+<pre><code>from manimux.recording.inputs import load_input_snapshot
+
+saved = load_input_snapshot("rollout-.../inference_inputs/request-000001.npz")
+request = saved["request"]
+frames = request["observation"]["frames"]
+rgb = frames[next(iter(frames))]["data"]
+instruction = request["instruction"]
+</code></pre>
+<p>Only files listed in <code>inference_inputs/index.jsonl</code> are confirmed written.
+Inspect <code>result.json.input_recording</code> and <code>video_recording</code> for errors
+and dropped/unsaved counts. Bounded writers avoid waiting for disk in the control loop;
+array copies and encoding still cost CPU and raw snapshots can consume substantial disk.
+Previously unrecorded RGB cannot be recovered from numeric trajectories.</p>
 <h3 id="operate-each-trial">Operate each trial</h3>
 <ol>
 <li>Use <strong>Prepare Run</strong> for a free trial. For a scored trial, reset the scene, select <strong>Layout</strong>, then click <strong>Prepare Experiment</strong>; its Top reference is attached automatically.</li>
@@ -1520,6 +1650,7 @@ new YAML rules do not replace historical scoring rules. Free runs and partial at
         ├── events.jsonl
         ├── data.zarr/           # ticks + raw / strategy / committed plans
         ├── videos/             # camera video + index.json
+        ├── inference_inputs/   # optional lossless request NPZ + index.jsonl
         └── evaluation/
             └── human-label.json
 </code></pre>
@@ -1743,6 +1874,7 @@ new YAML rules do not replace historical scoring rules. Free runs and partial at
 <tr><td><code>config.policy.service</code></td><td>Named service binding, e.g. camera or policy.</td></tr>
 <tr><td><code>config.policy.startup_timeout_s</code></td><td>Startup/readiness timeout of the owning worker or sensor reader, seconds.</td></tr>
 <tr><td><code>config.policy.timeout_s</code></td><td>Owning component timeout: policy request deadline seconds or GUI control transport timeout seconds.</td></tr>
+<tr><td><code>config.policy.playback_hz</code></td><td>Default action playback Hz; null uses native timing. RoboGUI can override it for one rollout at Prepare.</td></tr>
 <tr><td><code>config.policy.trajectory_duration_s</code></td><td>Optional explicit trajectory duration when determining action spacing.</td></tr>
 <tr><td><code>config.policy.worker</code></td><td>Policy worker plugin/transport selector.</td></tr>
 <tr><td><code>config.policy_server.action_horizon</code></td><td>Model output action-point count.</td></tr>
@@ -1828,7 +1960,8 @@ new YAML rules do not replace historical scoring rules. Free runs and partial at
 <tr><td><code>config.sensors[].width</code></td><td>Requested image width; actual recorded pixels are determined by the served camera frames.</td></tr>
 </tbody></table></details>
 <details><summary>meta.json — rollout and backend snapshots</summary><table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody>
-<tr><td><code>action_dt_s</code></td><td>Spacing of model action points, in seconds; 1/30 here. Independent of 100-Hz command control.</td></tr>
+<tr><td><code>action_dt_s</code></td><td>Effective playback spacing of action rows, in seconds.</td></tr>
+<tr><td><code>model_action_dt_s</code>, <code>playback_hz</code>, <code>control_hz</code></td><td>Native model spacing, prepared action playback frequency and robot command frequency. These record the actual per-rollout timing, including a RoboGUI override.</td></tr>
 <tr><td><code>action_start_mode</code></td><td>Whether Timeline drops expired prefix rows (drop_infer_latency) or starts from the first available row when ready.</td></tr>
 <tr><td><code>blend_steps</code></td><td>Number of model steps configured for boundary blending; zero means no such blend.</td></tr>
 <tr><td><code>camera_map.{image_key}</code></td><td>Mapping from model image keys to camera-server source names.</td></tr>

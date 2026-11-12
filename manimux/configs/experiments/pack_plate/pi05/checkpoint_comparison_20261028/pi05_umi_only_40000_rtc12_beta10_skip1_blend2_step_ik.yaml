@@ -58,6 +58,7 @@ robogui:
   policy_label: Pi05 / UMI Only / 40000 / Step DiffIK / RTC 12 / Beta 10 / Skip
     1 / Blend 2 / Step DiffIK
 recording:
+  config: recording.yaml
   enabled: true
 inference:
   decode_forecast_size: 0

@@ -11,7 +11,7 @@ import numpy as np
 
 from manimux.kinematics.robot import RobotKinematics
 from manimux.kinematics.tianji_diff import rotation_matrix, rotation_vector
-from manimux.policies.base import action_interval
+from manimux.policies.base import action_interval, action_interval_ns, native_action_interval
 from manimux.policies.xpolicylab.codec import matrix_pose, pose_matrix
 from manimux.policy_adapter.base import PolicyAdapter
 from manimux.policy_adapter.gripper_mapping import GripperMapping
@@ -87,7 +87,7 @@ class _Pi05TianjiEEAdapter(PolicyAdapter):
         self._required_cameras = tuple(self._camera_map.values())
         self._horizon_steps = int(policy["horizon_policy_steps"])
         self._action_dt_s = action_interval(policy)
-        self._action_dt_ns = round(self._action_dt_s * 1e9)
+        self._action_dt_ns = action_interval_ns(policy)
         validation_dt = float(options.get("ik_validation_dt_s", 0.004))
         if not math.isfinite(validation_dt) or validation_dt <= 0:
             raise ValueError("policy.adapter.ik_validation_dt_s must be finite and positive")
@@ -536,7 +536,7 @@ class Pi05TianjiTacCapAdapter(_Pi05TianjiEEAdapter):
         super().validate(robot, policy)
         if self._horizon_steps != 32:
             raise ValueError("Pi05 pass-ball requires a 32-step horizon")
-        if abs(self._action_dt_s - 1 / 30) > 1e-9:
+        if abs(native_action_interval(policy) - 1 / 30) > 1e-9:
             raise ValueError("Pi05 pass-ball requires a 30 Hz action interval")
         identity = (policy.get("expected_backend") or {}).get("model", {})
         required = {
@@ -560,6 +560,7 @@ class Pi05PackPlateTacCapAdapter(_Pi05TianjiEEAdapter):
     """Pack-plate identity gate over the same Tianji absolute EE decoder."""
 
     _CHECKPOINT_VARIANTS = {
+        "pi05_pack_plate_processed2_native_world_h50_step29999": "zero_pose",
         "pi05_pack_plate_umi_half_speed_h50_step29999": "zero_pose",
         "pi05_pack_plate_umi_dagger_step40000": "zero_pose",
         "pi05_pack_plate_umi_only_step40000": "zero_pose",
@@ -581,9 +582,12 @@ class Pi05PackPlateTacCapAdapter(_Pi05TianjiEEAdapter):
         identity = (policy.get("expected_backend") or {}).get("model", {})
         horizon = (
             50 if identity.get("checkpoint_variant")
-            == "pi05_pack_plate_umi_half_speed_h50_step29999" else 32
+            in {
+                "pi05_pack_plate_umi_half_speed_h50_step29999",
+                "pi05_pack_plate_processed2_native_world_h50_step29999",
+            } else 32
         )
-        if self._horizon_steps != horizon or abs(self._action_dt_s - 1 / 30) > 1e-9:
+        if self._horizon_steps != horizon or abs(native_action_interval(policy) - 1 / 30) > 1e-9:
             raise ValueError(f"Pi05 pack-plate requires {horizon} steps at 30 Hz")
         required = {
             "policy_name": "Pi_05",

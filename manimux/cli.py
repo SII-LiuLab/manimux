@@ -122,7 +122,10 @@ def read_experiment(
     from manimux.policies.base import backend_identity_from_recipe
 
     backend_identity = None
-    for name in ("policy", "inference", "executor", "policy_server", "camera_server", "evaluation"):
+    for name in (
+        "policy", "inference", "executor", "policy_server", "camera_server", "evaluation",
+        "recording",
+    ):
         section = raw.get(name, {})
         if name == "evaluation" and section is None:
             continue

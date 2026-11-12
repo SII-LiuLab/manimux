@@ -1,0 +1,7 @@
+# CPU-only, best-effort recording; inspect result.json for dropped/unsaved inputs.
+enabled: true
+video_fps: 30.0
+video_codec: mp4v
+video_queue_size: 8
+inference_inputs: true
+input_queue_size: 2

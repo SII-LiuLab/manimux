@@ -28,6 +28,9 @@ adapter:
     lag_policy: report
 action_decoding: process
 action_dt_s: 0.03333333333333333
+# Runtime action-row playback; e.g. 15.0 for half speed, 60.0 for double speed.
+# The checkpoint remains native 30 Hz and robot control remains 100 Hz.
+playback_hz: null
 horizon_policy_steps: 32
 timeout_s: 120.0
 startup_timeout_s: 180.0

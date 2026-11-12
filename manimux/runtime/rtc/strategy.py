@@ -6,9 +6,9 @@ from collections.abc import Sequence
 
 import numpy as np
 
-from manimux.policies.base import action_interval
+from manimux.policies.base import action_interval_ns
 from manimux.policy_adapter.base import PolicyAdapter
-from manimux.runtime.candidates import sample_reference
+from manimux.runtime.candidates import sample_action_rows, sample_reference
 from manimux.runtime.inference import (
     CommitSettings,
     EnsembleScope,
@@ -86,6 +86,9 @@ class RtcInferenceStrategy:
         )
         self._delay_forecast = deque(initial, maxlen=self._delay_buffer_size)
         self._active_rows = None
+        self._active_groups = None
+        self._active_origin_ns = 0
+        self._active_dt_ns = 0
         self._active_offset = 0
         self._conditioned_requests = set()
         self._request_started_ns = {}
@@ -107,7 +110,7 @@ class RtcInferenceStrategy:
         """
         if self._initial_delay_steps is not None:
             return
-        dt_ns = int(action_interval(self._config["policy"]) * 1_000_000_000)
+        dt_ns = action_interval_ns(self._config["policy"])
         recent = [int(value) for value in latency_ns][-self._delay_buffer_size :]
         if any(value < 0 for value in recent):
             raise ValueError("warmup latency_ns must be nonnegative")
@@ -209,7 +212,7 @@ class RtcInferenceStrategy:
                         # ACT compositions condition the accepted fused timeline on
                         # the new observation grid, including fractional intervals.
                         arguments = dict(origin_ns=snapshot.state.monotonic_ns,
-                            dt_ns=int(action_interval(self._config["policy"]) * 1e9),
+                            dt_ns=action_interval_ns(self._config["policy"]),
                             steps=horizon, group_order=self._group_order)
                         if self._condition_source == "executor":
                             if self._condition_predictor is None:
@@ -221,6 +224,24 @@ class RtcInferenceStrategy:
                         else:
                             valid, condition = sample_reference(timeline, **arguments)
                         if condition is None or not valid[:delay].all():
+                            condition = weights = None
+                            forecast_used = 0
+                        else:
+                            weights[~valid] = 0
+                    else:
+                        # The next observation rarely lands on an old row boundary
+                        # (e.g. 100 Hz control with 15/60 Hz playback). Row-count
+                        # shifting alone would condition the model on the wrong time.
+                        valid, condition = sample_action_rows(
+                            self._active_groups,
+                            source_origin_ns=self._active_origin_ns,
+                            source_dt_ns=self._active_dt_ns,
+                            origin_ns=snapshot.state.monotonic_ns,
+                            dt_ns=action_interval_ns(self._config["policy"]),
+                            steps=horizon, group_order=self._group_order,
+                            action_space=timeline.action_space,
+                        )
+                        if not valid[:delay].all() or not valid.any():
                             condition = weights = None
                             forecast_used = 0
                         else:
@@ -240,6 +261,7 @@ class RtcInferenceStrategy:
             condition_weights=None if weights is None else weights.astype(np.float64),
             action_condition_space=timeline.action_space,
             rtc_beta=self._rtc_beta,
+            condition_time_ns=snapshot.state.monotonic_ns,
         )
         if condition is not None:
             self._conditioned_requests.add(request_seq)
@@ -318,10 +340,16 @@ class RtcInferenceStrategy:
         now_ns: int,
     ) -> dict[str, object]:
         rows = np.concatenate([chunk.groups[name] for name in self._group_order], axis=1)
-        # Keep the original decoded rows. The committed cursor plus trim offset
-        # selects the actual surviving suffix; never shift the next request's
-        # condition to compensate for its eventual execution-only skip.
+        # Keep original decoded rows, but date them on the accepted execution clock.
+        # An already-applied handoff skip advances those rows without delaying the
+        # start time. Future conditions must reflect that outgoing-plan shift;
+        # the incoming request's eventual skip must not alter its condition.
         self._active_rows = np.pad(rows, ((chunk.source_offset_steps, 0), (0, 0)))
+        self._active_groups = {name: values.copy() for name, values in chunk.groups.items()}
+        self._active_origin_ns = chunk.observation_time_ns + (
+            chunk.source_offset_steps - result.handoff_skipped_steps
+        ) * chunk.dt_ns
+        self._active_dt_ns = chunk.dt_ns
         self._active_offset = chunk.source_offset_steps + result.trimmed_steps
         self._active_request_seq = response.request_seq
         self._request_reference_seq.pop(response.request_seq, None)

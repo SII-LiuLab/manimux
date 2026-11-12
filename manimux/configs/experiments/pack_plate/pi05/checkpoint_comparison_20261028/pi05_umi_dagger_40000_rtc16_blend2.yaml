@@ -57,6 +57,7 @@ robogui:
   robot: tianji-taccap
   policy_label: Pi05 / UMI DAgger / 40000 / RTC 16 / Blend 2
 recording:
+  config: recording.yaml
   enabled: true
 inference:
   config: rtc16.yaml

@@ -278,6 +278,11 @@ class PolicyRoboGUI:
                 "⚪ Waiting for a ManiMux runtime service."
             )
             self.setup_summary = self.server.gui.add_markdown("Waiting for configuration.")
+            self.playback_hz = self.server.gui.add_number(
+                "Action playback (Hz)", 30.0, step=1.0, min=0.01,
+                disabled=True, visible=False,
+            )
+            self.playback_hint = self.server.gui.add_markdown("", visible=False)
             self.experiment_policy = self.server.gui.add_dropdown(
                 "Policy", ("default",), disabled=True, visible=False,
             )
@@ -1276,6 +1281,7 @@ class PolicyRoboGUI:
         self.experiment_task.disabled = not can_prepare
         self.experiment_config.disabled = not can_prepare
         self.initial_pose.disabled = not can_prepare
+        self.playback_hz.disabled = not can_prepare or not self.playback_hz.visible
         model_ready = self._policy_service_state.get("status") in {"ready", "external"}
         self.prepare_normal_btn.disabled = not can_prepare or not model_ready
         self.prepare_experiment_btn.disabled = not can_prepare or not model_ready
@@ -1514,12 +1520,18 @@ class PolicyRoboGUI:
                     "repeat_id": repeat_id,
                     **selection,
                 })
+                playback = {}
+                if self.playback_hz.visible:
+                    hz = self.playback_hz.value
+                    if not np.isfinite(hz) or hz <= 0:
+                        raise ValueError("Action playback must be a finite positive frequency")
+                    playback["playback_hz"] = float(hz)
             except (OSError, TypeError, ValueError) as exc:
                 self.rollout_setup_status.content = f"🔴 Prepare was not submitted: {exc}"
                 self._update_prepare_enabled()
                 return
             self._rollout_request = {"task_command": self.task_command.strip(),
-                                     "experiment_id": self._experiment_id, **identity}
+                                     "experiment_id": self._experiment_id, **identity, **playback}
             self._show_recorded_identity(identity)
             self._set_experiment_mode(experiment_mode)
             self._start_identity = None
@@ -2212,6 +2224,16 @@ class PolicyRoboGUI:
             if first_service_announcement:
                 self._configure_experiment_choices(metadata)
                 self._configure_research(metadata)
+                playback = metadata.get("action_playback")
+                self.playback_hz.visible = bool(playback)
+                self.playback_hint.visible = bool(playback)
+                if playback:
+                    self.playback_hz.value = float(playback["hz"])
+                    self.playback_hint.content = (
+                        f"Model: {playback['native_hz']:g} Hz · "
+                        f"Control: {playback['control_hz']:g} Hz. "
+                        "Playback is fixed when you Prepare this rollout."
+                    )
             elif "experiment_template" in metadata and metadata["experiment_template"] != self.experiment_template:
                 # Reconnecting during a free run only gives us its unscored identity.
                 # Restore the service's study rules when idle, preserving the selected layout.

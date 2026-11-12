@@ -353,6 +353,49 @@ Record runtime evidence under `manimux/recording/`. Distinguish predicted action
 sent commands and measured motion; RoboGUI refresh rate is not control frequency.
 Do not reintroduce teleoperation or demonstration collection as part of replay.
 
+### Camera video and exact selected inference inputs
+
+`recording.video_fps: 30` enables the shared CPU MP4 writer for all runtime cameras,
+including Tianji. Install the `video` extra in the runtime environment
+(`uv sync --extra video`, preserving other required extras). The default is zero
+(off). Videos sample camera bundles during RUNNING ticks, not every inference
+request. Use `videos/index.json` capture timestamps, not MP4 frame number / FPS,
+to align observations across pauses or dropped bundles.
+
+`recording.inference_inputs: true` adds lossless, uncompressed NPZ snapshots after
+adapter preparation at the formal worker-submission boundary. Snapshots include
+RGB arrays and their capture timestamps/sequence IDs, measured state, instruction,
+UMI previous observations, converted model state and RTC / train-time prefix
+fields. They exclude warmup requests. They are not server-side normalized tensors,
+model random seeds, or proof that a coalesced upload was inferred. Join `request_seq`
+to `events.jsonl` responses / accepted plans; rejected replies remain diagnostic
+evidence. Model-side preprocessing requires the saved resolved configuration and
+matching source/checkpoint.
+
+`inference_inputs/request-000001.npz` contains numeric arrays and UTF-8 JSON
+metadata, with no pickle. `inference_inputs/index.jsonl` lists successfully written
+requests. Load with `manimux.recording.inputs.load_input_snapshot(path)`; the returned
+`request` is a plain dictionary with RGB at
+`saved["request"]["observation"]["frames"][camera]["data"]`. File metadata retains
+dataclass names; loading never imports or instantiates them.
+
+`input_queue_size` defaults to 2 request bundles; video has its separate
+`video_queue_size` (default 8). The control thread copies arrays, while bounded
+background writers perform disk IO / encoding. Full queues drop recording bundles
+without waiting for disk. `inference_submitted.input_recording` reports enqueue
+status; final `result.json.input_recording` reports submitted, saved, dropped,
+unsaved counts and errors. A queued file is not guaranteed saved until indexed.
+Check both input and video summaries before using a trial as a complete dataset.
+Raw RGB storage scales with resolution, history length and request rate; this is
+not a full-rate lossless camera archive. Benchmark `recording.input` and
+`recording.tick` timing at actual deployment resolution before throughput studies.
+
+An experiment may use `recording.config: recording.yaml` relative to its own file;
+inline fields override this profile. The pack-plate checkpoint comparison study
+selects its shared `recording.yaml` with 30 FPS video and inference inputs enabled.
+Other experiments retain defaults. Reload configuration / prepare a new rollout
+to apply edits; existing recordings cannot recover previously unsaved RGB.
+
 Idle recovery between rollouts (**Clear error**, **Return Home**, **Drag**, **Release**) is
 scheduled by the `manimux serve` session and implemented by the robot assembly. The
 session reads the assembly's `recovery_actions`, `hand_guiding_actions` and `drag_selections`.
@@ -406,10 +449,41 @@ In the list above, `configs/` means `manimux/configs/`.
 of the same experiment. Pair their action representation, checkpoint identity and
 sampler capabilities. Do not delete identity checks to make a mismatched pair start.
 
-Keep `policy.action_dt_s` (model trajectory spacing), `robot.control_hz` (command
-frequency), camera acquisition rate and recording video rate independent. Horizon,
+Keep `policy.action_dt_s` (native model trajectory spacing), `policy.playback_hz`
+(runtime action-row consumption), `robot.control_hz` (command frequency), camera
+acquisition rate and recording video rate independent. Horizon,
 decoded prefix and executed chunk length are also distinct. Do not infer one from
 another just because one example happens to use the same value.
+
+### Action playback speed
+
+`policy.playback_hz: null` preserves native timing. A positive finite value sets the
+runtime row interval to `1 / playback_hz`. For a native 30 Hz checkpoint, 15 Hz
+plays at half speed and 60 Hz at twice speed; a 100 Hz robot control loop still
+interpolates the retimed trajectory at 100 Hz. Keep `action_dt_s`, checkpoint
+identity and model observation-history periods unchanged. Do not combine
+`playback_hz` with the legacy `trajectory_duration_s` override.
+
+Use `native_action_interval()` for checkpoint checks and model-side metadata;
+`action_interval()` supplies effective runtime seconds and `action_interval_ns()`
+supplies the shared rounded nanosecond grid to adapters, IK, timelines, RTC/PAINT
+conditions, candidate validation, delay forecasts and source-progress scheduling.
+UMI's default
+first-action offset scales with that grid; an explicit `adapter.execution_offset_s`
+remains a wall-clock offset. Step IK still runs on the robot control clock.
+
+In `serve`, RoboGUI's **Action playback (Hz)** is editable before Prepare. Prepare
+freezes it in a deep copy of the selected configuration for that rollout, replacing
+any configured legacy duration. It does not mutate catalog defaults or restart the
+model. Config reload and experiment switches restore the selected YAML's value;
+service heartbeats preserve unsubmitted edits. `run` uses the YAML value. Episode
+metadata records effective `action_dt_s`, `model_action_dt_s`, `playback_hz` and
+`control_hz`. Source-step counts keep their existing meanings; durations expressed
+in seconds (timeouts, observation periods, refill thresholds) do not scale.
+
+Faster playback consumes the horizon sooner; it does not accelerate model compute.
+Inference latency, history availability, IK and existing motion limits still govern
+what can execute. Verify changed speeds offline before claiming physical success.
 
 ## Example and checks
 
@@ -708,3 +782,16 @@ SLERP. Smoothness continues to use the recorded post-IK scheduled joint referenc
 An expired pose plan requires observed constant joint commands to qualify a hold;
 its pose endpoint must never be compared to a joint vector. These reference
 metrics do not measure actual physical tracking accuracy.
+
+### Timed handoff preparation
+
+`StrategyTimedHandoff.prepare_timed_handoff` is an optional runtime strategy hook
+called after normal decoding/preparation and immediately before timeline commit.
+It receives the commit timestamp, read-only outgoing timeline, measured joints,
+last issued command and nominal-tick command velocity. It returns an execution
+proposal without mutating accepted history. Failure follows normal rejection;
+only `on_plan_accepted` advances strategy history. Warmup does not call this hook.
+The recorder preserves the pre-transform `canonical_raw`, the returned `infra_output`
+and committed rows. Dense `runtime_trajectory` rows and timestamps are saved when
+present. The experimental retimed RTC plugin uses this hook; ordinary strategies
+keep their existing path.

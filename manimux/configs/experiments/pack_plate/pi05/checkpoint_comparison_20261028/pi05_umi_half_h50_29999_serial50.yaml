@@ -58,6 +58,7 @@ robogui:
   robot: tianji-taccap
   policy_label: Pi05 / UMI Half Speed H50 / 29999 / Serial 50
 recording:
+  config: recording.yaml
   enabled: true
 inference:
   config: serial50.yaml

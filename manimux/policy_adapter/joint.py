@@ -12,7 +12,7 @@ import numpy as np
 
 from manimux.embodiments.layout import group_layouts
 from manimux.policies.actions import action_groups
-from manimux.policies.base import action_interval
+from manimux.policies.base import action_interval_ns
 from manimux.policy_adapter.base import PolicyAdapter
 from manimux.policy_adapter.gripper_mapping import GripperMapping
 from manimux.types import ActionChunk, ActionContext, ObservationSnapshot
@@ -33,7 +33,7 @@ class JointAdapter(PolicyAdapter):
         )
         self._camera_map = dict(policy["adapter"].get("camera_map", {}))
         self._required_cameras = tuple(self._camera_map.values())
-        self._action_dt_ns = int(action_interval(policy) * 1_000_000_000)
+        self._action_dt_ns = action_interval_ns(policy)
         self._horizon_steps = policy["horizon_policy_steps"]
         self._allow_short_horizon = policy["adapter"].get("allow_short_horizon", False)
         if not isinstance(self._allow_short_horizon, bool):

@@ -11,7 +11,7 @@ import numpy as np
 
 from manimux.kinematics.robot import RobotKinematics
 from manimux.kinematics.tianji_diff import rotation_matrix, rotation_vector
-from manimux.policies.base import action_interval
+from manimux.policies.base import action_interval, action_interval_ns
 from manimux.policies.xpolicylab.codec import matrix_pose, pose_matrix
 from manimux.policy_adapter.base import PolicyAdapter
 from manimux.policy_adapter.gripper_mapping import GripperMapping
@@ -88,7 +88,7 @@ class XR1TianjiTacCapAdapter(PolicyAdapter):
         self._required_cameras = tuple(self._camera_map.values())
         self._horizon_steps = int(policy["horizon_policy_steps"])
         self._action_dt_s = action_interval(policy)
-        self._action_dt_ns = round(self._action_dt_s * 1e9)
+        self._action_dt_ns = action_interval_ns(policy)
         validation_dt = float(options.get("ik_validation_dt_s", 0.004))
         if not math.isfinite(validation_dt) or validation_dt <= 0:
             raise ValueError("policy.adapter.ik_validation_dt_s must be finite and positive")

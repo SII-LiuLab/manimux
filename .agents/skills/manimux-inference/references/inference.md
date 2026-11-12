@@ -66,6 +66,98 @@ The [reproduction records](reproductions/README.md) separate reference formulas,
 local adaptations and real-model/robot evidence. Runtime compatibility and offline
 checks alone do not establish hardware performance.
 
+### Playback clocks and prefix coverage
+
+`policy.playback_hz` retimes action rows while native checkpoint spacing and measured
+observation history stay fixed. Async progress thresholds and RTC query windows count
+these retimed rows. Async refill thresholds, observation-rate caps, deadlines and
+measured inference/decode durations remain wall-clock quantities.
+
+Canonical RTC conditions resample the original decoded rows at the next observation's
+timestamps, including fractional row offsets; pose rows use quaternion interpolation.
+If the outgoing plan already applied a handoff skip, its source clock is advanced by
+that skip so conditions describe the surviving actions at their execution times.
+The incoming request's future skip never shifts its submission-time condition.
+They do not substitute blended timeline rows. The runtime-only `condition_time_ns`
+identifies the soft-mask origin so a history wrapper can apply the model's first-row
+offset without mistakenly reanchoring weights to the current control tick. Missing
+required prefixes disable conditioning instead of extrapolating targets.
+
+`action_offset_s()` is shared by UMI decoding, history alignment and train-time RTC
+forecasting. A checkpoint's default offset scales with playback; an explicit
+`adapter.execution_offset_s` stays in seconds. Fixed prefix counts never scale with
+frequency or observed latency. A five-row prefix leaves `5 / playback_hz` seconds
+between the first fixed row and the first free row (plus the offset from observation
+to the first row). Observation age, inference and decoding consume this budget.
+An exhausted fixed prefix may still yield an accepted free suffix; it is not a
+guarantee of a smooth physical handoff. An entirely expired horizon is rejected.
+
+Train-time RTC acceptance events include `conditioned_prefix_steps`,
+`prefix_rows_remaining_at_commit` and `prefix_exhausted_at_commit`. These distinguish
+requests that used no prefix from conditioned requests whose fixed rows expired
+before commit. Check these alongside measured latency and rejected-plan reasons
+when increasing playback speed. IK/waypoint limits and actuator smoothing can change
+the executed trajectory even when sampled prefix targets match exactly.
+
+### Experimental RTC with adaptive execution speed
+
+`manimux.runtime.rtc.retimed:RetimedRtcStrategy` is an opt-in strategy plugin under
+`algorithm: rtc`. The Processed2 Native World H50 catalog exposes it as
+**RTC Adaptive Speed / 15 Hz**, alongside Serial, Async and ordinary RTC. It uses
+the same checkpoint and Pi05 inference-time guidance, not the DP trained-prefix sampler.
+
+The model still returns H50 at its native 30 Hz contract. Playback at 15 Hz gives
+the full decoded path a nominal two-times duration. `inference.rtc_retime.strength`
+(default 0.5) redistributes that budget toward equal path speed. Both arms use one
+phase map, based on the larger per-arm combined TCP translation/rotation increment;
+`rotation_radius_m` converts angular motion into a distance metric. Individual arms
+need not have equal or constant speeds. Stationary intervals, gripper-motion
+intervals and the request's guidance-delay prefix retain their original allocation.
+This cannot identify unrecorded contact intent or remove a model's geometric reversal.
+
+At commit, progress matching searches a bounded prefix (`match_window_s`, 0.6 s
+beyond elapsed playback). Outgoing reference arc length since the observation is a
+progress prior, not measured travel; measured pose, issued-command pose, rotation,
+direction and aperture gate each candidate. The same fractional phase applies to both
+arms. No fixed skip or additional timeline blend is applied. Gripper event travel
+cannot be skipped. An incompatible match is rejected, retaining the outgoing plan;
+normal fresh-request/expired-plan hold behavior applies. This may cause a hold if
+successive proposals cannot join. Do not interpret rejection as a model fault.
+
+A 0.20 s position/velocity correction joins the issued command to the surviving
+retimed path. Aperture blending is monotone within that bridge. Dense decoded IK
+paths are resampled rather than discarded; the existing executor remains responsible
+for velocity/acceleration limits. The bridge changes the path locally and cannot
+promise exact half-speed measured motion. Prefix removal shortens the surviving
+horizon; it is not stretched back to H50. Rounding the endpoint to the playback grid
+adds at most one interval.
+
+Conditions sample the accepted **dense execution reference**, including the bridge,
+on the new observation's fixed H50 playback grid. Missing future rows have zero
+weight. Query progress and latency use execution time; `chunk_policy_steps: 32`
+means 32 playback intervals from the observation clock (including latency), subject
+to remaining-horizon delay margin, not 32 original indices after nonlinear retiming.
+Model rows, execution rows and dense servo samples remain separate quantities.
+
+Supported: complete joint-space chunks, one gripper per arm, single-inflight RTC,
+`drop_infer_latency`, `handoff: blend`, zero `handoff_skip_steps` and
+`blend_policy_steps`. Unsupported: step IK/pose output, waypoint handoff, ACT,
+streaming, source caps, and independently cropped arms. Configuration selects this
+plugin explicitly; it does not change the ordinary RTC strategy.
+
+`plans/*/canonical_raw` retains model-adapter output; `infra_output` contains execution
+rows plus `metadata.rtc_retime` (source knots, original phase at execution rows,
+matched phase, search score, prefix protection and timing). Optional
+`runtime_trajectory` subgroups record dense rows and their clock for either stage.
+The next request's recorded `condition_source` is `retimed_runtime`. Historical files
+without dense subgroups cannot reconstruct a previous dense bridge exactly.
+
+The local offline validation uses synthetic continuous handoffs and one-step shadow
+transforms of historical predictions. Shadow transforms reuse historical feedback;
+they are not new model predictions, a closed-loop rollout or evidence of task success.
+Restart runtime after code changes, then select the new method and Prepare. The
+existing catalog launcher and policy service are reused.
+
 ### Train-time RTC
 
 `algorithm: train_time_rtc` uses a prefix-trained sampler instead of inference-time

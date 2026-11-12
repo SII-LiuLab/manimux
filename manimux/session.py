@@ -11,6 +11,7 @@ from typing import Any, Protocol
 from manimux.clock import SystemClock
 from manimux.embodiments.robot import build_robot
 from manimux.experiment_list import ExperimentList, shared_service_contract
+from manimux.policies.base import action_interval, native_action_interval
 from manimux.policy_service import ManagedPolicyService
 from manimux.robogui.communication import ControlClient, RoboGUIPublisher, RuntimeEvent
 from manimux.runtime import RunResult, build_runtime
@@ -290,6 +291,11 @@ class RuntimeSessionService:
             "evaluation": deepcopy(self._config.get("evaluation", {"kind": "binary"})),
             "runtime": self._config["inference"]["algorithm"],
             "executor": self._config["executor"]["type"],
+            "action_playback": {
+                "hz": 1.0 / action_interval(self._config["policy"]),
+                "native_hz": 1.0 / native_action_interval(self._config["policy"]),
+                "control_hz": self._config["robot"]["control_hz"],
+            },
             "policy_label": self._config["robogui"]["policy_label"],
             "camera_map": self._config["policy"]["adapter"].get("camera_map", {}),
             "experiment_template": deepcopy(self._config["run"].get("experiment_template")),
@@ -518,6 +524,14 @@ class RuntimeSessionService:
             self._last_failure_id = ""
             try:
                 rollout_config = deepcopy(self._config)
+                if "playback_hz" in request:
+                    # A Prepare override replaces the configured playback duration
+                    # for this rollout only. Check before constructing any hardware.
+                    rollout_config["policy"]["playback_hz"] = request["playback_hz"]
+                    rollout_config["policy"]["trajectory_duration_s"] = None
+                    if request["playback_hz"] is None:
+                        raise ValueError("Prepare playback_hz must be a finite positive number")
+                    action_interval(rollout_config["policy"])
                 task_command = str(request.get("task_command", "")).strip()
                 if (self._experiment_list is not None and task_command
                         and task_command != rollout_config["run"]["task"]):

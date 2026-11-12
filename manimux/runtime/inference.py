@@ -69,6 +69,22 @@ class StrategyChunkSelector(Protocol):
     def select_chunk(self, *, chunk: ActionChunk, now_ns: int) -> ActionChunk: ...
 
 
+@runtime_checkable
+class StrategyTimedHandoff(Protocol):
+    """Optional final trajectory preparation on the timeline commit clock.
+
+    Runs after decoding/preparation, never during warmup. Implementations may read
+    the outgoing timeline but must not mutate it or accepted strategy history.
+    The recorder retains canonical_raw separately from this execution proposal.
+    """
+
+    def prepare_timed_handoff(
+        self, *, chunk: ActionChunk, now_ns: int, timeline: ActionTimeline,
+        measured: GroupVector, current_command: GroupVector,
+        command_velocity: GroupVector,
+    ) -> ActionChunk: ...
+
+
 EnsembleScope = Literal["full_prediction", "execution_prefix"]
 
 
