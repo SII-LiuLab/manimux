@@ -1,0 +1,8 @@
+# Asynchronous adaptation; selected source horizons still bound execution.
+max_plan_age_s: 2.0
+blend_policy_steps: 0
+action_start_mode: drop_infer_latency
+algorithm: autohorizon
+inference_schedule: single_inflight
+request_trigger: refill
+refill_threshold_s: 0.1

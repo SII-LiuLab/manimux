@@ -14,7 +14,7 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CHECKPOINT = REPO_ROOT / "checkpoints/pretrained/lingbot-vla-v2-6b"
 DEFAULT_SOURCE = REPO_ROOT / "XPolicyLab/policy/LingBot_VLA2/lingbot_vla_v2"
-DEFAULT_SERVER_CONFIG = REPO_ROOT / "configs/lingbot-vla2/yam/server/base.yaml"
+DEFAULT_SERVER_CONFIG = REPO_ROOT / "manimux/configs/policy/lingbot-vla2/yam/base.yaml"
 
 
 def _tensor_shape(checkpoint: Path, tensor_name: str) -> list[int]:

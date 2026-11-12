@@ -1,5 +1,0 @@
-config:
-  robot: droid_single
-  sim: offline
-scene:
-  num_envs: 1

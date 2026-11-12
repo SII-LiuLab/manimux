@@ -1,0 +1,210 @@
+#!/usr/bin/env python3
+"""Launch the managed XPolicyLab Pi_05 server for an explicitly selected profile."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+XPOLICY_ROOT = REPO_ROOT / "XPolicyLab"
+OPENPI_SRC = XPOLICY_ROOT / "policy/Pi_05/openpi/src"
+DEFAULT_CONFIG = REPO_ROOT / "manimux/configs/policy/pi05/yam/finetune.yaml"
+MODEL_PYTHON = XPOLICY_ROOT / "policy/Pi_05/openpi/.venv/bin/python"
+HARDWARE_VERIFIED_VARIANTS = {
+    "pi05_base_with_yam_stats",
+    "pi05_yam_finetuned",
+    "pi05_yam_pick_red_ball_box_step_1000",
+}
+YAM_FINETUNED_VARIANTS = HARDWARE_VERIFIED_VARIANTS | {
+    "pi05_yam_mixed300ep_step30000",
+    "pi05_yam_latest300ep_step30000",
+    "pi05_yam_put_bottles_joint_ee_step_30000_eef",
+    "pi05_yam_assemble_screwdriver_step_15000",
+    "pi05_yam_put_bottles_joint_step_30000",
+    "pi05_yam_put_bottles_joint_ee_step_30000",
+}
+GPU_FORWARD_VERIFIED_VARIANTS = HARDWARE_VERIFIED_VARIANTS | {
+    "pi05_yam_put_bottles_joint_ee_step_30000_eef",
+}
+TASK_QUALITY_LIMITED_VARIANTS = {
+    "pi05_yam_finetuned",
+    "pi05_yam_pick_red_ball_box_step_1000",
+}
+
+
+def _prepare_imports() -> None:
+    for path in (REPO_ROOT, XPOLICY_ROOT, OPENPI_SRC):
+        value = str(path)
+        if value not in sys.path:
+            sys.path.insert(0, value)
+
+
+def _load_config(path: Path) -> dict[str, Any]:
+    loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(loaded, dict):
+        raise ValueError(f"server config must be a mapping: {path}")
+    return loaded
+
+
+def _validate_paths(config: dict[str, Any]) -> tuple[Path, Path]:
+    if not (XPOLICY_ROOT / ".git").exists():
+        raise FileNotFoundError(
+            f"XPolicyLab submodule is missing under {XPOLICY_ROOT}; initialize submodules first"
+        )
+    model_root = Path(str(config["model_path"])).expanduser().resolve()
+    stats_dir = Path(str(config["norm_stats_path"])).expanduser().resolve()
+    if not (model_root / "params").is_dir():
+        raise FileNotFoundError(f"Pi05 params not found under {model_root}")
+    if not (stats_dir / "norm_stats.json").is_file():
+        raise FileNotFoundError(f"YAM norm_stats.json not found under {stats_dir}")
+    return model_root, stats_dir
+
+
+def _resolved_contract(config_path: Path, config: dict[str, Any]) -> dict[str, Any]:
+    _prepare_imports()
+    if config.get("observation_profile") == "tianji_taccap_pi05_zero_pose":
+        from XPolicyLab.policy.Pi_05.pass_ball_contract import validate_artifacts
+
+        return {
+            **validate_artifacts(config),
+            "model_python": str(MODEL_PYTHON),
+            "server_config": str(config_path),
+            "checkpoint_variant": config["checkpoint_variant"],
+            "runtime_status": "environment_present_forward_not_verified"
+                if MODEL_PYTHON.is_file() else "blocked_missing_model_environment",
+        }
+    if config.get("observation_profile") in {
+        "tianji_taccap_pi05_pack_plate", "tianji_taccap_pi05_pack_plate_joint"
+    }:
+        from XPolicyLab.policy.Pi_05.pack_plate_contract import validate_artifacts
+
+        return {
+            **validate_artifacts(config),
+            "model_python": str(MODEL_PYTHON),
+            "server_config": str(config_path),
+            "checkpoint_variant": config["checkpoint_variant"],
+            "runtime_status": "environment_present_forward_not_verified"
+                if MODEL_PYTHON.is_file() else "blocked_missing_model_environment",
+        }
+    from openpi.training import config as openpi_config
+
+    train_config = openpi_config.get_config(str(config["train_config_name"]))
+    horizon = int(config.get("action_horizon", train_config.model.action_horizon))
+    if horizon <= 0:
+        raise ValueError(f"action_horizon must be positive, got {horizon}")
+    num_steps = int(config.get("num_steps", 0))
+    if num_steps <= 0:
+        raise ValueError("server config num_steps must be positive")
+    checkpoint_variant = str(config["checkpoint_variant"])
+    environment_present = MODEL_PYTHON.is_file()
+    hardware_verified = checkpoint_variant in HARDWARE_VERIFIED_VARIANTS
+    gpu_forward_verified = checkpoint_variant in GPU_FORWARD_VERIFIED_VARIANTS
+    return {
+        "contract_status": "ready",
+        "runtime_status": (
+            "hardware_verified"
+            if environment_present and hardware_verified
+            else "gpu_forward_verified_hardware_not_verified"
+            if environment_present and gpu_forward_verified
+            else "blocked_missing_model_environment"
+            if not environment_present
+            else "environment_present_gpu_forward_not_verified"
+        ),
+        "inference_status": (
+            "hardware_verified"
+            if hardware_verified
+            else "gpu_forward_verified"
+            if gpu_forward_verified
+            else "not_verified"
+        ),
+        "policy_status": (
+            "yam_finetune_task_quality_limited"
+            if checkpoint_variant in TASK_QUALITY_LIMITED_VARIANTS
+            else "yam_finetune_not_evaluated"
+            if checkpoint_variant in YAM_FINETUNED_VARIANTS
+            else "base_checkpoint_not_yam_finetune"
+        ),
+        "model_python": str(MODEL_PYTHON),
+        "server_config": str(config_path),
+        "checkpoint_variant": checkpoint_variant,
+        "checkpoint_source": config.get("checkpoint_source"),
+        "norm_stats_source": config.get("norm_stats_source"),
+        "xpolicylab_root": str(XPOLICY_ROOT),
+        "train_config_name": train_config.name,
+        "action_space": "absolute_ee_pose"
+        if config.get("action_type") == "ee"
+        else "absolute_joint_position",
+        "action_horizon": horizon,
+        "num_steps": num_steps,
+        "inference_seed": config.get("inference_seed", 0),
+        "rtc": "unsupported" if config.get("action_type") == "ee" else "pi_guided_v1",
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser()
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+    source.add_argument("--experiment", type=Path, help="Use the experiment's paired policy_server")
+    parser.add_argument(
+        "--local",
+        type=Path,
+        help="Station bindings (default: manimux/configs/local/station.yaml)",
+    )
+    parser.add_argument(
+        "--checkpoint", type=Path,
+        help="Explicit step directory for the Tianji zero-pose profile",
+    )
+    parser.add_argument("--norm-stats", type=Path, help="Zero-pose normalization directory")
+    parser.add_argument("--check", action="store_true", help="validate and print resolved setup")
+    args = parser.parse_args(argv)
+
+    from manimux.cli import bind_station, read_experiment, resolve_local_path
+
+    local = resolve_local_path(args.experiment, args.local)
+    config_path = (args.experiment or args.config).expanduser().resolve()
+    if args.experiment is not None:
+        config = read_experiment(config_path, local=local)["policy_server"]
+    else:
+        config = bind_station({"policy_server": _load_config(config_path)}, local)["policy_server"]
+    if args.checkpoint is not None or args.norm_stats is not None:
+        profile = config.get("observation_profile")
+        if profile not in {"tianji_taccap_pi05_zero_pose", "tianji_taccap_pi05_pack_plate"}:
+            raise ValueError("artifact overrides require a Tianji zero-pose profile")
+        if args.checkpoint is not None:
+            checkpoint = args.checkpoint.expanduser().resolve()
+            config["model_path"] = str(checkpoint)
+            if profile == "tianji_taccap_pi05_pack_plate":
+                asset_name = Path(config["norm_stats_path"]).name
+                config["norm_stats_path"] = str(checkpoint / "assets" / asset_name)
+            else:
+                config["norm_stats_path"] = str(checkpoint.parent.parent / "normalization")
+        if args.norm_stats is not None:
+            config["norm_stats_path"] = str(args.norm_stats.expanduser().resolve())
+    model_root, stats_dir = _validate_paths(config)
+    contract = _resolved_contract(config_path, config)
+    contract.update(
+        model_root=str(model_root),
+        norm_stats=str(stats_dir / "norm_stats.json"),
+        local=str(local),
+    )
+    print("[pi05-server] resolved setup", flush=True)
+    print(json.dumps(contract, indent=2), flush=True)
+
+    if args.check:
+        return 0
+
+    from manimux.policies.xpolicylab.server import serve
+
+    serve(config)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

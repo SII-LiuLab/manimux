@@ -16,8 +16,7 @@ sys.dont_write_bytecode = True
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 XPOLICY_ROOT = REPO_ROOT / "XPolicyLab"
-DEFAULT_CONFIG = REPO_ROOT / "configs/lingbot-vla2/yam/server/base.yaml"
-DEFAULT_INFRA_CONFIG = REPO_ROOT / "configs/lingbot-vla2/yam/infra/manimux.yaml"
+DEFAULT_CONFIG = REPO_ROOT / "manimux/configs/policy/lingbot-vla2/yam/base.yaml"
 
 
 def _load_config(path: Path) -> dict[str, Any]:
@@ -50,14 +49,14 @@ def _validate(
     infra_errors: list[str] = []
     if infra_config is not None:
         policy = infra_config.get("policy", {})
-        execution = infra_config.get("execution", {})
-        configured_horizon = int(policy.get("horizon_steps", 0))
+        execution = infra_config.get("inference", {})
+        configured_horizon = int(policy.get("horizon_policy_steps", 0))
         if report["status"] == "ready":
             native_hz = float(report["native_hz"])
             action_horizon = int(report["action_horizon"])
             if configured_horizon != action_horizon:
                 infra_errors.append(
-                    "infra policy.horizon_steps must equal server action_horizon "
+                    "infra policy.horizon_policy_steps must equal server action_horizon "
                     f"{action_horizon}"
                 )
             action_dt_s = float(policy.get("action_dt_s", 0.0))
@@ -65,29 +64,31 @@ def _validate(
                 infra_errors.append(
                     f"infra policy.action_dt_s must equal 1/native_hz ({1.0 / native_hz})"
                 )
-            expected_adapter = (
-                "lingbot_vla2_yam"
+            expected_adapter_type = (
+                "manimux.policy_adapter.lingbot_vla2.yam:LingBotVLA2YamAdapter"
                 if report.get("action_semantics")
                 == "anchor_relative_arm_absolute_gripper"
-                else "xpolicylab"
+                else "manimux.policy_adapter.joint:JointAdapter"
             )
-            if policy.get("adapter") != expected_adapter:
+            adapter = policy.get("adapter", {})
+            if not isinstance(adapter, dict) or adapter.get("type") != expected_adapter_type:
                 infra_errors.append(
-                    f"infra policy.adapter must be {expected_adapter} for this checkpoint"
+                    "infra policy.adapter.type must be "
+                    f"{expected_adapter_type} for this checkpoint"
                 )
-        runtime = execution.get("runtime")
-        if runtime not in {"manimux", "rtc"}:
-            infra_errors.append("infra execution.runtime must be manimux or rtc")
+        runtime = execution.get("algorithm")
+        if runtime not in {"async", "serial", "rtc"}:
+            infra_errors.append("infra inference.algorithm must be async, serial or rtc")
         if runtime == "rtc":
             if report.get("rtc_capability") != "pi_guided_v1_sampler":
                 infra_errors.append("RTC config requires sampler-level pi_guided_v1 support")
             rtc = execution.get("rtc", {})
-            delay = int(rtc.get("initial_delay_steps", 0))
-            execute = int(rtc.get("min_execute_steps", 0))
+            delay = int(rtc.get("initial_delay_policy_steps", 0))
+            execute = int(rtc.get("min_execute_policy_steps", 0))
             beta = float(rtc.get("beta", 0.0))
             if delay <= 0 or not delay <= execute <= configured_horizon - delay:
                 infra_errors.append(
-                    "RTC requires delay <= min_execute_steps <= action_horizon - delay"
+                    "RTC requires delay <= min_execute_policy_steps <= action_horizon - delay"
                 )
             if int(rtc.get("delay_buffer_size", 0)) <= 0:
                 infra_errors.append("RTC delay_buffer_size must be positive")
@@ -119,7 +120,7 @@ def _validate(
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
-    parser.add_argument("--infra-config", type=Path, default=DEFAULT_INFRA_CONFIG)
+    parser.add_argument("--infra-config", type=Path, required=True)
     args = parser.parse_args()
 
     config = _load_config(args.config.resolve())

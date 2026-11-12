@@ -7,15 +7,12 @@ cd "${ROOT}"
 PYTHON=${MANIMUX_TEST_PYTHON:-${ROOT}/envs/yam/.venv/bin/python}
 OPENPI_PYTHON=${OPENPI_TEST_PYTHON:-${ROOT}/XPolicyLab/policy/Pi_05/openpi/.venv/bin/python}
 export PYTHONDONTWRITEBYTECODE=1
-export PYTHONPATH="${ROOT}/src:${ROOT}:${ROOT}/XPolicyLab:${PYTHONPATH:-}"
+export PYTHONPATH="${ROOT}:${ROOT}/XPolicyLab:${PYTHONPATH:-}"
 
 for policy in Pi_05 LingBot_VLA2 Xiaomi_Robotics_1 OpenWAM; do
     for script in "${ROOT}/XPolicyLab/policy/${policy}"/*.sh; do
         bash -n "${script}"
     done
-done
-for script in scripts/training/train_{pi05,lingbot_vla2,xr1,openwam}_yam_cluster.sh; do
-    bash -n "${script}"
 done
 "${PYTHON}" -m pytest -o addopts='' -q -p no:cacheprovider tests \
     XPolicyLab/tests/unit/test_isaac05_xpolicy_adapter.py \

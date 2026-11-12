@@ -1,0 +1,98 @@
+# Experimental RTC: partial speed equalization, progress matching and velocity bridge.
+# Native H50 at 30 Hz; nominal half speed at 15 Hz, servo at 100 Hz.
+local: ../../../../../../.local/pack_plate/pi05_checkpoint_comparison_20261019/station.yaml
+run:
+  task: place each plate into a bubble wrap sleeve
+  output_dir: ./data/experiments/pack-plate-20261108/pi05_processed2_native_world_h50_29999_rtc_retime
+  experiment_name: pack-plate-20261108
+  condition: pi05_processed2_native_world_h50_29999_rtc_retime
+  max_control_steps: 40000
+  warmup_before_start: true
+  task_label: Pack plate
+robot:
+  type: tianji_taccap
+  config: robot.yaml
+  control_hz: 100.0
+  group_dims:
+    left_arm: 8
+    right_arm: 8
+  group_layouts:
+    left_arm:
+      arm_dofs: 7
+      gripper_dofs: 1
+    right_arm:
+      arm_dofs: 7
+      gripper_dofs: 1
+  options:
+    execute: true
+    end_effector_control: true
+    hardware:
+      stale_timeout_s: 0.1
+    component_hardware:
+      left_end_effector:
+        read_hz: 100.0
+        control_mode: force_position
+        grasp_torque_nm: 1.0
+        close_speed_radps: 3.0
+      right_end_effector:
+        read_hz: 100.0
+        control_mode: force_position
+        grasp_torque_nm: 1.0
+        close_speed_radps: 3.0
+sensors:
+- name: tianji_wrist_cameras
+  driver: manimux.embodiments.sensor.camera_server.timestamped:build_sensor
+  service: camera
+  options:
+    camera_names:
+    - taccap_left
+    - taccap_right
+    max_frame_age_sec: 0.15
+    clock_jump_tolerance_s: 0.02
+    output_names:
+      taccap_left: left_wrist_camera
+      taccap_right: right_wrist_camera
+policy:
+  config: policy-runtime.yaml
+  horizon_policy_steps: 50
+  playback_hz: 15.0
+robogui:
+  enabled: true
+  robot: tianji-taccap
+  policy_label: Pi05 / Processed2 Native World H50 / 29999 / RTC Adaptive Speed 24 / 15 Hz
+recording:
+  config: recording.yaml
+  enabled: true
+inference:
+  config: rtc16.yaml
+  strategy: manimux.runtime.rtc.retimed:RetimedRtcStrategy
+  chunk_policy_steps: 24
+  handoff_skip_steps: 0
+  blend_policy_steps: 0
+  rtc:
+    condition_source: timeline
+    min_execute_policy_steps: 24
+    initial_delay_policy_steps: 4
+  rtc_retime:
+    strength: 0.8
+    rotation_radius_m: 0.10
+    stationary_distance_m: 0.0002
+    gripper_event_delta: 0.08
+    gripper_motion_delta: 0.005
+    min_interval_ratio: 0.35
+    match_window_s: 0.6
+    match_resolution_steps: 0.25
+    max_position_gap_m: 0.025
+    max_rotation_gap_rad: 0.30
+    max_gripper_gap: 0.15
+    min_direction_cosine: 0.0
+    bridge_s: 0.20
+    min_future_s: 0.6
+    runtime_substeps: 8
+executor:
+  config: executor.yaml
+policy_server:
+  checkpoint_low_memory: true
+  config: ../../../../policy/pi05/tianji/pack_plate/processed2-native-world-h50-step29999.yaml
+camera_server:
+  config: ../../../../embodiment/sensor/cameras/taccap_2_views.yaml

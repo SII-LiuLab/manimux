@@ -1,0 +1,17 @@
+# Shared experiment baseline: retain the policy time axis without velocity shaping.
+# Smoothing and position bounds remain explicit in the selected executor recipe.
+robot:
+  group_dims:
+    left_arm: 7
+    right_arm: 7
+  options: {}
+  type: yam
+command_safety: null
+motion_limits:
+  arm:
+    max_velocity: null
+    max_acceleration: null
+  gripper:
+    max_velocity: null
+    max_acceleration: null
+    max_closing_velocity: null

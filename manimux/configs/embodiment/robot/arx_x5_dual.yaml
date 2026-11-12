@@ -1,0 +1,10 @@
+name: arx-x5-dual
+hardware: {stale_timeout_s: 0.2}
+components:
+  left_x5: {config: ../arm/arx_x5.yaml}
+  right_x5: {config: ../arm/arx_x5.yaml}
+groups:
+  left_arm: {arm: left_x5, end_effector: null}
+  right_arm: {arm: right_x5, end_effector: null}
+action_contract:
+  group_prefixes: {left_arm: left, right_arm: right}

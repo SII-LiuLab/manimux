@@ -1,0 +1,25 @@
+name: yam
+hardware:
+  stale_timeout_s: 0.2
+components:
+  left_yam:
+    config: ../arm/yam.yaml
+  right_yam:
+    config: ../arm/yam.yaml
+  left_camera:
+    config: ../sensor/realsense.yaml
+    parent: left_yam
+    mount: null  # No calibration supplied; do not infer camera extrinsics.
+  front_camera:
+    config: ../sensor/realsense.yaml
+    mount: null  # No calibration supplied; do not infer camera extrinsics.
+  right_camera:
+    config: ../sensor/realsense.yaml
+    parent: right_yam
+    mount: null  # No calibration supplied; do not infer camera extrinsics.
+groups:
+  # null means no additional end effector; the built-in YAM gripper remains the seventh component coordinate.
+  left_arm: {arm: left_yam, end_effector: null}
+  right_arm: {arm: right_yam, end_effector: null}
+action_contract:
+  group_prefixes: {left_arm: left, right_arm: right}

@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Chunk speed · Online and offline comparison</title>
+    <style>
+      __STYLE__
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <header>
+        <div class="eyebrow" id="identity-label"></div>
+        <h1>Chunk speed</h1>
+        <p class="lede">
+          Inspect early-to-late slowdown with speed curves, per-chunk heatmaps and timelines.
+          Load offline results to compare native predictions from the same checkpoint with demonstration
+          GT and inspect both wrist input images frame by frame.
+        </p>
+        <div class="verdict" id="verdict"></div>
+        <p class="caption" id="snapshot"></p>
+      </header>
+      <div class="controls">
+        <label class="ctl"
+          >Arm
+          <select id="arm">
+            <option value="left_arm">Left arm</option>
+            <option value="right_arm">Right arm</option>
+          </select></label
+        >
+        <label class="ctl"
+          >Statistical scope
+          <select id="scope">
+            <option value="all">All rollouts combined</option>
+          </select></label
+        >
+        <label class="ctl"
+          >Motion threshold
+          <select id="threshold">
+            <option value="1">1 mm/s</option>
+            <option value="5" selected>5 mm/s</option>
+            <option value="10">10 mm/s</option>
+            <option value="30">30 mm/s (reference page)</option>
+          </select></label
+        >
+        <label class="ctl"
+          >Curve units
+          <select id="units">
+            <option value="relative">Relative to this chunk's mean speed</option>
+            <option value="absolute">TCP speed mm/s</option>
+          </select></label
+        >
+        <button class="export" id="download">Download statistics JSON</button>
+      </div>
+      <div class="facts" id="facts"></div>
+      <p class="scope-note" id="scope-note"></p>
+      <section class="card" id="offline-panel" hidden>
+        <h2>Offline images and model inference: comparison with robot speed</h2>
+        <p class="desc">
+          Use the same checkpoint on demonstration images to
+          predict complete action windows. Green shows native model TCP predictions, gray shows demonstration
+          GT, and purple shows the robot measurements selected above. Offline results have no IK, waypoint
+          or executor processing, and no RTC conditions.
+        </p>
+        <div class="rowbar offline-controls">
+          <label class="ctl"
+            >Dataset episode
+            <select id="offline-episode"></select></label
+          ><label class="ctl"
+            >Offline statistical scope
+            <select id="offline-scope">
+              <option value="all">All episodes combined</option>
+              <option value="selected">Current episode</option>
+            </select></label
+          ><label class="ctl"
+            >Offline comparison window
+            <select id="offline-domain">
+              <option value="full">Full 32 steps · 31 speed intervals</option>
+              <option value="prefix">First 12 speed intervals</option>
+            </select></label
+          >
+        </div>
+        <p class="mini offline-note" id="offline-domain-note"></p>
+        <div class="facts" id="offline-facts"></div>
+        <div class="legend" id="offline-legend"></div>
+        <div class="chart" id="offline-compare"></div>
+        <p class="caption">
+          Each curve is normalized to 0–100% progress over its own selected window.
+          Prefix windows compare similar durations without matching the robot's crop position, RTC
+          conditions or environment. Threshold and units follow the controls at the top.
+        </p>
+        <div class="cols" id="offline-heatmaps"></div>
+        <p class="caption">
+          Each offline heatmap row represents a pair of actual wrist input images, ordered by time; each cell is speed divided by that
+          chunk's
+          mean speed. Click a row to inspect its input images and full prediction. Gray rows fall below the motion threshold.
+        </p>
+        <h3>Select input images to inspect that model prediction</h3>
+        <div class="rowbar">
+          <label class="ctl"
+            >Input frame
+            <select id="offline-chunk"></select></label
+          ><input
+            type="range"
+            id="offline-frame-slider"
+            min="0"
+            max="1"
+            value="0"
+            step="1"
+            aria-label="Select offline prediction input frame"
+          /><span class="mono mini" id="offline-frame-label"></span>
+        </div>
+        <div class="offline-images">
+          <figure>
+            <img id="offline-left-image" alt="Left wrist input image for offline inference" />
+            <figcaption>Left wrist input · left_wrist</figcaption>
+          </figure>
+          <figure>
+            <img id="offline-right-image" alt="Right wrist input image for offline inference" />
+            <figcaption>Right wrist input · right_wrist</figcaption>
+          </figure>
+        </div>
+        <p class="offline-latency" id="offline-image-caption"></p>
+        <div class="legend" id="offline-detail-legend"></div>
+        <div class="chart" id="offline-detail"></div>
+        <p class="mini" id="offline-detail-note"></p>
+        <h3>Offline episode timeline</h3>
+        <p class="mini">
+          Thin pale lines show complete predictions; thick green segments show predictions before the next sample, <b>not actual offline execution</b>. Click the timeline to select nearby input images.
+        </p>
+        <div class="rowbar">
+          <label class="ctl"
+            >Window
+            <select id="offline-window">
+              <option value="5">5 s</option>
+              <option value="10" selected>10 s</option>
+              <option value="20">20 s</option>
+              <option value="all">Full duration</option>
+            </select></label
+          ><input
+            type="range"
+            id="offline-pan"
+            min="0"
+            max="50"
+            step="0.1"
+            value="0"
+            aria-label="Offline timeline start"
+          /><span class="mono mini" id="offline-window-label"></span>
+        </div>
+        <div class="chart" id="offline-timeline"></div>
+        <details>
+          <summary>Offline data and inference timing</summary>
+          <div class="table-scroll" id="offline-episode-table"></div>
+          <p class="mini" id="offline-method"></p>
+        </details>
+      </section>
+      <section class="card">
+        <h2>How speed changes within each chunk</h2>
+        <p class="desc">
+          Normalize each actual execution window to 0–100% time and divide it into 12 equal-duration bins. Lines show per-bin
+          medians across chunks; bands show the 25th–75th percentiles. R = mean speed in the last ⅓ ÷ first ⅓; R ≤
+          0.8 means a slowdown of at least 20%.
+        </p>
+        <div class="legend" id="profile-legend"></div>
+        <div class="chart" id="profile"></div>
+        <p class="caption">
+          Positions come from offline robot TCP FK. Adjacent feedback samples use actual tick
+          times to compute speed, aggregated with time weights. No differentiation across chunk boundaries
+          or extra smoothing is applied. Bands show percentile ranges, not confidence intervals.
+        </p>
+        <details>
+          <summary>View curve data</summary>
+          <div class="table-scroll" id="profile-table"></div>
+        </details>
+      </section>
+      <section class="card">
+        <h2>One row per chunk: three speed layers over the same execution window</h2>
+        <p class="desc">
+          All three columns use identical chunk time windows. Each cell divides speed by that layer's
+          mean speed within the chunk: red is faster, blue is slower. Red on the left and blue on the right indicates slowdown. Click a row to jump to its timeline and
+          chunk details below.
+        </p>
+        <div class="heat-key" id="heat-key"></div>
+        <div class="heat-grid" id="heatmaps"></div>
+        <p class="caption">
+          Only intermediate chunks with complete handoff evidence are shown; the first startup chunk
+          and the final chunk truncated by Finish in each rollout
+          are excluded from statistics. Rows below the selected motion threshold are gray.
+        </p>
+      </section>
+      <section class="card" id="timeline-section">
+        <h2>Timeline: executed segments and unexecuted predictions</h2>
+        <p class="desc">
+          Gray shows measured TCP speed, purple shows the per-tick
+          scheduled reference, and green shows executor commands. Pale dashed lines show future speed from saved sparse committed
+          trajectories as prediction context only. Vertical lines mark actual plan assignment switches
+          from changes in tick plan_id.
+        </p>
+        <div class="rowbar">
+          <label class="ctl"
+            >rollout
+            <select id="timeline-ep"></select></label
+          ><label class="ctl"
+            >Window
+            <select id="window">
+              <option value="5">5 s</option>
+              <option value="10" selected>10 s</option>
+              <option value="20">20 s</option>
+              <option value="all">Full duration</option>
+            </select></label
+          ><input
+            id="pan"
+            aria-label="Time window start"
+            type="range"
+            min="0"
+            max="20"
+            step="0.05"
+            value="0"
+          /><span id="window-label" class="mono mini"></span>
+        </div>
+        <div class="legend" id="timeline-legend"></div>
+        <div class="chart" id="timeline"></div>
+        <p class="caption">
+          Pale dashed lines use saved sparse points; runtime may also use IK
+          substeps and handoff lead-ins, so these are not the same curve as the per-tick scheduled reference.
+        </p>
+        <div class="rowbar">
+          <label class="ctl"
+            >Selected chunk
+            <select id="chunk-select"></select></label
+          ><span class="focus-label" id="chunk-label"></span>
+        </div>
+        <div class="chart" id="detail"></div>
+        <p class="mini" id="detail-note"></p>
+      </section>
+      <section class="card">
+        <h2>The end of a saved trajectory is not necessarily executed</h2>
+        <p class="desc">
+          The entire saved canonical_raw trajectory is also normalized to 0–100%
+          below. It has already been decoded by the action adapter and may include cropping and handoff processing; it is not the raw model tensor. Its late segment is usually replaced by the next replan.
+        </p>
+        <div class="chart" id="saved-profile"></div>
+        <p class="stat-note" id="saved-note"></p>
+      </section>
+      <section class="card">
+        <h2>Sensitivity check: is the change limited to the start of handoff?</h2>
+        <p class="desc">
+          Exclude the first 50 / 100 ms of each executed chunk, then compare the first and last
+          ⅓ of the remaining window. Also resample positions into 12 equal-duration speed segments and apply a 3-point
+          moving average to inspect feedback quantization effects. Each rollout is shown separately.
+        </p>
+        <div class="table-scroll" id="sensitivity"></div>
+        <p class="mini">
+          Chunks
+          are correlated; these are descriptive statistics for this recording batch. Changes after excluding the start provide clues but cannot alone identify
+          waypoint processing, RTC or the model as the cause.
+        </p>
+      </section>
+      <section class="method">
+        <h2>Data sources and measurement definitions</h2>
+        <div id="methods"></div>
+        <details>
+          <summary>Recording identity, exclusions and reproduction command</summary>
+          <div id="evidence" class="evidence"></div>
+        </details>
+        <p class="caption">
+          This file embeds all chart data without external scripts, fonts or network requests and can be opened in Firefox
+          offline.
+        </p>
+      </section>
+    </main>
+    <div id="tip" class="tip"></div>
+    <script id="report-data" type="application/json">
+      __REPORT_DATA__
+    </script>
+    <script>
+      __REPORT_SCRIPT__;
+    </script>
+    <script>
+      __OFFLINE_SCRIPT__;
+    </script>
+  </body>
+</html>

@@ -1,0 +1,121 @@
+# Task-switching evaluation with the existing bottle-trained checkpoint.
+# Cross-task evaluation does not imply this checkpoint was trained on every task.
+run:
+  task: stack_blocks_medium
+  output_dir: ./data/experiments/openwam-put-bottles-step30000/all-tasks/stack_blocks_medium/async-exec20
+  max_control_steps: 12000
+  warmup_before_start: true
+  experiment_template:
+    name: stack_blocks_medium - ten layouts, three repeats
+    layout_ids:
+    - '01'
+    - '02'
+    - '03'
+    - '04'
+    - '05'
+    - '06'
+    - '07'
+    - 08
+    - 09
+    - '10'
+    repeats: 3
+    require_reference: true
+  sensor_reading:
+    mode: background
+    poll_hz: 100.0
+    max_frame_age_s: 0.5
+    startup_timeout_s: 5.0
+    shutdown_timeout_s: 2.0
+robot:
+  config: ../../../embodiment/robot/yam_dual.yaml
+  control_hz: 100.0
+  options:
+    move_to_start_on_connect: true
+    start_joints:
+      left_arm:
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 1.0
+      right_arm:
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 1.0
+    start_duration_s: 5.0
+    home_duration_s: 5.0
+    home_on_close: true
+    execute: true
+  type: yam
+sensors:
+- name: yam_cameras
+  driver: camera_server
+  service: camera
+  options:
+    request_timeout_ms: 500
+    max_frame_age_sec: 0.5
+    camera_names:
+    - d405_left
+    - d405_front
+    - d405_right
+policy:
+  worker: xpolicylab_ws
+  service: policy
+  adapter:
+    type: manimux.policy_adapter.openwam.yam:OpenWAMYamAdapter
+    camera_map:
+      cam_head: d405_front
+      cam_left_wrist: d405_left
+      cam_right_wrist: d405_right
+    deployment_bound: true
+  action_dt_s: 0.03333333333333333
+  timeout_s: 300.0
+  horizon_policy_steps: 32
+  inference_delay_s: 0.0
+  startup_timeout_s: 30.0
+  expected_backend:
+    server: xpolicylab_policy_server
+    model:
+      policy_family: openwam
+      observation_profile: yam_base
+      allow_dummy_policy: false
+      checkpoint_path: /home/ubuntu/manimux/checkpoints/finetuned/openwam/put-bottles-openwam-v1-s0-30k-step30000
+      checkpoint_file: checkpoint_step_30000.safetensors
+      checkpoint_sha256: e342337dcebb0965d149bc6ac4323c462dd9ab97a66c4016c1e46eb70d7c59f9
+      training_config_sha256: 3b09536ecd2fa201aca3e52388ecc6fee48f0399e095693e63a26681b05b27a5
+      norm_stats_path: /home/ubuntu/manimux/checkpoints/finetuned/openwam/put-bottles-openwam-v1-s0-30k-step30000/normalization_stats.npy
+      norm_stats_sha256: b28b2f7af33cceeb3f5a49221c4471f349f1d311a69d52b0439d9aa6fb75bf5c
+      action_horizon: 32
+  options:
+    action_format: pose
+    connect_timeout_s: 30.0
+    request_timeout_s: 300.0
+robogui:
+  enabled: true
+  robot: yam
+  policy_label: OpenWAM bottles-trained 30k - ASYNC exec20
+recording:
+  enabled: true
+  video_fps: 30.0
+inference:
+  algorithm: async
+  blend_policy_steps: 0
+  max_plan_age_s: 2.0
+  action_start_mode: drop_infer_latency
+  inference_schedule: single_inflight
+  request_trigger: progress
+  chunk_policy_steps: 20
+executor:
+  type: direct
+camera_server:
+  config: ../../../embodiment/sensor/cameras/realsense_3_views.yaml
+evaluation:
+  config: ../../../evaluation/stack_blocks.yaml
+policy_server:
+  config: ../../../policy/openwam/yam/finetune-put-bottles-step30000-sampling.yaml

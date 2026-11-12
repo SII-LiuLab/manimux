@@ -1,0 +1,8 @@
+# Camera capture parameters; local.robot.components provides camera_serial.
+type: sensor
+implementation: manimux.embodiments.sensor.taccap:TacCapSensor
+options: {}
+hardware:
+  width: 640
+  height: 480
+  fps: 30

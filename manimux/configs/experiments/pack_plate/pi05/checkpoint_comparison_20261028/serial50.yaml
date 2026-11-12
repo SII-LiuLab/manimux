@@ -1,0 +1,15 @@
+# Execute all 50 source rows before taking the next observation.
+algorithm: serial
+inference_schedule: serial
+action_start_mode: first_step_when_ready
+chunk_policy_steps: 50
+strategy: null
+expected_decode_s: 0.08
+decode_forecast_size: 10
+decode_forecast_mode: max
+max_plan_age_s: 2.0
+blend_policy_steps: 0
+handoff: blend
+handoff_margin_s: 0.01
+handoff_skip_steps: 0
+independent_group_decoding: false

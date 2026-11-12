@@ -1,0 +1,34 @@
+label: ALOHA-AgileX (RoboTwin follower arms)
+model: ../../../configs/embodiment/robot/aloha_agilex.yaml
+camera_mode: policy
+cameras:
+  - {source: head_camera, label: Head, slot: top}
+  - {source: left_camera, label: Left wrist, slot: left}
+  - {source: right_camera, label: Right wrist, slot: right}
+groups:
+  left_arm:
+    label: Left follower
+    # Source assembly placement is display context, not station calibration.
+    robogui_display_frame: {xyz: [0.2305, 0.297, 0.782], rpy: [0.0, 0.0, 0.02]}
+    prediction_color: [52, 111, 255]
+    trail_color: [33, 180, 106]
+    initial: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5]
+    aperture: gripper
+    demo:
+      amplitude: [0.2, 0.15, 0.2, 0.15, 0.15, 0.2, 0.4]
+      phase: 0.0
+  right_arm:
+    label: Right follower
+    robogui_display_frame: {xyz: [0.2315, -0.3063, 0.781], rpy: [0.0, 0.0, 0.01]}
+    prediction_color: [255, 94, 87]
+    trail_color: [255, 170, 0]
+    initial: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5]
+    aperture: gripper
+    demo:
+      amplitude: [0.2, 0.15, 0.2, 0.15, 0.15, 0.2, 0.4]
+      phase: 1.5
+scene:
+  boxes:
+    - name: table
+      dimensions: [0.8, 1.2, 0.04]
+      position: [0.5, 0.0, 0.74]

@@ -1,0 +1,28 @@
+--- a/cpp/src/force_position_controller.cpp
++++ b/cpp/src/force_position_controller.cpp
+@@ -1446,8 +1446,10 @@
+ }
+
+ ForcePositionSnapshot ForcePositionController::snapshot() const {
++    std::lock_guard<std::mutex> lk(mu_);
++    // Read the clock after locking: a status callback can publish a newer
++    // latest_time_ while this reader waits for mu_, otherwise yielding a negative age.
+     const auto now = std::chrono::steady_clock::now();
+-    std::lock_guard<std::mutex> lk(mu_);
+     ForcePositionSnapshot out;
+     out.running = running();
+     out.observation = observation_;
+--- a/cpp/src/impedance_controller.cpp
++++ b/cpp/src/impedance_controller.cpp
+@@ -652,8 +652,10 @@
+ }
+
+ ImpedanceSnapshot ImpedanceController::snapshot() const {
++    std::lock_guard<std::mutex> lk(mu_);
++    // Read the clock after locking: a status callback can publish a newer
++    // latest_time_ while this reader waits for mu_, otherwise yielding a negative age.
+     const auto now = std::chrono::steady_clock::now();
+-    std::lock_guard<std::mutex> lk(mu_);
+     ImpedanceSnapshot out;
+     out.running = running();
+     out.observation = observation_;

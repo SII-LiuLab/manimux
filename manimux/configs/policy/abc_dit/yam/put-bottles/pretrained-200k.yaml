@@ -1,0 +1,42 @@
+# XPolicyLab ABC_DiT server: official ABC-DiT XL 200k multi-task pretrain (https://abc.bot),
+# zero-shot on our YAM station. Launch with manimux/servers/abc_dit.py.
+# Same file (sha256 below) as ~/sa/checkpoints/sapolicy/abc_dit_xl_200k_model.pt.
+policy_name: ABC_DiT
+protocol: ws
+host: 127.0.0.1
+port: 8530
+
+task_name: throw_plastic_bottles_in_bin
+env_cfg_type: yam_dual
+robot_action_dim_info: {arm_dim: [6, 6], ee_dim: [1, 1]}
+num_envs: 1
+action_type: joint
+eval_batch: false
+
+model_path: checkpoints/pretrained/abc/abc_dit_xl_200k_model.pt
+checkpoint_source: sha256:79754ece8d333789a930d1a964ee0d4548f5975e2ba175ddce41d018c9f51ba7
+# norm_stats are embedded in the checkpoint (ABC XDOF statistics).
+norm_stats_path: null
+# Empty: use the client's run.task. ABC real episodes are labelled
+# put_the_plastic_bottles_in_the_bin and throw_plastic_bottles_in_bin; the official
+# bottles deployment uses 'throw plastic bottles in bin'.
+prompt: null
+camera_map: {top: cam_head, left: cam_left_wrist, right: cam_right_wrist}
+
+action_horizon: 30
+num_steps: 10
+# Official ABC RTC (deploy README, bottles): --rtc-prefix-length=4 --rtc-inference-lead-steps=7
+# --execute-chunk-dim=16 --diffusion-steps=10. The lead/execute values live in the experiment.
+rtc_prefix_length: 4
+inference_seed: 0
+device: cuda:0
+# Official fast path (abc_minimal/fast_inference.py, deploy flag --fast-inference): bf16 weights,
+# compiled velocity, one CUDA graph per sampler incl. FastRTCInferenceGraph for the prefix RTC.
+# RTX 4090: prefix RTC 65 ms vs 167 ms fp32; outputs within 0.009 rad of fp32 but quantized to
+# ~0.008 rad steps. Startup compiles and captures (~30 s with a warm compile cache).
+fast_inference: true
+allow_tf32: false
+
+backend_identity:
+  fields: [policy_name, task_name, checkpoint_source, action_horizon, num_steps, rtc_prefix_length, inference_seed]
+  model: {policy_family: abc_dit, action_semantics: absolute_joint_position}

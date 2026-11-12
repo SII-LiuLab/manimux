@@ -1,0 +1,9 @@
+# YAM includes a linear_4310 gripper; the model and SDK handle all seven coordinates together.
+type: arm
+implementation: manimux.embodiments.arm.yam:YamArm
+action_layout: {arm_dofs: 6, gripper_dofs: 1}
+options: {}
+hardware:
+  arm_type: yam
+  gripper_type: linear_4310
+  # The local station file provides channel; model loading requires no CAN connection.

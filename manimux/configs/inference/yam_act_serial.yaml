@@ -1,0 +1,9 @@
+# Serial ACT retains full predictions for fusion and executes five policy steps.
+algorithm: act_temporal_ensemble
+inference_schedule: serial
+chunk_policy_steps: 5
+max_plan_age_s: 2.0
+blend_policy_steps: 0
+action_start_mode: first_step_when_ready
+temporal_ensemble:
+  coefficient: 0.01

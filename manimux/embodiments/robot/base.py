@@ -1,0 +1,592 @@
+"""Component-based robot lifecycle and command coordination, without vendor calls."""
+
+from __future__ import annotations
+
+import threading
+from abc import ABC, abstractmethod
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field, replace
+from pathlib import Path
+from types import MappingProxyType
+
+import numpy as np
+import yaml
+from scipy.spatial.transform import Rotation
+
+from manimux.clock import Clock, SystemClock
+from manimux.embodiments.arm.base import ArmBase, ArmController, ArmModel
+from manimux.embodiments.end_effector.base import EndEffectorModel
+from manimux.embodiments.end_effector.gripper import GripperBase, GripperCommand
+from manimux.embodiments.layout import assembly_action_contract, group_layouts
+from manimux.embodiments.sensor.base import SensorBase
+from manimux.kinematics.base import FloatArray, ManipulatorKinematicsBase, rigid_transform
+from manimux.kinematics.composed import ComposedManipulatorKinematics
+from manimux.kinematics.end_effector import Frame, attach_end_effector
+from manimux.kinematics.robot import RobotKinematics
+from manimux.kinematics.tool import FixedToolGeometry
+from manimux.plugins import load_plugin
+from manimux.timing import stage, timed, timed_lock, timing_scope
+from manimux.types import RobotCommand, RobotState, SensorFrame
+
+HandGuidingHandler = Callable[[Sequence[str], threading.Event, Callable[[], None] | None], None]
+
+
+class RobotBase(ABC):
+    """Assemble arms and supported position-controlled end effectors.
+
+    Each group contains one arm component and an optional separate GripperBase.
+    An integrated component owns its full coordinates, including a built-in gripper;
+    no separate tool means no extra coordinate or hardware command is appended.
+    Other end-effector command capabilities require an explicit mapping; this
+    class does not infer control semantics from an arbitrary tool state.
+
+    Controllers are connected, sampled and dispatched once per shared session.
+    All targets are validated before dispatch. Independent controllers and end
+    effectors are not atomic; any dispatch failure attempts to stop all owned
+    components. No vendor SDK, smoothing, enabling policy or IK algorithm lives
+    here. Those belong to the arm controller, executor and kinematics model.
+    """
+
+    @abstractmethod
+    def __init__(
+        self,
+        *,
+        arm_components: Mapping[str, ArmBase],
+        models: Mapping[str, ManipulatorKinematicsBase],
+        model: RobotModel | None = None,
+        end_effectors: Mapping[str, GripperBase] | None = None,
+        sensors: Mapping[str, SensorBase] | None = None,
+        clock: Clock | None = None,
+        stale_timeout_s: float = 0.2,
+        execute: bool = True,
+        end_effector_control: bool = True,
+    ) -> None:
+        if not arm_components or set(arm_components) != set(models):
+            raise ValueError("arm components and kinematic models must have identical groups")
+        tools = dict(end_effectors or {})
+        if set(tools) - arm_components.keys():
+            raise ValueError("end effectors must belong to configured arm groups")
+        if len({id(tool) for tool in tools.values()}) != len(tools):
+            raise ValueError("each group must have a distinct end effector instance")
+        channels = {(id(arm.controller), arm.channel) for arm in arm_components.values()}
+        if len(channels) != len(arm_components):
+            raise ValueError("each group must have a distinct controller channel")
+        if not np.isfinite(stale_timeout_s) or stale_timeout_s <= 0:
+            raise ValueError("stale_timeout_s must be finite and positive")
+        # Configured robots and action decoding share this exact offline model.
+        self.model = model
+        self._kinematics = model.kinematics if model is not None else RobotKinematics(models)
+        for name, arm in arm_components.items():
+            if models[name].num_coordinates != arm.num_joints + (name in tools):
+                raise ValueError(f"{name}: model layout does not match its components")
+        self._arm_components = MappingProxyType(dict(arm_components))
+        self._end_effectors = MappingProxyType(tools)
+        sensor_components = dict(sensors or {})
+        self.sensors = MappingProxyType(sensor_components)
+        self._sensor_open: set[str] = set()
+        self._sensor_started: set[str] = set()
+        self._controllers = tuple(dict.fromkeys(arm.controller for arm in arm_components.values()))
+        self._controller_open: list[ArmController] = []
+        self._end_effector_open: set[str] = set()
+        self._clock = clock if clock is not None else SystemClock()
+        self._stale_ns = int(stale_timeout_s * 1e9)
+        self._sequence = 0
+        self._ready = False
+        # Only an explicit boolean True enables physical command dispatch.
+        self._execute = execute is True
+        self._end_effector_control = end_effector_control is True
+        self._lock = threading.RLock()
+
+    @property
+    def arm_components(self) -> Mapping[str, ArmBase]:
+        return self._arm_components
+
+    @property
+    def end_effectors(self) -> Mapping[str, GripperBase]:
+        return self._end_effectors
+
+    @property
+    def kinematics(self) -> RobotKinematics:
+        """TCP models in each arm base, shared with policy action decoding."""
+        return self._kinematics
+
+    def fk(self, configuration: Mapping[str, FloatArray]) -> dict[str, FloatArray]:
+        """Return each group's TCP in its own arm base; radians in, metres out."""
+        return self.kinematics.fk(configuration)
+
+    def ik(self, targets, seed, *, fixed_coordinates):
+        """Solve per-arm-base TCP targets; fixed tool coordinates include aperture."""
+        return self.kinematics.ik(targets, seed, fixed_coordinates=fixed_coordinates)
+
+    def connect(self) -> None:
+        with self._lock:
+            if self._ready:
+                return
+            if self._controller_open or self._end_effector_open:
+                raise RuntimeError("cleanup incomplete; call close before reconnecting")
+            try:
+                for controller in self._controllers:
+                    self._controller_open.append(controller)
+                    controller.connect()
+                for name, tool in self.end_effectors.items():
+                    self._end_effector_open.add(name)
+                    tool.connect()
+                self._ready = True
+                self.get_state()
+            except Exception as error:
+                try:
+                    self.close()
+                except Exception as cleanup_error:
+                    raise ExceptionGroup(
+                        "connect and cleanup failed", [error, cleanup_error]
+                    ) from None
+                raise
+
+    def _require_ready(self) -> None:
+        if not self._ready:
+            raise RuntimeError("robot is not connected")
+
+    @timed("robot_get_state")
+    def get_state(self) -> RobotState:
+        with timing_scope("robot_get_state"), timed_lock(self._lock, "assembly_lock_wait"):
+            self._require_ready()
+            feedback = {}
+            for index, controller in enumerate(self._controllers):
+                name = f"controller_{index}.get_states"
+                with (
+                    stage(name, controller_type=type(controller).__name__),
+                    timing_scope(name),
+                ):
+                    feedback[controller] = controller.get_states()
+            groups, timestamps = {}, []
+            for name, arm in self.arm_components.items():
+                state = feedback[arm.controller][arm.channel]
+                if state.joints.shape != (arm.num_joints,):
+                    raise ValueError(f"{name}: invalid arm feedback dimension")
+                if not 0 <= self._clock.now_ns() - state.monotonic_ns <= self._stale_ns:
+                    raise RuntimeError(f"{name}: stale arm feedback or clock mismatch")
+                groups[name] = state.joints.copy()
+                timestamps.append(state.monotonic_ns)
+                if name in self.end_effectors:
+                    tool_state = self.end_effectors[name].get_state()
+                    tool_ns = int(tool_state.timestamp * 1e9)
+                    if not 0 <= self._clock.now_ns() - tool_ns <= self._stale_ns:
+                        raise RuntimeError(f"{name}: stale gripper feedback or clock mismatch")
+                    groups[name] = np.r_[groups[name], tool_state.opening]
+                    timestamps.append(tool_ns)
+            self._sequence += 1
+            return RobotState(groups, min(timestamps), self._sequence)
+
+    @timed("robot_send_command")
+    def send_command(self, command: RobotCommand) -> None:
+        with timing_scope("robot_send_command"), timed_lock(self._lock, "assembly_lock_wait"):
+            self._require_ready()
+            if set(command.groups) != set(self.arm_components):
+                raise ValueError("command must contain all configured groups, without extras")
+            batches = {controller: {} for controller in self._controllers}
+            tool_commands = {}
+            for name, arm in self.arm_components.items():
+                q = np.array(command.groups[name], dtype=float, copy=True)
+                if (
+                    q.shape != (self.kinematics.models[name].num_coordinates,)
+                    or not np.isfinite(q).all()
+                ):
+                    raise ValueError(f"{name}: invalid command dimension/values")
+                batches[arm.controller][arm.channel] = q[: arm.num_joints]
+                if name in self.end_effectors:
+                    tool_commands[name] = GripperCommand(float(q[arm.num_joints]))
+            # A read-only experiment still checks action shapes, but never enables
+            # an arm or end effector. FK/IK and measured observations remain usable.
+            if not self._execute:
+                return
+            for controller, batch in batches.items():
+                controller.validate_commands(batch)
+            try:
+                self.get_state()
+                for index, (controller, batch) in enumerate(batches.items()):
+                    name = f"controller_{index}.send_commands"
+                    with (
+                        stage(name, controller_type=type(controller).__name__),
+                        timing_scope(name),
+                    ):
+                        controller.send_commands(batch)
+                if self._end_effector_control:
+                    for name, tool_command in tool_commands.items():
+                        self.end_effectors[name].send_command(tool_command)
+            except Exception as error:
+                try:
+                    self.stop()
+                except Exception as stop_error:
+                    raise ExceptionGroup("command and stop failed", [error, stop_error]) from None
+                raise
+
+    def home(self) -> None:
+        raise NotImplementedError("home trajectory not configured; use the runtime motion planner")
+
+    # Idle recovery: RoboGUI may request these between rollouts. Each request builds
+    # a fresh, disconnected assembly and calls the matching method below.
+
+    @property
+    def recovery_actions(self) -> tuple[str, ...]:
+        """Supported idle actions, including any robot-owned hand-guiding handlers."""
+        return ()
+
+    @property
+    def hand_guiding_actions(self) -> Mapping[str, HandGuidingHandler]:
+        """Cancellable recovery handlers; each owns entry, monitoring and cleanup."""
+        return MappingProxyType(
+            {"drag": self.recover_drag} if "drag" in self.recovery_actions else {}
+        )
+
+    @property
+    def drag_selections(self) -> Mapping[str, tuple[str, ...]]:
+        """RoboGUI hand-guiding choices, mapping labels to robot groups."""
+        return MappingProxyType({})
+
+    def clear_errors(self) -> None:
+        """Reset latched controller faults; call on a disconnected assembly."""
+        raise NotImplementedError("this robot does not support clearing controller faults")
+
+    def drag(
+        self,
+        groups: Sequence[str],
+        stop: threading.Event,
+        on_active: Callable[[], None] | None = None,
+    ) -> None:
+        """Hand-guide the named groups until stop is set; on_active marks drag entry."""
+        raise NotImplementedError("this robot does not support hand-guided drag")
+
+    def recover_home(self, stop: threading.Event | None = None) -> None:
+        """Connect, Home and close; idle Home implementations must support cancellation."""
+        if stop is not None:
+            raise NotImplementedError("this robot does not support cancellable idle Home")
+        self.connect()
+        try:
+            self.home()
+        except Exception as error:
+            try:
+                self.close()
+            except Exception as cleanup_error:
+                raise ExceptionGroup("home and cleanup failed", [error, cleanup_error]) from None
+            raise
+        self.close()
+
+    def recover_drag(
+        self,
+        groups: Sequence[str],
+        stop: threading.Event,
+        on_active: Callable[[], None] | None = None,
+    ) -> None:
+        """Idle drag on a disconnected assembly; robots add any preparation they need."""
+        self.drag(groups, stop, on_active)
+
+    def sent_command_snapshots(self) -> dict:
+        """Read optional controller send evidence without issuing hardware reads."""
+        with self._lock:
+            snapshots = {}
+            for controller in self._controllers:
+                getter = getattr(controller, "sent_command_snapshots", None)
+                snapshots[controller] = getter() if callable(getter) else {}
+            return {
+                name: snapshots[arm.controller][arm.channel]
+                for name, arm in self.arm_components.items()
+                if arm.channel in snapshots[arm.controller]
+            }
+
+    def runtime_metadata(self) -> dict:
+        """Snapshot optional controller provenance without polling or commanding hardware."""
+        controllers = {}
+        for controller in self._controllers:
+            method = getattr(controller, "runtime_metadata", None)
+            try:
+                controllers[controller] = method() if callable(method) else {
+                    "available": False, "reason": "controller_metadata_not_supported",
+                }
+            except Exception as exc:
+                controllers[controller] = {"available": False, "reason": type(exc).__name__}
+        return {
+            "connected": self._ready,
+            "execute": self._execute,
+            "groups": {
+                name: controllers[arm.controller] for name, arm in self.arm_components.items()
+            },
+        }
+
+    def start_sensors(self) -> None:
+        """Explicitly start owned sensors; connect() does not claim camera devices."""
+        with self._lock:
+            if self._sensor_open - self._sensor_started:
+                raise RuntimeError(
+                    "sensor cleanup incomplete; call close_sensors before restarting"
+                )
+            try:
+                for name, sensor in self.sensors.items():
+                    if name not in self._sensor_open:
+                        self._sensor_open.add(name)
+                        sensor.start()
+                        self._sensor_started.add(name)
+            except Exception as error:
+                try:
+                    self.close_sensors()
+                except Exception as cleanup_error:
+                    raise ExceptionGroup(
+                        "sensor startup and cleanup failed", [error, cleanup_error]
+                    ) from None
+                raise
+
+    def read_sensors(self):
+        with self._lock:
+            if self._sensor_started != self.sensors.keys():
+                raise RuntimeError("robot sensors are not started")
+            frames = {}
+            for name, sensor in self.sensors.items():
+                reading = sensor.read()
+                # Physical components use assembly names; network sources retain each frame's logical camera name.
+                frames.update({name: reading} if isinstance(reading, SensorFrame) else reading)
+            return frames
+
+    def close_sensors(self) -> None:
+        with self._lock:
+            errors = []
+            for name in tuple(self._sensor_open):
+                self._sensor_started.discard(name)
+                try:
+                    self.sensors[name].close()
+                    self._sensor_open.remove(name)
+                except Exception as error:
+                    errors.append(error)
+            if errors:
+                raise ExceptionGroup("sensor cleanup incomplete", errors)
+
+    def stop(self) -> None:
+        with self._lock:
+            errors = []
+            for controller in self._controller_open:
+                try:
+                    controller.stop()
+                except Exception as error:
+                    errors.append(error)
+            for name in tuple(self._end_effector_open):
+                try:
+                    self.end_effectors[name].stop()
+                except Exception as error:
+                    errors.append(error)
+            if errors:
+                raise ExceptionGroup("robot stop incomplete", errors)
+
+    def close(self) -> None:
+        with self._lock:
+            self._ready = False
+            errors = []
+            try:
+                self.stop()
+            except Exception as error:
+                errors.append(error)
+            for name in tuple(self._end_effector_open):
+                try:
+                    self.end_effectors[name].close()
+                    self._end_effector_open.remove(name)
+                except Exception as error:
+                    errors.append(error)
+            for controller in tuple(reversed(self._controller_open)):
+                try:
+                    controller.close()
+                    self._controller_open.remove(controller)
+                except Exception as error:
+                    errors.append(error)
+            try:
+                self.close_sensors()
+            except Exception as error:
+                errors.append(error)
+            if errors:
+                raise ExceptionGroup("robot cleanup incomplete", errors)
+
+
+# These data classes belong to robot assembly. They neither connect devices nor
+# replace a component's official solver; no separate description/assembly layer
+# is needed to share them with RoboGUI and policy adapters.
+@dataclass(frozen=True, slots=True)
+class MountedGroup:
+    arm_name: str
+    arm: ArmModel
+    end_effector_name: str | None
+    end_effector: EndEffectorModel | None
+    mount: Frame  # Physical flange-to-tool mounting transform used in TCP calculations.
+    kinematics: ManipulatorKinematicsBase
+
+    def visual_end_effector(self):
+        if self.end_effector is None:
+            return None
+        visual = self.end_effector.visual
+        # The component provides its own tool geometry; installation comes from
+        # the robot config. Render the same calibrated fixed TCP as the solver.
+        geometry = self.end_effector.geometry
+        transform = geometry.tcp_transform(np.asarray(visual.spec.rest_inputs))
+        tcp = Frame(
+            xyz=tuple(transform[:3, 3]),
+            rpy=tuple(Rotation.from_matrix(transform[:3, :3]).as_euler("xyz")),
+        )
+        spec = visual.spec.model_copy(update={"mount": self.mount, "tcp": tcp})
+        return replace(visual, spec=spec)
+
+    def visual_urdf(self) -> Path:
+        return attach_end_effector(
+            self.arm.urdf_path,
+            self.arm.flange_link,
+            self.visual_end_effector(),
+        )
+
+    def visual_configuration(self, configuration: FloatArray) -> FloatArray:
+        q = np.asarray(configuration, dtype=np.float64)
+        if q.shape != (self.kinematics.num_coordinates,) or not np.isfinite(q).all():
+            raise ValueError("visual configuration must match the full group layout")
+        width = len(self.arm.coordinates)
+        arm_q = self.arm.visual_configuration(q[:width])
+        if self.end_effector is None:
+            return arm_q
+        return np.r_[arm_q, self.end_effector.visual.joint_positions(q[width:])]
+
+
+def _read_mapping(path: Path) -> dict:
+    return yaml.safe_load(path.read_text())
+
+
+def _mount(value) -> Frame:
+    # Frame reads xyz/rpy; only add numerical rigid-transform constraints here.
+    frame = Frame.model_validate(value)
+    # Reuse the common rigid-transform validator, including finite values.
+    rigid_transform(frame.matrix(), "mount")
+    return frame
+
+
+@dataclass(frozen=True, slots=True)
+class RobotModel:
+    """Offline assembly shared by control, adapters and RoboGUI.
+
+    Each arm keeps its own base frame, with an optional flange-mounted tool.
+    Scene placement belongs to RoboGUI configuration and is never loaded here.
+    Sensors may declare an unknown mount (null); no camera transform is inferred.
+    """
+
+    name: str
+    groups: Mapping[str, MountedGroup]
+    kinematics: RobotKinematics
+    components: Mapping[str, dict]
+    hardware: Mapping[str, object]
+    config_path: Path
+    # Optional arm-only Home targets in model coordinates (radians), without tool commands.
+    home_joints: Mapping[str, FloatArray] = field(default_factory=dict)
+    action_layouts: Mapping[str, dict] = field(default_factory=dict)
+
+    @classmethod
+    def from_config(cls, path: Path | str) -> RobotModel:
+        source = Path(path).expanduser().resolve()
+        spec = _read_mapping(source)
+        name = spec["name"]
+        declarations = spec["components"]
+        components, arm_models, tool_models, mounts = {}, {}, {}, {}
+        for component_name, entry in declarations.items():
+            component_source = (source.parent / entry["config"]).resolve()
+            component = _read_mapping(component_source)
+            component["options"] = {**component.get("options", {}), **entry.get("options", {})}
+            component["hardware"] = {**component.get("hardware", {}), **entry.get("hardware", {})}
+            component["parent"] = entry.get("parent")
+            component["mount"] = entry.get("mount")
+            component["source"] = component_source
+            factory = load_plugin(
+                component["implementation"], group="manimux.components", builtins={}
+            )
+            kind = component["type"]
+            component["class"] = factory
+            # Arm FK/IK includes the base frame; resolve only physical tool or camera mounts.
+            # RoboGUI scene placement does not enter the embodiment model.
+            if kind == "end_effector" or (kind == "sensor" and entry.get("mount") is not None):
+                mounts[component_name] = _mount(entry.get("mount"))
+            if kind == "arm":
+                arm_models[component_name] = factory.load_model(**component["options"])
+            elif kind == "end_effector":
+                tool_models[component_name] = factory.load_model(
+                    **component["options"],
+                    base_frame=f"{component_name}.base",
+                    tcp_frame=f"{component_name}.tcp",
+                )
+            components[component_name] = component
+        groups, used_arms, used_tools = {}, set(), set()
+        for group_name, group in spec["groups"].items():
+            arm_name, tool_name = group["arm"], group.get("end_effector")
+            if arm_name not in arm_models or arm_name in used_arms:
+                raise ValueError("each group must select a distinct configured arm")
+            arm = arm_models[arm_name]
+            used_arms.add(arm_name)
+            tool = None
+            mount = Frame()
+            if tool_name is not None:
+                if tool_name not in tool_models or tool_name in used_tools:
+                    raise ValueError("each group must select a distinct configured end effector")
+                if components[tool_name]["parent"] != f"{arm_name}.flange":
+                    raise ValueError("end effector parent must be the group's arm flange")
+                tool = tool_models[tool_name]
+                mount = mounts[tool_name]
+                used_tools.add(tool_name)
+            if tool is None and isinstance(arm.kinematics, ManipulatorKinematicsBase):
+                # null means no additional tool. Integrated components already define their TCP, gripper and
+                # coordinate layout; reuse these to avoid duplicating tool offsets or losing the gripper coordinate.
+                kin = arm.kinematics
+            else:
+                geometry = (
+                    tool.geometry
+                    if tool
+                    else FixedToolGeometry(
+                        np.eye(4), base_frame=f"{arm_name}.flange", tcp_frame=f"{arm_name}.flange"
+                    )
+                )
+                kin = ComposedManipulatorKinematics(
+                    arm.kinematics,
+                    geometry,
+                    arm_coordinates=arm.coordinates,
+                    mount=mount.matrix(),
+                    # The mount above connects flange and tool only; output remains relative to the arm base.
+                    base_frame=arm.base_frame,
+                    position_tolerance=None,
+                )
+            groups[group_name] = MountedGroup(arm_name, arm, tool_name, tool, mount, kin)
+        if used_arms != set(arm_models) or used_tools != set(tool_models):
+            raise ValueError("all arm and end-effector components must belong to a group")
+        home_joints = {}
+        if "home" in spec:
+            home = spec["home"]
+            targets = home.get("joints_deg") if isinstance(home, Mapping) else None
+            if not isinstance(targets, Mapping) or set(targets) != set(groups):
+                raise ValueError("home.joints_deg must contain every configured arm group")
+            for group_name, group in groups.items():
+                q = np.asarray(targets[group_name], dtype=np.float64)
+                if (
+                    q.shape != (len(group.arm.coordinates),)
+                    or not np.isfinite(q).all()
+                    or any(coordinate.unit != "rad" for coordinate in group.arm.coordinates)
+                ):
+                    raise ValueError(f"home.joints_deg.{group_name}: invalid joint angles")
+                q = np.radians(q)
+                limits = components[group.arm_name]["hardware"].get("joint_limits")
+                if limits is not None and (
+                    np.any(q < np.asarray(limits[0])) or np.any(q > np.asarray(limits[1]))
+                ):
+                    raise ValueError(f"home.joints_deg.{group_name}: outside joint limits")
+                q.setflags(write=False)
+                home_joints[group_name] = q
+        kin = RobotKinematics({key: value.kinematics for key, value in groups.items()})
+        contract = assembly_action_contract(source)
+        layouts = (
+            group_layouts({name: model.num_coordinates for name, model in kin.models.items()},
+                         contract) if contract else {}
+        )
+        return cls(
+            name,
+            MappingProxyType(groups),
+            kin,
+            MappingProxyType(components),
+            MappingProxyType(dict(spec.get("hardware", {}))),
+            source,
+            MappingProxyType(home_joints),
+            MappingProxyType(layouts),
+        )

@@ -1,0 +1,6 @@
+kind: count
+task_id: put_bottles
+rubric_id: put_bottles_6_v1
+label: Put bottles into the bin
+count_label: Bottles in bin
+target_count: 6

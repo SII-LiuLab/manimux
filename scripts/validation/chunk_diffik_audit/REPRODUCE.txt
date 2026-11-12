@@ -1,0 +1,90 @@
+Chunk DiffIK offline audit (no robot/controller construction, no model inference)
+
+Workspace: /home/jw/Desktop/project/manimux
+Interpreter used: /home/jw/Desktop/project/manimux/.venv/bin/python
+Output: data/analysis/chunk_diffik_audit_20261019
+
+Run from the workspace root. Keep CPU BLAS threading bounded:
+export PYTHONPATH=.
+export OPENBLAS_NUM_THREADS=1
+export OMP_NUM_THREADS=1
+
+python scripts/validation/chunk_diffik_audit/audit.py inventory
+python scripts/validation/chunk_diffik_audit/audit.py baseline --workers 3
+python scripts/validation/chunk_diffik_audit/audit.py single --workers 3
+python scripts/validation/chunk_diffik_audit/review.py joint
+python scripts/validation/chunk_diffik_audit/audit.py joint --workers 3
+python scripts/validation/chunk_diffik_audit/audit.py tcp --workers 3
+python scripts/validation/chunk_diffik_audit/tcp_joint.py
+python scripts/validation/chunk_diffik_audit/audit.py tcp_joint --workers 3
+python scripts/validation/chunk_diffik_audit/review.py lock
+python scripts/validation/chunk_diffik_audit/audit.py holdout --workers 3
+python scripts/validation/chunk_diffik_audit/export_selected.py
+python scripts/validation/chunk_diffik_audit/review.py rates
+python scripts/validation/chunk_diffik_audit/validate.py
+# Plot-only dependency, isolated from the shared runtime environment:
+uv pip install --python .venv/bin/python --target /tmp/manimux_chunk_audit_plot_deps matplotlib==3.10.7
+export CHUNK_DIFFIK_PLOT_DEPS=/tmp/manimux_chunk_audit_plot_deps
+python scripts/validation/chunk_diffik_audit/report.py
+
+Inventory also writes the fixed TCP single-factor specification. Candidate jobs
+resume existing candidate JSON files. For a fully fresh reproduction, set before
+running every command above:
+export CHUNK_DIFFIK_OUTPUT=/absolute/path/to/a/new/chunk_diffik_audit_output
+Every script reads this variable. Do not reuse cached candidate outputs after
+changing code, input or settings. Keep the original report for comparison.
+All new files belong to chunk_diffik_audit paths. Never remove raw episodes.
+
+Evidence contracts:
+- Inventory fixes <=20 recent valid episodes per task before metric inspection.
+  Empty/unexecuted episodes are listed explicitly. No failed trial is discarded
+  because its performance is poor. Completed and aborted records stay distinct.
+- Split is by complete session, latest nonempty session per task held out.
+  Sessions with unique historical configs/checkpoints cannot establish repeated
+  within-config transfer. report.py presents baseline and candidate strata.
+- canonical_raw contains JOINT knots; native TCP targets and exact per-arm IK
+  seeds come from its ee_target_trace metadata. Never call decoded-joint FK the
+  original policy target.
+- The production adapter reruns all knot substeps at 0.033333333 / 9 seconds.
+  runtime_trajectory dt is integer 3703703 ns. Dense trajectories are not saved
+  historically, but regenerated baseline knots/reference match exactly.
+- Timeline mapping uses recorded plan_id, commit time, trim and skip. Async
+  intentional skip advances the source row without shifting the handoff clock.
+  Serial first_step_when_ready retimes source start to commit. Gap ticks hold
+  last command and clear velocity; explicit resets alone reanchor command.
+- Only actual active ticks and the two dense interpolation endpoints supporting
+  them contribute executed residuals/constraint fractions. Full unexecuted tail
+  lag maxima are never called execution errors. Rejected counterfactual chunks
+  remain failures, not silent successful subsets.
+- Original target between saved knots is defined by linear xyz + shortest-arc
+  SLERP. First source interval uses recorded seed TCP. This is an explicit
+  target interpolant. QP waypoints separately interpolate from achieved TCP at
+  the beginning of each knot, which differs from raw-target interpolation.
+- Frozen-reference tests retain the entire recorded scheduled reference. Any
+  shared max_velocity change reruns IK. Same newly solved IK reference can be
+  reused across executor-only settings at that same rate/objective.
+- All candidate re-solves retain recorded original seeds. Changed command does
+  not feed subsequent IK seeds/observations/policy targets. This is open-loop
+  fixed-target intervention, NOT a predicted exact closed-loop robot replay.
+- TCP objective uses Jv_tcp = Jv_flange + omega cross r. Fixed tool offsets and
+  physical bounds remain unchanged. This is an isolated experimental shim,
+  not an existing production YAML option or a proposed shared-code patch.
+- Command TCP, joint and angular velocity/acceleration/jerk use unsmoothed
+  backward differences with actual host tick intervals; resets are excluded.
+  Handoff windows are 100 ms before and after a recorded executing plan change.
+  Stable excludes these windows; hold has no valid policy target error.
+- State derivatives include quantization and timestamp jitter. Feedback sample
+  timestamps are unavailable. command->state lag fitting is descriptive, not
+  system identification. No physical response or measured-state improvement is
+  predicted for candidates. sent_command/valid is checked, never substituted.
+- Layer residuals use Euclidean TCP position and geodesic SO(3) orientation.
+  They are not scalar additive components of one total error.
+- Selection uses development only: session-balanced episode p95, both TCP
+  errors non-worse, both TCP jerk p95 <=105% baseline, all episodes and guard
+  checks present. Ranking weights are 0.4 translation, 0.4 rotation, 0.1 linear
+  jerk, 0.1 angular jerk. No-op candidates are excluded. Per-stratum regressions
+  remain visible and can disqualify deployment despite a task-level rank.
+- Recorded and current critical source SHA256s are compared; git SHA alone is
+  insufficient for historically dirty checkouts. provenance.json pins scripts
+  and Python/numpy/scipy/osqp/zarr versions. Raw input hashes include target
+  metadata, seeds, knots, ticks, arrays, manifests and events.

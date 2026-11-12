@@ -3,6 +3,10 @@
 # Local training jobs, cluster submission payloads, and TensorBoard operations.
 # These are intentionally kept out of the public ManiMux repository.
 /.local/
+# Private training recipes, launchers, notes and outputs stay outside the package.
+/training/
+/manimux/configs/local/station.yaml
+/manimux/configs/local/deployments/
 /.vscode/
 /qz/
 /weekly_report/
@@ -15,16 +19,15 @@
 .pytest_cache/
 .ruff_cache/
 .venv/
+# Local Python environments; setup instructions live in the station skill references.
+/envs/
 *.egg-info/
 data/
-!src/manimux/collection/yam/data/
-!src/manimux/collection/yam/data/**
 __pycache__/
 *.py[cod]
 dist/
 checkpoints/pretrained/
 checkpoints/finetuned/
-configs/robots/maniunicon_meshcat_dual.yaml
 recordings/
 logs/
 **/SOURCE.json
@@ -32,26 +35,40 @@ logs/
 **/source_provenance.json
 /3cam_tcp.ckpt
 *.ckpt
-tests/
+# Regression tests and their launchers stay local; do not commit or force-add them.
+/tests/
+/scripts/validation/test_*.sh
 **/**/test*
-!/tests/
-/tests/*
-!/tests/unit/
-/tests/unit/*
-!/tests/unit/test_yam_collection.py
-!/tests/unit/test_selected_camera_requests.py
-!/tests/unit/test_sapolicy_xpl_model.py
-!/tests/unit/test_sapolicy_xpl_transport.py
-!/tests/unit/test_sapolicy_decode_timing.py
-!/tests/unit/test_viewer_config.py
-!/tests/unit/test_tianji_driver.py
-!/tests/unit/test_taccap_camera.py
 
-!/tests/unit/test_umi_dp_tianji.py
-!/tests/unit/test_tianji_diff_ik.py
-!/tests/unit/test_tianji_recovery.py
-!/tests/unit/test_tianji_rtc.py
-!/tests/integration/
-/tests/integration/*
-!/tests/integration/test_umi_tianji_process_decoding.py
-!/tests/integration/test_tianji_rtc_process.py
+# Private embodiment SDKs and robot assets stay on the local installation.
+/manimux/embodiments/**/sdk/
+/manimux/embodiments/**/asset/
+/manimux/embodiments/**/assets/
+# Also exclude the pre-refactor locations and backup copies.
+/manimux/assets/tianji/
+/manimux/assets/end_effectors/umi_follower/
+
+# Ship public MIT-licensed YAM models with the component; retain assets tracked before refactoring.
+!/manimux/embodiments/arm/yam/assets/
+!/manimux/embodiments/arm/yam/assets/**
+
+# Public RoboTwin follower-arm geometry and its retained license are redistributable.
+!/manimux/embodiments/arm/aloha_agilex/assets/
+!/manimux/embodiments/arm/aloha_agilex/assets/**
+
+# Public standard PiPER meshes retain the official MIT notice in the component.
+!/manimux/embodiments/arm/piper/assets/
+!/manimux/embodiments/arm/piper/assets/**
+
+# Local backup of the pre-refactor package tree; the active package is /manimux.
+/src/
+
+# Generated documentation website.
+/site/
+/.venv-docs/
+
+# Local historical documentation. Maintain guideline.html and skill references instead.
+/docs/
+
+# Private study decisions and results; preserve the local file.
+/experiments.md

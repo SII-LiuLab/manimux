@@ -1,0 +1,170 @@
+# Independent live experiment, frozen from guarded-live intent using current field names.
+# No shared inference/control preset or existing experiment is loaded. Starting a rollout enables motion.
+# Model state uses measured observations; diff-IK seeds use execution_reference.
+# Camera stream names match the current station service; ownership stays with that service.
+local: ../../../../../.local/tianji_pi05_pack_plate_inter_hand_relative.yaml
+run:
+  task: plate
+  experiment_name: pi05-pack-plate-inter-hand-relative
+  condition: step20000-rtc
+  output_dir: ./data/experiments/pi05-tianji-pack-plate-inter-hand-relative-step20000-rtc
+  max_control_steps: 6000
+robot:
+  type: tianji_taccap
+  config: ../../../embodiment/robot/tianji_taccap_inter_hand_relative.yaml
+  control_hz: 100.0
+  options:
+    execute: true
+    end_effector_control: true
+    hardware:
+      stale_timeout_s: 0.1
+    component_hardware:
+      left_end_effector:
+        read_hz: 100.0
+        control_mode: force_position
+        grasp_torque_nm: 1.0
+        close_speed_radps: 1.1
+      right_end_effector:
+        read_hz: 100.0
+        control_mode: force_position
+        grasp_torque_nm: 1.0
+        close_speed_radps: 1.1
+sensors:
+- name: tianji_wrist_cameras
+  driver: manimux.embodiments.sensor.camera_server.timestamped:build_sensor
+  service: camera
+  options:
+    camera_names:
+    - taccap_left
+    - taccap_right
+    max_frame_age_sec: 0.15
+    clock_jump_tolerance_s: 0.02
+    output_names:
+      taccap_left: left_wrist_camera
+      taccap_right: right_wrist_camera
+policy:
+  worker: xpolicylab_ws
+  service: pi05_inter_hand_best
+  adapter:
+    type: manimux.policy_adapter.pi05.tianji:Pi05PackPlateTacCapAdapter
+    group_order:
+    - left_arm
+    - right_arm
+    group_prefixes:
+      left_arm: left
+      right_arm: right
+    gripper_dofs: 1
+    camera_map:
+      cam_left_wrist: left_wrist_camera
+      cam_right_wrist: right_wrist_camera
+    gripper_clip_tolerance: 0.1
+    ik_validation_dt_s: 0.004
+    ik_backend: diff
+    diff_ik:
+      w_pos: 1.0
+      w_rot: 1.0
+      lam: 0.001
+      mu_nullspace: 1000.0
+      nullspace_activation_deg: 25.0
+      limit_margin_deg: null
+      j67_margin_deg: null
+      max_lag_mm: 5.0
+      max_lag_deg: null
+      lag_policy: report
+      nullspace_weights: null
+    execute_diff_ik_substeps: false
+  action_decoding: process
+  action_dt_s: 0.03333333333333333
+  horizon_policy_steps: 32
+  timeout_s: 120.0
+  startup_timeout_s: 180.0
+  options:
+    connect_timeout_s: 60.0
+    request_timeout_s: 120.0
+    server: ws://127.0.0.1:8572
+policy_server:
+  config: ../../../policy/pi05/tianji/pack_plate/inter-hand-relative-step20000.yaml
+camera_server:
+  service: camera
+  cameras:
+    taccap_left:
+      config: ../../../embodiment/sensor/taccap.yaml
+      component: left_wrist_camera
+      options:
+        width: 640
+        height: 480
+        fps: 30
+        max_frame_age_sec: 0.3
+        startup_timeout_sec: 3.0
+        by_id_root: /dev/v4l/by-id
+    taccap_right:
+      config: ../../../embodiment/sensor/taccap.yaml
+      component: right_wrist_camera
+      options:
+        width: 640
+        height: 480
+        fps: 30
+        max_frame_age_sec: 0.3
+        startup_timeout_sec: 3.0
+        by_id_root: /dev/v4l/by-id
+inference:
+  algorithm: rtc
+  strategy: null
+  expected_decode_s: 0.05
+  decode_forecast_size: 10
+  decode_forecast_mode: max
+  max_plan_age_s: 2.0
+  blend_policy_steps: 2
+  handoff: blend
+  handoff_margin_s: 0.01
+  handoff_skip_steps: 2
+  independent_group_decoding: false
+  rtc:
+    min_execute_policy_steps: 18
+    initial_delay_policy_steps: 8
+    delay_buffer_size: 10
+    beta: 10.0
+executor:
+  smooth:
+    cutoff_hz: 8.0
+    gripper:
+      mode: curve
+      deadzone: 0.005
+      exponent: 1.1
+  command_safety:
+    position_lower:
+      left_arm: [-2.8797932657906435, -2.007128639793479, -2.8797932657906435, -2.443460952792061, -2.8797932657906435,
+        -0.9599310885968813, -1.4835298641951802, 0.0]
+      right_arm: [-2.8797932657906435, -2.007128639793479, -2.8797932657906435, -2.443460952792061, -2.8797932657906435,
+        -0.9250245035569946, -1.4835298641951802, 0.0]
+    position_upper:
+      left_arm: [2.8797932657906435, 2.007128639793479, 2.8797932657906435, 0.9599310885968813, 2.8797932657906435,
+        0.9599310885968813, 1.4835298641951802, 1.0]
+      right_arm: [2.8797932657906435, 2.007128639793479, 2.8797932657906435, 0.9599310885968813, 2.8797932657906435,
+        0.9250245035569946, 1.4835298641951802, 1.0]
+    max_velocity:
+      left_arm: [1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 1.0053096491487339,
+        1.0053096491487339, 1.0053096491487339, 10]
+      right_arm: [1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 1.0053096491487339, 1.0053096491487339,
+        1.0053096491487339, 1.0053096491487339, 10]
+    max_acceleration: null
+  motion_limits:
+    arm:
+      mode: isotropic
+      max_velocity: 0.5
+      max_step_dt_s: 0.016
+      max_acceleration: null
+    gripper:
+      group_indices:
+        left_arm: 7
+        right_arm: 7
+      max_velocity: 8.0
+      max_acceleration: 12.0
+      max_closing_velocity: 8.0
+  type: smooth
+robogui:
+  enabled: true
+  robot: tianji-taccap
+  policy_label: Pi05 / pack plate / inter-hand-relative LoRA / step20000 / RTC
+recording:
+  enabled: true

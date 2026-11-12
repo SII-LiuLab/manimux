@@ -1,6 +1,10 @@
 [submodule "XPolicyLab"]
 	path = XPolicyLab
 	url = https://github.com/Cuzyoung/XPolicyLab.git
+	branch = main
 [submodule "PRM-as-a-Judge"]
 	path = PRM-as-a-Judge
 	url = https://github.com/YuyangLiu2003/PRM-as-a-Judge.git
+[submodule "StarVLA"]
+	path = StarVLA
+	url = https://github.com/GuHaomingcs/starVLA.git

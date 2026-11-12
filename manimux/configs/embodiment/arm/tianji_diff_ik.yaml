@@ -1,0 +1,12 @@
+# Explicit Tianji differential-IK profile. Rates come from motion_limits.
+w_pos: 1.0
+w_rot: 1.0
+lam: 0.001
+limit_margin_deg: null
+j67_margin_deg: null
+mu_nullspace: 1000.0
+nullspace_activation_deg: 25.0
+nullspace_weights: null
+max_lag_mm: 5.0
+max_lag_deg: null
+lag_policy: report

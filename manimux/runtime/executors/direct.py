@@ -1,0 +1,121 @@
+from __future__ import annotations
+
+import math
+
+import numpy as np
+
+from manimux.runtime.executors.limits import (
+    ScalarLimits,
+    braking_velocity,
+    limit_step,
+    limit_velocity,
+)
+from manimux.types import ActionHorizon, GroupVector, RobotCommand, RobotState, copy_group_vector
+
+
+class DirectExecutor:
+    """Forward the reference, applying only explicitly shared motion limits."""
+
+    def __init__(self, motion_limits: dict | None = None, control_dt_s: float = 0.01) -> None:
+        self._motion = motion_limits
+        self._dt_s = control_dt_s
+        self._previous: GroupVector | None = None
+        self._previous_velocity: GroupVector | None = None
+
+    @property
+    def horizon_steps(self) -> int:
+        return 2
+
+    def set_control_period(self, control_dt_s: float) -> None:
+        """Change timing while retaining command and velocity history."""
+        if not math.isfinite(control_dt_s) or control_dt_s <= 0:
+            raise ValueError("control_dt_s must be finite and positive")
+        self._dt_s = control_dt_s
+
+    def reset(self, state: RobotState) -> None:
+        self._previous = copy_group_vector(state.groups)
+        self._previous_velocity = {
+            name: np.zeros_like(value) for name, value in state.groups.items()
+        }
+
+    def command_velocity(self, last_command: GroupVector) -> GroupVector:
+        """Return nominal-tick velocity for the caller's last dispatched command.
+
+        Lifecycle reset establishes a stationary anchor. A different anchor must
+        be reset explicitly; guessing zero here would defeat acceleration bounds.
+        """
+        if self._previous is None:
+            self.reset(RobotState(copy_group_vector(last_command), 0, 0))
+        if set(last_command) != set(self._previous) or any(
+            not np.array_equal(last_command[name], self._previous[name]) for name in last_command
+        ):
+            raise ValueError("executor command history does not match last dispatched command")
+        return copy_group_vector(self._previous_velocity)
+
+    def step(
+        self,
+        now_ns: int,
+        state: RobotState,
+        reference: ActionHorizon,
+    ) -> RobotCommand:
+        output = {name: values[0].copy() for name, values in reference.groups.items()}
+        if self._motion is not None:
+            if self._previous is None or self._previous_velocity is None:
+                self.reset(state)
+            output, velocities = limit_step(
+                output,
+                self._previous,
+                self._previous_velocity,
+                dt_s=self._dt_s,
+                limits=ScalarLimits(
+                    self._motion["arm"]["max_velocity"],
+                    self._motion["arm"]["max_acceleration"],
+                    None,
+                    self._motion["arm"]["mode"],
+                    self._motion["arm"]["max_step_dt_s"],
+                ),
+                gripper_indices=self._motion["gripper"]["group_indices"],
+            )
+            gripper = self._motion["gripper"]
+            for name, index in gripper["group_indices"].items():
+                desired = reference.groups[name][0, index]
+                previous = self._previous[name][index]
+                error = desired - previous
+                desired_velocity = error / self._dt_s
+                if gripper["max_acceleration"] is not None:
+                    # Reserve enough distance to stop before a fixed target.
+                    # A sudden replan may cross the new target while braking;
+                    # retain the acceleration limit rather than snapping to it.
+                    desired_velocity = np.sign(error) * min(
+                        abs(desired_velocity),
+                        float(braking_velocity(
+                            np.asarray(abs(error)), gripper["max_acceleration"], self._dt_s
+                        )),
+                    )
+                velocity = float(
+                    limit_velocity(
+                        np.asarray(desired_velocity),
+                        np.asarray(self._previous_velocity[name][index]),
+                        self._dt_s,
+                        gripper["max_velocity"],
+                        gripper["max_acceleration"],
+                        gripper["max_closing_velocity"],
+                    )
+                )
+                output[name][index] = (
+                    desired
+                    if (
+                        gripper["max_velocity"] is None
+                        and gripper["max_acceleration"] is None
+                        and (gripper["max_closing_velocity"] is None or desired >= previous)
+                    )
+                    else previous + velocity * self._dt_s
+                )
+                velocities[name][index] = velocity
+            self._previous = copy_group_vector(output)
+            self._previous_velocity = velocities
+        return RobotCommand(
+            groups=output,
+            monotonic_ns=now_ns,
+            plan_id=reference.plan_id,
+        )

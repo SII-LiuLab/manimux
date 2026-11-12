@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DP chunk overlap · ManiMux vs train-time RTC</title>
+<style>
+:root{--paper:#f4f3ef;--ink:#1e2930;--muted:#647078;--line:#d7dcd9;--base:#216f87;--train:#bd5939}*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.65 system-ui,-apple-system,"Noto Sans CJK SC",sans-serif}main{max-width:1440px;margin:auto;padding:40px 44px}h1{font-size:34px;line-height:1.25;margin:14px 0}h2{font-size:21px;margin:0 0 8px}h3{font-size:16px;margin:0 0 8px}p{margin:6px 0 14px}.eyebrow{font-size:12px;letter-spacing:2px;font-weight:700;color:var(--muted)}.lead{max-width:970px;font-size:16px}.muted,small,figcaption{color:var(--muted)}.badge{border:1px solid var(--line);border-radius:20px;padding:3px 10px;margin-left:12px;letter-spacing:0}.stats{display:flex;gap:42px;margin:24px 0 30px;padding:18px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}.stats strong{display:block;font-size:29px;font-weight:550}.notice{border-left:3px solid var(--train);padding:4px 18px;max-width:1160px;margin-bottom:28px}.controls{position:sticky;top:0;z-index:3;background:var(--paper);border-bottom:1px solid var(--line);padding:14px 0;display:flex;gap:14px;flex-wrap:wrap}label{font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:5px}select{max-width:320px;background:white;border:1px solid #bec8c8;color:var(--ink);padding:8px 12px;border-radius:4px;font-size:13px}section{margin:30px 0}.grid{display:grid;grid-template-columns:1fr 1fr;gap:22px}.panel{background:#fff;padding:22px;border:1px solid var(--line);min-width:0}.legend{display:flex;gap:24px;margin-bottom:10px;font-size:13px}.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:7px}.base{color:var(--base)}.train{color:var(--train)}.scroll{overflow:auto}table{border-collapse:collapse;width:100%;font-size:12px}td,th{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);white-space:nowrap}th{font-weight:600;color:var(--muted);background:#f5f6f4}td.num{text-align:right;font-variant-numeric:tabular-nums}svg{display:block;width:100%;height:auto;font-size:11px}svg text{fill:var(--muted)}.detail-controls{display:flex;flex-wrap:wrap;gap:12px;margin:12px 0}.detail-controls select{max-width:100%;width:100%}.detail-controls label:first-child{flex:1}.smallpath{word-break:break-all;font-family:monospace;font-size:11px;max-width:550px;white-space:normal}details{margin:14px 0}summary{cursor:pointer;font-weight:600}code{background:#e9ece8;padding:2px 4px;font-size:12px}footer{border-top:1px solid var(--line);padding-top:18px;color:var(--muted)}.keyline{font-size:16px;line-height:1.7}.empty{min-height:160px;display:grid;place-items:center;color:var(--muted)}a{color:var(--base)}@media(max-width:900px){main{padding:24px 16px}.grid{grid-template-columns:1fr}h1{font-size:27px}.stats{gap:20px;flex-wrap:wrap}.controls{position:static}.panel{padding:16px}}
+</style>
+<main>
+<header><div class="eyebrow">MANIMUX / OFFLINE TRAJECTORY STUDY <span class="badge">探索性分析 · H32</span></div>
+<h1>Chunk 在哪里接不上？</h1><p class="lead">DP ManiMux 异步调度与 train-time RTC 的 overlap 对比。先看首尾误差，再看整段形状和运动方向，最后回到具体 chunk 检查差异。</p>
+<div class="legend"><span><i class="dot" style="background:var(--base)"></i>DP · Async</span><span><i class="dot" style="background:var(--train)"></i>DP · train-time RTC</span></div>
+<div class="stats" id="stats"></div>
+<div class="notice"><b>比较的是已保存的参考轨迹。</b>两组 checkpoint、日期、handoff 设置与布局不完全匹配。ManiMux 使用 waypoint，train-time RTC 使用 blend 模式（blend_steps=0）。canonical_raw 已经过适配器/IK，可能包含 waypoint 修改；这里不能单独归因于训练方法，也不能证明实测运动更平滑。<br><span class="muted">默认只纳入 tick 中观察到相邻接管且没有明显 tick 缺口的候选；暂停/hold 的完整正式审查仍未完成。partial 与空记录单独列出。</span></div>
+<section><h2>主要观察 · 全部设置</h2><div id="overview" class="keyline"></div><p id="prefix-note" class="muted"></p></section></header>
+<div class="controls">
+<label>手臂<select id="arm"><option value="left_arm">左臂</option><option value="right_arm">右臂</option></select></label>
+<label>轨迹与重叠窗口<select id="view"></select></label>
+<label>ManiMux handoff 子组<select id="variant"><option value="all">全部设置（异质样本）</option></select></label>
+<label>边界证据<select id="eligibility"><option value="observed_transition">观察到相邻 tick 接管</option><option value="all">全部 accepted-plan 候选</option></select></label>
+<label>Train-time RTC 请求条件<select id="condition"><option value="all">全部请求</option><option value="conditioned">仅 conditioned</option><option value="supported">仅有前缀且训练内长度</option><option value="unsupported">仅训练外前缀长度</option><option value="unconditioned">仅未 conditioned</option></select></label>
+<label>分布图指标<select id="metric"></select></label>
+</div>
+<section><h2>当前筛选的结果</h2><p id="finding" class="keyline"></p><p id="coverage" class="muted"></p>
+<div class="scroll"><table id="metric-table"></table></div><p class="muted">表中为 mean(每条 rollout 的 boundary 均值)；P95 列为 mean(每条 rollout 内的 P95)。每个指标分别报告有效 rollout / boundary 数。百分比 = train / ManiMux − 1，仅用于描述。</p></section>
+<section class="grid">
+<div class="panel"><h3 id="dist-title"></h3><div id="distribution"></div><figcaption>每个点是一条 rollout 的均值。悬停查看来源。不同 rollout 并非独立随机重复。</figcaption></div>
+<div class="panel"><h3>误差沿 overlap 如何变化</h3><div id="profile"></div><figcaption>横轴归一化 overlap 进度；先在每条 boundary 插值到 21 个百分位，再按 boundary、rollout 两级平均。归一化只用于绘图，原始指标不做时间拉伸。</figcaption></div>
+<div class="panel"><h3>Overlap 长度与整体 RMSE</h3><div id="scatter"></div><figcaption>每点为一条 rollout：平均 overlap 时长 / 平均距离 RMSE。固定窗口视图用于控制窗口长度差异。</figcaption></div>
+<div class="panel"><h3>首段与尾段 MSE</h3><div id="edges"></div><figcaption id="edge-caption"></figcaption></div>
+</section>
+<section><h2>逐个 chunk 检查</h2><p class="muted">两栏独立选取 boundary，默认选择当前筛选中 RMSE 最大的候选。两栏采用相同纵轴尺度；按误差曲线定位问题，再切换 XYZ 坐标看旧/新轨迹。不同 rollout 的候选不构成配对试验。</p>
+<div class="grid" id="details"></div></section>
+<section><h2>Rollout 与设置清单</h2><p class="muted">纳入根目录中的全部 H32 finalized 记录；不按任务成功与否选择。下面列出当前 handoff 子组中的 finalized、partial、空记录和处理失败。完整 provenance 保存在旁边的 JSON 文件中。</p><div class="scroll"><table id="inventory"></table></div></section>
+<section><details open><summary>指标定义与阅读方式</summary>
+<p>在同一绝对时间取旧参考 aᵢ 与新参考 bᵢ，经离线 FK 得到 TCP 的 XYZ（mm），eᵢ=bᵢ−aᵢ。时间域取真实交集，不外推、不把旧轨迹末点复制成 overlap。</p>
+<ul><li><b>MSE：</b>meanᵢ,xyz(eᵢ²)，单位 mm²。首/尾点仅取交集两端；首/尾窗口取 ceil(fraction×N) 个点。<b>距离 RMSE：</b>√meanᵢ‖eᵢ‖² = √(3×MSE)；平均 error 为 meanᵢ‖eᵢ‖，单位 mm。</li>
+<li><b>运动方向 cosine：</b>把两条速度序列 ΔXYZ/Δt 展开后求 cosine；接近 1 表示整体运动方向一致，负值提示方向相反。一侧 RMS 速度低于阈值时留空，不用 0 替代。cosine 不反映速度幅度，因此一起看 velocity RMSE。</li>
+<li><b>Shape RMSE：</b>各自减去起点后再比较，区分恒定偏移与形状改变。关节 MSE 单独以 rad² 报告，去掉最后的夹爪维，不与 XYZ MSE 混合。</li>
+<li><b>四个视图：</b>Decoded full = canonical_raw 全交集；Decoded after switch = 从 incoming committed.start 起的 canonical 交集；Committed full = 提交参考的全交集；Committed fixed = 从切换时刻起的固定时长窗口，覆盖不足则缺失。</li>
+<li><b>切换 gap：</b>旧 committed 在新 start 时刻的 FK，与新 committed 首点的距离。覆盖不足留空。该量独立于 overlap 窗口是否够长；指标表中有独立分母。</li>
+<li><b>坐标时钟：</b>canonical 首点时间 = observation_time_ns + source_offset_steps×dt_ns；不重复加 first_action_offset。先插值关节，再做 FK。采样包含两个精确端点、均匀间距不超过 incoming dt。</li></ul>
+<p id="parameters"></p></details>
+<details><summary>来源、限制与复现</summary><div id="notes"></div><p>相邻文件：<a href="summary.json">summary.json</a> · <a href="boundary-metrics.csv">boundary-metrics.csv</a> · <a href="cohort.jsonl">cohort.jsonl</a> · <a href="provenance.json">provenance.json</a> · <a href="episode-metrics.json">完整数据与曲线</a></p></details></section>
+<footer id="footer"></footer>
+</main>
+<script id="report-data" type="application/json">__REPORT_DATA__</script>
+<script>
+'use strict';
+const D=JSON.parse(document.getElementById('report-data').textContent), $=id=>document.getElementById(id);
+const colors={baseline:'#216f87',train:'#bd5939'}, names={baseline:'DP · ManiMux',train:'DP · train-time RTC'}, methods=['baseline','train'];
+const esc=s=>String(s??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const mean=a=>a.length?a.reduce((s,v)=>s+v,0)/a.length:null;
+const fmt=x=>x==null?'—':(Math.abs(x)>=1000?x.toFixed(1):Math.abs(x)>0&&Math.abs(x)<.01?x.toExponential(2):x.toFixed(3));
+const quant=(a,p)=>{if(!a.length)return null;const s=[...a].sort((a,b)=>a-b),i=(s.length-1)*p,j=Math.floor(i);return s[j]+(s[Math.ceil(i)]-s[j])*(i-j)};
+function option(value,label){return `<option value="${esc(value)}">${esc(label)}</option>`}
+$('view').innerHTML=Object.entries(D.view_labels).map(([v,l])=>option(v,l)).join('');$('view').value='canonical_full';
+$('metric').innerHTML=Object.entries(D.metric_labels).map(([v,l])=>option(v,l)).join('');$('metric').value='rmse_mm';
+const variants=[...new Set(D.episodes.filter(e=>e.method==='baseline').map(e=>e.variant))].sort();
+$('variant').innerHTML+=variants.map(v=>option(v,v)).join('');
+const get=(m,v,a,k)=>D.summary[m][v][a][k].mean_of_episode_means;
+const pair=(v,k)=>['left_arm','right_arm'].map(a=>`${a==='left_arm'?'左':'右'} ${fmt(get('baseline',v,a,k))} → ${fmt(get('train',v,a,k))}`).join('；');
+$('overview').innerHTML=`<p><b>切换附近：</b>committed 位置 gap（mm）：${pair('committed_future','seam_mm')}。固定 ${D.parameters.fixed_ms} ms 窗口距离 RMSE（mm）：${pair('committed_fixed','rmse_mm')}。</p><p><b>整段 overlap：</b>Decoded full 距离 RMSE（mm）：${pair('canonical_full','rmse_mm')}；首段 MSE（mm²）：${pair('canonical_full','head_mse_mm2')}；尾段 MSE（mm²）：${pair('canonical_full','tail_mse_mm2')}。</p><p><b>解释范围：</b>两组 full overlap 平均长度分别为 ${fmt(get('baseline','canonical_full','left_arm','duration_ms'))} / ${fmt(get('train','canonical_full','left_arm','duration_ms'))} ms。首尾窗口对应的物理时长不同；用固定窗口辅助判断，不能把整段均值直接当作方法排名。</p>`;
+const trained=D.episodes.filter(e=>e.method==='train'&&!e.excluded_reason);const unsupported=trained.reduce((n,e)=>n+(e.prefix_out_of_support_requests||0),0),submitted=trained.reduce((n,e)=>n+e.submitted_requests,0);
+$('prefix-note').textContent=`请求条件检查：train-time RTC 的 ${submitted} 次提交中，${unsupported} 次前缀长度超出记录的训练支持范围（详见 backend / events）。下方可单独筛选训练内、训练外或未 conditioned 的 incoming chunk；主汇总保留全部。`;
+const count=m=>D.episodes.filter(e=>e.method===m&&!e.excluded_reason).length;
+$('stats').innerHTML=`<div><strong class="base">${count('baseline')}</strong>ManiMux 有效 rollout</div><div><strong class="train">${count('train')}</strong>train-time RTC 有效 rollout</div><div><strong>${D.episodes.filter(e=>e.partial).length}</strong>partial 单列</div><div><strong>32 / 30 Hz</strong>模型 horizon / action rate</div>`;
+$('edge-caption').textContent=`每条 rollout 等权；首/尾各 ${D.parameters.edge_fraction*100}% 采样点。首尾两段可能点数很少，请结合单点与整段指标查看。`;
+$('parameters').textContent=`本报告参数：首尾 fraction=${D.parameters.edge_fraction}；固定窗口=${D.parameters.fixed_ms} ms；静止阈值=${D.parameters.stationary_speed_mm_s} mm/s。`;
+$('notes').innerHTML=D.notes.map(n=>`<p>${esc(n)}</p>`).join('');
+$('footer').textContent=`生成于 ${D.created_at} · ${D.schema} · 自包含 HTML，无外部依赖；JSON/CSV 保留完整数值精度。`;
+function conditionMatch(r){const c=$('condition').value;if(r.method==='baseline'||c==='all')return true;if(c==='conditioned')return r.conditioned===true;if(c==='supported')return r.conditioned===true&&r.prefix_in_training_support===true;if(c==='unsupported')return r.prefix_in_training_support===false;return r.conditioned===false}
+function filtered(){return D.rows.filter(r=>conditionMatch(r)&&r.arm===$('arm').value&&r.view===$('view').value&&($('variant').value==='all'||r.method==='train'||r.variant===$('variant').value)&&($('eligibility').value==='all'||r.eligibility===$('eligibility').value))}
+function episodes(rows,key,method){const groups=new Map();for(const r of rows){if(r.method!==method||r[key]==null)continue;if(!groups.has(r.episode))groups.set(r.episode,[]);groups.get(r.episode).push(r[key])}return [...groups].map(([id,a])=>({id,v:mean(a),p95:quant(a,.95),n:a.length}))}
+function stats(rows,key,m){const e=episodes(rows,key,m);return {v:mean(e.map(x=>x.v)),p95:mean(e.map(x=>x.p95)),n:e.length,b:e.reduce((s,x)=>s+x.n,0)}}
+function plot(target,series,{xlabel='',ylabel='',xrange=null,yrange=null,lines=true,markers=[]}={}){
+ const pts=series.flatMap(s=>s.points).filter(p=>Number.isFinite(p.x)&&Number.isFinite(p.y));if(!pts.length){$(target).innerHTML='<div class="empty">该筛选没有可计算的值；请查看覆盖率与清单。</div>';return}
+ const W=590,H=290,L=75,R=34,T=18,B=65;let xmin=xrange?xrange[0]:Math.min(...pts.map(p=>p.x)),xmax=xrange?xrange[1]:Math.max(...pts.map(p=>p.x)),ymin=yrange?yrange[0]:Math.min(0,...pts.map(p=>p.y)),ymax=yrange?yrange[1]:Math.max(...pts.map(p=>p.y));if(xmax<=xmin)xmax=xmin+1;if(ymax<=ymin)ymax=ymin+1;if(!yrange)ymax+=(ymax-ymin)*.08;
+ const X=x=>L+(x-xmin)/(xmax-xmin)*(W-L-R),Y=y=>H-B-(y-ymin)/(ymax-ymin)*(H-B-T);let s=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(ylabel)}">`;
+ for(let i=0;i<=4;i++){let x=xmin+(xmax-xmin)*i/4,y=ymin+(ymax-ymin)*i/4;s+=`<line x1="${L}" y1="${Y(y)}" x2="${W-R}" y2="${Y(y)}" stroke="#e4e8e6"/><text x="${L-9}" y="${Y(y)+4}" text-anchor="end">${fmt(y)}</text><text x="${X(x)}" y="${H-B+20}" text-anchor="middle">${fmt(x)}</text>`}
+ for(const mark of markers){if(mark.x>=xmin&&mark.x<=xmax)s+=`<line x1="${X(mark.x)}" y1="${T}" x2="${X(mark.x)}" y2="${H-B}" stroke="#8c9698" stroke-dasharray="3 3"/><text x="${X(mark.x)+4}" y="${T+12}">${esc(mark.label)}</text>`}
+ for(const q of series){if(!q.points.length)continue;if(lines)s+=`<polyline fill="none" stroke="${q.color}" stroke-width="2" ${q.dash?'stroke-dasharray="5 4"':''} points="${q.points.map(p=>`${X(p.x)},${Y(p.y)}`).join(' ')}"/>`;for(const p of q.points)if(!lines||p.tip)s+=`<circle cx="${X(p.x)}" cy="${Y(p.y)}" r="${p.r||3.3}" fill="${q.color}" opacity=".7"><title>${esc(p.tip||q.name+': '+fmt(p.y))}</title></circle>`}
+ s+=`<text x="${(L+W-R)/2}" y="${H-17}" text-anchor="middle">${esc(xlabel)}</text><text transform="translate(16 ${(T+H-B)/2}) rotate(-90)" text-anchor="middle">${esc(ylabel)}</text></svg>`;$(target).innerHTML=(series.length>1?'<div class="legend">'+series.map(q=>`<span><i class="dot" style="background:${q.color}"></i>${esc(q.name)}</span>`).join('')+'</div>':'')+s;
+}
+function interp(xs,ys,x){let i=0;while(i<xs.length-2&&xs[i+1]<x)i++;let w=(x-xs[i])/(xs[i+1]-xs[i]);return ys[i]*(1-w)+ys[i+1]*w}
+function render(){const rows=filtered(),metric=$('metric').value,label=D.metric_labels[metric];
+ let table='<thead><tr><th>指标</th><th>ManiMux 均值</th><th>train-time RTC 均值</th><th>变化</th><th>ManiMux P95 均值</th><th>train P95 均值</th><th>有效 rollout / boundary：M | T</th></tr></thead><tbody>';
+ for(const key of Object.keys(D.metric_labels)){const a=stats(rows,key,'baseline'),b=stats(rows,key,'train'),delta=a.v&&b.v!=null?`${((b.v/a.v-1)*100).toFixed(1)}%`:'—';table+=`<tr><td>${esc(D.metric_labels[key])}</td><td class="num">${fmt(a.v)}</td><td class="num">${fmt(b.v)}</td><td class="num">${key==='velocity_cosine'?'—':delta}</td><td class="num">${fmt(a.p95)}</td><td class="num">${fmt(b.p95)}</td><td>${a.n} / ${a.b} | ${b.n} / ${b.b}</td></tr>`} $('metric-table').innerHTML=table+'</tbody>';
+ const a=stats(rows,'rmse_mm','baseline'),b=stats(rows,'rmse_mm','train'),ca=stats(rows,'velocity_cosine','baseline'),cb=stats(rows,'velocity_cosine','train');
+ $('finding').innerHTML=`当前 ${esc($('arm').selectedOptions[0].text)} · ${esc(D.view_labels[$('view').value])}：距离 RMSE <b class="base">${fmt(a.v)} mm</b> → <b class="train">${fmt(b.v)} mm</b>；运动 cosine <b>${fmt(ca.v)}</b> → <b>${fmt(cb.v)}</b>。`;
+ $('coverage').textContent=methods.map(m=>{let rs=rows.filter(r=>r.method===m),bad={};rs.filter(r=>r.reason).forEach(r=>bad[r.reason]=(bad[r.reason]||0)+1);let cs=rs.filter(r=>r.status==='valid'&&r.velocity_cosine==null).length;return `${names[m]}：${rs.filter(r=>r.status==='valid').length}/${rs.length} overlap 有效；cosine 静止缺失 ${cs}；${JSON.stringify(bad)}`}).join(' ｜ ');
+ $('dist-title').textContent=label+' · rollout 分布';
+ const es=methods.map(m=>episodes(rows,metric,m));plot('distribution',methods.map((m,j)=>({name:names[m],color:colors[m],points:es[j].map((e,i)=>({x:j+((i%9)-4)*.025,y:e.v,tip:e.id+'\n'+fmt(e.v)+'; boundaries='+e.n}))})),{xlabel:'0 = ManiMux   /   1 = train-time RTC',ylabel:label,xrange:[-.35,1.35],lines:false});
+  const profile=methods.map(m=>{const groups=new Map();rows.filter(r=>r.method===m&&r.curve).forEach(r=>{const c=r.curve,x=c.time_ms,ys=c.error_mm,vals=Array.from({length:21},(_,i)=>interp(x,ys,x.at(-1)*i/20));if(!groups.has(r.episode))groups.set(r.episode,[]);groups.get(r.episode).push(vals)});const ep=[...groups.values()].map(v=>Array.from({length:21},(_,i)=>mean(v.map(a=>a[i]))));return {name:names[m],color:colors[m],points:ep.length?Array.from({length:21},(_,i)=>({x:i*5,y:mean(ep.map(e=>e[i]))})):[]}});
+ plot('profile',profile,{xlabel:'Overlap progress (%)',ylabel:'Mean distance error (mm)',xrange:[0,100]});
+ plot('scatter',methods.map(m=>{const dur=new Map(episodes(rows,'duration_ms',m).map(e=>[e.id,e.v]));return {name:names[m],color:colors[m],points:episodes(rows,'rmse_mm',m).filter(e=>dur.has(e.id)).map(e=>({x:dur.get(e.id),y:e.v,tip:e.id+'\n'+fmt(dur.get(e.id))+' ms / '+fmt(e.v)+' mm'}))}}),{xlabel:'Mean overlap duration (ms)',ylabel:'Mean distance RMSE (mm)',lines:false});
+ plot('edges',methods.map(m=>({name:names[m],color:colors[m],points:['head_mse_mm2','tail_mse_mm2'].map((k,i)=>({x:i,y:stats(rows,k,m).v,tip:names[m]+' '+k})).filter(p=>p.y!=null)})),{xlabel:'0 = first edge window   /   1 = last edge window',ylabel:'XYZ MSE (mm²)',xrange:[-.1,1.1]});
+ buildDetails(rows);renderInventory();
+}
+let detailRows={};
+function buildDetails(rows){$('details').innerHTML=methods.map(m=>{detailRows[m]=rows.filter(r=>r.method===m&&r.curve).sort((a,b)=>b.rmse_mm-a.rmse_mm);return `<div class="panel"><h3 style="color:${colors[m]}">${names[m]}</h3><div class="detail-controls"><label>Boundary（按 RMSE 降序）<select id="pick-${m}">${detailRows[m].map((r,i)=>option(i,`${r.episode.replace('session-','')} · ${r.old_chunk}→${r.new_chunk} · ${fmt(r.rmse_mm)} mm`)).join('')}</select></label><label>显示<select id="axis-${m}">${['error','X','Y','Z'].map(k=>option(k,k==='error'?'距离 error':k+' 坐标')).join('')}</select></label></div><div id="trace-${m}"></div><p id="trace-info-${m}" class="muted"></p></div>`}).join('');methods.forEach(m=>{for(const kind of ['pick','axis'])$(kind+'-'+m).onchange=()=>{if(kind==='axis')methods.forEach(other=>$('axis-'+other).value=$('axis-'+m).value);renderDetails()}});renderDetails()}
+function renderDetails(){const selected=methods.map(m=>detailRows[m][+$('pick-'+m).value]);const vals=methods.flatMap((m,i)=>{let r=selected[i];if(!r)return [];let c=r.curve,k=$('axis-'+m).value;return k==='error'?c.error_mm:[...c.old_xyz_mm,...c.new_xyz_mm].map(p=>p['XYZ'.indexOf(k)])});let yr=null;if(vals.length){let lo=$('axis-baseline').value==='error'?Math.min(0,...vals):Math.min(...vals),hi=Math.max(...vals),pad=Math.max(1,hi-lo)*.05;yr=[$('axis-baseline').value==='error'?lo:lo-pad,hi+pad]}
+ methods.forEach((m,i)=>{let r=selected[i];if(!r){$('trace-'+m).innerHTML='<div class="empty">没有有效 boundary</div>';$('trace-info-'+m).textContent='';return}const c=r.curve,k=$('axis-'+m).value;let ss=k==='error'?[{name:'Distance error',color:colors[m],points:c.time_ms.map((t,j)=>({x:t,y:c.error_mm[j]}))}]:['old','new'].map((side,s)=>({name:side,color:s===0?'#687880':colors[m],dash:s===0,points:c.time_ms.map((t,j)=>({x:t,y:c[side+'_xyz_mm'][j]['XYZ'.indexOf(k)]}))}));plot('trace-'+m,ss,{xlabel:'Time from overlap start (ms)',ylabel:k==='error'?'Distance error (mm)':k+' coordinate (mm)',yrange:yr,markers:[{x:r.switch_from_overlap_start_ms,label:'switch'}]});$('trace-info-'+m).textContent=`${k==='error'?'距离曲线':'灰色虚线=旧参考；彩色实线=新参考'} · ${r.samples} 点 / ${fmt(r.duration_ms)} ms · switch 在 ${fmt(r.switch_from_overlap_start_ms)} ms · prefix=${r.prefix_steps??'未记录'} · ${r.eligibility} · committed gap=${fmt(r.seam_mm)} mm`})}
+function renderInventory(){const infos=D.episodes.filter(e=>$('variant').value==='all'||e.method==='train'||e.variant===$('variant').value);$('inventory').innerHTML='<thead><tr><th>方法 / rollout</th><th>设置</th><th>plans / ticks</th><th>状态 / 缺失原因</th><th>checkpoint SHA</th><th>conditioned / submitted；训练外长度</th></tr></thead><tbody>'+infos.map(e=>`<tr><td><b style="color:${colors[e.method]}">${names[e.method]}</b><div class="smallpath">${esc(e.id)}</div></td><td>${esc(e.variant)}<br>blend=${e.blend_steps}, chunk=${e.chunk_steps??'—'}, decode=${e.expected_decode_s}s</td><td>${e.plan_count??'—'} / ${e.tick_count??'—'}</td><td>${esc(e.excluded_reason||e.terminal_reason||'analyzed')}</td><td title="${esc(e.checkpoint)}">${esc(e.checkpoint_sha256?.slice(0,12))}</td><td>${e.conditioned_requests??'—'} / ${e.submitted_requests??'—'}；${e.prefix_out_of_support_requests??'—'}<br>${esc(e.prefix_lengths?JSON.stringify(e.prefix_lengths):'')}</td></tr>`).join('')+'</tbody>'}
+for(const id of ['arm','view','variant','eligibility','metric','condition'])$(id).onchange=render;render();
+window.__overlapReportReady=true;
+</script>
+</html>

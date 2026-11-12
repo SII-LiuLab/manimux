@@ -1,71 +1,60 @@
 ---
 name: manimux-development
-description: Develop or review ManiMux robot drivers, cameras, policy adapters, runtime strategies, collection and Viewer features. Use to locate the right extension point and preserve collection, training and deployment compatibility.
+description: Implement or review ManiMux components, model adapters, inference strategies, execution and RoboGUI features using the existing protocols. Use when configuration alone cannot supply the requested behavior.
 ---
 
 # ManiMux Development
 
-Paths below are relative to the ManiMux root. Read its `AGENTS.md` first.
-Implement the requested feature at the existing extension point; do not turn an
-integration into a framework rewrite or add unrelated checks.
+Read the [repository guide](references/agent-guide.md) and relevant nested/framework
+`AGENTS.md` before editing. For a custom study using supported components, start with
+[experiments](../manimux-experiments/SKILL.md); for another local hardware installation,
+use [station setup](../manimux-station-setup/SKILL.md).
 
-## Choose the layer
+## Choose the owning layer
 
-| Work | Implementation and interface |
-|---|---|
-| Learned model, preprocessing, normalization, training, sampling | `XPolicyLab/policy/`; follow `XPolicyLab/AGENTS.md` and its model-integration skill |
-| Robot SDK and hardware commands | `src/manimux/robots/base.py` defines `connect`, `get_state`, `send_command`, `home`, `stop`, `close`; implementations live alongside it |
-| Camera device and runtime sensor | `src/manimux/sensors/base.py` defines `start`, `read`, `close`; implementations live alongside it |
-| Observation mapping and model actions to robot actions | `src/manimux/policies/base.py`, `src/manimux/policies/`, `src/manimux/integrations/` |
-| FK/IK and robot geometry | `src/manimux/kinematics/base.py`, `src/manimux/viewer/robots/base.py` and their body-specific implementations |
-| Chunk scheduling and command generation | `src/manimux/runtime/inference.py`, `src/manimux/runtime/executors/base.py` |
-| Collection GUI and recording | `src/manimux/collection/`; retain separate implementations per embodiment |
-| Experiment UI, timelines and rollout evidence | `src/manimux/viewer/`, `src/manimux/recording/` |
+Trace the selected YAML through its loader, interface, working implementation and
+caller before changing behavior. Read only the relevant reference:
 
-Shared state, frame, request and action structures live in `src/manimux/types.py`.
-Use `prepare_policy_request` for the optional adapter request hook; not every
-adapter implements `prepare_request` directly.
+| Change | Reference |
+| --- | --- |
+| Robot, arm, gripper, camera, SDK or kinematics | [Components](references/components.md) |
+| Model framework, transport, action adapter or normalization | [Policies](references/policies.md) |
+| Scheduling, timelines, recording, executor or RoboGUI | [Runtime](references/runtime-config.md) |
+| Sampler capabilities or model/algorithm combinations | [Inference](../manimux-inference/SKILL.md) |
+| Extension entry points and contributing | [Integration map](references/README.md) |
 
-## Add or change an embodiment
+Model frameworks own weights, network/sampling and training. ManiMux owns transport,
+adapters, strategy/timeline, execution, recording and GUI. Inspect upstream code before
+classifying a model as a framework: XPolicyLab models stay under its `policy/<name>/`,
+while a distinct framework stays a peer with its own ManiMux client. Do not duplicate
+model implementations inside `manimux/` or migrate a working deployment incidentally.
 
-- Put its driver and SDK wrapper under `src/manimux/robots/`. Vendored SDK source
-  and native bindings are acceptable there; a separately published package is not required.
-- The robot factory takes `(RobotConfig, Clock)`. `src/manimux/plugins.py` supports
-  a `module:factory` reference in `robot.driver`, as well as built-ins and entry points.
-  Follow the corresponding loader for sensor, kinematics and Viewer plugins.
-- Specify named groups, joint ordering, units, gripper convention and any base/TCP
-  transform in the implementation/config. Body-specific DOFs and SDK mappings belong
-  in that body module, not in the shared scheduler. The current hardware runtime consumes
-  joint-position commands; EE policies need an appropriate action adapter.
-- Explain plainly whether connecting moves the robot, and what stop/home do.
-  Do not assume another driver's defaults apply to the new one.
-- Use a matching fake SDK or mock driver for the changed behavior. For a new body,
-  exercise its actual group names and dimensions rather than copying a dual-arm fixture.
+## Implement against the contract
 
-## Keep collection, training and deployment consistent
+- Preserve unrelated work and state the edit scope. Reuse the existing factory,
+  configuration loader and runtime loop. Validate data in the layer that owns it.
+- Preserve units, frames, group order, input/output shapes, timestamps, action meaning,
+  lifecycle and failure behavior across implementations of the same interface.
+  Matching method names alone is insufficient. Fail explicitly for unsupported modes.
+- For components, use the [operation contract](references/components.md#shared-behavior-across-embodiments).
+  SDK device semantics must not leak into caller-side robot-name branches.
+- XPolicyLab deployment recipes own `robot_action_dim_info` and `num_envs`; use its
+  shared helpers and contribution rules. Preserve sampling flags through adapters and
+  transport. Configuration cannot create a model-side sampler hook.
+- Keep deployment constants in YAML. New capability needs an explicit protocol when
+  it cannot fit the existing one; do not hide extra tool coordinates or weaken IK to
+  imitate a supported interface.
 
-Collection does not need a cross-body GUI or a universal teleoperation implementation.
-YAM's example is `configs/collection/yam/station.yaml` → `configs/collection/yam/control.yaml`
-→ `configs/robots/yam/common.yaml`; inference recipes reference that same control profile.
-Keep each body's action interval, joint/gripper conventions and shared motion parameters
-consistent across its collection and deployment. Preserve those meanings in training
-conversion and checkpoint normalization. Executor smoothing is a separate choice.
+## Complete and verify
 
-Put tasks/checkpoints under the existing model/body `server` and `infra` task folders.
-For learned-model work, use
-`XPolicyLab/.agents/skills/xpolicylab-model-integration/SKILL.md`; use
-`XPolicyLab/.agents/skills/xpolicylab-adapter-check/SKILL.md` when an adapter review is
-actually requested. Do not duplicate those instructions.
+Deliver the implementation, selecting YAML, a usable config/launch example and checks
+through the real loader or public interface. Use fake hardware for lifecycle tests
+and synthetic timed chunks for scheduling. Separate CPU/config checks, actual model
+inference, connected-device evidence and physical task success. Local regression tests
+are ignored by repository policy; do not force-add them.
 
-## Camera and UI changes
-
-Trace physical serial → camera-server name → `policy.options.camera_map` → model input.
-The shared `SensorFrame` image is RGB uint8. Preserve a frame's image and timestamp
-together; reading the same cached image again does not make it a new capture.
-Inspect `src/manimux/sensors/camera_server/driver.py` and
-`src/manimux/integrations/umi_dp_tianji/camera_sensor.py` before assuming their timestamps
-or frame sequences mean the same thing.
-
-When editing generic UI, derive group displays from supplied data rather than assuming
-left/right grippers. Existing fixed layouts are not templates for every body.
-Run focused existing tests for the changed layer and report what was not exercised.
+Update the owning reference for interface changes and `guideline.html` for user-facing
+settings/operations. Keep code comments and maintained documentation in English;
+do not create a second guide under ignored `docs/`. Honor existing authorization;
+development alone does not authorize robot motion or stopping live services.
+Commit/push only when requested.

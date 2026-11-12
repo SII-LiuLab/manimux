@@ -1,0 +1,33 @@
+host: 127.0.0.1
+port: 8500
+action_type: joint
+checkpoint_path: null
+unnorm_key: new_embodiment
+include_state: false
+image_size: [224, 224]
+device: cuda
+use_bf16: true
+action_indices: [0, 1, 2, 3, 4, 5, 12, 6, 7, 8, 9, 10, 11, 13]
+state_indices: [0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 6, 13]
+framework: QwenOFT
+action_horizon: 50
+action_semantics: absolute_joint_position
+state_type: joint
+camera_names: [cam_head, cam_left_wrist, cam_right_wrist]
+backend_identity:
+  server: starvla_policy_server
+  fields:
+  - framework
+  - checkpoint_path
+  - action_type
+  - action_horizon
+  - action_semantics
+  - unnorm_key
+  - include_state
+  - state_type
+  - camera_names
+  - image_size
+  - action_indices
+  - state_indices
+  model:
+    sampling_modes: [default]

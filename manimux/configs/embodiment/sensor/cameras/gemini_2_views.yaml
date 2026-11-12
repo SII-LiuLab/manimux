@@ -1,0 +1,24 @@
+# Stream names identify images; component names select station device bindings.
+# All public capture options are listed below. See README.md for units and defaults.
+service: external_camera
+cameras:
+  gemini305:
+    config: ../orbbec.yaml
+    component: gemini305
+    options:
+      width: 640
+      height: 480
+      fps: 30
+      flip: false
+      enable_depth: false  # This UVC driver supports RGB only.
+      max_frame_age_sec: 0.30
+  gemini335:
+    config: ../orbbec.yaml
+    component: gemini335
+    options:
+      width: 640
+      height: 480
+      fps: 30
+      flip: false
+      enable_depth: false  # This UVC driver supports RGB only.
+      max_frame_age_sec: 0.30

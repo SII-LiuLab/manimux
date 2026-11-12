@@ -1,0 +1,450 @@
+"""ManiMux policy plugins backed by an XPolicyLab WebSocket policy server.
+
+The client owns the XPolicyLab wire format. It uses the resolved component
+layout and camera mapping to encode observations and translate action replies.
+Robot action interpretation, FK/IK and chunk timing stay in embodiment adapters.
+
+What is different is that the server on the other end is not ours. XPolicyLab
+serves one ``Model`` per policy out of its own environment, so a single plugin
+pair reaches every policy in its zoo; which policy is running is decided when
+that server is launched, not here.
+
+Each request sends the observation and sampling parameters together through
+XPolicyLab's ``INFER`` message. The server updates the model observation and
+computes its action under one model lock, so observations cannot be interleaved
+between separate RPCs.
+"""
+
+from __future__ import annotations
+
+import time
+from collections.abc import Mapping, Sequence
+from dataclasses import replace
+
+import numpy as np
+
+from manimux.kinematics.robot import RobotKinematics
+from manimux.policies.base import native_action_interval
+from manimux.policies.capabilities import PolicyCapabilities
+from manimux.policies.xpolicylab.aac import (
+    AacPreviousAction,
+    EeActionStats,
+    load_ee_action_stats,
+    select_native_chunk,
+)
+from manimux.policies.xpolicylab.codec import (
+    DEFAULT_CAMERA_MAP,
+    DEFAULT_SERVER,
+    GroupLayout,
+    _layouts_from_options,
+    _positive_float_option,
+    decode_policy_actions,
+    encode_observation,
+)
+from manimux.policies.xpolicylab.ws_client import XPolicyLabWsClient
+from manimux.runtime.train_time_rtc import TrainTimeRtcRequest
+from manimux.runtime.aac import AacInferenceRequest
+from manimux.runtime.autohorizon import AutoHorizonInferenceRequest
+from manimux.runtime.bid import BidInferenceRequest
+from manimux.runtime.paint import PaintInferenceRequest
+from manimux.runtime.rtc.request import RtcInferenceRequest
+from manimux.types import InferenceRequest, InferenceResponse
+
+
+class XPolicyLabWsPolicyModel:
+    """WebSocket inference backend; robot semantics stay in the adapter."""
+
+    def __init__(self, config: dict) -> None:
+        options = config["options"]
+        adapter = config["adapter"]
+        self._action_format = options.get("action_format", "native")
+        if self._action_format not in {"joint", "pose", "native"}:
+            raise ValueError(f"unknown action_format {self._action_format!r}")
+        self._url = options.get("server", DEFAULT_SERVER)
+        self._camera_map = dict(adapter.get("camera_map", DEFAULT_CAMERA_MAP))
+        # Describe the checkpoint's action grid to the model. Runtime playback
+        # retimes returned rows without changing the model's native contract.
+        self._frequency = 1.0 / native_action_interval(config)
+        self._request_timeout_s = _positive_float_option(
+            options, "request_timeout_s", config["timeout_s"]
+        )
+        self._connect_timeout_s = _positive_float_option(
+            options, "connect_timeout_s", config["startup_timeout_s"]
+        )
+        # The model plugin never sees RobotConfig, so the arm/gripper split is
+        # resolved from the first observation and then held fixed.
+        self._layout_options = dict(adapter)
+        self._horizon_steps = config["horizon_policy_steps"]
+        if "aac_kinematics" in options:
+            raise ValueError(
+                "AAC geometry comes from robot.config; remove policy.options.aac_kinematics"
+            )
+        self._aac_robot_config: str | None = None
+        self._aac_kinematics: RobotKinematics | None = None
+        self._aac_ee_stats: EeActionStats | None = None
+        self._aac_ee_stats_path: str | None = None
+        self._aac_previous: AacPreviousAction | None = None
+        self._layouts: tuple[GroupLayout, ...] = ()
+        self._session_id: str | None = None
+        self._client: XPolicyLabWsClient | None = None
+        self._pending: dict[str, tuple[InferenceResponse, int, int | InferenceRequest | None]] = {}
+        self._expired: set[str] = set()
+
+    def reset(self, session_id: str) -> None:
+        if self._client is not None:
+            if session_id == self._session_id:
+                # Keep the socket so RESET can fence replies from timed-out
+                # warmup requests before resetting the model's RNG/history.
+                self._client.reset()
+                self._pending.clear()
+                self._expired.clear()
+                self._aac_previous = None
+                return
+            self._client.drain()
+        self.close()
+        client = XPolicyLabWsClient(
+            url=self._url,
+            evaluation_id=session_id,
+            trial_id=session_id,
+            connect_timeout_s=self._connect_timeout_s,
+            request_timeout_s=self._request_timeout_s,
+        )
+        client.connect()
+        client.reset()
+        self._client = client
+        self._session_id = session_id
+        self._aac_previous = None
+
+    def infer(self, request: InferenceRequest) -> object:
+        return self._decode_wire(self._infer_wire(request))
+
+    def _decode_wire(self, raw) -> object:
+        if isinstance(raw, Mapping):
+            for key in ("bid_candidates", "aac_candidates"):
+                if key in raw:
+                    return {**raw, key: [
+                        decode_policy_actions(
+                            candidate, layouts=self._layouts, format=self._action_format,
+                        )
+                        for candidate in raw[key]
+                    ]}
+        return decode_policy_actions(raw, layouts=self._layouts, format=self._action_format)
+
+    @staticmethod
+    def _candidate_chunks(result, num_samples, label):
+        if not isinstance(result, Mapping):
+            raise ValueError(f"{label} server response must be a mapping")
+        candidates = result.get("actions")
+        if not isinstance(candidates, Sequence) or isinstance(candidates, str | bytes):
+            raise ValueError(f"{label} server response must contain candidate chunks")
+        if len(candidates) != int(num_samples):
+            raise ValueError(
+                f"{label} expected {int(num_samples)} candidates, got {len(candidates)}"
+            )
+        return candidates
+
+    def _encode_observation(self, request: InferenceRequest) -> dict:
+        if request.session_id != self._session_id:
+            raise RuntimeError("XPolicyLab session is not initialized")
+        client = self._client
+        if client is None:
+            raise RuntimeError("XPolicyLab client is not connected")
+
+        snapshot = request.observation
+        if not self._layouts:
+            self._layouts = _layouts_from_options(
+                self._layout_options,
+                {name: int(values.size) for name, values in snapshot.state.groups.items()},
+            )
+        observation = encode_observation(
+            snapshot,
+            layouts=self._layouts,
+            camera_map=self._camera_map,
+            instruction=request.instruction,
+            frequency=self._frequency,
+        )
+        # The older request attributes remain for SAPolicy and Tianji, whose
+        # adapter migration is intentionally outside this change.
+        extra_state = getattr(request, "model_state", None)
+        if extra_state is None:
+            extra_state = getattr(request, "xpolicylab_state", None)
+        if extra_state is not None:
+            if not isinstance(extra_state, Mapping) or set(extra_state) & set(observation["state"]):
+                raise ValueError("XPolicy additional state must not replace canonical joint state")
+            observation["state"].update(extra_state)
+        # Embodiment adapters (e.g. sapolicy_yam) may attach EE poses / intrinsics
+        # that the generic joint-state codec does not carry.
+        extra_info = getattr(request, "model_info", None)
+        if extra_info is None:
+            extra_info = getattr(request, "xpolicylab_additional_info", None)
+        if isinstance(extra_info, Mapping) and extra_info:
+            merged = dict(observation.get("additional_info") or {})
+            merged.update(dict(extra_info))
+            observation["additional_info"] = merged
+        return observation
+
+    def _infer_wire(self, request: InferenceRequest) -> object:
+        observation = self._encode_observation(request)
+        client = self._client
+        assert client is not None
+        sampling_request = getattr(request, "sampling_request", None) or request
+        result = client.infer(observation, sampling=self._sampling(sampling_request))
+        return self._process_result(result, sampling_request, request.observation)
+
+    def _sampling(self, request):
+        """Share sampling validation across blocking and streaming transports."""
+        sampling = self._rtc_sampling(request)
+        condition = getattr(request, "action_condition", None)
+        aac_num_samples = getattr(request, "aac_num_samples", None)
+        bid_num_samples = getattr(request, "bid_num_samples", None)
+        if aac_num_samples is not None and bid_num_samples is not None:
+            raise ValueError("BID and AAC selection cannot be combined")
+        num_samples = aac_num_samples if bid_num_samples is None else bid_num_samples
+        autohorizon = bool(getattr(request, "autohorizon", False))
+        paint_prefix = getattr(request, "paint_action_prefix", None)
+        paint_delay_steps = getattr(request, "paint_delay_steps", None)
+        if (paint_prefix is None) != (paint_delay_steps is None):
+            raise ValueError(
+                "PAINT paint_action_prefix and paint_delay_steps must be provided together"
+            )
+        if paint_prefix is not None:
+            if condition is not None or num_samples is not None or autohorizon:
+                raise ValueError(
+                    "PAINT cannot be combined with RTC, AAC, or AutoHorizon sampling"
+                )
+            prefix_array = np.asarray(paint_prefix, dtype=np.float32)
+            delay_steps = int(paint_delay_steps)
+            if (
+                delay_steps <= 0
+                or prefix_array.ndim != 2
+                or prefix_array.shape[0] != delay_steps
+                or prefix_array.shape[1] == 0
+                or not np.isfinite(prefix_array).all()
+            ):
+                raise ValueError(
+                    "PAINT action prefix must be finite with shape "
+                    f"({delay_steps}, native_dim), got {prefix_array.shape}"
+                )
+            return {"mode": "paint", "action_prefix": prefix_array, "delay_steps": delay_steps}
+        if num_samples is not None:
+            label = "AAC" if bid_num_samples is None else "BID"
+            if condition is not None or autohorizon:
+                raise ValueError(f"{label} cannot be combined with RTC or AutoHorizon sampling")
+            return {"mode": "aac", "num_samples": int(num_samples)}
+        if autohorizon:
+            if condition is not None:
+                raise ValueError("AutoHorizon cannot be combined with RTC sampling")
+            return {"mode": "autohorizon"}
+        return sampling
+
+    def _process_result(self, result, request, snapshot):
+        bid_count = getattr(request, "bid_num_samples", None)
+        count = bid_count if bid_count is not None else getattr(request, "aac_num_samples", None)
+        if count is None:
+            return result
+        candidates = self._candidate_chunks(
+            result, count, "BID" if bid_count is not None else "AAC",
+        )
+        horizon = getattr(request, "aac_horizon", None)
+        if bid_count is not None and horizon is None:
+            return {"bid_candidates": candidates}
+        deferred = bool(getattr(request, "aac_defer_selection", False)) or horizon is not None
+        options = horizon or {
+            "robot_config": request.aac_robot_config,
+            "ee_stats_path": request.aac_ee_stats_path,
+            "motion_threshold": request.aac_motion_threshold,
+            "chunk_id_selector": request.aac_chunk_id_selector,
+            "backward_beta": request.aac_backward_beta,
+        }
+        robot_config = options["robot_config"]
+        if not robot_config:
+            raise ValueError("AAC requires the runtime's robot.config")
+        if self._aac_kinematics is None or self._aac_robot_config != robot_config:
+            from manimux.embodiments.robot.base import RobotModel
+
+            self._aac_kinematics = RobotModel.from_config(robot_config).kinematics
+            self._aac_robot_config = robot_config
+        stats_path = options["ee_stats_path"]
+        if not isinstance(stats_path, str) or not stats_path:
+            raise ValueError("AAC requires aac_ee_stats_path")
+        if self._aac_ee_stats is None or self._aac_ee_stats_path != stats_path:
+            self._aac_ee_stats = load_ee_action_stats(stats_path, layouts=self._layouts)
+            self._aac_ee_stats_path = stats_path
+        selected, previous = select_native_chunk(
+            candidates, layouts=self._layouts, current_groups=snapshot.state.groups,
+            kinematics=self._aac_kinematics, ee_stats=self._aac_ee_stats,
+            motion_threshold=float(options["motion_threshold"]),
+            chunk_id_selector="0" if deferred else str(options["chunk_id_selector"]),
+            previous=None if deferred else self._aac_previous,
+            backward_beta=float(options["backward_beta"]),
+        )
+        if deferred:
+            key = "bid_candidates" if bid_count is not None else "aac_candidates"
+            output = {key: candidates, "aac": selected["aac"]}
+            if bid_count is None:
+                output["aac_features"] = previous.ee_features
+            return output
+        self._aac_previous = previous
+        return selected
+
+    def _rtc_sampling(self, request: InferenceRequest) -> dict:
+        """Encode the same RTC condition for blocking and streaming requests."""
+        condition = getattr(request, "action_condition", None)
+        weights = getattr(request, "condition_weights", None)
+        if (condition is None) != (weights is None):
+            raise ValueError("RTC action_condition and condition_weights must be provided together")
+        if isinstance(request, TrainTimeRtcRequest):
+            return {
+                "mode": "train_time_rtc",
+                "prefix_steps": request.prefix_steps,
+                "action_condition": condition,
+                "condition_weights": weights,
+            }
+        if condition is None:
+            return {"mode": "default"}
+
+        beta = float(getattr(request, "rtc_beta", 5.0))
+        if not np.isfinite(beta) or beta <= 0:
+            raise ValueError(f"rtc_beta must be finite and positive, got {beta}")
+        condition_array = np.asarray(condition, dtype=np.float32)
+        weights_array = np.asarray(weights, dtype=np.float32)
+        if (
+            condition_array.ndim != 2
+            or condition_array.shape[0] != self._horizon_steps
+            or not np.isfinite(condition_array).all()
+        ):
+            raise ValueError(
+                f"RTC action_condition must have shape ({self._horizon_steps}, native_dim), "
+                f"got {condition_array.shape}"
+            )
+        if (
+            weights_array.shape != (condition_array.shape[0],)
+            or not np.isfinite(weights_array).all()
+        ):
+            raise ValueError(
+                f"RTC condition_weights must have shape {(condition_array.shape[0],)}, "
+                f"got {weights_array.shape}"
+            )
+        return {
+            "mode": "rtc",
+            "action_condition": condition_array,
+            "condition_weights": weights_array,
+            "beta": beta,
+        }
+
+    def submit(self, request: InferenceRequest) -> bool:
+        if type(request) not in (
+            InferenceRequest, RtcInferenceRequest, BidInferenceRequest, AacInferenceRequest,
+            AutoHorizonInferenceRequest, PaintInferenceRequest,
+        ):
+            raise ValueError("unsupported multi_inflight request type")
+        # Bound transport buffering too, even when a server or network stalls.
+        # Superseded acknowledgements release credits without producing actions.
+        if len(self._pending) >= 16:
+            return False
+        started_ns = time.monotonic_ns()
+        observation = self._encode_observation(request)
+        assert self._client is not None
+        num_samples = getattr(request, "bid_num_samples", None)
+        sampling = self._sampling(request)
+        context = num_samples
+        if isinstance(request, AacInferenceRequest) or getattr(request, "aac_horizon", None):
+            context = request
+        request_id = self._client.submit_infer(observation, sampling=sampling)
+        self._pending[request_id] = (
+            InferenceResponse(
+                session_id=request.session_id,
+                request_seq=request.request_seq,
+                observation_time_ns=request.observation_time_ns,
+                deadline_ns=request.deadline_ns,
+                finished_time_ns=0,
+                inference_ms=0.0,
+                raw_action=None,
+            ),
+            started_ns,
+            context,
+        )
+        return True
+
+    def poll(self) -> InferenceResponse | None:
+        client = self._client
+        if client is None:
+            raise RuntimeError("XPolicyLab client is not connected")
+        # Drain acknowledgements before considering transport timeouts.
+        while (reply := client.poll_infer()) is not None:
+            request_id = reply.get("message_id")
+            pending = self._pending.pop(request_id, None)
+            if request_id in self._expired:
+                self._expired.remove(request_id)
+                continue
+            if pending is None:
+                continue
+            response, started_ns, num_samples = pending
+            payload = reply.get("payload")
+            if isinstance(payload, dict) and payload.get("superseded") is True:
+                continue
+            finished_ns = time.monotonic_ns()
+            raw, error = None, None
+            try:
+                if reply.get("message_type") != "infer_result":
+                    raise RuntimeError(f"inference failed: {payload}")
+                if not isinstance(payload, dict) or "actions" not in payload:
+                    raise ValueError("infer reply has no actions")
+                result = (
+                    payload if {"action_semantics", "autohorizon", "paint"}.intersection(payload)
+                    else payload["actions"]
+                )
+                if isinstance(num_samples, InferenceRequest):
+                    result = self._process_result(payload, num_samples, num_samples.observation)
+                elif num_samples is not None:
+                    result = {"bid_candidates": self._candidate_chunks(payload, num_samples, "BID")}
+                raw = self._decode_wire(result)
+            except Exception as exc:
+                error = f"model_error:{type(exc).__name__}:{exc}"
+            return replace(
+                response,
+                finished_time_ns=finished_ns,
+                inference_ms=(finished_ns - started_ns) / 1_000_000,
+                raw_action=raw,
+                error=error,
+            )
+        for request_id, (response, started_ns, _) in self._pending.items():
+            if request_id in self._expired:
+                continue
+            if time.monotonic_ns() - started_ns > self._request_timeout_s * 1e9:
+                # Report once, keeping its transport credit occupied until the
+                # late reply is drained. A stalled peer must stay bounded.
+                self._expired.add(request_id)
+                finished_ns = time.monotonic_ns()
+                return replace(
+                    response, finished_time_ns=finished_ns,
+                    inference_ms=(finished_ns - started_ns) / 1_000_000,
+                    error="model_error:TimeoutError:multi_inflight response timed out",
+                )
+        return None
+
+    def close(self) -> None:
+        client, self._client = self._client, None
+        self._session_id = None
+        self._pending.clear()
+        self._expired.clear()
+        if client is not None:
+            client.close()
+
+    def capabilities(self) -> PolicyCapabilities:
+        client = self._client
+        modes = (
+            frozenset({"default"})
+            if client is None
+            else getattr(client, "sampling_modes", frozenset({"default"}))
+        )
+        metadata = {} if client is None else getattr(client, "backend_metadata", {})
+        return PolicyCapabilities(
+            sampling_modes=modes,
+            backend_metadata=dict(metadata),
+            multi_inflight=client is not None and getattr(client, "multi_inflight", False),
+        )
+
+
+def build_model(config: dict) -> XPolicyLabWsPolicyModel:
+    return XPolicyLabWsPolicyModel(config)

@@ -1,0 +1,37 @@
+host: 127.0.0.1
+port: 8500
+action_type: ee
+checkpoint_path: null
+framework: QwenGR00T
+unnorm_key: franka
+include_state: false
+state_type: joint
+camera_names: [cam_head]
+image_size: [224, 224]
+device: cuda
+use_bf16: true
+eef:
+  rotation: axis_angle
+  semantics: delta_step_base_xyz_wxyz
+  translation_scale: [0.05, 0.05, 0.05]
+  rotation_scale: [0.5, 0.5, 0.5]
+  clip_input: 1.0
+  gripper_threshold: 0.5
+action_horizon: 8
+action_semantics: delta_step_base_xyz_wxyz
+backend_identity:
+  server: starvla_policy_server
+  fields:
+  - framework
+  - checkpoint_path
+  - action_type
+  - action_horizon
+  - action_semantics
+  - unnorm_key
+  - include_state
+  - state_type
+  - camera_names
+  - image_size
+  - eef
+  model:
+    sampling_modes: [default]

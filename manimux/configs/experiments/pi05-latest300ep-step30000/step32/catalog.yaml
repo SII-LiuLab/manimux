@@ -1,0 +1,93 @@
+# Shared pose presets apply to every task/method; selecting a pose does not move hardware.
+initial_poses: ../initial_poses/yam.yaml
+experiments:
+- id: press_rotating_clock_rtc
+  label: RTC - 32 source steps
+  config: press_rotating_clock/rtc_beta10.yaml
+- id: press_rotating_clock_serial
+  label: SERIAL - 32 source steps
+  config: press_rotating_clock/serial.yaml
+- id: press_rotating_clock_bid
+  label: BID - 32 source steps
+  config: press_rotating_clock/bid.yaml
+- id: press_rotating_clock_autohorizon
+  label: AutoHorizon (adaptive)
+  config: ../adaptive/press_rotating_clock/autohorizon_refill.yaml
+- id: press_rotating_clock_async
+  label: ASYNC - 32 source steps
+  config: press_rotating_clock/async_progress.yaml
+- id: press_rotating_clock_paint
+  label: PAINT - 32 source steps
+  config: press_rotating_clock/paint.yaml
+- id: coin_serial
+  label: SERIAL - 32 source steps
+  config: coin/serial.yaml
+- id: coin_bid
+  label: BID - 32 source steps
+  config: coin/bid.yaml
+- id: coin_autohorizon
+  label: AutoHorizon (adaptive)
+  config: ../adaptive/coin/autohorizon_refill.yaml
+- id: coin_async
+  label: ASYNC - 32 source steps
+  config: coin/async_progress.yaml
+- id: coin_rtc
+  label: RTC - 32 source steps
+  config: coin/rtc_beta10.yaml
+- id: coin_paint
+  label: PAINT - 32 source steps
+  config: coin/paint.yaml
+- id: pick_the_moving_cube_serial
+  label: SERIAL - 32 source steps
+  config: pick_the_moving_cube/serial.yaml
+- id: pick_the_moving_cube_bid
+  label: BID - 32 source steps
+  config: pick_the_moving_cube/bid.yaml
+- id: pick_the_moving_cube_autohorizon
+  label: AutoHorizon (adaptive)
+  config: ../adaptive/pick_the_moving_cube/autohorizon_refill.yaml
+- id: pick_the_moving_cube_async
+  label: ASYNC - 32 source steps
+  config: pick_the_moving_cube/async_progress.yaml
+- id: pick_the_moving_cube_rtc
+  label: RTC - 32 source steps
+  config: pick_the_moving_cube/rtc_beta10.yaml
+- id: pick_the_moving_cube_paint
+  label: PAINT - 32 source steps
+  config: pick_the_moving_cube/paint.yaml
+- id: put_bottles_serial
+  label: SERIAL - 32 source steps
+  config: put_bottles/serial.yaml
+- id: put_bottles_bid
+  label: BID - 32 source steps
+  config: put_bottles/bid.yaml
+- id: put_bottles_autohorizon
+  label: AutoHorizon (adaptive)
+  config: ../adaptive/put_bottles/autohorizon_refill.yaml
+- id: put_bottles_async
+  label: ASYNC - 32 source steps
+  config: put_bottles/async_progress.yaml
+- id: put_bottles_rtc
+  label: RTC - 32 source steps
+  config: put_bottles/rtc_beta10.yaml
+- id: put_bottles_paint
+  label: PAINT - 32 source steps
+  config: put_bottles/paint.yaml
+- id: stack_blocks_medium_serial
+  label: SERIAL - 32 source steps
+  config: stack_blocks_medium/serial.yaml
+- id: stack_blocks_medium_bid
+  label: BID - 32 source steps
+  config: stack_blocks_medium/bid.yaml
+- id: stack_blocks_medium_autohorizon
+  label: AutoHorizon (adaptive)
+  config: ../adaptive/stack_blocks_medium/autohorizon_refill.yaml
+- id: stack_blocks_medium_async
+  label: ASYNC - 32 source steps
+  config: stack_blocks_medium/async_progress.yaml
+- id: stack_blocks_medium_rtc
+  label: RTC - 32 source steps
+  config: stack_blocks_medium/rtc_beta10.yaml
+- id: stack_blocks_medium_paint
+  label: PAINT - 32 source steps
+  config: stack_blocks_medium/paint.yaml

@@ -21,7 +21,7 @@ from pathlib import Path
 import numpy as np
 
 REPO = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO / "src"))
+sys.path.insert(0, str(REPO))
 
 
 def load_module(name, path):
@@ -33,13 +33,13 @@ def load_module(name, path):
 
 
 def main():
-    from manimux.config import load_config
+    from manimux.cli import load_config
     from manimux.kinematics.tianji import BD67_REAL, DH_TABLE_M6_40, TianjiKinematics
     from manimux.kinematics.tianji_diff import DifferentialIKConfig, TianjiDifferentialIK
-    from manimux.robots.tianji.sdk import load_marvin_kine
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--reference", type=Path, required=True)
+    parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--steps", type=int, default=120)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
@@ -65,12 +65,12 @@ def main():
     load_module("algos.nullspace", reference / "algos/nullspace.py")
     old = load_module("algos.diff_ik", reference / "algos/diff_ik.py")
     old_kin = load_module("algos.kinematics", reference / "algos/kinematics.py")
-    converter = load_marvin_kine().Marvin_Kine()
-    profile = load_config(REPO / "configs/umi_dp/tianji/infra/pass_ball/default.yaml")
-    motion = profile.execution.motion_limits.arm
-    tuning = DifferentialIKConfig(
-        max_velocity_rad_s=motion.max_velocity, dt_max_s=motion.max_step_dt_s
-    )
+    from manimux.embodiments.arm.tianji.sdk.marvin import fx_kine
+
+    converter = fx_kine.Marvin_Kine()
+    profile = load_config(args.config)
+    motion = profile["executor"]["motion_limits"]["arm"]
+    tuning = DifferentialIKConfig(max_velocity_rad_s=motion["max_velocity"])
     starts = [
         [50, -40, -30, -100, -65, 0, 40],
         [155, -95, 140, -115, -100, 48, 48],  # active nullspace, positive J67 quadrant
@@ -94,9 +94,9 @@ def main():
                 converter,
                 lo.tolist(),
                 hi.tolist(),
-                [np.degrees(motion.max_velocity)] * 7,
+                [np.degrees(motion["max_velocity"])] * 7,
                 limit_margin_deg=kin.limit_margin_deg,
-                dt_max=motion.max_step_dt_s,
+                dt_max=motion["max_step_dt_s"],
                 w_pos=tuning.w_pos,
                 w_rot=tuning.w_rot,
                 lam=tuning.lam,
@@ -116,7 +116,7 @@ def main():
                 xyzabc = converter.mat4x4_to_xyzabc(pose_mat=sdk_flange)
                 dt = (0.004, 0.008, 0.030, 0.0005)[step % 4]
                 expected = legacy.solve(xyzabc, np.degrees(previous), dt)
-                actual = port.solve(target, previous, dt)
+                actual = port.solve(target, previous, min(dt, motion["max_step_dt_s"]))
                 expected_reason = expected.reason
                 if expected.ok and expected.pos_err_mm > tuning.max_lag_mm:
                     expected_reason = "tracking_lag"
@@ -158,8 +158,8 @@ def main():
     report["reference_sha256"] = {
         name: hashlib.sha256((reference / name).read_bytes()).hexdigest() for name in files
     }
-    report["max_velocity_rad_s"] = motion.max_velocity
-    report["dt_max_s"] = motion.max_step_dt_s
+    report["max_velocity_rad_s"] = motion["max_velocity"]
+    report["caller_dt_cap_s"] = motion["max_step_dt_s"]
     report["osqp_version"] = port._osqp.__version__
     text = json.dumps(report, indent=2)
     print(text)

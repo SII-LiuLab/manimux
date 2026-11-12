@@ -1,69 +1,57 @@
 ---
 name: manimux-station-setup
-description: Connect a ManiMux installation to a developer's local YAM, Tianji or newly integrated robot and cameras. Use for SDK environments, CAN or controller addresses, device serials and local configuration binding, rather than experiment scheduling.
+description: Bind a ManiMux deployment to a local robot, cameras, SDK environments and model/service paths. Use for first installation or another station using supported hardware; use experiments for study design and development for new drivers.
 ---
 
 # ManiMux Station Setup
 
-Paths below are relative to the ManiMux root. Installing the project does not discover,
-name or connect a robot automatically. Bind the requested body to the user's actual devices;
-do not copy the current developer's addresses, serials or checkpoint paths as universal defaults.
+Read the [repository guide](../manimux-development/references/agent-guide.md) before
+editing and use the [station walkthrough](references/station.md) for commands and
+binding schemas. Paths are relative to the checkout. A clone does not install SDKs,
+create CAN interfaces, download weights or identify the user's devices.
 
-## Hardware connection paths
+## Bind an existing deployment
 
-| Body | How the runtime reaches hardware | Configuration and implementation |
-|---|---|---|
-| YAM | `YamDualArmDriver` → `YAMRobot` → `i2rt.get_yam_robot(channel=...)` → host CAN interfaces | `configs/robots/yam/common.yaml`; `src/manimux/robots/yam/driver.py` and `src/manimux/robots/yam/arm.py` |
-| Tianji | `TianjiDualArmDriver` → Marvin SDK → controller IP; TacCap SDK separately opens USB grippers | `configs/robots/tianji/common.yaml`; `src/manimux/robots/tianji/driver.py`, `src/manimux/robots/tianji/sdk.py`, `src/manimux/robots/tianji/gripper.py` |
+1. Inspect the chosen experiment, robot assembly and existing station. Confirm only
+   unknown hardware placement, addresses, model paths or execution settings.
+2. Prepare the matching [hardware/model environments](references/environments.md).
+   Existing `envs/*/.venv` directories are local assets. Install into the intended
+   interpreter; root `uv sync` must not replace an independent hardware/model environment.
+3. Create or update the private `manimux/configs/local/station.yaml`, using a matching
+   template linked from the walkthrough. Preserve unrelated bindings. Component names
+   must match the assembly. Another unit of the same robot does not need SDK edits.
+4. Resolve the configuration with `resolve_local_path` and `load_config`; inspect
+   addresses, component bindings, model paths and camera configuration without
+   constructing a robot. Report unverified device connectivity separately.
+5. Hand off interpreter, station, experiment, resolved bindings and the matching
+   startup commands. Continue with [experiments](../manimux-experiments/SKILL.md)
+   when the user is building a study rather than only connecting a station.
 
-For YAM, `left_channel` and `right_channel` must name configured Linux CAN interfaces.
-Determine their physical left/right mapping; names such as `can_left` are not created by
-Python installation. For Tianji, use a reachable `robot_ip` and the actual
-`left_gripper_sn` / `right_gripper_sn`. The Marvin bindings are vendored under the body;
-`sdk_root` can select another SDK tree. TacCap still needs its native dependency installed.
-Neither driver requires launching a separate original reproduction/control repository.
+## Contracts that commonly cause mistakes
 
-Consult `envs/README.md` for hardware/model environment separation. Existing `envs/*/.venv`
-directories are local assets, not installed by cloning the repository. Use explicit Python
-paths; these plain hardware/model venvs must not be targeted by `uv sync` or `uv run`.
-Install body dependencies using its runbook; do not invent a single all-hardware extra.
+- YAM CAN names are actual Linux interfaces; `can_left` is not created by ManiMux.
+  Left/right placement cannot be inferred from enumeration order. YAM's integrated
+  grippers share arm CAN; TacCap gripper serials are separate from camera serials.
+- Camera mapping is physical device → component → server stream → runtime sensor →
+  `policy.adapter.camera_map`. A RoboGUI preview does not change model input mapping.
+- Use one experiment/station across runtime, camera and supported model launchers.
+  Selection precedence is CLI `--local`, experiment `local:`, then the default station.
+  CLI paths are cwd-relative; experiment references and station paths have their own
+  file-relative bases. Read the walkthrough's scope table for unsupported entry points.
+- Pi05 `paths.checkpoints` relocates a root; its recipe still selects checkpoint and
+  normalization subpaths. UMI_DP/XR-1 artifact overrides have different contracts.
+  Address binding must not change action semantics, timing, FK/IK, limits or weights.
+- RoboGUI's Tianji preset is `--robot tianji`; the assembly/runtime identity is
+  `tianji-taccap`. Match the deployment's identity rather than copying the CLI alias.
+- Read `execute`, `move_to_start_on_connect` and `home_on_close` from the experiment.
+  Prepare can cause motion; `execute: false` alone does not make a launch offline.
+  Inspecting bindings or providing commands does not authorize service startup/motion.
 
-## Bind cameras separately
+## References by task
 
-Camera server runs where the camera devices are accessible. Use the actual device type
-and serial in `configs/cameras.yaml` or the body's camera configuration; Tianji's example
-is `configs/robots/tianji/cameras.yaml`. Camera serials and gripper serials are different.
-
-Follow physical device → configured camera name → `sensors[].options.camera_names` →
-`policy.options.camera_map`. A logical name or serial alone does not establish physical
-left/right placement. If placement is unknown, ask or use a preview when authorized.
-Changing only a manual Viewer preview does not change the model input.
-
-## Local configuration, as implemented today
-
-- Shared robot settings live in `configs/robots/yam/common.yaml` and
-  `configs/robots/tianji/common.yaml`. They currently include both control parameters
-  and machine bindings; a separate generic inference station overlay is not implemented.
-- For another installation, keep private copies under the already ignored `.local/`
-  and point the local experiment's `control_profile` to the appropriate copy. Update
-  copied camera/server configs and checkpoint paths as needed; retain that body's
-  intended collection/deployment control settings.
-- `control_profile` paths resolve relative to the referring config. Profile-owned values
-  cannot be overridden with conflicting values in an infra config: see `load_config`
-  in `src/manimux/config.py`. Other driver paths may be relative to the working directory;
-  give commands from the repository root with paths that resolve there.
-- Keep collection separate per body. YAM collection selects its runtime config through
-  `manimux_config` in `configs/collection/yam/station.yaml`; share the intended local
-  control profile with that body's inference recipes, not with every other body.
-
-## Before an actual connection
-
-Read the selected config, not another recipe's behavior: YAM's
-`move_to_start_on_connect` can move during Prepare, while Tianji's `execute` and
-`gripper_control` default to false. Address inspection or a request for commands does not
-authorize starting motion or stopping existing services. Resolve only the missing bindings
-needed for the user's task; do not add an unsolicited home/reconnect workflow.
-
-Hand off the chosen config paths, interpreter, robot bindings, camera mapping and service
-hosts. For startup commands, continue with `manimux-experiment`; do not claim that offline
-configuration work proves a hardware connection.
+[Station schemas and launch scope](references/station.md) ·
+[Environments](references/environments.md) ·
+[CAN/ARX/PiPER adapters](references/can-arms.md) ·
+[SDK installation](references/robot-sdks.md) ·
+[Offline replay](references/replay.md).
+For unsupported hardware, follow [development](../manimux-development/SKILL.md).

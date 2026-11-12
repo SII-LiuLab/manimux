@@ -1,0 +1,21 @@
+# Replan at 16-step progress, latency-adjusted; retain the full 32-step prediction.
+# RTC 16 is not a fixed 16-row execution cap. No extra skip or blend.
+algorithm: rtc
+inference_schedule: single_inflight
+action_start_mode: drop_infer_latency
+chunk_policy_steps: 16
+strategy: null
+expected_decode_s: 0.08
+decode_forecast_size: 10
+decode_forecast_mode: max
+max_plan_age_s: 2.0
+blend_policy_steps: 0
+handoff: blend
+handoff_margin_s: 0.01
+handoff_skip_steps: 0
+independent_group_decoding: false
+rtc:
+  min_execute_policy_steps: 16
+  initial_delay_policy_steps: 8
+  delay_buffer_size: 10
+  beta: 5.0

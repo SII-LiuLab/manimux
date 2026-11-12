@@ -1,0 +1,37 @@
+label: Standard PiPER (offline dual-arm preview)
+model: ../../../configs/embodiment/robot/piper_dual.yaml
+camera_mode: policy
+cameras:
+  - {source: overview, label: Synthetic overview, slot: top}
+groups:
+  left_arm:
+    label: Left PiPER
+    # Display placement only; no calibrated dual-arm mounting is implied.
+    robogui_display_frame: {xyz: [0.0, 0.32, 0.0], rpy: [0.0, 0.0, 0.0]}
+    prediction_color: [52, 111, 255]
+    trail_color: [33, 180, 106]
+    initial: [0.0, 0.5, -0.8, 0.0, 0.0, 0.0, 0.5]
+    aperture: gripper
+    demo:
+      amplitude: [0.2, 0.15, 0.2, 0.15, 0.15, 0.2, 0.4]
+      phase: 0.0
+  right_arm:
+    label: Right PiPER
+    robogui_display_frame: {xyz: [0.0, -0.32, 0.0], rpy: [0.0, 0.0, 0.0]}
+    prediction_color: [255, 94, 87]
+    trail_color: [255, 170, 0]
+    initial: [0.0, 0.5, -0.8, 0.0, 0.0, 0.0, 0.5]
+    aperture: gripper
+    demo:
+      amplitude: [0.2, 0.15, 0.2, 0.15, 0.15, 0.2, 0.4]
+      phase: 1.5
+scene:
+  view:
+    # Leave space for the camera overlay on the left of the dashboard.
+    camera_position: [0.8, -1.97, 1.1]
+    camera_look_at: [-0.2, -0.27, 0.25]
+    grid_position: [0.25, 0.0, -0.06]
+  boxes:
+    - name: table
+      dimensions: [0.9, 1.1, 0.04]
+      position: [0.3, 0.0, -0.025]

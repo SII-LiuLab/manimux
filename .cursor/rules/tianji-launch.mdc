@@ -1,0 +1,15 @@
+---
+description: Verify Tianji/TacCap SDK resolution before providing hardware launch commands, especially Pi05 pack-plate Serial.
+globs: manimux/embodiments/**/taccap/**,manimux/servers/pi05.py,manimux/configs/experiments/pack_plate/**,.agents/skills/manimux-inference/references/deployment/*tianji*,.local/pack_plate/*
+alwaysApply: false
+---
+
+# Tianji launch commands
+
+- Follow `.agents/skills/manimux-inference/references/deployment/pi05-tianji-pack-plate.md`, section "Local Serial launch (verified 2026-10-13)", for this workstation's Pi05 Serial commands.
+- Inspect the actual hardware interpreter, inherited `PYTHONPATH`, imported SDK path/version and required methods before diagnosing a missing SDK API.
+- This workstation has a compiled TacCap 0.4.2 under the vendored SDK's `python/` directory. The external `/home/jw/Desktop/project/TacCap-Gripper/python` is 0.1.9 and lacks `Motor.get_model` and `Motor.get_spec`.
+- Do not recommend reinstalling merely because `.venv` cannot import `xense` without `PYTHONPATH`. Check existing compiled SDK artifacts first.
+- Use an explicit command-scoped SDK path for the hardware runtime. Do not carry its CPython 3.12 extension path into the Pi05 CPython 3.11 model process.
+- A running process retains its loaded SDK; correcting the shell path requires restarting that hardware process. Do not restart live services without authorization.
+- `--check` validates configuration/artifacts, not model loading, memory capacity or hardware execution.

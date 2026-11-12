@@ -9,9 +9,9 @@ from pathlib import Path
 
 import numpy as np
 
-from manimux.config import load_config
-from manimux.integrations.sapolicy_yam.policy_plugin import SAPolicyYamAdapter
+from manimux.cli import load_config
 from manimux.policies.decoder import ActionDecoderClient
+from manimux.policy_adapter.sapolicy.yam import SAPolicyYamAdapter
 from manimux.types import ActionContext, InferenceResponse, RobotState
 
 
@@ -21,15 +21,17 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--repeats", type=int, default=3)
     args = parser.parse_args()
-    cfg = load_config("configs/sapolicy/yam/infra/manimux-direct-async.yaml")
+    cfg = load_config(
+        "manimux/configs/experiments/put_bottles/sapolicy/yam_sapolicy_async_direct.yaml"
+    )
     source = args.recorded_diagnostics
     predictions = np.load(source / "offline-ik-profile.npz")
     signals = np.load(source / "signals.npz")
     profile = json.loads((source / "offline-ik-profile.json").read_text())
     # Historical fixtures can have a shorter horizon than the live deployment.
-    cfg.policy.horizon_steps = int(predictions["1_wire"].shape[0])
-    adapter = SAPolicyYamAdapter(cfg.robot, cfg.policy)
-    decoder = ActionDecoderClient(cfg.robot, cfg.policy, adapter)
+    cfg["policy"]["horizon_policy_steps"] = int(predictions["1_wire"].shape[0])
+    adapter = SAPolicyYamAdapter(cfg["robot"], cfg["policy"])
+    decoder = ActionDecoderClient(cfg["robot"], cfg["policy"], adapter)
     adapter.warmup_decode(None)
     rows = []
     seq = 0
@@ -37,7 +39,9 @@ def main():
         decoder.start()
         for index, entry in enumerate(profile, 1):
             tick = int(np.argmin(abs(signals["time_s"] - entry["seconds"])))
-            groups = {name: signals[name + "_state"][tick].copy() for name in cfg.robot.group_dims}
+            groups = {
+                name: signals[name + "_state"][tick].copy() for name in cfg["robot"]["group_dims"]
+            }
             raw = predictions[f"{index}_wire"]
             serial_ms = []
             parallel_ms = []
@@ -45,7 +49,11 @@ def main():
             for _ in range(args.repeats):
                 seq += 1
                 now = time.monotonic_ns()
-                context = ActionContext(seq, now, now, measured_state=RobotState(groups, now, seq))
+                state = RobotState(groups, now, seq)
+                context = ActionContext(
+                    seq, now, now, observation_state=state,
+                    ik_seed=state, ik_seed_source="observation_state",
+                )
                 before = time.perf_counter_ns()
                 serial = adapter.decode_action(raw, context)
                 serial_ms.append((time.perf_counter_ns() - before) / 1e6)

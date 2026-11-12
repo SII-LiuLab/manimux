@@ -1,0 +1,18 @@
+policy_name: OpenWAM
+protocol: ws
+host: 127.0.0.1
+port: 8500
+eval_batch: false
+compile_enabled: true
+dit_cache_enabled: true
+bench_name: RoboDojo_real
+task_name: yam
+env_cfg_type: yam_dual
+robot_action_dim_info: {arm_dim: [6, 6], ee_dim: [1, 1]}
+num_envs: 1
+action_type: ee
+observation_profile: yam_base
+ckpt_dir: null
+device: cuda
+replan_steps: 32
+allow_dummy_policy: false

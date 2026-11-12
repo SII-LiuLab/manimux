@@ -1,0 +1,39 @@
+study_id: pi05-latest300ep-step30000
+active_catalog: step32/catalog.yaml
+recording_root: data/experiments/pi05-latest300ep-step30000
+layout: <step-setting>/<task>/<method-variant>/session-<timestamp>-<id>/rollout-<id>
+checkpoint_variant: pi05_yam_latest300ep_step30000
+horizon_policy_steps: 50
+action_dt_s: 0.03333333333333333
+fixed_window: 32
+reference_fraction:
+  numerator: 32
+  denominator: 50
+  integer_rule: nearest integer
+executor: direct
+blend_policy_steps: 0
+rtc_beta: 10
+async_trigger: progress
+adaptive_exception: AutoHorizon retains its saved selector and schedule; it is not
+  a fixed-32 method.
+task_ids:
+- coin
+- stack_blocks_medium
+- put_bottles
+- press_rotating_clock
+- pick_the_moving_cube
+layouts: 10
+repeats_per_layout: 3
+historical_buckets:
+  step16: Archive only, no active launch catalog.
+  step32: Actual fixed-window value 32; Async progress and refill are separate variants.
+  adaptive: No fixed K; serial and refill selectors are separate variants.
+continuation: Restarting a service adds sessions under the same setting. Existing
+  scored repeats remain counted.
+replication: A deliberate independent repetition requires a named replication group
+  and matched config/data paths; never use a date to bypass completed repeats.
+provenance: Classification uses immutable saved config. Directory proximity does not
+  establish a matched comparison.
+legacy_paths: Old session symlinks preserve historical report references. Enumerate
+  recordings-index.json or canonical setting folders, not both aliases and canonical
+  paths.

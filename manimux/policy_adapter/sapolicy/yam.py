@@ -1,0 +1,660 @@
+"""SAPolicy YAM embodiment adapter for the XPolicyLab WebSocket path.
+
+ManiMux uses ``worker: xpolicylab_ws`` plus this adapter. The adapter owns
+embodiment knowledge: camera aliases, calibrated intrinsics, YAM FK/IK,
+and conversion of absolute EE wire actions into canonical joint-position
+``ActionChunk`` values. Wire poses are the YAM grasp-site / ABC TCP frame.
+
+Gripper is the same normalized ``[0, 1]`` stroke as YAM. Model loading lives
+in ``XPolicyLab.policy.SAPolicy``.
+"""
+
+from __future__ import annotations
+
+import logging
+import uuid
+from collections import OrderedDict
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
+
+import numpy as np
+from scipy.spatial.transform import Rotation
+
+from manimux.policies.base import action_interval_ns
+from manimux.policy_adapter.base import PolicyAdapter
+from manimux.policy_adapter.pose_output import pose_chunk
+from manimux.runtime.rtc.request import RtcInferenceRequest
+from manimux.types import (
+    ActionChunk,
+    ActionContext,
+    InferenceRequest,
+    ObservationSnapshot,
+    SensorFrame,
+)
+
+log = logging.getLogger("manimux.policies.sapolicy")
+
+DEFAULT_GROUP_ORDER = ("left_arm", "right_arm")
+ARM_JOINTS = 6
+GROUP_DIM = 7
+WIRE_ACTION_DIM = 16
+# Training Resize is stretch-to-224×168 (4:3), not Pi letterbox-to-224².
+DEFAULT_WIRE_IMAGE_HW = (168, 224)
+
+
+@dataclass(slots=True)
+class SAPolicyXPolicyRequest(RtcInferenceRequest):
+    """InferenceRequest plus EE/intrinsics for ``XPolicyLabWsPolicyModel``."""
+
+    xpolicylab_additional_info: dict[str, object] = field(default_factory=dict)
+    xpolicylab_state: dict[str, object] = field(default_factory=dict)
+
+
+def _parse_camera_map(options: Mapping[str, object]) -> dict[str, str]:
+    result = dict(options["camera_map"])
+    if len(set(result.values())) != len(result):
+        raise ValueError("policy.adapter.camera_map sensor names must be unique")
+    return result
+
+
+def _parse_intrinsics(
+    options: Mapping[str, object], camera_names: Sequence[str]
+) -> dict[str, np.ndarray]:
+    raw = dict(options["camera_intrinsics"])
+    if set(raw) != set(camera_names):
+        raise ValueError(
+            "policy.adapter.camera_intrinsics must contain exactly the model-facing "
+            f"camera names {list(camera_names)}"
+        )
+    result: dict[str, np.ndarray] = {}
+    for name in camera_names:
+        matrix = np.asarray(raw[name], dtype=np.float64)
+        if matrix.shape != (3, 3) or not np.isfinite(matrix).all():
+            raise ValueError(f"camera intrinsics for {name!r} must be a finite 3x3 matrix")
+        if matrix[0, 0] <= 0 or matrix[1, 1] <= 0 or not np.isclose(matrix[2, 2], 1.0):
+            raise ValueError(f"camera intrinsics for {name!r} are not a valid pinhole matrix")
+        result[name] = matrix
+    return result
+
+
+def _parse_model_frame_transforms(
+    options: Mapping[str, object], group_order: Sequence[str]
+) -> dict[str, np.ndarray]:
+    """Parse transforms from each IK base frame into the checkpoint state frame.
+
+    The ABC bottles checkpoint was trained from the two-arm station MJCF, whose
+    state positions are expressed in the station/world frame.  ManiMux solves IK
+    with one standalone arm model per side.  Relative body-frame actions are
+    invariant to this fixed transform, but the checkpoint's *state conditioning*
+    is not, so the transform must be applied before observations reach SAPolicy
+    and inverted again before local-arm IK.
+    """
+    raw = options.get("model_from_kinematics")
+    if raw is None:
+        return {group: np.eye(4, dtype=np.float64) for group in group_order}
+    return {group: np.asarray(raw[group], dtype=np.float64) for group in group_order}
+
+
+class TargetZBias:
+    """Height-graded offset added to model-frame target z before IK.
+
+    SAPolicy actions are deltas from the pose measured at chunk start, so a frame
+    translation (``model_from_kinematics``) cancels between state and target. An
+    offset on the target itself does not: each chunk re-anchors at the measured pose
+    and adds it once, so a closed loop settles ``offset_m`` away without drifting.
+    The full offset applies at target heights up to ``full_below_m`` above
+    ``table_z_m`` and fades linearly to zero at ``zero_above_m``; a lowered target
+    stops at ``min_height_m`` above the table. ``xy_offset_m`` optionally adds a
+    per-group horizontal model-frame offset with the same height weighting.
+    """
+
+    def __init__(self, options: Mapping[str, object]) -> None:
+        self.offset_m = float(options["offset_m"])
+        self.xy_offset_m = {
+            str(group): np.asarray(value, dtype=np.float64)
+            for group, value in dict(options.get("xy_offset_m") or {}).items()
+        }
+        if any(v.shape != (2,) or not np.isfinite(v).all() for v in self.xy_offset_m.values()):
+            raise ValueError("target_z_bias.xy_offset_m values must be finite [dx, dy] metres")
+        self.table_z_m = float(options.get("table_z_m", 0.75))
+        self.full_below_m = float(options.get("full_below_m", 0.08))
+        self.zero_above_m = float(options.get("zero_above_m", 0.15))
+        self.min_height_m = float(options.get("min_height_m", 0.015))
+        values = (
+            self.offset_m, self.table_z_m, self.full_below_m, self.zero_above_m, self.min_height_m
+        )
+        if not np.isfinite(values).all() or not 0 <= self.full_below_m < self.zero_above_m:
+            raise ValueError(
+                "target_z_bias needs finite values and 0 <= full_below_m < zero_above_m"
+            )
+        # Keep the map strictly increasing so the RTC condition can be inverted.
+        if abs(self.offset_m) >= self.zero_above_m - self.full_below_m:
+            raise ValueError("|target_z_bias.offset_m| must be below zero_above_m - full_below_m")
+
+    def weight(self, z: np.ndarray) -> np.ndarray:
+        height = np.asarray(z, dtype=np.float64) - self.table_z_m
+        return np.clip(
+            (self.zero_above_m - height) / (self.zero_above_m - self.full_below_m), 0.0, 1.0
+        )
+
+    def apply_xyz(self, group: str, xyz: np.ndarray) -> np.ndarray:
+        """Bias model-frame positions ``[..., 3]`` of ``group``."""
+        xyz = np.array(xyz, dtype=np.float64)
+        weight = self.weight(xyz[..., 2])
+        offset = self.xy_offset_m.get(group)
+        if offset is not None:
+            xyz[..., :2] += weight[..., None] * offset
+        xyz[..., 2] = self.apply(xyz[..., 2])
+        return xyz
+
+    def invert_xyz(self, group: str, xyz: np.ndarray) -> np.ndarray:
+        xyz = np.array(xyz, dtype=np.float64)
+        xyz[..., 2] = self.invert(xyz[..., 2])
+        offset = self.xy_offset_m.get(group)
+        if offset is not None:
+            xyz[..., :2] -= self.weight(xyz[..., 2])[..., None] * offset
+        return xyz
+
+    def apply(self, z: np.ndarray) -> np.ndarray:
+        z = np.asarray(z, dtype=np.float64)
+        weight = self.weight(z)
+        biased = z + self.offset_m * weight
+        floor = self.table_z_m + self.min_height_m
+        return np.where(biased < floor, np.minimum(z, floor), biased)
+
+    def invert(self, z: np.ndarray) -> np.ndarray:
+        """Recover model targets from executed (biased) ones by bisection."""
+        z = np.asarray(z, dtype=np.float64)
+        span = abs(self.offset_m) + 1e-6
+        lo, hi = z - span, z + span
+        for _ in range(40):
+            mid = 0.5 * (lo + hi)
+            low = self.apply(mid) < z
+            lo, hi = np.where(low, mid, lo), np.where(low, hi, mid)
+        return 0.5 * (lo + hi)
+
+    def metadata(self) -> dict[str, float]:
+        return {
+            "offset_m": self.offset_m,
+            "table_z_m": self.table_z_m,
+            "full_below_m": self.full_below_m,
+            "zero_above_m": self.zero_above_m,
+            "min_height_m": self.min_height_m,
+            "xy_offset_m": {group: value.tolist() for group, value in self.xy_offset_m.items()},
+        }
+
+
+def _parse_wire_image_hw(options: Mapping[str, object]) -> tuple[int, int]:
+    raw = options.get("wire_image_hw", list(DEFAULT_WIRE_IMAGE_HW))
+    height, width = map(int, raw)
+    if height <= 0 or width <= 0:
+        raise ValueError("policy.adapter.wire_image_hw must be positive")
+    return height, width
+
+
+def resize_rgb_uint8_area(image: np.ndarray, height: int, width: int) -> np.ndarray:
+    """Stretch RGB uint8 with cv2.INTER_AREA. Same geometry as training Resize."""
+    import cv2
+
+    image = np.ascontiguousarray(image, dtype=np.uint8)
+    if image.ndim != 3 or image.shape[-1] != 3:
+        raise ValueError(f"RGB must have shape [H,W,3], got {image.shape}")
+    if image.shape[0] == height and image.shape[1] == width:
+        return image
+    return cv2.resize(image, (width, height), interpolation=cv2.INTER_AREA)
+
+
+def _pose_to_wire_endpose(pose: np.ndarray) -> np.ndarray:
+    """FK grasp-site pose → ``pos3 + quat_xyzw`` (scipy convention)."""
+    pose = np.asarray(pose, dtype=np.float64)
+    quaternion_xyzw = Rotation.from_matrix(pose[:3, :3]).as_quat()
+    return np.concatenate([pose[:3, 3], quaternion_xyzw]).astype(np.float64)
+
+
+def _wire_endpose_to_pose(endpose: np.ndarray) -> np.ndarray:
+    """``pos3 + quat_xyzw`` → 4x4 grasp-site pose for local-arm IK."""
+    values = np.asarray(endpose, dtype=np.float64).reshape(-1)
+    pose = np.eye(4, dtype=np.float64)
+    pose[:3, :3] = Rotation.from_quat(values[3:7]).as_matrix()
+    pose[:3, 3] = values[:3]
+    return pose
+
+
+class SAPolicyYamAdapter(PolicyAdapter):
+    """Encode YAM observations and solve SAPolicy Cartesian chunks back to joints."""
+
+    # This adapter owns custom TCP geometry and bounded solver settings which
+    # are not yet shared with robot.kinematics used by execution-time IK.
+    supports_step_ik = False
+
+    def __init__(self, robot: dict, policy: dict, *, kinematics=None) -> None:
+        from manimux.kinematics import build_kinematics
+
+        self._group_order = tuple(policy["adapter"].get("group_order", DEFAULT_GROUP_ORDER))
+        seed_source = policy["adapter"].get("ik_seed_source", "runtime")
+        if seed_source not in {"runtime", "previous_plan"}:
+            raise ValueError("SAPolicy ik_seed_source must be runtime or previous_plan")
+        self.uses_decode_reference = seed_source == "previous_plan"
+        self._horizon_steps = policy["horizon_policy_steps"]
+        self.action_space = policy["adapter"].get("action_space", "joint_position")
+        if self.action_space != "joint_position":
+            raise ValueError("SAPolicy adapter outputs joint_position; EEF targets require IK")
+        self._action_dt_ns = action_interval_ns(policy)
+        self._camera_map = _parse_camera_map(policy["adapter"])
+        self._intrinsics = _parse_intrinsics(policy["adapter"], tuple(self._camera_map))
+        self._wire_image_hw = _parse_wire_image_hw(policy["adapter"])
+        self._model_from_kinematics = _parse_model_frame_transforms(
+            policy["adapter"], self._group_order
+        )
+        self._kinematics_from_model = {
+            group: np.linalg.inv(transform)
+            for group, transform in self._model_from_kinematics.items()
+        }
+        z_bias = policy["adapter"].get("target_z_bias")
+        self._target_z_bias = None if z_bias is None else TargetZBias(z_bias)
+
+        kinematics_name = policy["adapter"].get("kinematics", "yam")
+        kinematics_options = policy["adapter"].get("kinematics_options", {})
+        self._kinematics = build_kinematics(kinematics_name, **kinematics_options)
+        self._anchors: OrderedDict[int, np.ndarray] = OrderedDict()
+        if self._kinematics.num_arm_joints != ARM_JOINTS:
+            raise ValueError(
+                f"SAPolicy YAM requires {ARM_JOINTS} arm joints, kinematics reports "
+                f"{self._kinematics.num_arm_joints}"
+            )
+
+    def build_observation(self, snapshot: ObservationSnapshot) -> ObservationSnapshot:
+        missing = [name for name in self._camera_map.values() if name not in snapshot.frames]
+        if missing:
+            raise ValueError(f"SAPolicy YAM adapter is missing cameras: {missing}")
+        return snapshot
+
+    def prepare_request(self, request: InferenceRequest) -> InferenceRequest:
+        snapshot = request.observation
+        condition = getattr(request, "action_condition", None)
+        weights = getattr(request, "condition_weights", None)
+        if (condition is None) != (weights is None):
+            raise ValueError("RTC requires both action_condition and condition_weights")
+        if condition is not None:
+            condition = self._rtc_condition_to_ee(condition)
+        anchor = np.concatenate(
+            [
+                np.asarray(snapshot.state.groups[name], dtype=np.float64)
+                for name in self._group_order
+            ]
+        )
+        self._anchors[request.request_seq] = anchor
+        while len(self._anchors) > 8:
+            self._anchors.popitem(last=False)
+
+        payload: dict[str, object] = {}
+        for side, group in zip(("left", "right"), self._group_order, strict=True):
+            state = np.asarray(snapshot.state.groups[group], dtype=np.float64)
+            local_pose = self._kinematics.fk(state[:ARM_JOINTS], float(state[-1]))
+            pose = self._model_from_kinematics[group] @ local_pose
+            payload[f"{side}_endpose"] = _pose_to_wire_endpose(pose)
+            payload[f"{side}_gripper"] = float(state[-1])
+
+        model_cameras = tuple(self._camera_map)
+        wire_height, wire_width = self._wire_image_hw
+        native_hw: dict[str, list[int]] = {}
+        resized_frames: dict[str, SensorFrame] = {}
+        for model_name, sensor_name in self._camera_map.items():
+            frame = snapshot.frames[sensor_name]
+            native_hw[model_name] = [int(frame.data.shape[0]), int(frame.data.shape[1])]
+            resized_frames[sensor_name] = SensorFrame(
+                name=frame.name,
+                data=resize_rgb_uint8_area(frame.data, wire_height, wire_width),
+                capture_monotonic_ns=frame.capture_monotonic_ns,
+                sequence=frame.sequence,
+            )
+        sap_info = {
+            "left_endpose": payload["left_endpose"],
+            "right_endpose": payload["right_endpose"],
+            "left_gripper": payload["left_gripper"],
+            "right_gripper": payload["right_gripper"],
+            "intrinsics": dict(self._intrinsics),
+            "camera_names": list(model_cameras),
+            "image_native_hw": native_hw,
+        }
+        return SAPolicyXPolicyRequest(
+            session_id=request.session_id,
+            request_seq=request.request_seq,
+            observation_time_ns=request.observation_time_ns,
+            deadline_ns=request.deadline_ns,
+            observation=ObservationSnapshot(state=snapshot.state, frames=resized_frames),
+            instruction=request.instruction,
+            action_condition=condition,
+            condition_weights=weights,
+            rtc_beta=getattr(request, "rtc_beta", 5.0),
+            xpolicylab_additional_info={"sapolicy": sap_info},
+            xpolicylab_state={
+                f"{side}_ee_pose": np.concatenate(
+                    [
+                        payload[f"{side}_endpose"][:3],
+                        payload[f"{side}_endpose"][6:7],
+                        payload[f"{side}_endpose"][3:6],
+                    ]
+                )
+                for side in ("left", "right")
+            },
+        )
+
+    def _rtc_condition_to_ee(self, condition: np.ndarray) -> np.ndarray:
+        """Map the runtime's absolute joint14 timeline to model-frame WXYZ EE16.
+
+        Use the same FK, gripper aperture and calibration as the observation.
+        Body-frame deltas and checkpoint normalization belong to XPolicyLab.
+        """
+        joints = np.asarray(condition, dtype=np.float64)
+        if joints.shape != (self._horizon_steps, 2 * GROUP_DIM):
+            raise ValueError(f"SAPolicy RTC joint condition must be ({self._horizon_steps}, 14)")
+        if not np.isfinite(joints).all():
+            raise ValueError("SAPolicy RTC joint condition must be finite")
+        result = np.empty((len(joints), WIRE_ACTION_DIM), dtype=np.float64)
+        for arm, group in enumerate(self._group_order):
+            for i, state in enumerate(joints[:, arm * GROUP_DIM : (arm + 1) * GROUP_DIM]):
+                pose = self._model_from_kinematics[group] @ self._kinematics.fk(
+                    state[:ARM_JOINTS], float(state[-1])
+                )
+                if self._target_z_bias is not None:
+                    # The timeline holds biased targets; condition on the model's own plan.
+                    pose[:3, 3] = self._target_z_bias.invert_xyz(group, pose[:3, 3])
+                xyz_xyzw = _pose_to_wire_endpose(pose)
+                result[i, arm * 8 : arm * 8 + 8] = np.concatenate(
+                    [
+                        xyz_xyzw[:3],
+                        xyz_xyzw[6:7],
+                        xyz_xyzw[3:6],
+                        state[-1:],
+                    ]
+                )
+        return result
+
+    def decode_action(self, raw: object, context: ActionContext) -> ActionChunk:
+        return self._decode_action(raw, context)
+
+    # A decoder process owns its own kinematics; ik_seed is the complete
+    # decode seed, so it does not need the observation-side anchor cache.
+    supports_context_only_decode = True
+    supports_independent_group_decode = True
+
+    @property
+    def decode_partitions(self) -> tuple[str, ...]:
+        return tuple(self._group_order)
+
+    def warmup_decode(self, partition: str | None) -> None:
+        if self.action_space == "joint_position":
+            seed = self._kinematics.clip_arm_joints(np.zeros(ARM_JOINTS))
+            pose = self._kinematics.fk(seed, 0.5)
+            self._kinematics.ik(pose, seed, 0.5)
+
+    def decode_action_partition(
+        self, raw: object, context: ActionContext, partition: str
+    ) -> ActionChunk:
+        if partition not in self._group_order:
+            raise ValueError(f"unknown SAPolicy decode partition {partition!r}")
+        return self._decode_action(raw, context, partition)
+
+    def _decode_action(
+        self,
+        raw: object,
+        context: ActionContext,
+        partition: str | None = None,
+        hold_reason: str | None = None,
+    ) -> ActionChunk:
+        raw_actions = raw.get("actions") if isinstance(raw, Mapping) else raw
+        if isinstance(raw_actions, list) and raw_actions and isinstance(raw_actions[0], Mapping):
+            rows = []
+            for action in raw_actions:
+                expected = {
+                    f"{side}_{field}"
+                    for side in ("left", "right")
+                    for field in ("ee_pose", "ee_joint_state")
+                }
+                if set(action) != expected:
+                    raise ValueError(f"Invalid SAPolicy standard action keys: {set(action)}")
+                row = []
+                for side in ("left", "right"):
+                    pose = np.asarray(action[f"{side}_ee_pose"], dtype=np.float64)
+                    grip = np.asarray(action[f"{side}_ee_joint_state"], dtype=np.float64)
+                    if pose.shape != (7,) or grip.shape != (1,):
+                        raise ValueError("SAPolicy standard EE actions require pose7 and aperture1")
+                    row.extend(np.concatenate([pose[:3], pose[4:7], pose[3:4], grip]))
+                rows.append(row)
+            raw_actions = rows
+        actions = np.asarray(raw_actions, dtype=np.float64)
+        if actions.shape != (self._horizon_steps, WIRE_ACTION_DIM):
+            raise ValueError(
+                "SAPolicy actions must have shape "
+                f"({self._horizon_steps}, {WIRE_ACTION_DIM}), got {actions.shape}"
+            )
+        if not np.isfinite(actions).all():
+            raise ValueError("SAPolicy actions contain non-finite values")
+        if any(
+            np.any(np.linalg.norm(actions[:, start : start + 4], axis=1) < 1e-12)
+            for start in (3, 11)
+        ):
+            raise ValueError("SAPolicy actions contain zero quaternions")
+        raw_model_actions = actions
+        if self._target_z_bias is not None:
+            actions = actions.copy()
+            for start, group in zip((0, 8), self._group_order, strict=True):
+                actions[:, start : start + 3] = self._target_z_bias.apply_xyz(
+                    group, actions[:, start : start + 3]
+                )
+        anchor = self._anchors.pop(context.request_seq, None)
+        if anchor is None and context.ik_seed is None:
+            raise ValueError(
+                f"SAPolicy adapter has no observation anchor for request {context.request_seq}"
+            )
+
+        if self.decode_pose_only:
+            targets = {}
+            for index, group in enumerate(self._group_order):
+                rows = actions[:, index * 8:index * 8 + 8].copy()
+                from manimux.kinematics.poses import matrix_pose
+                targets[group] = np.stack([
+                    np.r_[matrix_pose(self._kinematics_from_model[group] @ _wire_endpose_to_pose(row[:7])), row[7]]
+                    for row in rows
+                ])
+            return pose_chunk(context, targets, self._action_dt_ns)
+        groups: dict[str, np.ndarray] = {}
+        ik_diagnostics: dict[str, object] = {}
+        raw_eef: dict[str, object] = {}
+        hold_from_step: dict[str, int] = {}
+        end, offset = self._horizon_steps, 0
+        expired = False
+        if context.max_source_steps is not None:
+            end = min(end, context.max_source_steps)
+            execution_ns = context.execution_time_ns or context.observation_time_ns
+            offset = max(0, (execution_ns - context.observation_time_ns) // self._action_dt_ns)
+            expired = offset >= end
+            # Keep a nonempty placeholder so the timeline rejects no_future_horizon.
+            offset = min(offset, end - 1)
+        for arm_index, group in enumerate(self._group_order):
+            if partition is not None and group != partition:
+                continue
+            raw_eef[group] = raw_model_actions[:, arm_index * 8 : arm_index * 8 + 8].tolist()
+            state_start = arm_index * GROUP_DIM
+            seed_state = None if anchor is None else anchor[state_start : state_start + GROUP_DIM]
+            if context.ik_seed is not None:
+                selected = context.ik_seed.groups.get(group)
+                if selected is None:
+                    raise ValueError(f"SAPolicy IK seed is missing group {group!r}")
+                seed_state = np.asarray(selected, dtype=np.float64)
+                if seed_state.shape != (GROUP_DIM,) or not np.isfinite(seed_state).all():
+                    raise ValueError(f"SAPolicy IK seed group {group!r} is invalid")
+            seed_source = "runtime"
+            reference = context.decode_reference if self.uses_decode_reference else None
+            if reference is not None:
+                position = (context.observation_time_ns + offset*self._action_dt_ns
+                            - reference.start_time_ns) / reference.dt_ns
+                rows = reference.groups[group]
+                if 0 <= position <= len(rows)-1:
+                    lower = int(np.floor(position))
+                    upper = min(lower+1, len(rows)-1)
+                    seed_state = (1-(position-lower))*rows[lower] + (position-lower)*rows[upper]
+                    seed_source = "previous_plan"
+            assert seed_state is not None
+            if context.independent_groups:
+                groups[group], failed_at = self._solve_arm_bounded(
+                    group,
+                    actions[offset:end, arm_index * 8 : arm_index * 8 + 8],
+                    seed_state,
+                    budget_ms=context.decode_budget_ms,
+                    diagnostics=ik_diagnostics,
+                    hold_reason=hold_reason or ("expired_prefix" if expired else None),
+                )
+                if failed_at is not None:
+                    hold_from_step[group] = failed_at
+                ik_diagnostics[group]["seed_source"] = seed_source
+                continue
+            groups[group] = self._solve_arm(
+                group,
+                actions[offset:end, arm_index * 8 : arm_index * 8 + 8],
+                np.asarray(seed_state[:ARM_JOINTS], dtype=np.float64),
+                diagnostics=ik_diagnostics,
+            )
+
+            ik_diagnostics[group]["seed_source"] = seed_source
+        return ActionChunk(
+            plan_id=f"sapolicy-{context.request_seq}-{uuid.uuid4().hex[:8]}",
+            request_seq=context.request_seq,
+            observation_time_ns=context.observation_time_ns,
+            created_time_ns=context.created_time_ns,
+            action_space=self.action_space,
+            dt_ns=self._action_dt_ns,
+            groups=groups,
+            source_offset_steps=offset,
+            hold_from_step=hold_from_step,
+            metadata={
+                "raw_model_eef": raw_eef,
+                "ik": ik_diagnostics,
+                **(
+                    {"target_z_bias": self._target_z_bias.metadata()}
+                    if self._target_z_bias is not None
+                    else {}
+                ),
+            },
+        )
+
+    def decode_hold_partition(self, raw, context, partition, reason) -> ActionChunk:
+        """Build a typed hold without invoking IK (worker timeout fallback)."""
+        if not context.independent_groups or partition not in self._group_order:
+            raise ValueError("independent decode hold is not enabled")
+        return self._decode_action(raw, context, partition, hold_reason=reason)
+
+    def _solve_arm_bounded(
+        self,
+        group,
+        actions,
+        seed_state,
+        *,
+        budget_ms,
+        diagnostics,
+        hold_reason=None,
+    ):
+        import time
+
+        if budget_ms is None or budget_ms <= 0:
+            raise ValueError("independent decoding requires a positive IK budget")
+        started = time.monotonic_ns()
+        deadline = started + int(budget_ms * 1e6)
+        current = self._kinematics.clip_arm_joints(seed_state[:ARM_JOINTS])
+        previous_gripper = float(seed_state[-1])
+        out = np.tile(np.r_[current, previous_gripper], (len(actions), 1))
+        results, durations, failed_at = [], [], None
+        for step, row in enumerate(actions):
+            point_start = time.monotonic_ns()
+            reason = hold_reason or ("budget_exceeded" if point_start >= deadline else None)
+            if reason:
+                converged, result = False, {"reason": reason, "iterations": 0}
+            else:
+                target = self._kinematics_from_model[group] @ _wire_endpose_to_pose(row[:7])
+                converged, solved, result = self._kinematics.ik_bounded(
+                    target,
+                    current,
+                    float(row[7]),
+                    deadline_ns=deadline,
+                )
+                if converged:
+                    current = self._kinematics.clip_arm_joints(solved)
+                    previous_gripper = float(row[7])
+            durations.append((time.monotonic_ns() - point_start) / 1e6)
+            results.append(result)
+            out[step] = np.r_[current, previous_gripper]
+            if not converged:
+                failed_at = step
+                out[step:] = out[step]
+                break
+        diagnostics[group] = {
+            "ik_ms": (time.monotonic_ns() - started) / 1e6,
+            "step_ms": durations,
+            "step_results": results,
+            "converged": [
+                i < (failed_at if failed_at is not None else len(actions))
+                for i in range(len(actions))
+            ],
+            "failed_steps": int(failed_at is not None),
+            "skipped_steps": 0 if failed_at is None else len(actions) - failed_at - 1,
+            "hold_from_step": failed_at,
+            "budget_ms": budget_ms,
+            "seed_joints": np.asarray(seed_state[:ARM_JOINTS]).tolist(),
+        }
+        return out, failed_at
+
+    def _solve_arm(
+        self,
+        group: str,
+        actions: np.ndarray,
+        seed: np.ndarray,
+        *,
+        diagnostics: dict[str, object] | None = None,
+    ) -> np.ndarray:
+        horizon = actions.shape[0]
+        out = np.empty((horizon, GROUP_DIM), dtype=np.float64)
+        current = self._kinematics.clip_arm_joints(seed)
+        failures = 0
+        import time
+
+        durations = []
+        converged_steps = []
+        for step, row in enumerate(actions):
+            gripper = float(row[7])
+            model_target = _wire_endpose_to_pose(row[:7])
+            target = self._kinematics_from_model[group] @ model_target
+            started = time.perf_counter_ns()
+            converged, raw_solved = self._kinematics.ik(target, current, float(gripper))
+            durations.append((time.perf_counter_ns() - started) / 1e6)
+            solved = np.asarray(raw_solved, dtype=np.float64)
+            if converged and solved.shape == (ARM_JOINTS,) and np.isfinite(solved).all():
+                current = self._kinematics.clip_arm_joints(solved)
+            else:
+                failures += 1
+            converged_steps.append(bool(converged))
+            out[step, :ARM_JOINTS] = current
+            out[step, ARM_JOINTS] = float(gripper)
+        if failures:
+            log.warning("%s: IK did not converge on %d/%d chunk steps", group, failures, horizon)
+        if diagnostics is not None:
+            diagnostics[group] = {
+                "ik_ms": sum(durations),
+                "step_ms": durations,
+                "converged": converged_steps,
+                "failed_steps": failures,
+                "seed_joints": np.asarray(seed).tolist(),
+            }
+        if not np.isfinite(out).all():
+            raise ValueError(f"SAPolicy IK produced non-finite joints for {group}")
+        return out
+
+    def validate(self, robot: dict, policy: dict) -> None:
+        del policy
+        if tuple(robot["group_dims"]) != self._group_order:
+            raise ValueError(
+                "SAPolicy YAM requires robot groups in order "
+                f"{list(self._group_order)}, got {list(robot['group_dims'])}"
+            )
+        if any(robot["group_dims"][name] != GROUP_DIM for name in self._group_order):
+            raise ValueError("SAPolicy YAM requires two 7-value arm+gripper groups")

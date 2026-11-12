@@ -1,0 +1,343 @@
+policy_services:
+  Pi05 / UMI DAgger / 40000:
+    cwd: ../../../../../..
+    command:
+    - XPolicyLab/policy/Pi_05/openpi/.venv/bin/python
+    - -m
+    - manimux.servers.pi05
+    - --experiment
+    - '{config}'
+    - --local
+    - '{local}'
+    env:
+      PYTHONPATH: null
+      XLA_PYTHON_CLIENT_PREALLOCATE: 'false'
+    startup_timeout_s: 600
+    stop_timeout_s: 30
+  Pi05 / UMI DAgger / 40000 / Step DiffIK:
+    cwd: ../../../../../..
+    command:
+    - XPolicyLab/policy/Pi_05/openpi/.venv/bin/python
+    - -m
+    - manimux.servers.pi05
+    - --experiment
+    - '{config}'
+    - --local
+    - '{local}'
+    env:
+      PYTHONPATH: null
+      XLA_PYTHON_CLIENT_PREALLOCATE: 'false'
+    startup_timeout_s: 600
+    stop_timeout_s: 30
+  UMI DP / CalibWrist 1028:
+    cwd: ../../../../../..
+    command:
+    - envs/umi_dp/.venv/bin/python
+    - -m
+    - manimux.servers.umi_dp
+    - --experiment
+    - '{config}'
+    - --local
+    - '{local}'
+    env:
+      PYTHONPATH: null
+    startup_timeout_s: 600
+    stop_timeout_s: 30
+  UMI DP / CalibWrist 1028 / Train-time RTC:
+    cwd: ../../../../../..
+    command:
+    - envs/umi_dp/.venv/bin/python
+    - -m
+    - manimux.servers.umi_dp
+    - --experiment
+    - '{config}'
+    - --local
+    - '{local}'
+    env:
+      PYTHONPATH: null
+    startup_timeout_s: 600
+    stop_timeout_s: 30
+  Pi05 / UMI Only / 40000:
+    cwd: ../../../../../..
+    command:
+    - XPolicyLab/policy/Pi_05/openpi/.venv/bin/python
+    - -m
+    - manimux.servers.pi05
+    - --experiment
+    - '{config}'
+    - --local
+    - '{local}'
+    env:
+      PYTHONPATH: null
+      XLA_PYTHON_CLIENT_PREALLOCATE: 'false'
+    startup_timeout_s: 600
+    stop_timeout_s: 30
+  Pi05 / UMI Only / 40000 / Step DiffIK:
+    cwd: ../../../../../..
+    command:
+    - XPolicyLab/policy/Pi_05/openpi/.venv/bin/python
+    - -m
+    - manimux.servers.pi05
+    - --experiment
+    - '{config}'
+    - --local
+    - '{local}'
+    env:
+      PYTHONPATH: null
+      XLA_PYTHON_CLIENT_PREALLOCATE: 'false'
+    startup_timeout_s: 600
+    stop_timeout_s: 30
+  Pi05 / UMI Half Speed H50 / 29999:
+    cwd: ../../../../../..
+    command:
+    - XPolicyLab/policy/Pi_05/openpi/.venv/bin/python
+    - -m
+    - manimux.servers.pi05
+    - --experiment
+    - '{config}'
+    - --local
+    - '{local}'
+    env:
+      PYTHONPATH: null
+      XLA_PYTHON_CLIENT_PREALLOCATE: 'false'
+    startup_timeout_s: 600
+    stop_timeout_s: 30
+  Pi05 / UMI Half Speed H50 / 29999 / Step DiffIK:
+    cwd: ../../../../../..
+    command:
+    - XPolicyLab/policy/Pi_05/openpi/.venv/bin/python
+    - -m
+    - manimux.servers.pi05
+    - --experiment
+    - '{config}'
+    - --local
+    - '{local}'
+    env:
+      PYTHONPATH: null
+      XLA_PYTHON_CLIENT_PREALLOCATE: 'false'
+    startup_timeout_s: 600
+    stop_timeout_s: 30
+  UMI DP / Processed2 1105 / Scratch 60000:
+    cwd: ../../../../../..
+    command:
+    - envs/umi_dp/.venv/bin/python
+    - -m
+    - manimux.servers.umi_dp
+    - --experiment
+    - '{config}'
+    - --local
+    - '{local}'
+    env:
+      PYTHONPATH: null
+    startup_timeout_s: 600
+    stop_timeout_s: 30
+  UMI DP / Processed2 1105 / RTC Finetune 60000:
+    cwd: ../../../../../..
+    command:
+    - envs/umi_dp/.venv/bin/python
+    - -m
+    - manimux.servers.umi_dp
+    - --experiment
+    - '{config}'
+    - --local
+    - '{local}'
+    env:
+      PYTHONPATH: null
+    startup_timeout_s: 600
+    stop_timeout_s: 30
+  UMI DP / Processed2 1105 / Scratch 60000 / Train-time RTC:
+    cwd: ../../../../../..
+    command:
+    - envs/umi_dp/.venv/bin/python
+    - -m
+    - manimux.servers.umi_dp
+    - --experiment
+    - '{config}'
+    - --local
+    - '{local}'
+    env:
+      PYTHONPATH: null
+    startup_timeout_s: 600
+    stop_timeout_s: 30
+  UMI DP / Processed2 1105 / RTC Finetune 60000 / Train-time RTC:
+    cwd: ../../../../../..
+    command:
+    - envs/umi_dp/.venv/bin/python
+    - -m
+    - manimux.servers.umi_dp
+    - --experiment
+    - '{config}'
+    - --local
+    - '{local}'
+    env:
+      PYTHONPATH: null
+    startup_timeout_s: 600
+    stop_timeout_s: 30
+  Pi05 / Processed2 Native World H50 / 29999:
+    cwd: ../../../../../..
+    command:
+    - XPolicyLab/policy/Pi_05/openpi/.venv/bin/python
+    - -m
+    - manimux.servers.pi05
+    - --experiment
+    - '{config}'
+    - --local
+    - '{local}'
+    env:
+      PYTHONPATH: null
+      XLA_PYTHON_CLIENT_PREALLOCATE: 'false'
+    startup_timeout_s: 600
+    stop_timeout_s: 30
+experiments:
+- id: pi05_processed2_native_world_h50_29999_serial32
+  policy: Pi05 / Processed2 Native World H50 / 29999
+  label: Serial 32 / 15 Hz
+  config: pi05_processed2_native_world_h50_29999_serial32.yaml
+- id: pi05_processed2_native_world_h50_29999_rtc16
+  policy: Pi05 / Processed2 Native World H50 / 29999
+  label: RTC 32 / No Blend / 15 Hz
+  config: pi05_processed2_native_world_h50_29999_rtc16.yaml
+- id: pi05_processed2_native_world_h50_29999_rtc16_blend2
+  policy: Pi05 / Processed2 Native World H50 / 29999
+  label: RTC 32 / Blend 2 / 15 Hz
+  config: pi05_processed2_native_world_h50_29999_rtc16_blend2.yaml
+- id: pi05_processed2_native_world_h50_29999_async16
+  policy: Pi05 / Processed2 Native World H50 / 29999
+  label: Async 32 / 15 Hz
+  config: pi05_processed2_native_world_h50_29999_async16.yaml
+- id: pi05_processed2_native_world_h50_29999_rtc_retime
+  policy: Pi05 / Processed2 Native World H50 / 29999
+  label: RTC Adaptive Speed 24 / 15 Hz
+  config: pi05_processed2_native_world_h50_29999_rtc_retime.yaml
+- id: pi05_umi_dagger_40000_serial32
+  policy: Pi05 / UMI DAgger / 40000
+  label: Serial 32
+  config: pi05_umi_dagger_40000_serial32.yaml
+- id: pi05_umi_dagger_40000_rtc16
+  policy: Pi05 / UMI DAgger / 40000
+  label: RTC 16 / None
+  config: pi05_umi_dagger_40000_rtc16.yaml
+- id: pi05_umi_dagger_40000_rtc16_blend2
+  policy: Pi05 / UMI DAgger / 40000
+  label: RTC 16 / Blend 2
+  config: pi05_umi_dagger_40000_rtc16_blend2.yaml
+- id: pi05_umi_dagger_40000_rtc16_waypoint
+  policy: Pi05 / UMI DAgger / 40000
+  label: RTC 16 / Waypoint
+  config: pi05_umi_dagger_40000_rtc16_waypoint.yaml
+- id: pi05_umi_dagger_40000_serial32_step_ik
+  policy: Pi05 / UMI DAgger / 40000 / Step DiffIK
+  label: Serial 32 / Step DiffIK
+  config: pi05_umi_dagger_40000_serial32_step_ik.yaml
+- id: pi05_umi_dagger_40000_rtc16_step_ik
+  policy: Pi05 / UMI DAgger / 40000 / Step DiffIK
+  label: RTC 16 / Step DiffIK
+  config: pi05_umi_dagger_40000_rtc16_step_ik.yaml
+- id: pi05_umi_dagger_40000_rtc12_beta10_skip1_blend1_step_ik
+  policy: Pi05 / UMI DAgger / 40000 / Step DiffIK
+  label: RTC 12 / Beta 10 / Skip 1 / Blend 1 / Step DiffIK
+  config: pi05_umi_dagger_40000_rtc12_beta10_skip1_blend1_step_ik.yaml
+- id: pi05_umi_dagger_40000_rtc16_blend2_step_ik
+  policy: Pi05 / UMI DAgger / 40000 / Step DiffIK
+  label: RTC 16 / Blend 2 / Step DiffIK
+  config: pi05_umi_dagger_40000_rtc16_blend2_step_ik.yaml
+- id: pi05_umi_dagger_40000_rtc12_beta10_skip1_blend2_step_ik
+  policy: Pi05 / UMI DAgger / 40000 / Step DiffIK
+  label: RTC 12 / Beta 10 / Skip 1 / Blend 2 / Step DiffIK
+  config: pi05_umi_dagger_40000_rtc12_beta10_skip1_blend2_step_ik.yaml
+- id: dp_calibwrist_serial
+  policy: UMI DP / CalibWrist 1028
+  label: Serial 32
+  config: dp_calibwrist_serial.yaml
+- id: dp_calibwrist_train_time_rtc
+  policy: UMI DP / CalibWrist 1028 / Train-time RTC
+  label: Train-time RTC 16 / prefix 5
+  config: dp_calibwrist_train_time_rtc.yaml
+- id: pi05_umi_only_40000_serial32
+  policy: Pi05 / UMI Only / 40000
+  label: Serial 32
+  config: pi05_umi_only_40000_serial32.yaml
+- id: pi05_umi_only_40000_rtc16
+  policy: Pi05 / UMI Only / 40000
+  label: RTC 16 / None
+  config: pi05_umi_only_40000_rtc16.yaml
+- id: pi05_umi_only_40000_rtc16_blend2
+  policy: Pi05 / UMI Only / 40000
+  label: RTC 16 / Blend 2
+  config: pi05_umi_only_40000_rtc16_blend2.yaml
+- id: pi05_umi_only_40000_rtc16_waypoint
+  policy: Pi05 / UMI Only / 40000
+  label: RTC 16 / Waypoint
+  config: pi05_umi_only_40000_rtc16_waypoint.yaml
+- id: pi05_umi_only_40000_serial32_step_ik
+  policy: Pi05 / UMI Only / 40000 / Step DiffIK
+  label: Serial 32 / Step DiffIK
+  config: pi05_umi_only_40000_serial32_step_ik.yaml
+- id: pi05_umi_only_40000_rtc16_step_ik
+  policy: Pi05 / UMI Only / 40000 / Step DiffIK
+  label: RTC 16 / Step DiffIK
+  config: pi05_umi_only_40000_rtc16_step_ik.yaml
+- id: pi05_umi_only_40000_rtc12_beta10_skip1_blend1_step_ik
+  policy: Pi05 / UMI Only / 40000 / Step DiffIK
+  label: RTC 12 / Beta 10 / Skip 1 / Blend 1 / Step DiffIK
+  config: pi05_umi_only_40000_rtc12_beta10_skip1_blend1_step_ik.yaml
+- id: pi05_umi_only_40000_rtc16_blend2_step_ik
+  policy: Pi05 / UMI Only / 40000 / Step DiffIK
+  label: RTC 16 / Blend 2 / Step DiffIK
+  config: pi05_umi_only_40000_rtc16_blend2_step_ik.yaml
+- id: pi05_umi_only_40000_rtc12_beta10_skip1_blend2_step_ik
+  policy: Pi05 / UMI Only / 40000 / Step DiffIK
+  label: RTC 12 / Beta 10 / Skip 1 / Blend 2 / Step DiffIK
+  config: pi05_umi_only_40000_rtc12_beta10_skip1_blend2_step_ik.yaml
+- id: pi05_umi_half_h50_29999_serial50
+  policy: Pi05 / UMI Half Speed H50 / 29999
+  label: Serial 50
+  config: pi05_umi_half_h50_29999_serial50.yaml
+- id: pi05_umi_half_h50_29999_rtc16
+  policy: Pi05 / UMI Half Speed H50 / 29999
+  label: RTC 16 / None
+  config: pi05_umi_half_h50_29999_rtc16.yaml
+- id: pi05_umi_half_h50_29999_rtc16_blend2
+  policy: Pi05 / UMI Half Speed H50 / 29999
+  label: RTC 16 / Blend 2
+  config: pi05_umi_half_h50_29999_rtc16_blend2.yaml
+- id: pi05_umi_half_h50_29999_rtc16_waypoint
+  policy: Pi05 / UMI Half Speed H50 / 29999
+  label: RTC 16 / Waypoint
+  config: pi05_umi_half_h50_29999_rtc16_waypoint.yaml
+- id: pi05_umi_half_h50_29999_serial50_step_ik
+  policy: Pi05 / UMI Half Speed H50 / 29999 / Step DiffIK
+  label: Serial 50 / Step DiffIK
+  config: pi05_umi_half_h50_29999_serial50_step_ik.yaml
+- id: pi05_umi_half_h50_29999_rtc16_step_ik
+  policy: Pi05 / UMI Half Speed H50 / 29999 / Step DiffIK
+  label: RTC 16 / Step DiffIK
+  config: pi05_umi_half_h50_29999_rtc16_step_ik.yaml
+- id: pi05_umi_half_h50_29999_rtc12_beta10_skip1_blend1_step_ik
+  policy: Pi05 / UMI Half Speed H50 / 29999 / Step DiffIK
+  label: RTC 12 / Beta 10 / Skip 1 / Blend 1 / Step DiffIK
+  config: pi05_umi_half_h50_29999_rtc12_beta10_skip1_blend1_step_ik.yaml
+- id: pi05_umi_half_h50_29999_rtc16_blend2_step_ik
+  policy: Pi05 / UMI Half Speed H50 / 29999 / Step DiffIK
+  label: RTC 16 / Blend 2 / Step DiffIK
+  config: pi05_umi_half_h50_29999_rtc16_blend2_step_ik.yaml
+- id: pi05_umi_half_h50_29999_rtc12_beta10_skip1_blend2_step_ik
+  policy: Pi05 / UMI Half Speed H50 / 29999 / Step DiffIK
+  label: RTC 12 / Beta 10 / Skip 1 / Blend 2 / Step DiffIK
+  config: pi05_umi_half_h50_29999_rtc12_beta10_skip1_blend2_step_ik.yaml
+- id: dp_processed2_1105_scratch_serial
+  policy: UMI DP / Processed2 1105 / Scratch 60000
+  label: Serial 32 / DiffIK
+  config: dp_processed2_1105_scratch_serial.yaml
+- id: dp_processed2_1105_scratch_train_time_rtc
+  policy: UMI DP / Processed2 1105 / Scratch 60000 / Train-time RTC
+  label: Train-time RTC 16 / prefix 5 / DiffIK
+  config: dp_processed2_1105_scratch_train_time_rtc.yaml
+- id: dp_processed2_1105_rtc_serial
+  policy: UMI DP / Processed2 1105 / RTC Finetune 60000
+  label: Serial 32 / DiffIK
+  config: dp_processed2_1105_rtc_serial.yaml
+- id: dp_processed2_1105_rtc_train_time_rtc
+  policy: UMI DP / Processed2 1105 / RTC Finetune 60000 / Train-time RTC
+  label: Train-time RTC 16 / prefix 5 / DiffIK
+  config: dp_processed2_1105_rtc_train_time_rtc.yaml

@@ -1,0 +1,9 @@
+# End-effector model and control parameters; local.robot.components provides serial.
+type: end_effector
+implementation: manimux.embodiments.end_effector.taccap:TacCapGripper
+options: {}
+hardware:
+  # Existing experiments remain on impedance unless they explicitly override this.
+  control_mode: impedance
+  kp: 16.0
+  kd: 0.3

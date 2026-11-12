@@ -1,0 +1,109 @@
+# Task-switching evaluation with the existing bottle-trained checkpoint.
+# Cross-task evaluation does not imply this checkpoint was trained on every task.
+run:
+  task: press_rotating_clock
+  output_dir: ./data/experiments/lingbot-vla2-put-bottles-step30000/all-tasks/press_rotating_clock/autohorizon-adaptive
+  max_control_steps: 12000
+  warmup_before_start: true
+  experiment_template:
+    name: press_rotating_clock - ten layouts, three repeats
+    layout_ids:
+    - '01'
+    - '02'
+    - '03'
+    - '04'
+    - '05'
+    - '06'
+    - '07'
+    - 08
+    - 09
+    - '10'
+    repeats: 3
+    require_reference: true
+  sensor_reading:
+    mode: background
+    poll_hz: 100.0
+    max_frame_age_s: 0.5
+    startup_timeout_s: 5.0
+    shutdown_timeout_s: 2.0
+robot:
+  config: ../../../embodiment/robot/yam_dual.yaml
+  control_hz: 100.0
+  options:
+    move_to_start_on_connect: false
+    start_joints:
+      left_arm:
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 1.0
+      right_arm:
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 1.0
+    start_duration_s: 3.0
+    home_duration_s: 3.0
+    home_on_close: false
+    execute: true
+  type: yam
+sensors:
+- name: yam_cameras
+  driver: camera_server
+  service: camera
+  options:
+    request_timeout_ms: 500
+    max_frame_age_sec: 0.5
+    camera_names:
+    - d405_left
+    - d405_front
+    - d405_right
+policy:
+  worker: xpolicylab_ws
+  service: policy_secondary
+  adapter:
+    type: manimux.policy_adapter.lingbot_vla2.yam:LingBotVLA2YamAdapter
+    camera_map:
+      cam_head: d405_front
+      cam_left_wrist: d405_left
+      cam_right_wrist: d405_right
+  action_dt_s: 0.03333333333333333
+  timeout_s: 2.0
+  horizon_policy_steps: 50
+  inference_delay_s: 0.0
+  startup_timeout_s: 120.0
+  options:
+    action_format: joint
+    request_timeout_s: 20.0
+robogui:
+  enabled: true
+  robot: yam
+  policy_label: LingBot-VLA2 bottles-trained 30k - AUTOHORIZON adaptive
+recording:
+  enabled: true
+  video_fps: 30.0
+inference:
+  algorithm: autohorizon
+  blend_policy_steps: 0
+  max_plan_age_s: 2.0
+  action_start_mode: drop_infer_latency
+  inference_schedule: single_inflight
+  request_trigger: refill
+  refill_threshold_s: 0.1
+executor:
+  type: direct
+policy_server:
+  config: ../../../policy/lingbot-vla2/yam/finetune-put-bottles-step30000.yaml
+camera_server:
+  config: ../../../embodiment/sensor/cameras/realsense_3_views.yaml
+evaluation:
+  kind: binary
+  task_id: press_rotating_clock
+  label: press_rotating_clock
+  rubric_id: press_rotating_clock_binary_v1

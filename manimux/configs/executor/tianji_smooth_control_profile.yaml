@@ -1,0 +1,8 @@
+# Tianji gripper shaping for experiments that inherit safety and motion limits.
+smooth:
+  cutoff_hz: 8.0
+  gripper:
+    mode: close_latch
+    close_threshold: 0.6
+    open_threshold: 0.75
+    closed_value: 0.2

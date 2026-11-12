@@ -1,0 +1,13 @@
+# One candidate batch: AAC selects execution length; BID selects the candidate.
+max_plan_age_s: 5.0
+blend_policy_steps: 0
+action_start_mode: first_step_when_ready
+aac:
+  ee_stats_path: manimux/policies/xpolicylab/norm_stats/yam_60ep_ee_increment.json
+  motion_threshold: 0.2
+algorithm: bid_backward
+inference_schedule: serial
+bid:
+  num_samples: 16
+  rho: 0.9
+  execution_horizon: aac

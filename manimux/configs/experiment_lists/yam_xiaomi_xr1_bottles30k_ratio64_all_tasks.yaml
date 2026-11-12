@@ -1,0 +1,32 @@
+# Existing Async/RTC integrations only; live backend capabilities must match.
+experiments:
+- id: coin_async
+  label: ASYNC - 19 source steps
+  config: ../experiments/coin/xiaomi-xr1/yam_xiaomi_xr1_bottles30k_alltasks_async_ratio64.yaml
+- id: coin_rtc
+  label: RTC - 19 source steps
+  config: ../experiments/coin/xiaomi-xr1/yam_xiaomi_xr1_bottles30k_alltasks_rtc_ratio64.yaml
+- id: stack_blocks_medium_async
+  label: ASYNC - 19 source steps
+  config: ../experiments/stack_blocks_medium/xiaomi-xr1/yam_xiaomi_xr1_bottles30k_alltasks_async_ratio64.yaml
+- id: stack_blocks_medium_rtc
+  label: RTC - 19 source steps
+  config: ../experiments/stack_blocks_medium/xiaomi-xr1/yam_xiaomi_xr1_bottles30k_alltasks_rtc_ratio64.yaml
+- id: put_bottles_async
+  label: ASYNC - 19 source steps
+  config: ../experiments/put_bottles/xiaomi-xr1/yam_xiaomi_xr1_bottles30k_alltasks_async_ratio64.yaml
+- id: put_bottles_rtc
+  label: RTC - 19 source steps
+  config: ../experiments/put_bottles/xiaomi-xr1/yam_xiaomi_xr1_bottles30k_alltasks_rtc_ratio64.yaml
+- id: press_rotating_clock_async
+  label: ASYNC - 19 source steps
+  config: ../experiments/press_rotating_clock/xiaomi-xr1/yam_xiaomi_xr1_bottles30k_alltasks_async_ratio64.yaml
+- id: press_rotating_clock_rtc
+  label: RTC - 19 source steps
+  config: ../experiments/press_rotating_clock/xiaomi-xr1/yam_xiaomi_xr1_bottles30k_alltasks_rtc_ratio64.yaml
+- id: pick_the_moving_cube_async
+  label: ASYNC - 19 source steps
+  config: ../experiments/pick_the_moving_cube/xiaomi-xr1/yam_xiaomi_xr1_bottles30k_alltasks_async_ratio64.yaml
+- id: pick_the_moving_cube_rtc
+  label: RTC - 19 source steps
+  config: ../experiments/pick_the_moving_cube/xiaomi-xr1/yam_xiaomi_xr1_bottles30k_alltasks_rtc_ratio64.yaml

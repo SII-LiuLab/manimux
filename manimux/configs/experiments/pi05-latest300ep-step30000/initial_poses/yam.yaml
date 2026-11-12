@@ -1,0 +1,33 @@
+# Shared named starting poses for every task/method in this catalog.
+# Arm joints: radians; YAM grippers: normalized aperture.
+poses:
+  raised_ready:
+    label: Raised ready pose
+    duration_s: 5.0
+    joints:
+      left_arm:
+      - -0.06122682536049062
+      - 1.2937743190661486
+      - 1.6191729610131986
+      - -1.1953536278324552
+      - 0.0791561760891124
+      - -0.2862973983367656
+      - 0.9986957466850228
+      right_arm:
+      - 0.0165941863126573
+      - 1.3540474555580992
+      - 1.816395819028001
+      - -1.4520866712443716
+      - -0.15850308995193707
+      - 0.22755016403448458
+      - 0.9981134813524888
+    source:
+      episode: 20261011_155409_ffe93089
+      task: pick_the_moving_cube
+      row: 0
+      fields: measured joint_pos and gripper_pos; not action or model predictions
+      sha256:
+        left-joint_pos.npy: 10ee6e3d99338206e1e41f44e68a93b5a4595e6fb8b58438a17d4845ea929000
+        left-gripper_pos.npy: 38fd4b8ace4172881caea63347c967a983b486005474d0098d7cf69980692df1
+        right-joint_pos.npy: f7b3a8848e415082d6e100e297d16f20f70559128591c516232278841ba0b877
+        right-gripper_pos.npy: 74f9babc67d95bf9ef3df59860acf7ce802bef6769c4026890f1a2918138b759

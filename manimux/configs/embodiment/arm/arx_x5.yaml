@@ -1,0 +1,7 @@
+type: arm
+implementation: manimux.embodiments.arm.arx_x5:ArxX5Arm
+controller: manimux.embodiments.arm.arx_x5:ArxX5Controller
+action_layout: {arm_dofs: 6, gripper_dofs: 1}
+options: {tcp_frame: link6}
+# The station must supply channel, joint_limits and both encoder/command calibration.
+hardware: {}

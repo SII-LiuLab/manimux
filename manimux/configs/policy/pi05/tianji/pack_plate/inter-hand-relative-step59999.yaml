@@ -1,0 +1,64 @@
+# Independent LoRA artifact and normalization; paths resolve through this experiment's station.
+# state_base_to_common = common<-arm-base, metres; CAD Link_Base -> Link_Stand -> Base_L/R.
+# Rx(-pi/2), y=+0.037 (left); Rx(+pi/2), y=-0.037 (right); common height=1.121.
+# Geometry is model configuration, independent of RoboGUI. Action anchors stay in per-arm bases.
+policy_name: Pi_05
+protocol: ws
+host: 127.0.0.1
+port: 8573
+bench_name: ManiMux
+task_name: plate
+ckpt_name: null
+env_cfg_type: tianji_dual
+robot_action_dim_info:
+  arm_dim: [7, 7]
+  ee_dim: [1, 1]
+num_envs: 1
+seed: 42
+gpu_id: 0
+action_type: ee
+eval_batch: false
+checkpoint_variant: pi05_pack_plate_inter_hand_relative_step59999
+checkpoint_source: pi05-pack-plate-inter-hand-relative-tracker-fixed-best-20000-final-59999
+checkpoint_num: 59999
+norm_stats_source: sha256_a1e7da1b33b9399c3fb64a32e069409e09138e8c02ffb0aae7a87f206d433d5c
+norm_stats_sha256: a1e7da1b33b9399c3fb64a32e069409e09138e8c02ffb0aae7a87f206d433d5c
+train_config_name: pi05_pack_plate_inter_hand_relative_deploy
+observation_profile: tianji_taccap_pi05_pack_plate
+model_state_encoding: inter_hand_relative
+state_base_to_common:
+  left:
+  - [1, 0, 0, 0]
+  - [0, 0, 1, 0.037]
+  - [0, -1, 0, 1.121]
+  - [0, 0, 0, 1]
+  right:
+  - [1, 0, 0, 0]
+  - [0, 0, -1, -0.037]
+  - [0, 1, 0, 1.121]
+  - [0, 0, 0, 1]
+paligemma_variant: gemma_2b_lora
+action_expert_variant: gemma_300m_lora
+output_format: xpolicylab
+action_semantics: absolute_per_arm_base_xyz_wxyz
+action_horizon: 32
+num_steps: 10
+repo_id: pack-plate-taccap-h32-inter-hand-relative
+model_path: pi05-pack-plate-inter-hand-relative-tracker-fixed-best-20000-final-59999/checkpoints/59999
+norm_stats_path: pi05-pack-plate-inter-hand-relative-tracker-fixed-best-20000-final-59999/checkpoints/59999/assets/pack-plate-taccap-h32-inter-hand-relative
+backend_identity:
+  fields:
+  - policy_name
+  - task_name
+  - checkpoint_variant
+  - checkpoint_source
+  - norm_stats_source
+  - train_config_name
+  - observation_profile
+  - model_state_encoding
+  - state_base_to_common
+  - action_horizon
+  - num_steps
+  - action_type
+  - output_format
+  - action_semantics
