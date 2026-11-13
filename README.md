@@ -215,6 +215,9 @@ uv run manimux up --config <experiment.yaml> \
 # Ctrl-C  -> stops runtime, model, cameras and RoboGUI
 ```
 
+With warmup enabled, an early Start waits for valid previews and backend reset. A
+preview rejected for timing is retried using a fresh observation.
+
 - Hosted model APIs such as Dream-1 have no model server: omit `--policy-python` and export
   their API key in this terminal first.
 - If runtime cleanup blocks (for example while waiting for hardware recovery), the terminal

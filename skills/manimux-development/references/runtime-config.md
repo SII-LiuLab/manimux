@@ -592,7 +592,9 @@ an image is attached; its hash is recomputed at Start.
 
 With `run.warmup_before_start: true`, a GUI-controlled rollout starts in `idle` and requires
 **Activate Warmup**. Activation stays paused and submits display-only requests. Start
-waits for the in-flight request, then acknowledged backend reset; only a fresh subsequent
+waits for the required valid previews, then drains in-flight work and awaits backend
+reset acknowledgement. Timing rejections use the next fresh observation without losing
+the pending Start. A Pause during draining returns to warmup. Only a fresh subsequent
 observation enters formal execution. Warmup timings remain separate from formal metrics.
 The control mailbox suppresses activation/selection on stale transport snapshots.
 

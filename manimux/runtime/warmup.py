@@ -2,11 +2,30 @@
 
 from collections import Counter, deque
 from dataclasses import dataclass, replace
+from queue import Full
 
 from manimux.runtime.inference import InferenceTimingError, decode_strategy_action
 from manimux.runtime.planning import condition_overlap_fields
 from manimux.runtime.preview import PreviewPlanner
-from manimux.types import copy_action_chunk
+from manimux.types import InferenceResponse, copy_action_chunk
+
+
+def _retryable_preview_rejection(reason: str) -> bool:
+    if reason in {
+        "deadline_exceeded_before_start",
+        "inference_deadline_exceeded",
+        "deadline_exceeded_before_decode",
+        "plan_too_old",
+        "no_future_horizon",
+        "no_future_runtime_horizon",
+        "handoff_missed",
+        "superseded_response",
+        "superseded_pending_response",
+    }:
+        return True
+    source, _, detail = reason.partition(":")
+    error_type, _, _ = detail.partition(":")
+    return source in {"model_error", "decode_error"} and error_type.endswith("TimeoutError")
 
 
 @dataclass
@@ -101,19 +120,24 @@ class PolicyWarmup:
         )
 
     def metadata(self):
+        ready = self.ready
         return {
             "phase": self.phase,
             "completed_requests": self.completed_requests,
             "latest_branch": self.latest_branch,
             "required_branch_calls": dict(self._required_calls),
             "completed_branch_calls": dict(self._branch_calls),
-            "branches_ready": self.ready,
+            "branches_ready": ready,
             "recent_inference_ms": [round(value / 1e6, 3) for value in self._recent_ns],
             "first_inference_ms": dict(self.first_inference_ms),
             "calibration_sample_count": len(self.latency_ns),
             "latency_calibrated": bool(self.latency_ns),
             "calibration_latency_ns": list(self.latency_ns),
             "error": self.error,
+            "retrying_preview": (
+                (self.phase == "warming" or (self.phase == "draining" and not ready))
+                and _retryable_preview_rejection(self.error)
+            ),
             "execution_ms": self._execution_ms,
             "ik_status": self._ik_status,
             "configured_planning": True,
@@ -142,7 +166,7 @@ class PolicyWarmup:
             self.error = f"{type(exc).__name__}: {exc}"
             self._event("warmup_failed", error=self.error)
 
-    def _fail_response(self, response, error):
+    def _fail_response(self, response: InferenceResponse, error: str) -> None:
         job = self._pending.pop(response.request_seq)
         self.strategy.on_response_rejected(response)
         self.error = error
@@ -152,15 +176,18 @@ class PolicyWarmup:
             request_seq=-(response.request_seq + 1),
             error=error,
         )
-        if self.phase == "draining" and not self.ready:
+        # Start still needs valid samples. An expired preview can be replaced
+        # using the next fresh observation without discarding the Start request.
+        if self.phase == "draining" and not self.ready and not _retryable_preview_rejection(error):
             self.phase = "error"
 
     def _finish_response(self, response, snapshot, decoded=None):
         job = self._pending[response.request_seq]
+        reason = self.planner.rejection_reason(response)
+        if reason:
+            self._fail_response(response, reason)
+            return
         try:
-            reason = self.planner.rejection_reason(response)
-            if reason:
-                raise ValueError(reason)
             if decoded is None:
                 context = self.planner._decode_context(
                     response,
@@ -176,10 +203,11 @@ class PolicyWarmup:
                 self.planner._decode_forecast.observe(chunk.metadata["decode_stage_ms"])
             decode_finished_ns = self.clock.now_ns()
             chunk, result, fields = self.planner.accept(chunk, response, snapshot.state)
-            if not result.accepted:
-                raise ValueError(result.reason)
         except (TypeError, ValueError) as exc:
             self._fail_response(response, f"{type(exc).__name__}: {exc}")
+            return
+        if not result.accepted:
+            self._fail_response(response, result.reason)
             return
         self._pending.pop(response.request_seq)
         end_ns = self.clock.now_ns()
@@ -297,6 +325,8 @@ class PolicyWarmup:
             self._preview = None
             self.error = ""
             self._event("warmup_start_requested")
+        elif paused and self.phase == "draining":
+            self.phase = "warming"
         if self.phase in {"warming", "draining"}:
             self.planner.initialize(snapshot.state)
             response_processed = self._poll(snapshot)
@@ -343,7 +373,13 @@ class PolicyWarmup:
             for kind, fields in self.strategy.take_runtime_events(step=self.planner.steps):
                 self._event("warmup_strategy_event", strategy_event=kind, **fields)
         if self.phase == "draining" and not self._pending and self.ready:
-            self._reset_seq = self.worker.submit_reset(self.session_id)
+            if _retryable_preview_rejection(self.error):
+                self.error = ""
+            try:
+                self._reset_seq = self.worker.submit_reset(self.session_id)
+            except Full:
+                # The worker can still be consuming a queued request.
+                return
             self.phase = "resetting"
         if self.phase == "resetting":
             result = self.worker.poll_reset()

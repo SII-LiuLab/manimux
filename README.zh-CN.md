@@ -107,6 +107,8 @@ uv run manimux up --config <experiment.yaml> \
 # Ctrl-C  -> 停止 runtime、模型、相机与 RoboGUI
 ```
 
+启用 Warmup 后，提前点 Start 会等待有效预览和后端重置确认。预览超时或动作已过期时，运行时会用新观测重试。
+
 - Dream-1 等托管 API：省略 `--policy-python`，并先在本终端导出 API key。
 - 其他终端可执行：`uv run manimux status`、`uv run manimux attach --service runtime`（分离：Ctrl-B 再按 D）。
 

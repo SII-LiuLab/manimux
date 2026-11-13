@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from dataclasses import replace
 
 import numpy as np
 
@@ -15,10 +16,10 @@ class FakePolicyAdapter(PolicyAdapter):
         return snapshot
 
     def decode_action(self, raw: object, context: ActionContext) -> ActionChunk:
-        del context
         if not isinstance(raw, ActionChunk):
             raise TypeError("identity adapter requires an ActionChunk")
-        return raw
+        # The preview planner uses its own sequence after the transport reply.
+        return replace(raw, request_seq=context.request_seq)
 
     def validate(self, robot: dict, policy: dict) -> None:
         if not robot["group_dims"]:
