@@ -61,12 +61,13 @@ def validate_request_schedule(values: dict, *, provided=frozenset()) -> None:
             algorithm != "async" or schedule != "single_inflight"
             or values["strategy"] is not None
             or values["action_start_mode"] != "drop_infer_latency"
-            or values["handoff"] != "blend" or values["handoff_skip_steps"]
+            or values["handoff"] not in {"blend", "sigmoid_smooth"}
+            or values["handoff_skip_steps"]
             or values["max_chunk_policy_steps"] is not None
         ):
             raise ValueError(
                 "progress trigger requires built-in single_inflight Async, drop_infer_latency, "
-                "blend handoff, no handoff skip and no source-prefix cap"
+                "blend or sigmoid_smooth handoff, no handoff skip and no source-prefix cap"
             )
         steps = values["chunk_policy_steps"]
         if type(steps) is not int or steps < 1:

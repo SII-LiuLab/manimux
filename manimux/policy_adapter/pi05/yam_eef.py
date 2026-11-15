@@ -8,6 +8,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 
 from manimux.policies.actions import action_groups
+from manimux.policies.base import action_interval_ns
 from manimux.policy_adapter.base import PolicyAdapter
 from manimux.policy_adapter.pose_output import pose_chunk
 from manimux.types import ActionChunk, InferenceRequest
@@ -31,7 +32,7 @@ class Pi05YamEefAdapter(PolicyAdapter):
             else RobotModel.from_config(robot["config"]).kinematics
         )
         self.groups = ("left_arm", "right_arm")
-        self.dt = round(policy["action_dt_s"] * 1e9)
+        self.dt = action_interval_ns(policy)
         self.horizon = policy["horizon_policy_steps"]
         self.decode_steps = int(policy["adapter"].get("decode_policy_steps", self.horizon))
         if not 0 < self.decode_steps <= self.horizon:

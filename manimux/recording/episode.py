@@ -257,11 +257,21 @@ class EpisodeRecorder:
                         "dt_ns": chunk.dt_ns,
                         "source_offset_steps": chunk.source_offset_steps,
                         "hold_from_step": dict(chunk.hold_from_step),
+                        "handoff_protect_from_ns": chunk.handoff_protect_from_ns,
                         "metadata": dict(chunk.metadata),
                     }
                 )
                 for name, plan_values in chunk.groups.items():
                     stage.create_dataset(name, data=plan_values)
+                if chunk.runtime_trajectory is not None:
+                    trajectory = chunk.runtime_trajectory
+                    dense = stage.create_group("runtime_trajectory")
+                    dense.attrs.update({
+                        "start_time_ns": trajectory.start_time_ns,
+                        "dt_ns": trajectory.dt_ns,
+                    })
+                    for name, plan_values in trajectory.groups.items():
+                        dense.create_dataset(name, data=plan_values)
             committed = plan.create_group("committed")
             committed.attrs.update(
                 {

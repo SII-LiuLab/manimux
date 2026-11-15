@@ -323,7 +323,12 @@ execution windows and ACT query intervals still limit submissions.</p>
 <tr>
 <td><code>policy.action_dt_s</code></td>
 <td>Required</td>
-<td>Seconds per model action row, unless <code>trajectory_duration_s</code> overrides it. Keep the checkpoint's interval.</td>
+<td>Native seconds per model action row. Keep the checkpoint's interval, including when changing playback speed.</td>
+</tr>
+<tr>
+<td><code>policy.playback_hz</code></td>
+<td><code>null</code></td>
+<td>Optional action-row playback frequency. Positive finite Hz; null preserves native timing. Independent of the robot control rate.</td>
 </tr>
 <tr>
 <td><code>policy.horizon_policy_steps</code></td>
@@ -387,9 +392,10 @@ clock and discards source rows whose times have passed before acceptance. Use it
 for the asynchronous examples. Neither setting changes the recorded observation
 timestamp. A late reply can have too few usable rows and be rejected.</p>
 <h3 id="meaning-of-chunk_policy_steps">Meaning of <code>chunk_policy_steps</code></h3>
-<p>Step counts are <strong>model action rows</strong>, not control-loop ticks. The row interval dt
-is normally <code>policy.action_dt_s</code>. If <code>policy.trajectory_duration_s</code> is set, it
-overrides dt with <code>trajectory_duration_s / (H - 1)</code>.</p>
+<p>Step counts are <strong>model action rows</strong>, not control-loop ticks. The runtime row interval dt
+is <code>1 / policy.playback_hz</code> when set, otherwise <code>policy.action_dt_s</code>.
+The legacy <code>policy.trajectory_duration_s</code> sets dt to
+<code>trajectory_duration_s / (H - 1)</code>; do not combine it with <code>playback_hz</code>.</p>
 <p>K rows span <code>(K - 1) * dt</code> between their first and last targets. Ordinary serial,
 serial ACT and BID additionally hold the last row for one interval, giving K * dt
 for K usable rows. AAC/AutoHorizon do not add that interval. Thus 12 rows at 30 Hz
@@ -404,10 +410,112 @@ change these times.</p>
 </tr>
 </thead>
 <tbody>
+<h4 id="sigmoid-smooth-handoff">Sigmoid overlap handoff</h4>
+<p><code>inference.handoff</code> selects <code>blend</code> (default),
+<code>waypoint</code>, or <code>sigmoid_smooth</code>. This choice is independent of
+<code>executor.type: direct</code> or <code>smooth</code>.
+<code>sigmoid_smooth</code> follows the overlap idea in
+<a href="https://johnyao93.github.io/static/files/flash-aloha.pdf?v=2#page=5">Flash ALOHA, section IV and Fig. 5</a>:
+mix the old and new joint targets for the <em>same timestamp</em>, using
+<code>w = sigmoid((elapsed - window/2) / sigma)</code> and
+<code>reference = (1-w)*old + w*new</code>. Ordinary linear blend uses a fixed
+measured/command anchor; sigmoid smoothing lets the old trajectory keep moving
+while gradually handing over to the new trajectory.</p>
+<pre><code class="language-yaml">inference:
+  algorithm: rtc  # Also supports built-in async.
+  handoff: sigmoid_smooth
+  inference_schedule: single_inflight
+  action_start_mode: drop_infer_latency
+  blend_policy_steps: 0
+  handoff_skip_steps: 0
+  sigmoid_smooth:
+    window_policy_steps: 4
+    sigma_policy_steps: 0.5
+</code></pre>
+<p><code>window_policy_steps</code> is a positive integer smaller than the model
+horizon. It controls how long the two predictions overlap. A longer window keeps
+the old prediction influential for longer. <code>sigma_policy_steps</code> is a
+positive finite time scale: smaller values switch more sharply near the midpoint;
+larger values spread that transition but increase the endpoint residual at fixed
+window length. Both use the effective policy playback interval, not control ticks:
+4 steps and 0.5 steps at 30 Hz mean 133 ms and 16.7 ms; at 15 Hz they mean 267 ms
+and 33.3 ms. These defaults are starting choices, not paper-reported parameters.</p>
+<p>The finite-window sigmoid is not endpoint-normalized and does not guarantee
+continuous velocity, acceleration or exact endpoint matching. Interpolation acts on
+the resulting rows; configured executor limits remain active. Gripper coordinates
+participate in the blend, so verify release timing when evaluating dynamic tasks.
+Window length does not change request cadence: leave enough horizon for inference,
+decoding and overlap. The first plan, or an asynchronous plan with no remaining overlap,
+is accepted unchanged. Serial keeps its normal schedule and blends from the last issued
+command held constant; this is recorded as <code>serial_hold</code>, not a moving
+overlap. Short overlap is clipped without extrapolation; the midpoint uses the
+shorter window and sigma stays fixed. Accepted-plan metadata and events record
+<code>sigmoid_smooth.status</code>, the requested/effective window, start time and
+parameters, so fallback cases are distinguishable from smoothing.</p>
+<p>Supports Async, Serial, RTC, RTC-retime and gripper-protected RTC-retime, with
+chunk IK or step IK. Chunk IK fuses joints, retaining dense samples. Step IK fuses
+TCP position/aperture and shortest-arc quaternion rotations before per-tick IK,
+using the existing Direct executor and safety checks. Playback frequency determines
+the window in seconds; servo frequency only determines sampling density.</p>
+<p>RTC-retime keeps its time allocation and progress matching, and disables its original
+cubic bridge when sigmoid is selected. The blend ends at an execution knot on/before
+the first protected gripper interval or transition ramp. Immediate protection bypasses
+fusion with <code>protected_interval</code> status. Thus protection takes precedence
+over smoothing; limits and physical tracking can still affect measured release timing.</p>
+<p>Requires zero ordinary blend and intentional skip. Serial uses
+<code>inference_schedule: serial</code> and <code>action_start_mode: first_step_when_ready</code>;
+Async/RTC use deadline/single-inflight and <code>drop_infer_latency</code>.
+ACT, multi-inflight, strategies without the handoff capability, and waypoint/cubic composition remain
+unsupported. The <a href="manimux/configs/experiments/throw_ball/pi05/catalog.yaml">tossing catalog</a>
+contains ten separate sigmoid variants: five algorithm families, each in chunk IK and step DiffIK.
+Their common settings are maintained in
+<a href="manimux/configs/experiments/throw_ball/pi05/sigmoid-variants.yaml">sigmoid-variants.yaml</a>
+and the five base experiments. Regenerate with
+<code>python -m scripts.experiments.build_sigmoid_variants manimux/configs/experiments/throw_ball/pi05/sigmoid-variants.yaml</code>;
+add <code>--check</code> to validate generated files without rewriting them.
+Custom strategy factories and instances must declare <code>supports_sigmoid_handoff = True</code>;
+subclasses inherit the capability, while wrappers must expose it explicitly.
+Use <a href="manimux/configs/inference/sigmoid_smooth.yaml">the handoff preset</a> or
+<a href="manimux/configs/examples/yam_pi05_rtc_sigmoid_smooth.yaml">the complete Pi05 RTC example</a>.
+Validate with <code>python -c 'from manimux.cli import load_config; load_config("manimux/configs/examples/yam_pi05_rtc_sigmoid_smooth.yaml")'</code>.
+Starting the example still requires a configured station and policy/camera services.</p>
 <tr>
 <td>Serial / Async with refill or continuous trigger</td>
 <td>Maximum source prefix; asynchronous latency trimming can shorten it further</td>
 <td>Integer 2 through H; omitted/null leaves <code>max_chunk_policy_steps</code> in control, whose default is null (full horizon)</td>
+<h4 id="action-playback-speed">Action playback speed</h4>
+<p>For a native 30 Hz model, set <code>policy.playback_hz</code> to 15 for half-speed
+playback, or 40, 50 or 60 for faster playback. Each returned row keeps its action
+value; its time on the execution trajectory changes. A 100 Hz control loop continues
+to interpolate and apply the configured motion limits at 100 Hz.</p>
+<p>Add this override to the <code>policy:</code> section of your existing experiment
+YAML, preserving its model config reference, native interval and horizon:</p>
+<pre><code class="language-yaml">policy:
+  # Keep your existing config reference and other fields here.
+  playback_hz: 15.0
+</code></pre>
+<p>With <code>manimux serve</code>, set <strong>Action playback (Hz)</strong> in RoboGUI
+before <strong>Prepare</strong>. The value is fixed for that rollout. Changing an
+experiment or reloading its config restores its YAML default. With
+<code>manimux run</code>, use the YAML setting. No model restart is needed for a
+playback-only change. Episode metadata records native action spacing, playback Hz
+and control Hz.</p>
+<p>Step-based query windows, RTC alignment and IK use the playback interval. Camera
+and model observation-history rates remain unchanged. UMI's default first-action
+offset scales with playback; an explicit <code>adapter.execution_offset_s</code>
+remains in seconds. Timeouts and other durations specified in seconds remain fixed.
+Faster playback does not make inference compute faster: a late next chunk can still
+cause a hold, and motion limits can restrict the achieved physical speed.</p>
+<p><strong>RTC and train-time RTC:</strong> conditions are aligned to the new
+observation's playback clock, including fractional action-row offsets. A fixed
+five-row prefix remains five rows: the interval from its first row to the first
+free row is about 333 ms at 15 Hz, 167 ms at 30 Hz, or 83 ms at 60 Hz, plus the
+configured first-row offset from the observation. Camera age, inference and IK
+consume that time. Acceptance events record <code>conditioned_prefix_steps</code>,
+<code>prefix_rows_remaining_at_commit</code> and <code>prefix_exhausted_at_commit</code>.
+If the fixed rows expire before commit, the remaining free suffix can still be
+accepted. A completely expired horizon is rejected. Faster playback therefore
+does not guarantee that a fixed prefix still covers inference latency.</p>
 </tr>
 <tr>
 <td>Async with progress trigger</td>
@@ -746,7 +854,10 @@ Keep blending and handoff skip at zero.</p>
   <code>2 * initial_delay_policy_steps &lt;= H</code>.</li>
 <li><code>delay_buffer_size</code> sets the number of recent samples whose maximum predicts delay.</li>
 <li><code>beta</code> controls conditioning strength and must be finite and positive.</li>
-<li><code>condition_source</code> defaults to <code>canonical</code> (decoded model rows).
+<li><code>condition_source</code> defaults to <code>canonical</code> (decoded model rows
+resampled on the new observation clock, with no extrapolation). An already-applied
+handoff skip advances the outgoing rows' clock for subsequent conditions; the
+incoming request's future skip does not shift its condition.
 <code>timeline</code> samples the accepted, blended trajectory on the observation clock.
 <code>executor</code> forecasts Smooth commands from its current filter history on the same
 clock, including recent issued commands. It requires standalone RTC and a stateless
@@ -787,6 +898,50 @@ The checkpoint, 30-step horizon, action frames and direct executor are unchanged
   blend_policy_steps: 0
   paint:
     initial_delay_policy_steps: 4
+<h3 id="rtc-adaptive-speed">Experimental: RTC Adaptive Speed</h3>
+<p>The Processed2 Native World H50 policy group offers <strong>RTC Adaptive Speed / 15 Hz</strong>
+as a separate method. It combines partial speed equalization, bounded fractional-progress
+matching and a 0.20 s velocity bridge. The 15 Hz setting targets half the native 30 Hz
+path speed; acceleration limits, protected pauses and handoffs can change measured speed.</p>
+<pre><code class="language-yaml">inference:
+  algorithm: rtc
+  strategy: manimux.runtime.rtc.retimed:RetimedRtcStrategy
+  chunk_policy_steps: 32
+  handoff_skip_steps: 0
+  blend_policy_steps: 0
+  rtc_retime:
+    strength: 0.5
+    match_window_s: 0.6
+    bridge_s: 0.20
+</code></pre>
+<p>Use the complete <a href="manimux/configs/experiments/pack_plate/pi05/checkpoint_comparison_20261028/pi05_processed2_native_world_h50_29999_rtc_retime.yaml">experiment YAML</a>.
+Both arms share one time map; gripper events are protected. Subsequent RTC conditions
+sample the accepted dense execution reference. Incompatible incoming paths are rejected;
+the outgoing plan continues, with the normal hold if it expires. This remains an experimental
+execution transform and cannot correct a wrong predicted path. It supports joint-space,
+single-inflight RTC without additional skip, blend, waypoint, source cap or ACT.</p>
+<p>Restart runtime for the code change, select the policy and this method in RoboGUI,
+then Prepare. Source-to-execution mapping and dense trajectories are saved in rollout
+records. See the <a href=".agents/skills/manimux-inference/references/inference.md#experimental-rtc-with-adaptive-execution-speed">timing and evidence contract</a>.</p>
+<p>The Throw Ball catalog adds <strong>RTC Gripper Protected 18 / Base 30 Hz</strong>
+(<a href="manimux/configs/experiments/throw_ball/pi05/tianji_pi05_native_h50_29999_rtc_retime_gripper.yaml">experiment YAML</a>).
+It uses <code>rtc_retime.outside_gripper_speed_ratio: 0.5</code> and
+<code>strength: 0.4</code>. Gripper-motion intervals use the configured playback rate;
+other intervals receive twice the duration before speed equalization. Either gripper's
+adjacent-row aperture change of at least 0.005 protects the shared interval.
+This method sets <code>gripper_protect_before_steps: 2</code> to also protect the
+two preceding policy intervals, clipped at the chunk start. These intervals retain
+base timing and are excluded from speed equalization; the general default is 0.
+It also sets <code>gripper_transition_steps: 5</code> (general default 0): five intervals
+outside each protected edge blend between base timing and the ordinary retimed duration
+using smoothstep weights. The protected region stays intact. Each side takes about
+250 ms for uniform 30/15 Hz motion; duration scales with playback frequency and varies
+with retiming. Overlapping ramps merge and chunk boundaries clip them. This softens
+the discrete timing change without guaranteeing continuous TCP velocity.
+The hard RTC overlap prefix also retains base timing. The existing playback control
+remains adjustable: 30 Hz means nominal 30/15 Hz; 20 Hz means 20/10 Hz.
+Retiming, the bridge and executor limits still affect final motion speed. The servo loop
+stays at 100 Hz. The ratio defaults to 1.0, preserving existing methods.</p>
     delay_buffer_size: 10
 </code></pre>
 <p>Use a positive initial delay <strong>d</strong> and execution/query window <strong>K</strong> satisfying

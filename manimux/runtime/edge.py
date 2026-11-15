@@ -19,7 +19,7 @@ from manimux.embodiments.sensor.reader import SensorReader
 from manimux.evaluation.identity import rollout_identity, start_identity
 from manimux.evaluation.rubric import evaluation_parameters
 from manimux.policies import ActionDecoderClient, PolicyCapabilities, metadata_mismatches
-from manimux.policies.base import action_interval
+from manimux.policies.base import action_interval, action_interval_ns, native_action_interval
 from manimux.policies.worker import PolicyWorkerClient
 from manimux.policy_adapter import build_policy_adapter
 from manimux.policy_adapter.pose_output import POSE_SPACE
@@ -36,6 +36,7 @@ from manimux.runtime.inference import (
     InferenceStrategy,
     RequestState,
     StrategyChunkSelector,
+    StrategyTimedHandoff,
     build_inference_strategy,
     decode_strategy_action,
     prepare_strategy_chunk,
@@ -57,6 +58,12 @@ from manimux.types import (
 )
 
 logger = logging.getLogger(__name__)
+
+# These strategies consume a single complete adapter-decoded trajectory. Retimed
+# RTC transforms that trajectory only after the decoder processes return.
+_SINGLE_CHUNK_DECODE_STRATEGIES = frozenset({
+    "async", "serial", "rtc", "rtc_retime", "train_time_rtc",
+})
 
 
 def _action_value(value: object) -> object:
@@ -222,8 +229,11 @@ class EdgeRuntime:
         if config["policy"]["action_decoding"] == "process":
             # A plugin may wrap the default strategy (the UMI history plugin
             # does); the constructed strategy decides, not the plugin path.
-            if self._strategy.name not in {"async", "serial", "rtc", "train_time_rtc"}:
-                raise ValueError("process decoding requires async, serial, rtc or train_time_rtc")
+            if self._strategy.name not in _SINGLE_CHUNK_DECODE_STRATEGIES:
+                raise ValueError(
+                    f"process decoding is unsupported for strategy {self._strategy.name!r}; "
+                    f"supported: {', '.join(sorted(_SINGLE_CHUNK_DECODE_STRATEGIES))}"
+                )
             self._decoder = ActionDecoderClient(
                 config["robot"],
                 config["policy"],
@@ -331,6 +341,10 @@ class EdgeRuntime:
             action_space=POSE_SPACE if self._step_ik else "joint_position",
             max_source_steps=self._config["inference"]["max_chunk_policy_steps"],
             blend_mode=self._config["inference"].get("blend_mode", "linear"),
+            sigmoid_smooth=(
+                self._config["inference"]["sigmoid_smooth"]
+                if self._config["inference"]["handoff"] == "sigmoid_smooth" else None
+            ),
             gripper_indices=((self._config["executor"].get("smooth") or {}).get(
                 "gripper") or {}).get("group_indices", {}),
             action_start_mode=self._config["inference"]["action_start_mode"],
@@ -399,7 +413,7 @@ class EdgeRuntime:
         ):
             start_ns += int(self._config["inference"]["handoff_margin_s"] * 1e9)
             handoff_reference = self._timeline.handoff_reference(
-                start_ns, round(action_interval(self._config["policy"]) * 1e9)
+                start_ns, action_interval_ns(self._config["policy"])
             )
         context = ActionContext(
             request_seq=response.request_seq,
@@ -409,7 +423,7 @@ class EdgeRuntime:
                 start_ns
                 if self._config["inference"]["action_start_mode"] == "drop_infer_latency"
                 and (self._decoder is not None
-                     or self._strategy.name in {"async", "serial", "rtc", "train_time_rtc"})
+                     or self._strategy.name in _SINGLE_CHUNK_DECODE_STRATEGIES)
                 else None
             ),
             observation_state=observation_state,
@@ -488,6 +502,9 @@ class EdgeRuntime:
                 "view_profile": self._config["policy"]["adapter"].get("view_profile"),
                 "camera_map": self._config["policy"]["adapter"].get("camera_map", {}),
                 "action_dt_s": action_interval(self._config["policy"]),
+                "model_action_dt_s": native_action_interval(self._config["policy"]),
+                "playback_hz": 1.0 / action_interval(self._config["policy"]),
+                "control_hz": self._config["robot"]["control_hz"],
                 "horizon_steps": self._config["policy"]["horizon_policy_steps"],
                 "max_chunk_steps": self._config["inference"]["max_chunk_policy_steps"],
                 "blend_steps": self._config["inference"]["blend_policy_steps"],
@@ -914,6 +931,7 @@ class EdgeRuntime:
                         rejected_plans += 1
                         recorder.event(
                             "inference_rejected",
+                            monotonic_ns=self._clock.now_ns(),
                             request_seq=response.request_seq,
                             reason=rejection_reason,
                         )
@@ -955,6 +973,7 @@ class EdgeRuntime:
                             )
                             recorder.event(
                                 "plan_rejected",
+                                monotonic_ns=self._clock.now_ns(),
                                 request_seq=response.request_seq,
                                 reason=reason,
                             )
@@ -973,6 +992,7 @@ class EdgeRuntime:
                             rejected_plans += 1
                             recorder.event(
                                 "plan_rejected",
+                                monotonic_ns=self._clock.now_ns(),
                                 request_seq=response.request_seq,
                                 reason=(
                                     "invalid_action:canonical action_space must be "
@@ -1008,6 +1028,7 @@ class EdgeRuntime:
                                 reason = f"invalid_strategy_chunk:{type(exc).__name__}:{exc}"
                                 recorder.event(
                                     "plan_rejected",
+                                    monotonic_ns=self._clock.now_ns(),
                                     request_seq=response.request_seq,
                                     reason=reason,
                                 )
@@ -1073,6 +1094,19 @@ class EdgeRuntime:
                                                 self._strategy, chunk=chunk,
                                                 response=response, now_ns=now_ns,
                                             )
+                                        if isinstance(self._strategy, StrategyTimedHandoff):
+                                            chunk = self._strategy.prepare_timed_handoff(
+                                                chunk=chunk, now_ns=now_ns,
+                                                timeline=self._timeline, measured=state.groups,
+                                                current_command=commit.current_command,
+                                                command_velocity={
+                                                    name: (
+                                                        last_command[name] - previous_command[name]
+                                                    )
+                                                    / (self._control_dt_ns / 1e9)
+                                                    for name in last_command
+                                                },
+                                            )
                                     except (TypeError, ValueError) as exc:
                                         result = CommitResult(
                                             False,
@@ -1107,6 +1141,8 @@ class EdgeRuntime:
                                     "blend_mode", "linear"
                                 )
                                 chunk.metadata["time_trimmed_steps"] = result.time_trimmed_steps
+                                if result.sigmoid_smooth is not None:
+                                    chunk.metadata["sigmoid_smooth"] = result.sigmoid_smooth
                                 chunk.metadata["handoff_skipped_steps"] = (
                                     result.handoff_skipped_steps
                                 )
@@ -1165,7 +1201,7 @@ class EdgeRuntime:
                                         committed=committed,
                                         metadata={
                                             "runtime": self._strategy.name,
-                                            "raw_horizon_steps": chunk.horizon_steps,
+                                            "raw_horizon_steps": canonical_raw.horizon_steps,
                                             "committed_horizon_steps": committed.horizon_steps,
                                             "time_trimmed_steps": result.time_trimmed_steps,
                                             "handoff_skipped_steps": (
@@ -1211,6 +1247,7 @@ class EdgeRuntime:
                                 rejected_plans += 1
                                 recorder.event(
                                     "plan_rejected",
+                                    monotonic_ns=self._clock.now_ns(),
                                     plan_id=chunk.plan_id,
                                     request_seq=chunk.request_seq,
                                     reason=result.reason,

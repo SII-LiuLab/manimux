@@ -1,0 +1,15 @@
+# Flash ALOHA-style overlap handoff; independent of executor.type.
+# Select async/rtc (including RetimedRtcStrategy) in the experiment using this preset.
+# For Serial, override algorithm/inference_schedule to serial and
+# action_start_mode to first_step_when_ready. Chunk and step IK are supported.
+handoff: sigmoid_smooth
+inference_schedule: single_inflight
+action_start_mode: drop_infer_latency
+blend_policy_steps: 0
+blend_mode: linear
+handoff_skip_steps: 0
+sigmoid_smooth:
+  # Both quantities use the effective policy playback interval, not servo ticks.
+  # These are initial tuning choices, not parameters reported by the paper.
+  window_policy_steps: 4
+  sigma_policy_steps: 0.5

@@ -9,7 +9,7 @@ import numpy as np
 from manimux.embodiments.layout import group_layouts
 from manimux.kinematics.poses import matrix_pose, pose_matrix
 from manimux.policies.actions import action_groups
-from manimux.policies.base import action_interval
+from manimux.policies.base import action_interval_ns
 from manimux.policy_adapter.kinematics import KinematicAdapter
 from manimux.policy_adapter.pose_output import pose_chunk
 from manimux.types import ActionChunk, InferenceRequest
@@ -83,7 +83,7 @@ class PoseAdapter(KinematicAdapter):
             and policy.get("action_decoding", "inline") != "inline"
         ):
             raise ValueError("Per-step feedback deltas require inline decoding from measured state")
-        self.dt_ns = round(action_interval(policy) * 1e9)
+        self.dt_ns = action_interval_ns(policy)
         self.required_cameras = tuple(options.get("camera_map", {}).values())
         for group, dim in robot["group_dims"].items():
             coordinates = self.kinematics.models[group].coordinates

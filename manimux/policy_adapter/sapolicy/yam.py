@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 import numpy as np
 from scipy.spatial.transform import Rotation
 
-from manimux.policies.base import action_interval
+from manimux.policies.base import action_interval_ns
 from manimux.policy_adapter.base import PolicyAdapter
 from manimux.policy_adapter.pose_output import pose_chunk
 from manimux.runtime.rtc.request import RtcInferenceRequest
@@ -239,7 +239,7 @@ class SAPolicyYamAdapter(PolicyAdapter):
         self.action_space = policy["adapter"].get("action_space", "joint_position")
         if self.action_space != "joint_position":
             raise ValueError("SAPolicy adapter outputs joint_position; EEF targets require IK")
-        self._action_dt_ns = int(action_interval(policy) * 1_000_000_000)
+        self._action_dt_ns = action_interval_ns(policy)
         self._camera_map = _parse_camera_map(policy["adapter"])
         self._intrinsics = _parse_intrinsics(policy["adapter"], tuple(self._camera_map))
         self._wire_image_hw = _parse_wire_image_hw(policy["adapter"])

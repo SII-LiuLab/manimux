@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from manimux.policy_adapter.pose_output import POSE_SPACE, interpolate_pose
+from manimux.runtime.sigmoid_smooth import sigmoid_smooth_parameters, sigmoid_weight
 from manimux.types import (
     ACTION_START_MODES,
     ActionChunk,
@@ -30,6 +31,7 @@ class CommitResult:
     time_trimmed_steps: int = 0
     # Intentional post-decode prefix crop, included in trimmed_steps.
     handoff_skipped_steps: int = 0
+    sigmoid_smooth: dict[str, object] | None = None
 
 
 @dataclass(slots=True)
@@ -123,6 +125,7 @@ class ActionTimeline:
         hold_last_step: bool = False,
         blend_mode: str = "linear",
         gripper_indices: dict[str, int] | None = None,
+        sigmoid_smooth: dict | None = None,
     ) -> None:
         if max_source_steps is not None and max_source_steps < 2:
             raise ValueError("max_source_steps must be at least two")
@@ -134,6 +137,11 @@ class ActionTimeline:
             raise ValueError("unknown timeline action space")
         if action_space == POSE_SPACE and blend_mode != "linear":
             raise ValueError("pose timelines require linear/SLERP blending")
+        if sigmoid_smooth is not None and blend_mode != "linear":
+            raise ValueError("sigmoid_smooth cannot be combined with cubic blend")
+        self._sigmoid_smooth = (
+            None if sigmoid_smooth is None else sigmoid_smooth_parameters(**sigmoid_smooth)
+        )
         self.action_space = action_space
         self._blend_mode = blend_mode
         self._gripper_indices = dict(gripper_indices or {})
@@ -205,9 +213,13 @@ class ActionTimeline:
         """Validate, time-align, trim, and activate a new action chunk."""
         if type(handoff_skip_steps) is not int or handoff_skip_steps < 0:
             raise ValueError("handoff_skip_steps must be a non-negative integer")
+        if self._sigmoid_smooth is not None and (
+            blend_steps or handoff_skip_steps or chunk.handoff is not None or chunk.hold_from_step
+        ):
+            return CommitResult(False, "sigmoid_smooth_incompatible_handoff")
         if chunk.action_space != self.action_space:
             return CommitResult(False, "action_space_mismatch")
-        if self.action_space == POSE_SPACE and (chunk.runtime_trajectory is not None or chunk.handoff is not None):
+        if self.action_space == POSE_SPACE and chunk.handoff is not None:
             return CommitResult(False, "joint_handoff_on_pose_timeline")
         if chunk.request_seq <= self._accepted_request_seq:
             return CommitResult(False, "stale_request_seq")
@@ -229,6 +241,14 @@ class ActionTimeline:
             for name, dim in self._group_dims.items():
                 if runtime.groups[name].shape[1] != dim:
                     return CommitResult(False, f"runtime_dimension_mismatch:{name}")
+        if self.action_space == POSE_SPACE:
+            trajectories = [chunk.groups] + ([] if runtime is None else [runtime.groups])
+            for groups in trajectories:
+                for rows in groups.values():
+                    if rows.shape[1] != 8 or not np.allclose(
+                        np.linalg.norm(rows[:, 3:7], axis=1), 1.0, atol=1e-6,
+                    ) or np.any((rows[:, 7] < 0) | (rows[:, 7] > 1)):
+                        return CommitResult(False, "invalid_pose_trajectory")
 
         # Earliest wall-clock time at which the committed plan may start.
         earliest_ns = now_ns
@@ -386,7 +406,11 @@ class ActionTimeline:
                         )
                         if alpha >= 1.0:
                             break
-                        values[index] = (1.0 - alpha) * current[name] + alpha * values[index]
+                        values[index] = (
+                            interpolate_pose(current[name], values[index], alpha)
+                            if self.action_space == POSE_SPACE else
+                            (1.0 - alpha) * current[name] + alpha * values[index]
+                        )
 
             runtime_hold_from_step = {}
             for name, step in chunk.hold_from_step.items():
@@ -416,6 +440,13 @@ class ActionTimeline:
                 hold_last_step=self._hold_last_step,
                 action_space=self.action_space,
             )
+        smooth_info = (
+            self._apply_sigmoid_smooth(
+                new_plan, runtime_plan, chunk.dt_ns, current_command,
+                protect_from_ns=chunk.handoff_protect_from_ns,
+            )
+            if self._sigmoid_smooth is not None else None
+        )
         self._outgoing = self._retain_outgoing(self._outgoing, self._active, new_plan, now_ns)
         self._runtime_outgoing = self._retain_outgoing(
             self._runtime_outgoing, self._runtime_active, runtime_plan, now_ns
@@ -430,7 +461,105 @@ class ActionTimeline:
             timeline_latency_ns=age_at_commit_ns,
             time_trimmed_steps=time_trimmed_steps,
             handoff_skipped_steps=handoff_skipped_steps,
+            sigmoid_smooth=smooth_info,
         )
+
+    def _apply_sigmoid_smooth(
+        self, source: _ActivePlan, runtime: _ActivePlan, policy_dt_ns: int,
+        current_command: GroupVector, *, protect_from_ns: int | None = None,
+    ) -> dict[str, object]:
+        """Blend time-aligned outgoing references into copied incoming grids.
+
+        Preserve dense IK rows and the policy clock. Snapshot old samples before
+        installing either new plan; rejected/stale replies never reach this step.
+        """
+        options = self._sigmoid_smooth
+        assert options is not None
+        start = runtime.start_time_ns
+        requested_ns = options["window_policy_steps"] * policy_dt_ns
+        sigma_ns = options["sigma_policy_steps"] * policy_dt_ns
+        info = {
+            "window_policy_steps": options["window_policy_steps"],
+            "sigma_policy_steps": options["sigma_policy_steps"],
+            "start_time_ns": start,
+            "requested_window_ns": requested_ns,
+            "effective_window_ns": 0,
+            "status": "initial" if self._runtime_active is None else "no_overlap",
+            "reference_source": "serial_hold" if self._hold_last_step else "overlap",
+            "protected_from_ns": protect_from_ns,
+            "action_space": self.action_space,
+        }
+        if self._runtime_active is None:
+            return info
+        # Reach the incoming target by its final actual sample, including Serial's
+        # terminal hold interval. Do not leave the final row permanently blended.
+        end = min(start + requested_ns, start + (runtime.horizon_steps - 1) * runtime.dt_ns)
+        if protect_from_ns is not None:
+            # End on/before an execution knot so interpolation cannot leak the
+            # previous blended row into a protected gripper interval.
+            end = min(end, start + ((protect_from_ns - start) // runtime.dt_ns) * runtime.dt_ns)
+            if end <= start:
+                info["status"] = "protected_interval"
+                return info
+        if end <= start:
+            return info
+        plans = [source] if source is runtime else [source, runtime]
+        end, old_samples = self._sample_handoff_overlap(plans, start, end, current_command)
+        if end <= start:
+            return info
+        self._blend_sigmoid_rows(plans, start, end, sigma_ns, old_samples)
+        info.update(
+            effective_window_ns=end - start,
+            status=("serial_hold" if self._hold_last_step else
+                    "smoothed" if end - start == requested_ns else "shortened_overlap"),
+        )
+        return info
+
+    def _sample_handoff_overlap(self, plans, start, end, current_command):
+        """Snapshot old references on both incoming grids; stop at the first gap."""
+        times = {start, end}
+        for plan in plans:
+            count = min(plan.horizon_steps, (end - plan.start_time_ns) // plan.dt_ns + 1)
+            times.update(
+                plan.start_time_ns + i * plan.dt_ns
+                for i in range(count)
+                if start <= plan.start_time_ns + i * plan.dt_ns <= end
+            )
+        # Check ownership boundaries too: never interpolate across a gap or
+        # resurrect an older, longer plan after a newer plan has expired.
+        for plan in [*self._runtime_outgoing, self._runtime_active]:
+            times.update(
+                t for t in (plan.activation_time_ns, plan.end_time_ns, plan.end_time_ns + 1)
+                if start <= t <= end
+            )
+        old_samples = {}
+        last_time = start
+        for time_ns in sorted(times):
+            sample = current_command if self._hold_last_step else self._sample_runtime(time_ns)
+            if sample is None:
+                end = last_time
+                break
+            old_samples[time_ns] = sample
+            last_time = time_ns
+        return end, old_samples
+
+    def _blend_sigmoid_rows(self, plans, start, end, sigma_ns, old_samples):
+        """Modify only candidate copies, after the usable overlap is known."""
+        for plan in plans:
+            for i in range(min(plan.horizon_steps, (end - plan.start_time_ns) // plan.dt_ns + 1)):
+                time_ns = plan.start_time_ns + i * plan.dt_ns
+                if time_ns < start:
+                    continue
+                if time_ns >= end:
+                    break
+                weight = sigmoid_weight(time_ns - start, end - start, sigma_ns)
+                old = old_samples[time_ns]
+                for name, rows in plan.groups.items():
+                    rows[i] = (
+                        interpolate_pose(old[name], rows[i], weight)
+                        if self.action_space == POSE_SPACE
+                        else (1 - weight) * old[name] + weight * rows[i]
+                    )
 
     def handoff_reference(self, time_ns: int, window_ns: int) -> ActionHorizon | None:
         """Copy runtime rows covering a handoff; time_ns: handoff time, window_ns: span after it."""
@@ -584,6 +713,8 @@ class ActionTimeline:
         hi = min(lo + 1, active.horizon_steps - 1)
         alpha = position - lo
         return {
-            name: (1 - alpha) * values[lo] + alpha * values[hi]
+            name: (interpolate_pose(values[lo], values[hi], alpha)
+                   if self.action_space == POSE_SPACE else
+                   (1 - alpha) * values[lo] + alpha * values[hi])
             for name, values in active.unblended_groups.items()
         }

@@ -19,3 +19,31 @@ def pose_matrix(value):
 def matrix_pose(matrix):
     quat = Rotation.from_matrix(matrix[:3, :3]).as_quat()
     return np.r_[matrix[:3, 3], quat[[3, 0, 1, 2]]]
+
+
+def interpolate_pose(a, b, weight):
+    """Interpolate unit wxyz poses, optionally with trailing tool coordinates.
+
+    Accept single rows or batches (..., D); weight broadcasts over the batch.
+    Position/tool coordinates are linear, orientation follows shortest-arc SLERP.
+    """
+    a, b = np.asarray(a), np.asarray(b)
+    weight = np.asarray(weight)[..., None]
+    result = (1 - weight) * a + weight * b
+    qa, qb = a[..., 3:7], b[..., 3:7]
+    dot = np.sum(qa * qb, axis=-1, keepdims=True)
+    qb = np.where(dot < 0, -qb, qb)
+    angle = np.arccos(np.clip(np.abs(dot), 0, 1)) / np.pi
+    # sinc handles coincident/antipodal orientations without a zero denominator.
+    q = ((1 - weight) * np.sinc((1 - weight) * angle) * qa
+         + weight * np.sinc(weight * angle) * qb) / np.sinc(angle)
+    result[..., 3:7] = q / np.linalg.norm(q, axis=-1, keepdims=True)
+    return result
+
+
+def interpolate_pose_rows(rows, positions):
+    """Sample a unit-quaternion pose trajectory at fractional row positions."""
+    positions = np.clip(np.asarray(positions), 0, len(rows) - 1)
+    lower = np.floor(positions).astype(int)
+    upper = np.minimum(lower + 1, len(rows) - 1)
+    return interpolate_pose(rows[lower], rows[upper], positions - lower)

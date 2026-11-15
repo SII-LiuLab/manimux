@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from manimux.plugins import load_plugin
-from manimux.policies.base import PolicyModel, action_interval
+from manimux.policies.base import PolicyModel, action_interval_ns
 from manimux.policies.capabilities import PolicyCapabilities, metadata_mismatches
 from manimux.policies.fake import FakePolicyAdapter, FakePolicyModel
 
@@ -12,7 +12,7 @@ PolicyModelFactory = Callable[[dict], PolicyModel]
 
 def _fake_model_factory(config: dict) -> PolicyModel:
     return FakePolicyModel(
-        action_dt_ns=int(action_interval(config) * 1_000_000_000),
+        action_dt_ns=action_interval_ns(config),
         horizon_steps=config["horizon_policy_steps"],
         delay_s=config["inference_delay_s"],
     )

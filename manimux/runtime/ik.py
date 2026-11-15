@@ -71,9 +71,10 @@ def validate_ik_config(config):
         raise ValueError("this adapter has no pose-space RTC/PAINT condition codec")
     if (infer.get("rtc") or {}).get("condition_source") == "executor":
         raise ValueError("step IK cannot forecast future joint commands for RTC")
-    if infer["blend_mode"] != "linear" or infer["handoff"] != "blend":
+    if infer["blend_mode"] != "linear" or infer["handoff"] not in {"blend", "sigmoid_smooth"}:
         raise ValueError(
-            "step IK requires pose linear/SLERP blending, not joint cubic or waypoint handoff"
+            "step IK requires pose linear/SLERP blend or sigmoid_smooth, "
+            "not joint cubic or waypoint handoff"
         )
     if infer["independent_group_decoding"]:
         raise ValueError("step IK requires atomic dual-arm decoding")

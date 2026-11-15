@@ -11,7 +11,7 @@ def build_policy_adapter(
         policy["adapter"]["type"], group="manimux.policy_adapter", builtins={}
     )
     if (
-        policy["adapter"].get("gripper_mapping", {}).get("mode") == "curve"
+        (policy["adapter"].get("gripper_mapping") or {}).get("mode") == "curve"
         and not getattr(adapter_class, "supports_gripper_mapping", False)
     ):
         raise ValueError(

@@ -4,7 +4,9 @@ from collections.abc import Sequence
 
 import numpy as np
 
-from manimux.policies.base import action_interval
+from manimux.kinematics.poses import interpolate_pose_rows
+from manimux.policies.base import action_interval_ns
+from manimux.policy_adapter.pose_output import POSE_SPACE
 
 
 def decode_candidates(candidates, context, *, adapter, config, count):
@@ -20,7 +22,7 @@ def decode_candidates(candidates, context, *, adapter, config, count):
         if (
             chunk.action_space != "joint_position"
             or chunk.horizon_steps != config["policy"]["horizon_policy_steps"]
-            or chunk.dt_ns != int(action_interval(config["policy"]) * 1e9)
+            or chunk.dt_ns != action_interval_ns(config["policy"])
             or set(chunk.groups) != set(config["robot"]["group_dims"])
             or chunk.source_offset_steps or chunk.hold_from_step
             or chunk.runtime_trajectory is not None or chunk.handoff is not None
@@ -51,3 +53,21 @@ def sample_reference(timeline, *, origin_ns, dt_ns, steps, group_order):
     for step in np.flatnonzero(valid):
         rows[step] = np.concatenate([samples[step][name] for name in group_order])
     return valid, rows
+
+
+def sample_action_rows(groups, *, source_origin_ns, source_dt_ns, origin_ns, dt_ns,
+                       steps, group_order, action_space):
+    """Resample decoded rows on an observation clock, without extrapolating."""
+    times = origin_ns + np.arange(steps, dtype=np.int64) * dt_ns
+    width = sum(groups[name].shape[1] for name in group_order)
+    output = np.zeros((steps, width), dtype=np.float64)
+    parts = []
+    for name in group_order:
+        source = groups[name]
+        valid, rows = align_prediction(source, source_origin_ns, times, source_dt_ns)
+        if action_space == POSE_SPACE:
+            positions = (times[valid] - source_origin_ns) / source_dt_ns
+            rows = interpolate_pose_rows(source, positions)
+        parts.append(rows)
+    output[valid] = np.concatenate(parts, axis=1)
+    return valid, output

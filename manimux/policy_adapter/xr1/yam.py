@@ -32,7 +32,7 @@ from typing import Any
 
 import numpy as np
 
-from manimux.policies.base import action_interval
+from manimux.policies.base import action_interval_ns
 from manimux.policy_adapter.kinematics import KinematicAdapter
 from manimux.policy_adapter.pose_output import pose_chunk
 from manimux.runtime.paint import PaintInferenceRequest
@@ -134,7 +134,7 @@ class XR1YamAdapter(KinematicAdapter):
 
         self._group_order = tuple(policy["adapter"].get("group_order", DEFAULT_GROUP_ORDER))
         self._group_dims = dict(robot["group_dims"])
-        self._action_dt_ns = int(action_interval(policy) * 1_000_000_000)
+        self._action_dt_ns = action_interval_ns(policy)
         camera_map = policy["adapter"].get("camera_map", DEFAULT_CAMERA_MAP)
         self._required_cameras = tuple(str(value) for value in camera_map.values())
 

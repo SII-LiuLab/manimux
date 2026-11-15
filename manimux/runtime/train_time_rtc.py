@@ -7,7 +7,7 @@ from dataclasses import dataclass, fields
 
 import numpy as np
 
-from manimux.policies.base import action_interval
+from manimux.policies.base import action_interval_ns, action_offset_s
 from manimux.runtime.inference import InferenceSubmission
 from manimux.runtime.rtc.strategy import RtcInferenceStrategy
 from manimux.types import InferenceRequest
@@ -32,13 +32,7 @@ class TrainTimeRtcInferenceStrategy(RtcInferenceStrategy):
     def __init__(self, config: dict) -> None:
         self._delay_estimator = config["inference"]["train_time_rtc"]["delay_estimator"]
         self._fixed_prefix_steps = config["inference"]["train_time_rtc"]["fixed_prefix_steps"]
-        identity = (config["policy"].get("expected_backend") or {}).get("model", {})
-        self._action_offset_ns = round(
-            config["policy"]
-            .get("adapter", {})
-            .get("execution_offset_s", identity.get("first_action_offset_s", 0.0))
-            * 1e9
-        )
+        self._action_offset_ns = round(action_offset_s(config["policy"]) * 1e9)
         delegate = deepcopy(config)
         # The parent owns scheduling and accepted-plan feedback, not this sampler.
         delegate["inference"]["rtc"] = {
@@ -72,7 +66,7 @@ class TrainTimeRtcInferenceStrategy(RtcInferenceStrategy):
             # sent before inference. Predict the unknown model trip with the last
             # completed trip, while only decoding retains a rolling maximum.
             total_ns = age_ns + self._last_model_latency_ns + decode_ns + margin_ns
-            dt_ns = round(action_interval(self._config["policy"]) * 1e9)
+            dt_ns = action_interval_ns(self._config["policy"])
             from_row0_ns = max(0, total_ns - self._action_offset_ns)
             count = (from_row0_ns + dt_ns - 1) // dt_ns
         return count, {
@@ -158,6 +152,7 @@ class TrainTimeRtcInferenceStrategy(RtcInferenceStrategy):
 
     def on_plan_accepted(self, *, chunk, result, response, now_ns):
         started_ns = self._request_started_ns.get(response.request_seq)
+        prefix_steps = self._request_forecast.get(response.request_seq, 0)
         forecast = self._prefix_forecasts.pop(response.request_seq, {})
         previous_forecast = tuple(self._delay_forecast)
         event = super().on_plan_accepted(
@@ -179,6 +174,14 @@ class TrainTimeRtcInferenceStrategy(RtcInferenceStrategy):
                 None if self._last_model_latency_ns is None else self._last_model_latency_ns / 1e6
             )
         event.update(forecast)
+        elapsed_ns = max(0, now_ns - response.observation_time_ns - self._action_offset_ns)
+        elapsed_steps = (elapsed_ns + chunk.dt_ns - 1) // chunk.dt_ns
+        remaining = max(0, prefix_steps - elapsed_steps)
+        event.update(
+            conditioned_prefix_steps=prefix_steps,
+            prefix_rows_remaining_at_commit=remaining,
+            prefix_exhausted_at_commit=prefix_steps > 0 and remaining == 0,
+        )
         return event
 
     def on_response_rejected(self, response) -> None:

@@ -12,7 +12,7 @@ from dataclasses import dataclass, replace
 
 import numpy as np
 
-from manimux.policies.base import action_interval
+from manimux.policies.base import action_interval_ns
 from manimux.policy_adapter.base import PolicyAdapter
 from manimux.runtime.candidates import align_prediction
 from manimux.runtime.inference import (
@@ -170,10 +170,8 @@ class ACTTemporalEnsembleStrategy:
         self._config = config
         settings = config["inference"]["temporal_ensemble"]
         self._query_interval_steps = settings["query_interval_policy_steps"]
-        self._query_interval_ns = int(
-            action_interval(config["policy"])
-            * settings["query_interval_policy_steps"]
-            * 1_000_000_000
+        self._query_interval_ns = (
+            action_interval_ns(config["policy"]) * settings["query_interval_policy_steps"]
         )
         self._ensembler = ACTTemporalEnsembler(settings["coefficient"])
         self._next_query_ns: int | None = None

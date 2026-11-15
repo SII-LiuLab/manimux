@@ -12,7 +12,7 @@ import numpy as np
 
 from manimux.kinematics import build_kinematics
 from manimux.kinematics.tianji_diff import rotation_matrix, rotation_vector
-from manimux.policies.base import action_interval
+from manimux.policies.base import action_interval_ns, native_action_interval
 from manimux.policies.xpolicylab.codec import matrix_pose, pose_matrix
 from manimux.policy_adapter.base import PolicyAdapter
 from manimux.policy_adapter.gripper_mapping import GripperMapping
@@ -76,7 +76,7 @@ class UmiDpTianjiAdapter(PolicyAdapter):
         self.policy = policy
         self.motion_limits = motion_limits
         self.horizon = policy["horizon_policy_steps"]
-        self.dt_ns = round(action_interval(policy) * 1e9)
+        self.dt_ns = action_interval_ns(policy)
         self.offset_ns = round(execution_offset_s(policy) * 1e9)
         self.gripper_mapping = GripperMapping.from_options(
             policy["adapter"].get("gripper_mapping")
@@ -186,7 +186,7 @@ class UmiDpTianjiAdapter(PolicyAdapter):
                 raise ValueError(f"Bound checkpoint {key} must be positive")
         for key, value in (
             ("action_horizon", policy["horizon_policy_steps"]),
-            ("action_dt_s", action_interval(policy)),
+            ("action_dt_s", native_action_interval(policy)),
         ):
             if identity[key] != value:
                 raise ValueError(f"Runtime {key} differs from the bound checkpoint")

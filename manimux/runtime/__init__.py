@@ -10,7 +10,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from manimux.runtime.decode_forecast import FORECAST_MODES
-from manimux.runtime.inference import INFERENCE_ALGORITHMS, build_inference_strategy
+from manimux.runtime.inference import (
+    INFERENCE_ALGORITHMS,
+    build_inference_strategy,
+    validate_handoff_support,
+)
+from manimux.runtime.sigmoid_smooth import sigmoid_smooth_parameters
 from manimux.types import ACTION_START_MODES
 
 if TYPE_CHECKING:
@@ -139,8 +144,9 @@ def inference_parameters(*, executor: dict, **options) -> dict:
         "blend_policy_steps": 2,
         "blend_mode": "linear",
         "action_start_mode": "drop_infer_latency",
-        # Chunk handoff: blend joints at commit, or an adapter EE waypoint before dense IK.
+        # Chunk handoff is independent of the downstream executor.
         "handoff": "blend",
+        "sigmoid_smooth": {},
         "handoff_margin_s": 0.0,
         "max_chunk_policy_steps": None,
         "independent_group_decoding": False,
@@ -156,6 +162,7 @@ def inference_parameters(*, executor: dict, **options) -> dict:
         "paint": {},
         **options,
     }
+    values["sigmoid_smooth"] = sigmoid_smooth_parameters(**values["sigmoid_smooth"])
     if values.get("rtc") is not None:
         values["rtc"] = rtc_parameters(**values["rtc"])
     values["train_time_rtc"] = train_time_rtc_parameters(**values["train_time_rtc"])
@@ -188,6 +195,11 @@ def validate_runtime_parameters(config: dict) -> None:
     from manimux.runtime.ik import validate_ik_config
     validate_ik_config(config)
     settings = config["inference"]
+    if settings["handoff"] == "sigmoid_smooth" and (
+        settings["sigmoid_smooth"]["window_policy_steps"]
+        >= config["policy"]["horizon_policy_steps"]
+    ):
+        raise ValueError("sigmoid_smooth window must be smaller than policy.horizon_policy_steps")
     ensemble = (settings.get("temporal_ensemble") or {}).get("enabled", False)
     candidate_aac = settings["algorithm"] == "aac" and (
         settings["inference_schedule"] != "serial" or ensemble
@@ -409,8 +421,28 @@ def validate_inference_parameters(values: dict, executor: dict, *, provided=froz
         )
     if values["decode_forecast_mode"] not in FORECAST_MODES:
         raise ValueError(f"inference.decode_forecast_mode must be one of {FORECAST_MODES}")
-    if values["handoff"] not in {"blend", "waypoint"}:
-        raise ValueError("inference.handoff must be blend or waypoint")
+    if values["handoff"] not in {"blend", "waypoint", "sigmoid_smooth"}:
+        raise ValueError("inference.handoff must be blend, waypoint or sigmoid_smooth")
+    if values["handoff"] == "sigmoid_smooth" and (
+        values["algorithm"] not in {"async", "serial", "rtc"}
+        or values["inference_schedule"] not in {"deadline", "single_inflight", "serial"}
+        or values["action_start_mode"] != (
+            "first_step_when_ready" if values["inference_schedule"] == "serial"
+            else "drop_infer_latency"
+        )
+        or values["blend_policy_steps"] != 0
+        or values["blend_mode"] != "linear"
+        or values["handoff_skip_steps"] != 0
+        or values["independent_group_decoding"]
+        or ensemble
+    ):
+        raise ValueError(
+            "sigmoid_smooth requires async/serial/rtc (including RetimedRtcStrategy), "
+            "deadline/single_inflight/serial with its matching action clock, "
+            "complete groups, zero blend and skip, "
+            "linear blend_mode and no temporal ensemble"
+        )
+    validate_handoff_support(values)
     if values["blend_mode"] not in {"linear", "command_cubic"}:
         raise ValueError("inference.blend_mode must be linear or command_cubic")
     if values["blend_mode"] == "command_cubic" and (

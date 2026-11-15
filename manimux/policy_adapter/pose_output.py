@@ -4,6 +4,7 @@ import uuid
 
 import numpy as np
 
+from manimux.kinematics.poses import interpolate_pose as interpolate_pose
 from manimux.kinematics.poses import matrix_pose
 from manimux.types import ActionChunk
 
@@ -45,19 +46,3 @@ def target_rows(targets):
         name: np.stack([np.r_[matrix_pose(pose), grip] for pose, grip in rows])
         for name, rows in targets.items()
     }
-
-
-def interpolate_pose(a, b, weight):
-    """Linear xyz/gripper, shortest-arc unit quaternion interpolation (wxyz)."""
-    result = (1 - weight) * a + weight * b
-    qa, qb = a[3:7], b[3:7]
-    dot = float(np.dot(qa, qb))
-    if dot < 0:
-        qb, dot = -qb, -dot
-    if dot > 0.9995:
-        q = (1 - weight) * qa + weight * qb
-    else:
-        angle = np.arccos(np.clip(dot, -1, 1))
-        q = (np.sin((1 - weight) * angle) * qa + np.sin(weight * angle) * qb) / np.sin(angle)
-    result[3:7] = q / np.linalg.norm(q)
-    return result

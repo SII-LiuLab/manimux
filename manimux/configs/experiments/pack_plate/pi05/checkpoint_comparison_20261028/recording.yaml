@@ -1,0 +1,5 @@
+# Shared video recording defaults for the tossing experiment catalog.
+enabled: true
+video_fps: 30.0
+video_codec: mp4v
+video_queue_size: 8

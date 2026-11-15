@@ -69,6 +69,22 @@ class StrategyChunkSelector(Protocol):
     def select_chunk(self, *, chunk: ActionChunk, now_ns: int) -> ActionChunk: ...
 
 
+@runtime_checkable
+class StrategyTimedHandoff(Protocol):
+    """Optional final trajectory preparation on the timeline commit clock.
+
+    Runs after decoding/preparation, never during warmup. Implementations may read
+    the outgoing timeline but must not mutate it or accepted strategy history.
+    The recorder retains canonical_raw separately from this execution proposal.
+    """
+
+    def prepare_timed_handoff(
+        self, *, chunk: ActionChunk, now_ns: int, timeline: ActionTimeline,
+        measured: GroupVector, current_command: GroupVector,
+        command_velocity: GroupVector,
+    ) -> ActionChunk: ...
+
+
 EnsembleScope = Literal["full_prediction", "execution_prefix"]
 
 
@@ -150,6 +166,7 @@ class InferenceStrategy(Protocol):
 class DefaultChunkStrategy:
     """Shared Serial/Async chunk scheduling, isolated from the control loop."""
 
+    supports_sigmoid_handoff = True
     def __init__(self, config: dict) -> None:
         self._config = config
         self.reset()
@@ -219,7 +236,10 @@ class DefaultChunkStrategy:
         last_command: GroupVector,
     ) -> CommitSettings:
         del response
-        command_blend = self._config["inference"].get("blend_mode") == "command_cubic"
+        command_blend = (
+            self._config["inference"].get("blend_mode") == "command_cubic"
+            or self._config["inference"].get("handoff") == "sigmoid_smooth"
+        )
         return CommitSettings(
             current_command=copy_group_vector(last_command if command_blend else measured),
             blend_steps=self._config["inference"]["blend_policy_steps"],
@@ -282,6 +302,23 @@ _STRATEGY_BUILTINS: dict[str, InferenceStrategyFactory | str] = {
 INFERENCE_ALGORITHMS = frozenset(_STRATEGY_BUILTINS)
 
 
+def validate_handoff_support(settings: dict, strategy=None) -> None:
+    """Require an explicit capability for shared timeline sigmoid handoff.
+
+    Providers must return complete action groups and leave the accepted timeline
+    intact until commit. Classes may inherit the capability; wrappers must expose
+    it themselves. Check factories during config loading and instances at startup.
+    """
+    if settings["handoff"] != "sigmoid_smooth":
+        return
+    provider = strategy if strategy is not None else load_plugin(
+        settings.get("strategy") or settings["algorithm"],
+        group="manimux.inference_strategies", builtins=_STRATEGY_BUILTINS,
+    )
+    if getattr(provider, "supports_sigmoid_handoff", False) is not True:
+        raise ValueError("strategy must declare supports_sigmoid_handoff=True for sigmoid_smooth")
+
+
 def build_inference_strategy(config: dict) -> InferenceStrategy:
     factory = load_plugin(
         config["inference"].get("strategy") or config["inference"]["algorithm"],
@@ -305,6 +342,7 @@ def build_inference_strategy(config: dict) -> InferenceStrategy:
 
         factory = CandidateAacStrategy
     strategy = factory(config)
+    validate_handoff_support(settings, strategy)
     if serial_act or (ensemble and settings["algorithm"] != "act_temporal_ensemble"):
         from manimux.runtime.temporal_ensemble import EnsembleStrategy
 

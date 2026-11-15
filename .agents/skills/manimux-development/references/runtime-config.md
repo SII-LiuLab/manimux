@@ -406,8 +406,9 @@ In the list above, `configs/` means `manimux/configs/`.
 of the same experiment. Pair their action representation, checkpoint identity and
 sampler capabilities. Do not delete identity checks to make a mismatched pair start.
 
-Keep `policy.action_dt_s` (model trajectory spacing), `robot.control_hz` (command
-frequency), camera acquisition rate and recording video rate independent. Horizon,
+Keep `policy.action_dt_s` (native model trajectory spacing), `policy.playback_hz`
+(runtime action-row consumption), `robot.control_hz` (command frequency), camera
+acquisition rate and recording video rate independent. Horizon,
 decoded prefix and executed chunk length are also distinct. Do not infer one from
 another just because one example happens to use the same value.
 
@@ -472,6 +473,36 @@ runtime-owned decoder while formal scheduling is paused, keeps the inference req
 pending through decode completion, and drains both stages before backend reset. Its
 previews use the request observation as the IK seed and never enter the Timeline.
 History strategies collect measured observations on every warmup tick and may return
+### Action playback speed
+
+`policy.playback_hz: null` preserves native timing. A positive finite value sets the
+runtime row interval to `1 / playback_hz`. For a native 30 Hz checkpoint, 15 Hz
+plays at half speed and 60 Hz at twice speed; a 100 Hz robot control loop still
+interpolates the retimed trajectory at 100 Hz. Keep `action_dt_s`, checkpoint
+identity and model observation-history periods unchanged. Do not combine
+`playback_hz` with the legacy `trajectory_duration_s` override.
+
+Use `native_action_interval()` for checkpoint checks and model-side metadata;
+`action_interval()` supplies effective runtime seconds and `action_interval_ns()`
+supplies the shared rounded nanosecond grid to adapters, IK, timelines, RTC/PAINT
+conditions, candidate validation, delay forecasts and source-progress scheduling.
+UMI's default
+first-action offset scales with that grid; an explicit `adapter.execution_offset_s`
+remains a wall-clock offset. Step IK still runs on the robot control clock.
+
+In `serve`, RoboGUI's **Action playback (Hz)** is editable before Prepare. Prepare
+freezes it in a deep copy of the selected configuration for that rollout, replacing
+any configured legacy duration. It does not mutate catalog defaults or restart the
+model. Config reload and experiment switches restore the selected YAML's value;
+service heartbeats preserve unsubmitted edits. `run` uses the YAML value. Episode
+metadata records effective `action_dt_s`, `model_action_dt_s`, `playback_hz` and
+`control_hz`. Source-step counts keep their existing meanings; durations expressed
+in seconds (timeouts, observation periods, refill thresholds) do not scale.
+
+Faster playback consumes the horizon sooner; it does not accelerate model compute.
+Inference latency, history availability, IK and existing motion limits still govern
+what can execute. Verify changed speeds offline before claiming physical success.
+
 no submission until a valid window is available; UMI DP supplies its measured two-frame
 window to the delegate's warmup builder. Restart `serve` after changing a catalog's
 warmup settings, or use Reload config while idle to re-read the catalog.
@@ -573,7 +604,7 @@ checked after return; a long native call cannot be preempted. This is a soft
 budget, not a hard real-time guarantee or proof of physical tracking.
 
 Step mode requires direct execution, inline pose decoding, atomic groups, and
-linear blend handoff. Smooth/MPC future-joint references, joint candidate scoring,
+linear/SLERP blend or sigmoid_smooth handoff. Smooth/MPC future-joint references, joint candidate scoring,
 temporal ensembling, command-cubic blending, waypoint handoff and decoder diffIK
 substeps are rejected explicitly. `execution.ik.backend` selects `analytic` (the
 existing native solver, default) or `diff` (the shared Tianji velocity QP).
@@ -609,6 +640,107 @@ Step DiffIK may additionally set `execution.ik.diff_ik.elbow_guard_deg: 1.0`
 (default null). It requires the step acceleration constraint and preserves the
 initial M6-40 elbow branch in the QP stopping region. Solver reset and timeline
 gaps retain the branch; only lifecycle `ExecutionPipeline.reset(reanchor=True)`
+## Sigmoid overlap handoff
+
+`inference.handoff: sigmoid_smooth` is a peer of `blend` and `waypoint`, independent
+of `executor.type`. `inference.sigmoid_smooth.window_policy_steps` (default 4) is
+the overlap duration in effective playback intervals; `sigma_policy_steps`
+(default 0.5) is the sigmoid time scale in the same units. These defaults are local
+starting choices, not paper-reported values. See
+[Flash ALOHA, section IV / Fig. 5](https://johnyao93.github.io/static/files/flash-aloha.pdf?v=2).
+
+`ActionTimeline.commit` samples the outgoing accepted execution reference at each
+incoming timestamp and mixes it with the incoming target using
+`w = sigmoid((elapsed - effective_window/2) / sigma)`.
+Outside the window the incoming target has full weight. This uses the moving old
+trajectory, not the fixed measured/command anchor of ordinary linear blend.
+The original finite-window sigmoid is not endpoint-normalized; small boundary
+residuals remain and neither velocity continuity nor rate limits are guaranteed.
+Increasing sigma broadens the central transition but also increases endpoint
+residuals at fixed window size. Executor shaping and safety still apply afterwards.
+
+The policy and dense runtime grids are blended separately on one wall-clock window
+starting at the incoming execution grid's first retained timestamp. Dense IK samples
+are retained. References interpolate the blended rows using the existing timeline;
+this is not an analytic sigmoid evaluated at every servo timestamp. Original chunks
+and unblended tracking targets remain unchanged. Repeated handoffs use the previously
+accepted, possibly smoothed runtime reference. No clock retiming or extra row skip
+is introduced; latency trimming and request scheduling retain their existing meaning.
+
+The first plan is accepted unchanged. A short asynchronous overlap is clipped to
+available old/new coverage without extrapolation; sigma stays fixed and the sigmoid
+midpoint uses the shortened window. Async/RTC with no overlap accepts the new plan
+unchanged so an expired plan cannot permanently block recovery. Serial preserves
+`first_step_when_ready`, prefix length and request cadence: it blends from the last
+issued command held constant, not an invented moving old tail. This fallback is
+reported as `serial_hold` and ends by the final actual row so the terminal target
+is not left blended during Serial's final hold interval. These operational cases
+extend the paper's ideal full-overlap setup.
+
+Chunk IK blends absolute joints (including dense IK samples). Step IK blends absolute
+TCP xyz/aperture linearly and orientations by shortest-arc quaternion SLERP before
+the existing per-tick IK pipeline. Its normal Direct executor and joint safety limits
+remain in force. Dense `RuntimeTrajectory` rows share the parent chunk's action space;
+pose rows must have unit quaternions and normalized aperture. Both parameters use
+the effective playback interval, independently of control cadence. On retimed paths
+this is the fixed playback grid, not the nonlinear source-index clock.
+
+RTC-retime with sigmoid preserves time allocation and bounded progress matching,
+but skips its cubic command bridge (`rtc_retime.bridge_s` is recorded as 0). The
+timeline performs the sole handoff, and subsequent RTC conditions sample that fused
+execution reference. Step-IK retiming uses pose geometry/SLERP, joint FK only for
+measured/issued-command gates, and defers joint-bound checks to IK/command safety.
+The gripper-protected variant preserves both the protected intervals and their
+transition ramps: `ActionChunk.handoff_protect_from_ns` marks the first protected
+execution time, and the blend ends at an execution knot on/before it. If protection
+starts immediately the handoff is bypassed with `protected_interval` status. This
+prioritizes protected trajectory timing over seam smoothing; it is not a guarantee
+of measured grasp/release timing. The cutoff is copied and recorded with the chunk.
+
+`CommitResult.sigmoid_smooth`, accepted-plan metadata and events record `status`
+(`initial`, `no_overlap`, `shortened_overlap`, `smoothed`, `serial_hold`,
+`protected_interval`), `reference_source`, `action_space`, `protected_from_ns`,
+`start_time_ns`, `requested_window_ns`, `effective_window_ns` and both tuning values.
+Recorded committed source rows contain the blend; dense executed references remain
+observable in scheduled ticks. Reset constructs a fresh timeline and clears history.
+
+Supported: Async, Serial, RTC and `RetimedRtcStrategy` (including gripper protection),
+deadline/single-inflight/serial schedules, complete groups, chunk or step IK.
+Chunk decoding can be inline/process; step decoding is inline. Require zero
+`blend_policy_steps` and `handoff_skip_steps`, default `blend_mode: linear`, and
+`drop_infer_latency` for asynchronous schedules or `first_step_when_ready` for Serial.
+Async progress scheduling is supported. Waypoint/cubic composition, ACT, adaptive
+selection, train-time RTC, multi-inflight and partial-group hold chunks remain
+unsupported. Custom strategy factories and instances must explicitly declare
+`supports_sigmoid_handoff = True`: they return complete action groups and preserve
+the accepted timeline until commit. Subclasses inherit this capability; wrappers
+must expose it. No concrete plugin import path is special-cased.
+Keep enough unexecuted horizon for overlap plus inference/decode time; the window
+does not itself change request cadence. The reusable preset is
+`manimux/configs/inference/sigmoid_smooth.yaml`; a loader-validated example is
+`manimux/configs/examples/yam_pi05_rtc_sigmoid_smooth.yaml`.
+The throwing catalog `manimux/configs/experiments/throw_ball/pi05/catalog.yaml` adds
+ten explicit variants: Async, Serial, RTC, RTC-retime and gripper-protected RTC-retime,
+each with chunk IK and step DiffIK. Existing entries remain selectable. Each new
+variant records to its own output directory; the step variants retain continuous
+aperture mapping, shared command limits, and the existing step-IK solver settings.
+The variants are generated from the original five experiments and
+`throw_ball/pi05/sigmoid-variants.yaml`. Regenerate with:
+
+```bash
+python -m scripts.experiments.build_sigmoid_variants \
+  manimux/configs/experiments/throw_ball/pi05/sigmoid-variants.yaml
+```
+
+Add `--check` to verify generated YAML/catalog drift and loader validation without
+rewriting files. Edit the base experiments or generator overrides, not generated YAML.
+Both scalar blending and batch pose resampling use `kinematics.poses.interpolate_pose`;
+source/dense ordinary blend and sigmoid all preserve unit shortest-arc orientations.
+The timeline snapshots the usable overlap before applying weights to candidate copies.
+Retiming separately allocates path timing, matches progress, and builds the executable
+proposal; the accepted timeline changes only after the final commit checks.
+
+
 or warmup selects a new anchor. A seed inside the guard is rejected before
 tracking. See [the DiffIK contract](tianji-diff-ik.md#optional-step-elbow-branch-protection-2026-10-23).
 
@@ -708,3 +840,16 @@ SLERP. Smoothness continues to use the recorded post-IK scheduled joint referenc
 An expired pose plan requires observed constant joint commands to qualify a hold;
 its pose endpoint must never be compared to a joint vector. These reference
 metrics do not measure actual physical tracking accuracy.
+
+### Timed handoff preparation
+
+`StrategyTimedHandoff.prepare_timed_handoff` is an optional runtime strategy hook
+called after normal decoding/preparation and immediately before timeline commit.
+It receives the commit timestamp, read-only outgoing timeline, measured joints,
+last issued command and nominal-tick command velocity. It returns an execution
+proposal without mutating accepted history. Failure follows normal rejection;
+only `on_plan_accepted` advances strategy history. Warmup does not call this hook.
+The recorder preserves the pre-transform `canonical_raw`, the returned `infra_output`
+and committed rows. Dense `runtime_trajectory` rows and timestamps are saved when
+present. The experimental retimed RTC plugin uses this hook; ordinary strategies
+keep their existing path.

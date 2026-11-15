@@ -1,0 +1,81 @@
+policy_services:
+  Pi05 / Throw Ball Native H50 / 29999:
+    cwd: ../../../../..
+    command:
+    - XPolicyLab/policy/Pi_05/openpi/.venv/bin/python
+    - -m
+    - manimux.servers.pi05
+    - --experiment
+    - '{config}'
+    - --local
+    - '{local}'
+    env:
+      PYTHONPATH: null
+      XLA_PYTHON_CLIENT_PREALLOCATE: 'false'
+    startup_timeout_s: 600
+    stop_timeout_s: 30
+experiments:
+- id: pi05_throw_ball_native_h50_29999_rtc_retime
+  policy: Pi05 / Throw Ball Native H50 / 29999
+  label: RTC Adaptive Speed 18 / 15 Hz
+  config: tianji_pi05_native_h50_29999_rtc_retime.yaml
+- id: pi05_throw_ball_native_h50_29999_rtc_retime_gripper
+  policy: Pi05 / Throw Ball Native H50 / 29999
+  label: RTC Gripper Protected 18 / Base 30 Hz
+  config: tianji_pi05_native_h50_29999_rtc_retime_gripper.yaml
+- id: pi05_throw_ball_native_h50_29999_serial18
+  policy: Pi05 / Throw Ball Native H50 / 29999
+  label: Serial 18 / 15 Hz
+  config: tianji_pi05_native_h50_29999_serial18.yaml
+- id: pi05_throw_ball_native_h50_29999_rtc18
+  policy: Pi05 / Throw Ball Native H50 / 29999
+  label: RTC 18 / No Blend / 15 Hz
+  config: tianji_pi05_native_h50_29999_rtc18.yaml
+- id: pi05_throw_ball_native_h50_29999_rtc18_blend2
+  policy: Pi05 / Throw Ball Native H50 / 29999
+  label: RTC 18 / Blend 2 / 15 Hz
+  config: tianji_pi05_native_h50_29999_rtc18_blend2.yaml
+- id: pi05_throw_ball_native_h50_29999_async18
+  policy: Pi05 / Throw Ball Native H50 / 29999
+  label: Async 18 / 15 Hz
+  config: tianji_pi05_native_h50_29999_async18.yaml
+- id: pi05_throw_ball_native_h50_29999_rtc_retime_sigmoid_smooth
+  policy: Pi05 / Throw Ball Native H50 / 29999
+  label: RTC Adaptive Speed 18 / 15 Hz / Sigmoid / Chunk IK
+  config: tianji_pi05_native_h50_29999_rtc_retime_sigmoid_smooth.yaml
+- id: pi05_throw_ball_native_h50_29999_rtc_retime_sigmoid_smooth_step_ik
+  policy: Pi05 / Throw Ball Native H50 / 29999
+  label: RTC Adaptive Speed 18 / 15 Hz / Sigmoid / Step IK
+  config: tianji_pi05_native_h50_29999_rtc_retime_sigmoid_smooth_step_ik.yaml
+- id: pi05_throw_ball_native_h50_29999_rtc_retime_gripper_sigmoid_smooth
+  policy: Pi05 / Throw Ball Native H50 / 29999
+  label: RTC Gripper Protected 18 / Base 30 Hz / Sigmoid / Chunk IK
+  config: tianji_pi05_native_h50_29999_rtc_retime_gripper_sigmoid_smooth.yaml
+- id: pi05_throw_ball_native_h50_29999_rtc_retime_gripper_sigmoid_smooth_step_ik
+  policy: Pi05 / Throw Ball Native H50 / 29999
+  label: RTC Gripper Protected 18 / Base 30 Hz / Sigmoid / Step IK
+  config: tianji_pi05_native_h50_29999_rtc_retime_gripper_sigmoid_smooth_step_ik.yaml
+- id: pi05_throw_ball_native_h50_29999_serial18_sigmoid_smooth
+  policy: Pi05 / Throw Ball Native H50 / 29999
+  label: Serial 18 / 15 Hz / Sigmoid / Chunk IK
+  config: tianji_pi05_native_h50_29999_serial18_sigmoid_smooth.yaml
+- id: pi05_throw_ball_native_h50_29999_serial18_sigmoid_smooth_step_ik
+  policy: Pi05 / Throw Ball Native H50 / 29999
+  label: Serial 18 / 15 Hz / Sigmoid / Step IK
+  config: tianji_pi05_native_h50_29999_serial18_sigmoid_smooth_step_ik.yaml
+- id: pi05_throw_ball_native_h50_29999_rtc18_sigmoid_smooth
+  policy: Pi05 / Throw Ball Native H50 / 29999
+  label: RTC 18 / 15 Hz / Sigmoid / Chunk IK
+  config: tianji_pi05_native_h50_29999_rtc18_sigmoid_smooth.yaml
+- id: pi05_throw_ball_native_h50_29999_rtc18_sigmoid_smooth_step_ik
+  policy: Pi05 / Throw Ball Native H50 / 29999
+  label: RTC 18 / 15 Hz / Sigmoid / Step IK
+  config: tianji_pi05_native_h50_29999_rtc18_sigmoid_smooth_step_ik.yaml
+- id: pi05_throw_ball_native_h50_29999_async18_sigmoid_smooth
+  policy: Pi05 / Throw Ball Native H50 / 29999
+  label: Async 18 / 15 Hz / Sigmoid / Chunk IK
+  config: tianji_pi05_native_h50_29999_async18_sigmoid_smooth.yaml
+- id: pi05_throw_ball_native_h50_29999_async18_sigmoid_smooth_step_ik
+  policy: Pi05 / Throw Ball Native H50 / 29999
+  label: Async 18 / 15 Hz / Sigmoid / Step IK
+  config: tianji_pi05_native_h50_29999_async18_sigmoid_smooth_step_ik.yaml

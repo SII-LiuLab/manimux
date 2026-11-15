@@ -9,7 +9,7 @@ import numpy as np
 
 from manimux.kinematics.poses import matrix_pose, pose_matrix
 from manimux.policies.actions import action_groups
-from manimux.policies.base import action_interval
+from manimux.policies.base import action_interval_ns
 from manimux.policy_adapter.kinematics import KinematicAdapter
 from manimux.policy_adapter.pose_output import pose_chunk
 from manimux.types import ActionChunk, InferenceRequest
@@ -41,7 +41,7 @@ class OpenWAMYamAdapter(KinematicAdapter):
         if set(self.cameras) != set(DEFAULT_CAMERA_MAP):
             raise ValueError("OpenWAM requires the three standard XPolicy cameras")
         self.horizon = policy["horizon_policy_steps"]
-        self.dt = int(action_interval(policy) * 1e9)
+        self.dt = action_interval_ns(policy)
         self.anchors = OrderedDict()
 
     def validate(self, robot, policy):

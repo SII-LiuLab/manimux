@@ -24,7 +24,7 @@ from dataclasses import replace
 import numpy as np
 
 from manimux.kinematics.robot import RobotKinematics
-from manimux.policies.base import action_interval
+from manimux.policies.base import native_action_interval
 from manimux.policies.capabilities import PolicyCapabilities
 from manimux.policies.xpolicylab.aac import (
     AacPreviousAction,
@@ -62,10 +62,9 @@ class XPolicyLabWsPolicyModel:
             raise ValueError(f"unknown action_format {self._action_format!r}")
         self._url = options.get("server", DEFAULT_SERVER)
         self._camera_map = dict(adapter.get("camera_map", DEFAULT_CAMERA_MAP))
-        # The observation carries the rate *we* run at. XPolicyLab treats the
-        # environment as the owner of the control rate, so this is ours to
-        # declare, and it comes from the same value the adapter uses for dt.
-        self._frequency = 1.0 / action_interval(config)
+        # Describe the checkpoint's action grid to the model. Runtime playback
+        # retimes returned rows without changing the model's native contract.
+        self._frequency = 1.0 / native_action_interval(config)
         self._request_timeout_s = _positive_float_option(
             options, "request_timeout_s", config["timeout_s"]
         )

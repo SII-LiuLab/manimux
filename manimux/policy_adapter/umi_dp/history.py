@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from manimux.policies.base import action_interval
+from manimux.policies.base import action_interval_ns, action_offset_s
 from manimux.runtime import validate_inference_parameters, validate_runtime_parameters
 from manimux.runtime.inference import build_inference_strategy
 from manimux.types import ObservationSnapshot, RobotState, copy_group_vector
@@ -128,11 +128,10 @@ def align_rtc_condition(
     slots = np.arange(horizon)
     target = request.observation_time_ns + offset_ns + slots * dt_ns
     old_times = active.start_time_ns + np.arange(len(old)) * active.dt_ns
-    weight_times = (
-        active.start_time_ns
-        + (timeline.cursor(now_ns) + np.arange(len(request.condition_weights)))
-        * dt_ns
-    )
+    weight_origin = getattr(request, "condition_time_ns", None)
+    if weight_origin is None:
+        weight_origin = active.start_time_ns + timeline.cursor(now_ns) * dt_ns
+    weight_times = weight_origin + np.arange(len(request.condition_weights)) * dt_ns
     rows = np.column_stack(
         [np.interp(target, old_times, old[:, column]) for column in range(old.shape[1])]
     )
@@ -143,13 +142,12 @@ def align_rtc_condition(
 
 
 def execution_offset_s(policy) -> float:
-    """Wall-clock phase of source row 0; defaults to the checkpoint's trained offset.
+    """Wall-clock phase of source row 0; scale the trained offset with playback.
 
     adapter.execution_offset_s may move it, e.g. to zero to run each row at the
     observation time it was predicted for. Decoding and RTC alignment both use it.
     """
-    identity = policy["expected_backend"]["model"]
-    return float(policy["adapter"].get("execution_offset_s", identity["first_action_offset_s"]))
+    return action_offset_s(policy)
 
 
 class HistoryStrategy:
@@ -187,7 +185,7 @@ class HistoryStrategy:
             camera_skew_s=float(history["camera_skew_s"]),
         )
         self.offset_ns = round(execution_offset_s(config["policy"]) * 1e9)
-        self.dt_ns = round(action_interval(config["policy"]) * 1e9)
+        self.dt_ns = action_interval_ns(config["policy"])
         self.group_order = tuple(config["robot"]["group_dims"])
         self.horizon = config["policy"]["horizon_policy_steps"]
 

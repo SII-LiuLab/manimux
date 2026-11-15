@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from copy import deepcopy
+from math import isfinite
+from numbers import Real
 from typing import Protocol
 
 from manimux.policies.capabilities import PolicyCapabilities
@@ -57,6 +59,7 @@ def policy_parameters(*, action_dt_s: float, horizon_policy_steps: int, **option
     values = {
         "device": "cpu",
         "action_dt_s": action_dt_s,
+        "playback_hz": None,
         "trajectory_duration_s": None,
         "timeout_s": 1.0,
         "horizon_policy_steps": horizon_policy_steps,
@@ -68,17 +71,56 @@ def policy_parameters(*, action_dt_s: float, horizon_policy_steps: int, **option
     }
     if values.get("expected_backend") is not None:
         values["expected_backend"] = expected_backend_parameters(**values["expected_backend"])
+    action_interval(values)
     return values
 
 
+def _positive_timing(value: object, name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, Real) or not isfinite(value) or value <= 0:
+        raise ValueError(f"{name} must be a finite positive number")
+    return float(value)
+
+
+def native_action_interval(policy: dict) -> float:
+    """Checkpoint action spacing, independent of runtime playback speed."""
+    return _positive_timing(policy["action_dt_s"], "policy.action_dt_s")
+
+
 def action_interval(policy: dict) -> float:
-    """Preserve action timing: when total duration is specified, divide it by the number of intervals between points."""
+    """Runtime spacing of source action rows; never changes the servo rate."""
+    native_dt = native_action_interval(policy)
+    playback_hz = policy.get("playback_hz")
     duration = policy.get("trajectory_duration_s")
-    return (
-        policy["action_dt_s"]
-        if duration is None
-        else duration / (policy["horizon_policy_steps"] - 1)
-    )
+    if playback_hz is not None and duration is not None:
+        raise ValueError("policy.playback_hz and trajectory_duration_s are mutually exclusive")
+    if playback_hz is not None:
+        dt = 1.0 / _positive_timing(playback_hz, "policy.playback_hz")
+    elif duration is not None:
+        if policy["horizon_policy_steps"] < 2:
+            raise ValueError("trajectory_duration_s requires at least two action points")
+        dt = _positive_timing(duration, "policy.trajectory_duration_s") / (
+            policy["horizon_policy_steps"] - 1
+        )
+    else:
+        dt = native_dt
+    if not isfinite(dt * 1e9) or dt * 1e9 < 1:
+        raise ValueError("policy action interval must be representable in nanoseconds")
+    return dt
+
+
+def action_interval_ns(policy: dict) -> int:
+    """Use the same rounded action grid for decoding, scheduling and validation."""
+    return round(action_interval(policy) * 1e9)
+
+
+def action_offset_s(policy: dict) -> float:
+    """Phase of source row zero on the playback clock, relative to observation."""
+    options = policy.get("adapter", {})
+    if "execution_offset_s" in options:
+        return float(options["execution_offset_s"])
+    identity = (policy.get("expected_backend") or {}).get("model", {})
+    scale = action_interval(policy) / native_action_interval(policy)
+    return float(identity.get("first_action_offset_s", 0.0)) * scale
 
 
 def attach_sampling_stats(chunk: ActionChunk, raw: object) -> ActionChunk:

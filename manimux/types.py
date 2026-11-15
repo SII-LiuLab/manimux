@@ -122,7 +122,7 @@ class ActionContext:
 
 @dataclass(slots=True)
 class RuntimeTrajectory:
-    """Adapter-prepared samples used only by the runtime command timeline."""
+    """Dense samples in the owning ActionChunk's action_space, on an execution clock."""
 
     start_time_ns: int
     dt_ns: int
@@ -159,16 +159,22 @@ class ActionChunk:
     source_offset_steps: int = 0  # Leading source rows already removed by the adapter.
     metadata: dict[str, object] = field(default_factory=dict)  # Adapter-specific plan details.
     hold_from_step: dict[str, int] = field(default_factory=dict)  # First invalid row by group.
-    # Optional denser joint path prepared by an adapter. Source groups/dt/horizon
+    # Optional denser joint or TCP path in this chunk's action_space. Source groups/dt/horizon
     # remain the model-side contract used by scheduling, RTC and visualization.
     runtime_trajectory: RuntimeTrajectory | None = None
     handoff: AppliedHandoff | None = None  # Set when the chunk starts from a waypoint handoff.
+    # Runtime handoff may not modify references at/after this protected event.
+    handoff_protect_from_ns: int | None = None
 
     def __post_init__(self) -> None:
         if self.dt_ns <= 0:
             raise ValueError("action chunk dt_ns must be positive")
         if self.source_offset_steps < 0:
             raise ValueError("action chunk source_offset_steps must be non-negative")
+        if self.handoff_protect_from_ns is not None and (
+            type(self.handoff_protect_from_ns) is not int or self.handoff_protect_from_ns < 0
+        ):
+            raise ValueError("handoff_protect_from_ns must be a non-negative integer or null")
         self.groups = _trajectory_groups(self.groups, label="action chunk")
         if self.runtime_trajectory is not None and set(self.runtime_trajectory.groups) != set(
             self.groups
@@ -247,4 +253,5 @@ def copy_action_chunk(chunk: ActionChunk) -> ActionChunk:
             )
         ),
         handoff=chunk.handoff,
+        handoff_protect_from_ns=chunk.handoff_protect_from_ns,
     )

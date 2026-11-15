@@ -1,0 +1,74 @@
+# Throw-ball task; inference parameters match the corresponding prior Pi05 deployment.
+local: ../../../../../.local/pack_plate/pi05_checkpoint_comparison_20261019/station.yaml
+run:
+  task: pick up the balls from the table and toss them into the white box using both
+    grippers
+  output_dir: ./data/experiments/throw-ball-pi05-native-h50-29999/serial18
+  experiment_name: throw-ball-pi05-native-h50-29999
+  condition: serial18-15hz
+  max_control_steps: 40000
+  warmup_before_start: true
+  task_label: Throw ball
+robot:
+  type: tianji_taccap
+  config: ../../pack_plate/pi05/checkpoint_comparison_20261028/robot.yaml
+  control_hz: 100.0
+  group_dims:
+    left_arm: 8
+    right_arm: 8
+  group_layouts:
+    left_arm:
+      arm_dofs: 7
+      gripper_dofs: 1
+    right_arm:
+      arm_dofs: 7
+      gripper_dofs: 1
+  options:
+    execute: true
+    end_effector_control: true
+    hardware:
+      stale_timeout_s: 0.1
+    component_hardware:
+      left_end_effector:
+        read_hz: 100.0
+        control_mode: impedance
+      right_end_effector:
+        read_hz: 100.0
+        control_mode: impedance
+sensors:
+- name: tianji_wrist_cameras
+  driver: manimux.embodiments.sensor.camera_server.timestamped:build_sensor
+  service: camera
+  options:
+    camera_names:
+    - taccap_left
+    - taccap_right
+    max_frame_age_sec: 0.15
+    clock_jump_tolerance_s: 0.02
+    output_names:
+      taccap_left: left_wrist_camera
+      taccap_right: right_wrist_camera
+policy:
+  config: ../../pack_plate/pi05/checkpoint_comparison_20261028/policy-runtime.yaml
+  horizon_policy_steps: 50
+  playback_hz: 15.0
+robogui:
+  enabled: true
+  robot: tianji-taccap
+  policy_label: Pi05 / Throw Ball Native H50 / 29999 / Serial 18 / 15 Hz
+recording:
+  config: ../../pack_plate/pi05/checkpoint_comparison_20261028/recording.yaml
+  enabled: true
+inference:
+  config: ../../pack_plate/pi05/checkpoint_comparison_20261028/serial32.yaml
+  chunk_policy_steps: 18
+executor:
+  config: ../../pack_plate/pi05/checkpoint_comparison_20261028/executor.yaml
+  smooth:
+    gripper:
+      mode: continuous
+policy_server:
+  checkpoint_low_memory: true
+  config: ../../../policy/pi05/tianji/throw_ball/native-h50-step29999.yaml
+camera_server:
+  config: ../../../embodiment/sensor/cameras/taccap_2_views.yaml
