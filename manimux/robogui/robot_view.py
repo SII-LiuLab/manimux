@@ -253,11 +253,13 @@ class RobotView:
         return next(group for group in self.groups if group.name == name)
 
 
-def load_robogui_config(path: Path | None = None, *, robot="tianji") -> dict:
+def load_robogui_config(path: Path | None = None, *, robot: str | None = None) -> dict:
     from importlib.resources import files
 
     from manimux.cli import read_yaml
 
+    if path is None and not robot:
+        raise ValueError("Choose a RoboGUI display with --robot <preset> or --config <file>.")
     source = (
         path if path is not None else Path(__file__).parent / "robots" / robot / "robogui.yaml"
     ).resolve()

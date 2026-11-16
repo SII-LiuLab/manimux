@@ -280,6 +280,7 @@ InferenceStrategyFactory = Callable[[dict], InferenceStrategy]
 
 
 _STRATEGY_BUILTINS: dict[str, InferenceStrategyFactory | str] = {
+    "vlash": "manimux.runtime.vlash:VlashInferenceStrategy",
     "async": DefaultChunkStrategy,
     "serial": DefaultChunkStrategy,
     "rtc": "manimux.runtime.rtc.strategy:RtcInferenceStrategy",

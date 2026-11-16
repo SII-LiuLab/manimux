@@ -19,6 +19,8 @@ def condition_overlap_fields(fields: dict, horizon_steps: int) -> dict[str, int]
     (ChunkTrust RTC reports that budget as frozen_budget). PAINT conditions only
     on its delay prefix.
     """
+    if "vlash_delay_steps" in fields:
+        return {"conditioned_overlap_steps": 0, "frozen_steps": 0}
     if "delay_steps" in fields:
         delay = max(0, int(fields["delay_steps"]))
         return {"conditioned_overlap_steps": delay, "frozen_steps": delay}

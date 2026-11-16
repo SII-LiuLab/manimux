@@ -7,7 +7,7 @@ import math
 from manimux.runtime.safety import RuntimeState
 
 _CHUNK_STRATEGIES = {"async", "serial", "bid_backward"}
-_SINGLE = {"train_time_rtc", "rtc", "paint", "act_temporal_ensemble", "chunktrust_ahs_rtc"}
+_SINGLE = {"vlash", "train_time_rtc", "rtc", "paint", "act_temporal_ensemble", "chunktrust_ahs_rtc"}
 _ADAPTIVE = {"aac", "autohorizon", "chunktrust_ahs"}
 _STREAMING = {
     "async", "rtc", "act_temporal_ensemble", "bid_backward",

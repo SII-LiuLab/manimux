@@ -30,6 +30,10 @@ class CommitResult:
     time_trimmed_steps: int = 0
     # Intentional post-decode prefix crop, included in trimmed_steps.
     handoff_skipped_steps: int = 0
+    # Outgoing source-plan cursor at takeover, independent of GUI heartbeat cadence.
+    previous_chunk_id: int | None = None
+    previous_chunk_index: int = 0
+    previous_chunk_horizon_steps: int = 0
 
 
 @dataclass(slots=True)
@@ -260,6 +264,9 @@ class ActionTimeline:
 
         # Earliest wall-clock time at which the committed plan may start.
         earliest_ns = now_ns
+        # Nothing executed while the first plan was inferred, so it starts untrimmed
+        # at commit; dropping latency rows would jump the stationary arm forward.
+        starts_at_commit = self._starts_at_commit or (self._active is None and chunk.handoff is None)
         if chunk.handoff is not None:
             # The handoff time is on the source row grid that drop_infer_latency keeps.
             if self._starts_at_commit:
@@ -282,7 +289,7 @@ class ActionTimeline:
         source_cursor = first_future_step(chunk.observation_time_ns, chunk.dt_ns, earliest_ns)
         # Rows to remove from this chunk, excluding rows already removed upstream.
         time_trimmed_steps = (
-            0 if self._starts_at_commit else max(0, source_cursor - chunk.source_offset_steps)
+            0 if starts_at_commit else max(0, source_cursor - chunk.source_offset_steps)
         )
         clock_trimmed_steps = time_trimmed_steps
         # Skip source actions without moving the time at which the new plan starts.
@@ -303,7 +310,7 @@ class ActionTimeline:
         first_time_step = chunk.source_offset_steps + clock_trimmed_steps
         start_time_ns = (
             earliest_ns
-            if self._starts_at_commit
+            if starts_at_commit
             else chunk.observation_time_ns + first_time_step * chunk.dt_ns
         )
 
@@ -361,11 +368,11 @@ class ActionTimeline:
         if runtime is not None:
             source_end_time_ns = (
                 start_time_ns + (end - trimmed_steps - 1) * chunk.dt_ns
-                if self._starts_at_commit
+                if starts_at_commit
                 else chunk.observation_time_ns
                 + (chunk.source_offset_steps + end - 1) * chunk.dt_ns
             )
-            if self._starts_at_commit:
+            if starts_at_commit:
                 runtime_time_index = 0
                 # Cap dense rows on their original clock before retiming to commit.
                 # Inference/decode latency must not consume a serial prefix.
@@ -423,7 +430,7 @@ class ActionTimeline:
             for name, step in chunk.hold_from_step.items():
                 invalid_time_ns = (
                     start_time_ns + max(0, step - trimmed_steps) * chunk.dt_ns
-                    if self._starts_at_commit
+                    if starts_at_commit
                     else chunk.observation_time_ns
                     + (chunk.source_offset_steps + step - row_skip_steps) * chunk.dt_ns
                 )
@@ -447,6 +454,9 @@ class ActionTimeline:
                 hold_last_step=self._hold_last_step,
                 action_space=self.action_space,
             )
+        previous_chunk_id = None if self._active is None else self._active.request_seq
+        previous_chunk_index = self.cursor(new_plan.activation_time_ns)
+        previous_chunk_horizon_steps = 0 if self._active is None else self._active.horizon_steps
         self._outgoing = self._retain_outgoing(self._outgoing, self._active, new_plan, now_ns)
         self._runtime_outgoing = self._retain_outgoing(
             self._runtime_outgoing, self._runtime_active, runtime_plan, now_ns
@@ -459,6 +469,9 @@ class ActionTimeline:
             "accepted",
             trimmed_steps=trimmed_steps,
             timeline_latency_ns=age_at_commit_ns,
+            previous_chunk_id=previous_chunk_id,
+            previous_chunk_index=previous_chunk_index,
+            previous_chunk_horizon_steps=previous_chunk_horizon_steps,
             time_trimmed_steps=time_trimmed_steps,
             handoff_skipped_steps=handoff_skipped_steps,
         )

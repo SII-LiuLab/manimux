@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Leader backlash bench · ManiMux</title>
+  <style>
+    :root{--paper:#f2f5fa;--card:#ffffff;--ink:#152e4d;--muted:#66778c;--line:#d9e0e9;--accent:#2868ad;--accent-soft:#eaf1fb;--amber:#90601b;--amber-soft:#fff2d9;--red:#a23d35;--red-soft:#fff0ed;--radius:18px}
+    *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:14px;line-height:1.5}button,input,a{font:inherit}button,a,input{touch-action:manipulation}button{cursor:pointer}button:disabled{cursor:not-allowed;opacity:.45}button:focus-visible,a:focus-visible,input:focus-visible{outline:3px solid #83b3e4;outline-offset:3px}button,a{ -webkit-tap-highlight-color:transparent}button{color:inherit}a{color:inherit}.shell{max-width:1420px;margin:auto;padding:32px 40px 24px}.topline{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:26px}.brand{font-size:11px;letter-spacing:.14em;font-weight:750}.brand span{color:var(--muted);font-weight:500;margin-left:13px;border-left:1px solid #c9cdca;padding-left:13px}.connection{font-size:12px;display:flex;align-items:center;gap:8px;color:var(--muted)}.dot{width:7px;height:7px;display:inline-block;border-radius:50%;background:#aaa}.connection.online .dot{background:var(--accent)}.connection.offline .dot{background:var(--red)}.heading{display:flex;justify-content:space-between;align-items:flex-start;gap:24px}h1{font-size:34px;letter-spacing:-1.1px;line-height:1.15;margin:0 0 10px;font-weight:650}.subtitle{margin:0;color:var(--muted);font-size:14px}.mode{border:1px solid var(--line);font-size:11px;font-weight:750;letter-spacing:.08em;border-radius:30px;padding:8px 13px;white-space:nowrap}.mode.demo{color:var(--amber);border-color:#e6d5ac;background:var(--amber-soft)}.mode.passive{color:var(--accent);border-color:#bfd0e5;background:var(--accent-soft)}.source-strip{display:flex;align-items:center;gap:12px;border:1px solid var(--line);background:#eaf0f7;border-radius:10px;margin:22px 0 18px;padding:10px 14px;font-size:12px}.source-strip.warning{background:var(--amber-soft);border-color:#e7d9b9;color:#78521a}.source-strip.error{background:var(--red-soft);border-color:#e5c2bb;color:var(--red)}.source-tag{font-weight:700;flex-shrink:0}.source-description{overflow-wrap:anywhere}.workflow{display:flex;gap:24px;margin:19px 0 25px;color:var(--muted);font-size:12px}.workflow span{display:flex;align-items:center;gap:7px}.workflow b{border:1px solid #ccd2cc;width:20px;height:20px;border-radius:50%;display:inline-grid;place-items:center;font-size:10px;color:var(--ink);font-weight:600}.workspace{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.04fr);gap:20px;align-items:stretch}.panel{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:24px}.section-head{display:flex;align-items:center;justify-content:space-between;gap:15px;margin-bottom:20px}h2{font-size:16px;line-height:1.3;margin:0;font-weight:650;letter-spacing:-.25px}.micro{font-size:11px;color:var(--muted)}.arm-header{display:flex;align-items:center;justify-content:space-between;margin:17px 1px 10px}.arm-header h3{font-size:12px;font-weight:600;margin:0}.arm-header code{color:var(--muted);font-size:10px}.joint-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}.joint-card{border:1px solid #dce3ec;border-radius:10px;background:#f6f8fc;text-align:left;padding:11px 12px 9px;min-width:0;transition:border-color .12s,background .12s;position:relative}.joint-card:hover{border-color:#a9bfdc}.joint-card.selected{border-color:var(--accent);background:var(--accent-soft);box-shadow:inset 0 0 0 1px var(--accent)}.joint-card.stale{background:#f5f3ef;color:#768087}.joint-card .card-top{display:flex;align-items:center;justify-content:space-between;font-size:10px;margin-bottom:6px}.joint-name{font-weight:700;font-size:11px}.card-status{font-size:9px;color:var(--accent)}.stale .card-status{color:var(--amber)}.joint-angle{font-variant-numeric:tabular-nums;letter-spacing:-.65px;font-size:23px;font-weight:550;white-space:nowrap;line-height:1.2}.joint-angle .unit{font-size:15px;font-weight:400;margin-left:1px;color:var(--muted)}.joint-age{color:var(--muted);font-size:9px;min-height:14px;margin-top:4px;font-variant-numeric:tabular-nums}.readout-note{font-size:11px;color:var(--muted);margin:17px 0 0;line-height:1.55}.selected-head{margin-bottom:14px}.selected-label{display:flex;align-items:center;gap:10px}.selected-label h2{font-size:18px}.joint-chip{font-size:10px;font-weight:650;color:var(--accent);background:var(--accent-soft);padding:3px 7px;border-radius:5px}.signal-status{font-size:11px;color:var(--muted)}.hero-reading{display:flex;justify-content:space-between;gap:12px;align-items:flex-end;margin-bottom:13px}.angle-large{font-size:54px;font-weight:500;letter-spacing:-2.6px;line-height:1.08;font-variant-numeric:tabular-nums}.angle-large .unit{font-size:26px;letter-spacing:0;color:var(--muted);margin-left:3px}.rad-reading{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;margin-top:4px}.encoder-label{color:var(--muted);font-size:10px;text-align:right;max-width:130px;padding-bottom:3px}.chart-wrap{height:102px;position:relative;margin:0 -2px 12px}.chart-wrap svg{display:block;width:100%;height:100%;overflow:visible}.chart-caption{position:absolute;left:3px;top:1px;font-size:9px;color:var(--muted)}.chart-empty{position:absolute;inset:20px 0 0;display:grid;place-items:center;color:var(--muted);font-size:11px}.window-stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:12px 0;margin-bottom:16px}.stat-label{font-size:10px;color:var(--muted);margin-bottom:2px}.stat-value{font-size:14px;font-weight:550;font-variant-numeric:tabular-nums}.ready{color:var(--accent)}.not-ready{color:var(--amber)}.record-instruction{font-size:12px;line-height:1.55;margin:0 0 11px}.record-instruction strong{font-weight:650}.note-field{display:block;margin-bottom:12px}.note-field span{font-size:10px;color:var(--muted);display:block;margin-bottom:5px}.note-field input{width:100%;border:1px solid #d6dbd3;background:#ffffff;border-radius:8px;padding:8px 10px;font-size:12px;color:var(--ink)}.note-field input::placeholder{color:#939b9c}.capture-buttons{display:grid;grid-template-columns:1fr 1fr;gap:9px}.capture{border:1px solid var(--accent);border-radius:9px;background:var(--accent);color:#fff;padding:10px 10px 11px;text-align:left;line-height:1.35}.capture.secondary{background:var(--card);color:var(--accent)}.capture .direction{display:block;font-size:10px;opacity:.8;margin-bottom:2px}.capture strong{font-size:12px;font-weight:600}.capture:hover:enabled{filter:brightness(.94)}.pending{min-height:44px;margin-top:13px;display:flex;gap:12px;align-items:center;justify-content:space-between;font-size:11px;color:var(--muted);line-height:1.5}.pending.active{border-radius:8px;background:var(--accent-soft);padding:9px 10px;color:#3e6086}.link-button{background:none;border:0;padding:2px;text-decoration:underline;text-underline-offset:3px;font-size:10px;white-space:nowrap}.feedback{font-size:11px;color:var(--red);margin:8px 0 0;min-height:0}.results{margin-top:20px}.results-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:19px}.results-title{display:flex;align-items:center;gap:9px}.count{border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-size:10px;color:var(--muted)}.results-subtitle{font-size:11px;color:var(--muted);margin:5px 0 0}.results-actions{display:flex;gap:8px;align-items:center}.download{font-size:11px;border:1px solid #d3d9d1;border-radius:7px;background:var(--card);text-decoration:none;display:inline-flex;align-items:center;padding:7px 10px;white-space:nowrap}.download:hover{background:#f1f4ed}.filter{font-size:11px;color:var(--muted);display:flex;align-items:center;gap:5px;margin-right:6px;white-space:nowrap}.filter input{accent-color:var(--accent)}.table-scroll{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:12px;text-align:left;white-space:nowrap}th{color:var(--muted);font-size:10px;font-weight:500;padding:0 13px 10px 0;border-bottom:1px solid var(--line)}td{padding:12px 13px 12px 0;border-bottom:1px solid #e9eae4;font-variant-numeric:tabular-nums}td:last-child,th:last-child{padding-right:0}th.number,td.number{text-align:right}td.difference{font-weight:650;color:var(--accent)}td.timestamp{color:var(--muted);font-size:10px}tr:last-child td{border-bottom:0}.empty-row td{text-align:center;padding:25px 0;color:var(--muted);font-size:12px}.table-note{font-size:10px;color:var(--muted);margin:13px 0 0}.footer{display:flex;justify-content:space-between;gap:20px;font-size:10px;color:var(--muted);padding-top:17px;line-height:1.6}.footer p{margin:0}.footer .session{max-width:300px;overflow-wrap:anywhere;text-align:right}.hidden{display:none!important}
+    .refresh-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:13px 14px;margin:0 0 17px;border-radius:10px;background:var(--accent-soft);border:1px solid #c9d9ec}.refresh-copy{font-size:11px;line-height:1.55;color:#416286;max-width:310px}.refresh-copy strong{display:block;color:var(--ink);font-size:12px;margin-bottom:2px}.refresh-button{flex-shrink:0;border:1px solid var(--accent);border-radius:8px;padding:10px 13px;background:var(--accent);color:white;font-size:12px;font-weight:600}.refresh-button:hover:enabled{filter:brightness(.94)}.activity{min-height:17px;margin:10px 0 0;color:var(--accent);font-size:11px}.feedback:not(:empty){border:1px solid #e5c2bb;background:var(--red-soft);border-radius:8px;padding:9px 11px}.manual-hint{font-size:11px;color:var(--muted);margin:6px 0 0}
+    @media(min-width:1450px){.shell{padding-top:40px}.joint-card{padding-top:13px;padding-bottom:12px}.joint-angle{font-size:26px}}
+    @media(max-width:1050px){.shell{padding:24px}.panel{padding:19px}.workspace{gap:14px}.joint-card{padding:10px 8px}.joint-angle{font-size:21px}.angle-large{font-size:48px}.results-actions{flex-wrap:wrap;justify-content:flex-end}.results-subtitle{max-width:300px}.capture strong{font-size:11px}}
+    @media(max-width:760px){.shell{padding:20px 16px}.topline{margin-bottom:22px}.brand span{margin-left:8px;padding-left:8px;font-size:9px}.connection{font-size:10px}.heading{gap:12px}h1{font-size:29px}.subtitle{font-size:12px;max-width:290px}.mode{font-size:9px;padding:7px 9px;margin-top:2px}.source-strip{margin-top:17px;align-items:flex-start;font-size:11px}.workflow{gap:10px;justify-content:space-between;font-size:10px;margin:16px 0 20px}.workflow b{width:17px;height:17px;flex-shrink:0}.workspace{grid-template-columns:1fr}.panel{padding:19px}.joint-grid{grid-template-columns:repeat(6,minmax(0,1fr));gap:6px}.joint-card{padding:8px 6px}.joint-card .card-top{margin-bottom:5px}.card-status{display:none}.joint-angle{font-size:17px;letter-spacing:-.8px}.joint-angle .unit{font-size:11px}.joint-age{font-size:8px}.section-head{margin-bottom:13px}.readout-note{margin-top:12px}.angle-large{font-size:56px}.capture strong{font-size:12px}.results-head{display:block}.results-actions{justify-content:flex-start;margin-top:14px}.filter{margin-right:auto}.results-subtitle{max-width:none}.footer{display:block}.footer .session{text-align:left;margin-top:8px;max-width:none}.encoder-label{max-width:150px}}
+    @media(max-width:450px){.joint-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.joint-angle{font-size:23px}.card-status{display:block}.joint-age{font-size:9px}.joint-card{padding:9px 10px}.arm-header{margin-top:13px}.workflow{font-size:9px;gap:6px}.workflow span{gap:4px}.heading{flex-wrap:wrap}.heading .mode{margin-top:0}.source-strip{gap:7px}.brand{font-size:10px}.brand span{font-size:9px}.connection{font-size:9px}.hero-reading{gap:6px}.angle-large{font-size:51px}.window-stats{gap:8px}.capture strong{font-size:11px}}
+    @media(prefers-reduced-motion:reduce){*{transition:none!important}}
+    @media(max-width:450px){.refresh-row{align-items:stretch;flex-direction:column;gap:10px}.refresh-copy{max-width:none}.refresh-button{width:100%}}
+  </style>
+</head>
+<body>
+<main class="shell">
+  <div class="topline"><div class="brand">MANIMUX<span>LEADER BENCH</span></div><div id="connection" class="connection"><span class="dot" aria-hidden="true"></span><span id="connectionText">Waiting for readings</span></div></div>
+  <header class="heading"><div><h1>Leader backlash bench</h1><p class="subtitle">Align the same mark on each leader from both directions. Compare the sensor angles.</p></div><div id="mode" class="mode">SOURCE UNKNOWN</div></header>
+  <div id="sourceStrip" class="source-strip"><span id="sourceTag" class="source-tag">Source</span><span id="sourceDescription" class="source-description">Connecting to the local measurement server…</span></div>
+  <div class="workflow" aria-label="Measurement workflow"><span><b>1</b>Select a joint</span><span><b>2</b>Align your physical marks</span><span><b>3</b>Record both approaches</span></div>
+  <div class="workspace">
+    <section class="panel" aria-labelledby="allJointsTitle">
+      <div class="section-head"><h2 id="allJointsTitle">Leader joint angles</h2><span id="freshCount" class="micro">0 / 12 fresh</span></div>
+      <div id="manualRefresh" class="refresh-row hidden"><div class="refresh-copy"><strong>Measure when you need a reading</strong><span id="manualExplanation">Refresh reads once. Recording samples for 0.5 s. No background motor queries.</span></div><button id="refreshAngles" class="refresh-button" disabled>Refresh angles</button></div>
+      <div id="jointGroups"></div>
+      <p class="readout-note"><span id="readoutDescription">Live leader motor sensor angles from CAN feedback.</span> Select a joint to record a measurement. CAN feedback step ≈ 0.022°; extra decimal places do not imply accuracy.</p>
+    </section>
+    <section class="panel" aria-labelledby="selectedTitle">
+      <div class="section-head selected-head"><div class="selected-label"><h2 id="selectedTitle">Left leader · J1</h2><span id="jointChip" class="joint-chip">SELECTED</span></div><span id="signalStatus" class="signal-status">No feedback</span></div>
+      <div class="hero-reading"><div><div class="angle-large"><span id="selectedAngle">—</span><span class="unit">°</span></div><div id="selectedRadians" class="rad-reading">— rad</div></div><div id="encoderLabel" class="encoder-label">Motor sensor angle<br>Receive only</div></div>
+      <p id="manualHint" class="manual-hint hidden">Last measurement · click Refresh angles for a new reading.</p>
+      <div class="chart-wrap" role="img" aria-label="Recent sensor angle history"><span id="chartCaption" class="chart-caption">RECENT ANGLE · AUTO SCALED</span><svg id="chart" viewBox="0 0 520 102" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="chartFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#2868ad" stop-opacity=".12"/><stop offset="100%" stop-color="#2868ad" stop-opacity="0"/></linearGradient></defs><path d="M0 35 H520 M0 62 H520 M0 89 H520" stroke="#e5ebf3" stroke-width="1" fill="none"/><path id="chartArea" fill="url(#chartFill)"/><polyline id="chartLine" fill="none" stroke="#2868ad" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/><text id="chartMax" x="516" y="27" font-size="9" fill="#7d8889" text-anchor="end"></text><text id="chartMin" x="516" y="100" font-size="9" fill="#7d8889" text-anchor="end"></text></svg><div id="chartEmpty" class="chart-empty">Waiting for sensor samples</div></div>
+      <div class="window-stats"><div><div id="windowLabel" class="stat-label">CAPTURE WINDOW</div><div id="windowStatus" class="stat-value not-ready">Waiting</div></div><div><div class="stat-label">ANGLE SPAN</div><div id="windowSpan" class="stat-value">— °</div></div><div><div class="stat-label">SAMPLES</div><div id="windowSamples" class="stat-value">—</div></div></div>
+      <p id="windowReason" class="micro hidden"></p>
+      <p class="record-instruction"><strong id="holdInstruction">Hold the marks aligned throughout the capture window.</strong> Approach from lower → higher or higher → lower sensor angle. Direction is not universally clockwise.</p>
+      <label class="note-field"><span>Measurement note · optional</span><input id="note" type="text" maxlength="500" placeholder="e.g. no load, fine reference line" autocomplete="off"></label>
+      <div class="capture-buttons"><button id="captureIncreasing" class="capture" disabled><span class="direction">A · INCREASING ANGLE ↗</span><strong>Record increasing approach</strong></button><button id="captureDecreasing" class="capture secondary" disabled><span class="direction">B · DECREASING ANGLE ↘</span><strong>Record decreasing approach</strong></button></div>
+      <p id="activity" class="activity hidden" role="status" aria-live="polite"></p>
+      <div id="pending" class="pending"><span id="pendingText">Record either direction first, then the opposite direction to create a pair.</span><button id="discard" class="link-button hidden">Unpair pending</button></div>
+      <p id="feedback" class="feedback" role="status" aria-live="polite"></p>
+    </section>
+  </div>
+  <section class="panel results" aria-labelledby="resultsTitle"><div class="results-head"><div><div class="results-title"><h2 id="resultsTitle">Paired measurements</h2><span id="pairCount" class="count">0 pairs</span></div><p class="results-subtitle">B − A is the signed directional difference. Repeat pairs to check consistency.</p></div><div class="results-actions"><label class="filter"><input id="showAll" type="checkbox"> All joints</label><a class="download" href="/api/export.csv" download>Export CSV ↗</a><a class="download" href="/api/export.json" download>Export JSON ↗</a></div></div><div class="table-scroll"><table><thead><tr><th>Joint</th><th class="number">A · increasing (°)</th><th class="number">B · decreasing (°)</th><th class="number">B − A (°)</th><th class="number">|B − A| (°)</th><th class="number">Recorded</th></tr></thead><tbody id="pairRows"><tr class="empty-row"><td colspan="6">Your first paired measurement will appear here.</td></tr></tbody></table></div><p id="captureCount" class="table-note">0 individual captures · CSV: all completed pairs. JSON: all retained captures and pairs.</p></section>
+  <footer class="footer"><p>Measured differences include visual alignment, load and repeatability effects; they are not certified gear backlash.<br>This leader tool reads feedback and records measurements. It has no motor motion controls.</p><p id="session" class="session">Session —</p></footer>
+</main>
+<script>
+(() => {
+  'use strict';
+  const byId = id => document.getElementById(id);
+  const cards = new Map();
+  let state = null;
+  let selected = 'left:J1';
+  let lastSuccess = -Infinity;
+  let transportHealthy = false;
+  let transportError = '';
+  let busy = false;
+  let mutationKind = '';
+  let mutationVersion = 0;
+  let lastTableKey = '';
+  const finite = value => typeof value === 'number' && Number.isFinite(value);
+  const number = (value, digits = 3) => finite(value) ? value.toFixed(digits) : '—';
+  const signed = value => finite(value) ? (value > 0 ? '+' : '') + value.toFixed(3) : '—';
+  const armName = arm => arm === 'left' ? 'Left leader' : arm === 'right' ? 'Right leader' : String(arm);
+  const connected = () => transportHealthy && performance.now() - lastSuccess <= 500;
+  const manualMode = () => state?.mode === 'read';
+  const jointFresh = joint => connected() && !state?.source_error && joint?.fresh === true && finite(joint.position_deg) && finite(joint.age_s) && joint.age_s + Math.max(0, performance.now() - lastSuccess) / 1000 <= 0.5;
+  const node = (tag, className, text) => { const el = document.createElement(tag); if(className) el.className = className; if(text !== undefined) el.textContent = text; return el; };
+
+  function buildCards(joints) {
+    const layout = joints.map(joint => joint.key).join('|');
+    if (byId('jointGroups').dataset.layout === layout) return;
+    byId('jointGroups').dataset.layout = layout;
+    byId('jointGroups').replaceChildren();
+    cards.clear();
+    const arms = [...new Set(joints.map(joint => joint.arm))];
+    for (const arm of arms) {
+      const members = joints.filter(joint => joint.arm === arm);
+      const group = node('div', 'arm-group');
+      const header = node('div', 'arm-header');
+      header.append(node('h3', '', armName(arm)), node('code', '', members[0]?.channel || ''));
+      const grid = node('div', 'joint-grid');
+      for (const joint of members) {
+        const button = node('button', 'joint-card stale');
+        button.type = 'button';
+        const top = node('div', 'card-top');
+        const status = node('span', 'card-status', 'NO DATA');
+        top.append(node('span', 'joint-name', 'J' + joint.joint), status);
+        const angle = node('div', 'joint-angle');
+        const value = node('span', '', '—');
+        angle.append(value, node('span', 'unit', '°'));
+        const age = node('div', 'joint-age', 'Awaiting feedback');
+        button.append(top, angle, age);
+        button.addEventListener('click', () => { selected = joint.key; lastTableKey = ''; render(); });
+        grid.append(button);
+        cards.set(joint.key, {button, value, status, age});
+      }
+      group.append(header, grid);
+      byId('jointGroups').append(group);
+    }
+  }
+
+  function renderHealth() {
+    const online = connected();
+    const manual = manualMode();
+    byId('connection').className = 'connection ' + (online ? 'online' : 'offline');
+    byId('connectionText').textContent = online ? (manual ? 'Server connected · manual readings' : 'Server connected · 10 Hz view') : 'Readings unavailable';
+    let fresh = 0;
+    let measured = 0;
+    for (const joint of state?.joints || []) {
+      const card = cards.get(joint.key);
+      if (!card) continue;
+      const isFresh = jointFresh(joint);
+      if(isFresh) fresh++;
+      const hasMeasurement = finite(joint.position_deg);
+      if(hasMeasurement) measured++;
+      card.button.classList.toggle('selected', joint.key === selected);
+      card.button.classList.toggle('stale', manual ? !hasMeasurement || !online : !isFresh);
+      card.button.disabled = busy;
+      card.button.setAttribute('aria-pressed', String(joint.key === selected));
+      card.button.setAttribute('aria-label', armName(joint.arm) + ' joint ' + joint.joint + ', ' + number(joint.position_deg) + ' degrees, ' + (manual ? (hasMeasurement ? 'last measurement' : 'no measurement') : isFresh ? 'fresh' : 'unavailable or stale'));
+      const fault = joint.status !== null && joint.status !== undefined && ![0, 1].includes(joint.status);
+      card.status.textContent = manual ? (hasMeasurement ? (fault ? 'FAULT' : 'MEASURED') : 'NO DATA') : isFresh ? (fault ? 'FAULT' : 'LIVE') : hasMeasurement ? 'STALE' : 'NO DATA';
+      card.status.style.color = fault ? 'var(--red)' : '';
+      const elapsed = Math.max(0, performance.now() - lastSuccess) / 1000;
+      const age = joint.age_s + elapsed;
+      card.age.textContent = !online ? 'Connection lost' : finite(joint.age_s) ? (manual ? number(age, 1) + ' s ago' : (age * 1000).toFixed(0) + ' ms ago') : manual ? 'Click Refresh angles' : 'Awaiting feedback';
+    }
+    byId('freshCount').textContent = (manual ? measured : fresh) + ' / ' + (state?.joints?.length || 12) + (manual ? ' measured' : ' fresh');
+    const joint = state?.joints?.find(joint => joint.key === selected);
+    const good = jointFresh(joint);
+    const selectedAge = finite(joint?.age_s) ? joint.age_s + Math.max(0, performance.now() - lastSuccess) / 1000 : null;
+    byId('manualHint').textContent = finite(joint?.position_deg) ? 'Last measurement' + (finite(selectedAge) ? ' · ' + number(selectedAge, 1) + ' s ago' : '') + ' · click Refresh angles for a new reading.' : 'No measurement yet · click Refresh angles to read the sensors.';
+    const motorFault = joint?.status !== null && joint?.status !== undefined && ![0, 1].includes(joint.status);
+    byId('signalStatus').textContent = manual ? (finite(joint?.position_deg) ? (motorFault ? 'Motor fault · code ' + joint.status : 'Last measurement') : 'No measurement yet') : good ? (motorFault ? 'Motor fault · code ' + joint.status : 'Fresh feedback') : finite(joint?.position_deg) ? 'Stale · last received' : 'No feedback';
+    byId('signalStatus').style.color = motorFault ? 'var(--red)' : manual || good ? 'var(--accent)' : 'var(--amber)';
+    byId('selectedAngle').style.color = manual && finite(joint?.position_deg) || good ? 'var(--ink)' : 'var(--muted)';
+    const canCapture = !busy && (manual ? online && !state?.source_error : good && joint?.window?.ready === true);
+    byId('captureIncreasing').disabled = !canCapture;
+    byId('captureDecreasing').disabled = !canCapture;
+    byId('refreshAngles').disabled = busy || !online;
+    byId('refreshAngles').textContent = busy && mutationKind === '/api/refresh' ? 'Reading…' : 'Refresh angles';
+    byId('discard').disabled = busy || !online;
+    byId('activity').classList.toggle('hidden', !busy);
+    byId('activity').textContent = busy ? (mutationKind === '/api/refresh' ? 'Reading sensor feedback…' : mutationKind === '/api/capture' ? 'Sampling alignment… Keep the marks aligned until recording finishes.' : 'Updating pending selection…') : '';
+    const strip = byId('sourceStrip');
+    const demo = state?.mode === 'demo';
+    strip.className = 'source-strip';
+    if (!online) {
+      strip.classList.add('error');
+      byId('sourceTag').textContent = 'Unavailable';
+      byId('sourceDescription').textContent = transportError || 'No recent server response. Displayed values are previous measurements; recording is disabled.';
+    } else if (state?.source_error) {
+      strip.classList.add('error');
+      byId('sourceTag').textContent = 'Source error';
+      byId('sourceDescription').textContent = state.source_error;
+    } else if (demo) {
+      strip.classList.add('warning');
+      byId('sourceTag').textContent = 'Synthetic data';
+      byId('sourceDescription').textContent = 'DEMO — these are simulated angles, not robot measurements. Captures and exports are marked as demo.';
+    } else if (manual) {
+      byId('sourceTag').textContent = 'Manual · real leader sensors';
+      byId('sourceDescription').textContent = 'Refresh reads once. Recording samples for ' + number(state.window_s, 1) + ' s. No background motor queries.';
+    } else if (fresh < (state?.joints?.length || 12)) {
+      strip.classList.add('warning');
+      byId('sourceTag').textContent = 'Feedback missing';
+      byId('sourceDescription').textContent = fresh + ' joints have fresh feedback. Missing or stale joints cannot be recorded. ' + (state?.source_label || '');
+    } else {
+      byId('sourceTag').textContent = state?.mode === 'read' ? 'Live sensor feedback' : 'Receive only';
+      byId('sourceDescription').textContent = state?.source_label || 'Listening to existing motor feedback.';
+    }
+    if (manual) {
+      byId('windowStatus').textContent = busy && mutationKind === '/api/capture' ? 'Sampling…' : 'On recording';
+      byId('windowStatus').className = 'stat-value ' + (online ? 'ready' : 'not-ready');
+    } else if (!good) {
+      byId('windowStatus').textContent = 'Unavailable';
+      byId('windowStatus').className = 'stat-value not-ready';
+    } else {
+      byId('windowStatus').textContent = joint.window?.ready ? 'Ready' : motorFault ? 'Motor fault' : 'Collecting';
+      byId('windowStatus').className = 'stat-value ' + (joint.window?.ready ? 'ready' : 'not-ready');
+    }
+    byId('windowStatus').title = joint?.window?.reason || '';
+    byId('windowReason').textContent = joint?.window?.reason || '';
+    byId('windowReason').classList.toggle('hidden', manual || !joint?.window?.reason || !online);
+    byId('chartLine').setAttribute('stroke', manual || good ? '#2868ad' : '#97a3a3');
+  }
+
+  function renderChart() {
+    const points = (state?.history?.[selected] || []).filter(point => finite(point.t) && finite(point.deg));
+    const enough = points.length >= 2;
+    byId('chartEmpty').classList.toggle('hidden', enough);
+    if (!enough) {
+      byId('chartLine').setAttribute('points', '');
+      byId('chartArea').setAttribute('d', '');
+      byId('chartMax').textContent = '';
+      byId('chartMin').textContent = '';
+      return;
+    }
+    const values = points.map(point => point.deg);
+    const low = Math.min(...values), high = Math.max(...values);
+    const spread = Math.max(high - low, .002);
+    const bottom = low - spread * .15, top = high + spread * .15;
+    const start = points[0].t, duration = Math.max(points[points.length - 1].t - start, .001);
+    const coordinates = points.map(point => [3 + 510 * (point.t - start) / duration, 88 - 54 * (point.deg - bottom) / (top - bottom)]);
+    byId('chartLine').setAttribute('points', coordinates.map(point => point.map(n => n.toFixed(2)).join(',')).join(' '));
+    byId('chartArea').setAttribute('d', 'M' + coordinates[0][0] + ',89 L' + coordinates.map(point => point.join(',')).join(' L') + ' L' + coordinates[coordinates.length - 1][0] + ',89 Z');
+    byId('chartMax').textContent = high.toFixed(3) + '°';
+    byId('chartMin').textContent = low.toFixed(3) + '°';
+  }
+
+  function renderPairs() {
+    const pairs = state?.pairs || [];
+    const all = byId('showAll').checked;
+    const visible = pairs.filter(pair => all || pair.joint_key === selected);
+    const key = JSON.stringify([selected, all, pairs, (state?.captures || []).length]);
+    if(key === lastTableKey) return;
+    lastTableKey = key;
+    byId('pairCount').textContent = visible.length + (visible.length === 1 ? ' pair' : ' pairs');
+    byId('captureCount').textContent = (state?.captures || []).length + ' individual captures · CSV: all completed pairs. JSON: all retained captures and pairs.';
+    const rows = byId('pairRows');
+    rows.replaceChildren();
+    if(!visible.length) {
+      const tr = node('tr', 'empty-row');
+      const td = node('td', '', all ? 'Your first paired measurement will appear here.' : 'No pairs for this joint yet. Record the same alignment from both directions.');
+      td.colSpan = 6;
+      tr.append(td);
+      rows.append(tr);
+      return;
+    }
+    for(const pair of [...visible].reverse()) {
+      const row = node('tr');
+      const date = new Date(pair.at);
+      const time = Number.isNaN(date.getTime()) ? pair.at || '—' : date.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+      row.append(node('td', '', armName(pair.arm) + ' · J' + pair.joint), node('td', 'number', number(pair.increasing?.mean_deg)), node('td', 'number', number(pair.decreasing?.mean_deg)), node('td', 'number difference', signed(pair.delta_deg)), node('td', 'number difference', number(pair.abs_delta_deg)), node('td', 'number timestamp', time));
+      row.title = [pair.increasing?.note, pair.decreasing?.note].filter(Boolean).join(' / ');
+      rows.append(row);
+    }
+  }
+
+  function render() {
+    if (!state) return;
+    if (!state.joints.some(joint => joint.key === selected)) selected = state.joints[0]?.key || selected;
+    buildCards(state.joints);
+    const demo = state.mode === 'demo';
+    const manual = manualMode();
+    byId('mode').className = 'mode ' + (demo ? 'demo' : 'passive');
+    byId('mode').textContent = demo ? 'DEMO · SYNTHETIC' : manual ? 'MANUAL · REAL SENSORS' : 'RECEIVE ONLY';
+    byId('manualRefresh').classList.toggle('hidden', !manual);
+    byId('manualHint').classList.toggle('hidden', !manual);
+    byId('manualExplanation').textContent = 'Refresh reads once. Recording samples for ' + number(state.window_s, 1) + ' s. No background motor queries.';
+    byId('readoutDescription').textContent = manual ? 'Last measured leader motor sensor angles from CAN feedback.' : 'Live leader motor sensor angles from CAN feedback.';
+    byId('chartCaption').textContent = manual ? 'RECORDED ANGLE · AUTO SCALED' : 'RECENT ANGLE · AUTO SCALED';
+    byId('chartEmpty').textContent = manual ? 'No recent samples · click Refresh angles' : 'Waiting for sensor samples';
+    for(const joint of state.joints) cards.get(joint.key).value.textContent = number(joint.position_deg);
+    const joint = state.joints.find(joint => joint.key === selected);
+    byId('selectedTitle').textContent = joint ? armName(joint.arm) + ' · J' + joint.joint : 'Select a joint';
+    byId('selectedAngle').textContent = number(joint?.position_deg);
+    byId('selectedRadians').textContent = number(joint?.position_rad, 6) + ' rad';
+    byId('encoderLabel').textContent = demo ? 'SIMULATED SENSOR ANGLE' : (joint?.motor_type ? joint.motor_type + ' · ' : '') + 'motor sensor angle';
+    byId('windowLabel').textContent = (manual ? 'RECORDING WINDOW · ' : 'CAPTURE WINDOW · ') + number(state.window_s, 2) + ' S';
+    byId('holdInstruction').textContent = manual ? 'Keep the marks aligned during the full ' + number(state.window_s, 2) + ' s recording.' : 'Hold the marks aligned for the full ' + number(state.window_s, 2) + ' s before recording.';
+    byId('windowSpan').textContent = number(joint?.window?.span_deg) + ' °';
+    byId('windowSamples').textContent = joint?.window?.samples ?? '—';
+    const pending = state.pending?.[selected];
+    byId('pending').classList.toggle('active', Boolean(pending));
+    byId('discard').classList.toggle('hidden', !pending);
+    byId('pendingText').textContent = pending ? (pending.direction === 'increasing' ? 'A' : 'B') + ' saved at ' + number(pending.mean_deg) + '°. Record the opposite approach to pair. Repeating this direction replaces the pending selection; all captures stay saved.' : 'Record either direction first, then the opposite direction to create a pair.';
+    byId('session').textContent = 'Session ' + (state.session_id || '—');
+    renderChart();
+    renderPairs();
+    renderHealth();
+  }
+
+  async function request(url, options = {}) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2000);
+    try {
+      const response = await fetch(url, {...options, cache:'no-store', signal:controller.signal});
+      const data = await response.json();
+      if(!response.ok || data.error) { const error = new Error(data.error || 'Request failed (' + response.status + ').'); error.serverResponse = true; throw error; }
+      if(url === '/api/state' && !Array.isArray(data.joints)) throw new Error('The measurement server returned an invalid state.');
+      return data;
+    } finally { clearTimeout(timeout); }
+  }
+
+  function accept(data) {
+    state = data;
+    transportHealthy = true;
+    transportError = '';
+    lastSuccess = performance.now();
+    render();
+  }
+
+  function disconnect(error) {
+    transportHealthy = false;
+    transportError = 'No live readings. ' + (error.name === 'AbortError' ? 'The server did not respond in time.' : error.message) + ' Recording is disabled until fresh feedback returns.';
+    renderHealth();
+  }
+
+  async function poll() {
+    const version = mutationVersion;
+    try {
+      const data = await request('/api/state');
+      if (version === mutationVersion) accept(data);
+    } catch(error) { disconnect(error); }
+    setTimeout(poll, 100);
+  }
+
+  async function mutate(path, payload) {
+    if(busy || !connected()) return;
+    busy = true;
+    mutationKind = path;
+    mutationVersion++;
+    byId('feedback').textContent = '';
+    renderHealth();
+    try {
+      await request(path, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      mutationVersion++;
+      const data = await request('/api/state');
+      accept(data);
+    } catch(error) {
+      byId('feedback').textContent = (path === '/api/refresh' ? 'Refresh failed. ' : path === '/api/capture' ? 'Recording failed. ' : 'Update failed. ') + error.message + (error.serverResponse || path !== '/api/capture' ? '' : ' The outcome is unconfirmed; check the retained captures before recording again.');
+      if(!error.serverResponse) disconnect(error);
+    } finally { busy = false; mutationKind = ''; renderHealth(); }
+  }
+
+  for(const direction of ['increasing', 'decreasing']) {
+    byId(direction === 'increasing' ? 'captureIncreasing' : 'captureDecreasing').addEventListener('click', () => {
+      const joint = state?.joints?.find(joint => joint.key === selected);
+      if(manualMode() ? !connected() || state?.source_error : !jointFresh(joint) || !joint?.window?.ready) { renderHealth(); return; }
+      mutate('/api/capture', {joint_key:selected,direction,note:byId('note').value.trim()});
+    });
+  }
+  byId('refreshAngles').addEventListener('click', () => { if(manualMode()) mutate('/api/refresh', {}); });
+  byId('discard').addEventListener('click', () => mutate('/api/discard', {joint_key:selected}));
+  byId('showAll').addEventListener('change', renderPairs);
+  buildCards(['left','right'].flatMap(arm => Array.from({length:6}, (_, i) => ({key:arm + ':J' + (i + 1),arm,joint:i + 1,channel:''}))));
+  setInterval(renderHealth, 100);
+  document.addEventListener('visibilitychange', renderHealth);
+  poll();
+})();
+</script>
+</body>
+</html>

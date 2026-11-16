@@ -24,6 +24,7 @@ class TrainTimeRtcRequest(InferenceRequest):
     action_condition: np.ndarray | None = None
     condition_weights: np.ndarray | None = None
     prefix_steps: int = 0
+    repair_prefix: bool = False
 
 
 class TrainTimeRtcInferenceStrategy(RtcInferenceStrategy):
@@ -33,6 +34,17 @@ class TrainTimeRtcInferenceStrategy(RtcInferenceStrategy):
         self._delay_estimator = config["inference"]["train_time_rtc"]["delay_estimator"]
         self._fixed_prefix_steps = config["inference"]["train_time_rtc"]["fixed_prefix_steps"]
         identity = (config["policy"].get("expected_backend") or {}).get("model", {})
+        continuation_method = identity.get("continuation", {}).get("method")
+        if (continuation_method is None and identity.get("policy_family") == "openwam"
+                and config.get("policy_server", {}).get("policy_name") == "OpenWAM_TrainRTC"):
+            # Existing OpenWAM recipes pin the training config hash instead of
+            # repeating its continuation fields in expected_backend.
+            continuation_method = "train_time_rtc"
+        if config["inference"]["train_time_rtc"]["repair_prefix"] and (
+            identity.get("policy_family") not in {"pi05", "openwam"}
+            or continuation_method != "train_time_rtc"
+        ):
+            raise ValueError("repair_prefix requires a Pi05 or OpenWAM train-time RTC backend")
         self._action_offset_ns = round(
             config["policy"]
             .get("adapter", {})
@@ -122,12 +134,14 @@ class TrainTimeRtcInferenceStrategy(RtcInferenceStrategy):
             action_condition=condition,
             condition_weights=weights,
             prefix_steps=count,
+            repair_prefix=self._config["inference"]["train_time_rtc"]["repair_prefix"],
         )
         return InferenceSubmission(
             request=request,
             event_fields={
                 **submission.event_fields,
                 "prefix_steps": count,
+                "repair_prefix": request.repair_prefix,
                 "conditioned": count > 0,
             },
         )
@@ -195,6 +209,7 @@ class TrainTimeRtcInferenceStrategy(RtcInferenceStrategy):
 
 def train_time_rtc_parameters(**options) -> dict:
     values = {
+        "repair_prefix": False,
         "delay_estimator": "decode_max",
         "fixed_prefix_steps": 5,
         "min_execute_policy_steps": None,
@@ -205,6 +220,8 @@ def train_time_rtc_parameters(**options) -> dict:
     if unknown:
         raise ValueError(f"unsupported train-time RTC fields: {sorted(unknown)}")
     values.update(options)
+    if type(values["repair_prefix"]) is not bool:
+        raise ValueError("train_time_rtc.repair_prefix must be a boolean")
     if values["delay_estimator"] not in {"fixed", "decode_max", "end_to_end_max"}:
         raise ValueError(
             "train_time_rtc.delay_estimator must be fixed, decode_max or end_to_end_max"

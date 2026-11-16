@@ -154,7 +154,9 @@ class XPolicyLabWsPolicyModel:
         if client is None:
             raise RuntimeError("XPolicyLab client is not connected")
 
-        snapshot = request.observation
+        # Future-state conditioning changes only model input, never measured state
+        # retained by the runtime for decoding, recording and safety checks.
+        snapshot = getattr(request, "model_observation", None) or request.observation
         if not self._layouts:
             self._layouts = _layouts_from_options(
                 self._layout_options,
@@ -309,6 +311,7 @@ class XPolicyLabWsPolicyModel:
             return {
                 "mode": "train_time_rtc",
                 "prefix_steps": request.prefix_steps,
+                **({"repair_prefix": True} if request.repair_prefix else {}),
                 "action_condition": condition,
                 "condition_weights": weights,
             }

@@ -1,6 +1,7 @@
 """Offline study defaults for the operator's single layout selector."""
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -21,22 +22,29 @@ def completed_repeats(
 ) -> dict[tuple[str, str], set[int]]:
     """Read finalized, human-scored trials across sessions of this method's output root.
 
-    Failed tasks count; invalid/skipped/unstarted attempts do not. Reference hashes
+    Failed tasks count; invalid/skipped/unstarted attempts do not. An explicitly
+    attested score-only record can reserve its scored slot without asserting a
+    complete trajectory. Reference hashes
     keep a replaced layout from inheriting trials from the previous image.
     """
     result: dict[tuple[str, str], set[int]] = {}
     for path in _record_files(root, history_sessions, "evaluation/human-label.json"):
         episode = path.parent.parent
-        if episode.name.endswith(".partial") or not (episode / "result.json").is_file():
+        if not (episode / "result.json").is_file():
             continue
         try:
-            label = json.loads(path.read_text())
-            meta = json.loads((episode / "meta.json").read_text())
+            label_bytes = path.read_bytes()
+            meta_bytes = (episode / "meta.json").read_bytes()
+            label = json.loads(label_bytes)
+            meta = json.loads(meta_bytes)
         except (OSError, ValueError):
             continue
         if label.get("task_result") not in {"success", "failure"}:
             continue
-        if not meta.get("experiment_mode") or not meta.get("identity_frozen") or meta.get("task") != task:
+        score_only = _score_only_progress_credit(episode, meta_bytes, label_bytes)
+        if (episode.name.endswith(".partial") or not meta.get("identity_frozen")) and not score_only:
+            continue
+        if not meta.get("experiment_mode") or meta.get("task") != task:
             continue
         if any(meta.get(k, "") != defaults.get(k, "") for k in ("experiment_name", "condition")):
             continue
@@ -46,6 +54,22 @@ def completed_repeats(
         key = (meta.get("layout_id", ""), (meta.get("reference_layout") or {}).get("sha256", ""))
         result.setdefault(key, set()).add(repeat)
     return result
+
+
+def _score_only_progress_credit(episode: Path, meta: bytes, label: bytes) -> bool:
+    """Accept an explicit, evidence-bound annotation; never infer credit from a label."""
+    try:
+        credit = json.loads((episode / "evaluation/progress-credit.json").read_text())
+    except (OSError, ValueError):
+        return False
+    return (
+        isinstance(credit, dict)
+        and credit.get("schema") == "score-only-progress-v1"
+        and credit.get("approved") is True
+        and isinstance(credit.get("reason"), str) and bool(credit["reason"].strip())
+        and credit.get("meta_sha256") == hashlib.sha256(meta).hexdigest()
+        and credit.get("human_label_sha256") == hashlib.sha256(label).hexdigest()
+    )
 
 
 def remaining_trials(

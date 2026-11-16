@@ -111,3 +111,33 @@ human task success. Check video indexes for missing frames/errors before using v
 as evidence. [Experiment setup and evaluation](../../../manimux-experiments/SKILL.md)
 links the recording schema, cohort selection and report CLI. Keep historical trials
 separate from results for new settings.
+
+## VLASH-trained joint checkpoints
+
+Use `Pi_05_VLASH` for the independent VLASH core implementation. Its vendored
+OpenPI source is verified against the training snapshot manifest; its wrapper
+reuses the Pi05 transport and advertises only `default` sampling. Launch through
+`manimux.servers.policy` in the Pi05 environment, using the same private config
+list and station as camera/runtime. Do not load it through `Pi_05_TrainRTC`.
+
+The checkpoint must retain `provenance/recipe.json` beside its step directory,
+`assets/continuation.json` with method `none`, and its own shifted-anchor
+normalization. The recipe selects `train_config_name: pi05_yam_vlash` and declares
+`vlash: {max_delay_steps: ..., state_source: previous_action}` in backend identity.
+Keep checkpoint paths in private recipes with `${paths.checkpoints}` bindings.
+
+`inference.algorithm: vlash` uses `vlash.delay_policy_steps` and
+`vlash.min_execute_policy_steps`. The latter is observation-relative progress,
+including the future output offset, matching the existing TT-RTC source window.
+For delay d>0, images stay at t, model state is outgoing action[t+d-1], and the
+prediction starts at t+d. There is no frozen denoising prefix. Early responses
+wait on the shared timeline; late responses trim only rows after t+d. Bootstrap
+and exhausted outgoing plans use delay zero with measured state. Record this
+fallback rather than treating it as future-state conditioning.
+
+Current qualification is limited to single-inflight inline absolute joint
+output, Direct execution and no blend/rate mapping. Preserve measured state for
+runtime safety/recording; only the wire model input uses the future-state copy.
+Warmup uses the same strategy and separately exercises bootstrap/future-state
+branches. Source/transform/timeline checks do not establish real-weight forward
+latency or physical success.

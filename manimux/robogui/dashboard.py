@@ -2994,8 +2994,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--reference-root", type=Path, default=DEFAULT_LAYOUT_ROOT)
     parser.add_argument(
         "--robot",
-        default="tianji",
-        help="RoboGUI preset folder containing robogui.yaml; see --list-robots",
+        help="RoboGUI preset folder containing robogui.yaml; required unless --config is set; see --list-robots",
     )
     parser.add_argument(
         "--list-robots",
@@ -3028,6 +3027,8 @@ def main() -> None:
             )
         )
         return
+    if args.config is None and not args.robot:
+        parser.error("choose a display with --robot <preset> (for example --robot yam) or --config <file>; see --list-robots")
     live = not args.demo
     args.bridge_endpoint = args.bridge_endpoint or (
         "tcp://127.0.0.1:5568" if live else "tcp://127.0.0.1:*")

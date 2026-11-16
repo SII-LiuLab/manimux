@@ -262,7 +262,7 @@ def bind_station(config: dict, local: str | Path) -> dict:
         server.pop("backend_identity", None)
         # Provider field names differ; station paths do not change the selected
         # checkpoint variant, normalization identity, horizon or action contract.
-        pi05 = server.get("policy_name") == "Pi_05"
+        pi05 = server.get("policy_name") in {"Pi_05", "Pi_05_VLASH"}
         if pi05 and server.get("observation_profile") == "tianji_taccap_pi05_zero_pose":
             # New EE profile: explicit checkpoint directories or a station storage root.
             if "checkpoints" in paths:

@@ -85,6 +85,7 @@ def inference_parameters(*, executor: dict, **options) -> dict:
     from manimux.runtime.scheduling import resolve_request_schedule
     from manimux.runtime.temporal_ensemble import temporal_ensemble_parameters
     from manimux.runtime.train_time_rtc import train_time_rtc_parameters
+    from manimux.runtime.vlash import vlash_parameters
 
     if "min_execute_policy_steps" in options:
         raise ValueError(
@@ -138,6 +139,7 @@ def inference_parameters(*, executor: dict, **options) -> dict:
             "serial": (None, "max_chunk_policy_steps"),
             "rtc": ("rtc", "min_execute_policy_steps"),
             "train_time_rtc": ("train_time_rtc", "min_execute_policy_steps"),
+            "vlash": ("vlash", "min_execute_policy_steps"),
             "paint": ("paint", "execution_policy_steps"),
             "bid_backward": ("bid", "replan_policy_steps"),
             "act_temporal_ensemble": ("temporal_ensemble", "query_interval_policy_steps"),
@@ -181,6 +183,7 @@ def inference_parameters(*, executor: dict, **options) -> dict:
         "decode_forecast_mode": "max",
         "rtc": {},
         "train_time_rtc": {},
+        "vlash": {},
         "temporal_ensemble": {},
         "aac": {},
         "bid": {},
@@ -201,6 +204,7 @@ def inference_parameters(*, executor: dict, **options) -> dict:
     if values.get("rtc") is not None:
         values["rtc"] = rtc_parameters(**values["rtc"])
     values["train_time_rtc"] = train_time_rtc_parameters(**values["train_time_rtc"])
+    values["vlash"] = vlash_parameters(**values["vlash"])
     if values.get("temporal_ensemble") is not None:
         values["temporal_ensemble"] = temporal_ensemble_parameters(**values["temporal_ensemble"])
     if values.get("aac") is not None:
