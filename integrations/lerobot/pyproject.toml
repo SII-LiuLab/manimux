@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "manimux-lerobot"
+version = "0.1.0"
+description = "LeRobot SmolVLA policy worker for ManiMux"
+requires-python = ">=3.11,<3.13"
+dependencies = ["manimux", "lerobot[smolvla]==0.4.4"]
+
+[project.entry-points."manimux.policies.models"]
+lerobot_smolvla = "manimux_lerobot:SmolVLAWorker"
+
+[tool.setuptools]
+py-modules = ["manimux_lerobot"]
