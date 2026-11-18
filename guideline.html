@@ -2455,6 +2455,12 @@ Select the session/rollout and score it in the existing form using its saved rub
 new YAML rules do not replace historical scoring rules. Free runs and partial attempts are excluded.</p>
 </section>
 <section aria-labelledby="records" class="guide-page" data-page-id="records" data-title="Records &amp; replay" hidden=""><h2 id="records">Records</h2>
+<h3 id="lerobot-export">Export a joint rollout to LeRobotDataset v3</h3>
+<p>From a dedicated Python 3.11 environment in the repository root, install the official writer and select one recorded joint group. Specify its arm joint count. One trailing coordinate, when present, is the normalized gripper opening. Repeat <code>--camera</code> for additional RGB streams.</p>
+<pre><code>uv pip install -e . 'lerobot==0.4.4'
+python -m manimux.recording.export_lerobot &lt;episode&gt; &lt;new-dataset-dir&gt; \
+    --group left_arm --arm-dofs 6 --camera front --fps 20 --max-age-ms 75</code></pre>
+<p>The exporter samples the intersection of camera and tick coverage on a fixed time grid. Each row uses the most recent available capture and tick, and rejects stale samples. State comes from measured joint positions and action from the submitted command. The source episode, coordinate order, units and maximum sample ages are in <code>meta/manimux.json</code>. To generate a disconnected example and check every row through the official reader, run <code>python scripts/validation/lerobot_roundtrip.py &lt;new-directory&gt;</code>.</p>
 <pre><code class="language-text">&lt;recording.root&gt;/&lt;list id&gt;/&lt;task&gt;/&lt;variant&gt;/   # config list
 &lt;run.output_dir&gt;/trials/&lt;task&gt;/&lt;variant&gt;/        # single --config
 └── session-.../
