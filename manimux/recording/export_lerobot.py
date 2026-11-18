@@ -23,7 +23,16 @@ def _times(values, label):
     return times
 
 
-def export_episode(episode, destination, *, group, arm_dofs, cameras, fps, max_age_ms):
+def export_episode(
+    episode: Path,
+    destination: Path,
+    *,
+    group: str,
+    arm_dofs: int,
+    cameras: list[str],
+    fps: int,
+    max_age_ms: float,
+) -> Path:
     import av
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
@@ -143,7 +152,7 @@ def export_episode(episode, destination, *, group, arm_dofs, cameras, fps, max_a
     return destination
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("episode", type=Path)
     parser.add_argument("destination", type=Path)

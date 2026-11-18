@@ -2456,16 +2456,16 @@ new YAML rules do not replace historical scoring rules. Free runs and partial at
 </section>
 <section aria-labelledby="records" class="guide-page" data-page-id="records" data-title="Records &amp; replay" hidden=""><h2 id="records">Records</h2>
 <h3 id="smolvla-worker">LeRobot SmolVLA policy worker</h3>
-<p>Install the optional plugin in a dedicated environment with the repository. The ManiMux worker loads the official LeRobot policy and its saved processors. Select <code>lerobot_smolvla</code> with the standard joint adapter and default sampling. The supported contract is a single absolute-joint group and one current RGB frame per checkpoint view.</p>
-<pre><code>uv pip install -e . -e integrations/lerobot
-python scripts/validation/smolvla_dataset_probe.py &lt;example-directory&gt;/v3 &lt;checkpoint-directory&gt;</code></pre>
-<p>The offline example in <code>integrations/lerobot/smolvla_base_offline.yaml</code> targets <code>lerobot/smolvla_base</code> revision <code>5e8d12a6e2975b0e5e5fce7c8caf47c371d257b6</code>. Download its weights, saved processors and the configured SmolVLM2 backbone before offline use. The example uses synthetic coordinates and opens no hardware. For a matching trained checkpoint, supply its camera order and resolution, action interval, joint order and calibrated affine conversion (model coordinate = robot coordinate * scale + offset). ManiMux owns scheduling, recording and joint decoding.</p>
+<p>Install LeRobot in the Python environment used by the policy worker.</p>
+<pre><code>uv pip install -e . 'lerobot[smolvla]==0.4.4'</code></pre>
+<p>Set <code>policy.worker</code> to <code>lerobot_smolvla</code> and <code>policy.adapter.type</code> to <code>manimux.policy_adapter.joint:JointAdapter</code>. In <code>policy.adapter.camera_map</code>, map each checkpoint image feature to its station camera. Match the camera resolutions, action interval and horizon to the checkpoint.</p>
+<p>In <code>policy.options</code>, set <code>checkpoint</code> to the local checkpoint directory, <code>group</code> to the robot joint group and <code>action_semantics</code> to <code>absolute_joint_position</code>. Supply <code>model_units_per_robot_unit</code> and <code>model_zero</code> in joint order. The worker computes model coordinates as robot coordinates times scale plus offset and inverts the conversion for predicted actions.</p>
 <h3 id="lerobot-export">Export a joint rollout to LeRobotDataset v3</h3>
 <p>From a dedicated Python 3.11 environment in the repository root, install the official writer and select one recorded joint group. Specify its arm joint count. One trailing coordinate, when present, is the normalized gripper opening. Repeat <code>--camera</code> for additional RGB streams.</p>
 <pre><code>uv pip install -e . 'lerobot==0.4.4'
 python -m manimux.recording.export_lerobot &lt;episode&gt; &lt;new-dataset-dir&gt; \
     --group left_arm --arm-dofs 6 --camera front --fps 20 --max-age-ms 75</code></pre>
-<p>The exporter samples the intersection of camera and tick coverage on a fixed time grid. Each row uses the most recent available capture and tick, and rejects stale samples. State comes from measured joint positions and action from the submitted command. The source episode, coordinate order, units and maximum sample ages are in <code>meta/manimux.json</code>. To generate a disconnected example and check every row through the official reader, run <code>python scripts/validation/lerobot_roundtrip.py &lt;new-directory&gt;</code>.</p>
+<p>The exporter samples the intersection of camera and tick coverage on a fixed time grid. Each row uses the most recent available capture and tick, and rejects stale samples. State comes from measured joint positions and action from the submitted command. The source episode, coordinate order, units and maximum sample ages are in <code>meta/manimux.json</code>.</p>
 <pre><code class="language-text">&lt;recording.root&gt;/&lt;list id&gt;/&lt;task&gt;/&lt;variant&gt;/   # config list
 &lt;run.output_dir&gt;/trials/&lt;task&gt;/&lt;variant&gt;/        # single --config
 └── session-.../
