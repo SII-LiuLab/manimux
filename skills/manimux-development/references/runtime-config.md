@@ -592,7 +592,18 @@ an image is attached; its hash is recomputed at Start.
 
 With `run.warmup_before_start: true`, a GUI-controlled rollout starts in `idle` and requires
 **Activate Warmup**. Activation stays paused and submits display-only requests. Start
-waits for the in-flight request, then acknowledged backend reset; only a fresh subsequent
+waits for the required valid previews, then drains in-flight work and awaits backend
+reset acknowledgement. Timing rejections use the next fresh observation without losing
+the pending Start. This includes insufficient blend horizons and PAINT responses that
+outlast their anchored prefix; unrelated validation failures remain errors. A process
+decode that exceeds its deadline is drained before retrying or submitting reset.
+Partitioned decoding retains each failure in `DecodeResult.partition_errors` as well
+as the combined diagnostic text. A pending Start retries only when every failed
+partition has a retryable timing rejection; a mixed validation failure stops Start
+regardless of partition completion order.
+A Pause during draining returns to warmup. RoboGUI resumes previews after that Pause
+is acknowledged, accepting only previews with the current control revision and episode
+identity. The first Start still freezes the trial's identity. Only a fresh subsequent
 observation enters formal execution. Warmup timings remain separate from formal metrics.
 The control mailbox suppresses activation/selection on stale transport snapshots.
 

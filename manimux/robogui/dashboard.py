@@ -887,7 +887,7 @@ class PolicyRoboGUI:
         if phase == "resetting":
             return "🟠 **Starting rollout · waiting for backend reset**"
         if phase == "draining" or (phase == "warming" and not self.paused):
-            return "🟠 **Starting rollout · waiting for warmup inference to finish**"
+            return "🟠 **Start requested · waiting for warmup**"
         if phase == "warming":
             return "🟡 **Warmup running · Start when ready**"
         confirmed = self._control_status
@@ -913,8 +913,21 @@ class PolicyRoboGUI:
         if self._warmup is None:
             self.warmup_requested = False
             self.warmup_btn.disabled = True
+        # A cancelled Start may resume previews only after this Pause is
+        # acknowledged. rollout_started still freezes the trial's identity.
+        if (
+            self._warmup is not None
+            and self._warmup.get("phase") == "warming"
+            and self.paused
+            and self.rollout_started
+            and self._control_revision
+            and self._control_status is not None
+            and self._control_status.get("revision") == self._control_revision
+            and self._control_status.get("paused") is True
+        ):
+            self._warmup_preview_closed = False
         # Idle precedes explicit activation; it must not close this episode's
-        # preview gate. Start/Finish still permanently reject late previews.
+        # preview gate. Formal execution and Finish continue to close it.
         idle = self._warmup is not None and self._warmup.get("phase") == "idle"
         if not idle and not self._warmup_preview_allowed():
             self._clear_warmup_preview()
@@ -925,7 +938,7 @@ class PolicyRoboGUI:
         title = {
             "idle": "Warmup inactive · click Activate Warmup",
             "warming": "Warmup running · Start when ready",
-            "draining": "Starting · finishing in-flight warmup",
+            "draining": "Start requested · waiting for warmup",
             "resetting": "Starting · waiting for backend reset",
             "complete": "Warmup complete",
             "error": "Warmup / Start error",
@@ -935,8 +948,11 @@ class PolicyRoboGUI:
             title = "Warmup ended · no latency calibration samples"
         self.warmup_status.content = f"**{title}**"
         error = str(self._warmup.get("error") or "").strip()
-        self.errors.sync("Warmup / Start", error)
-        if error:
+        retrying = bool(self._warmup.get("retrying_preview"))
+        self.errors.sync("Warmup / Start", "" if retrying else error)
+        if error and retrying:
+            self.warmup_status.content += f"\n\nPreview rejected · retrying ({error})"
+        elif error:
             self.warmup_status.content += f"\n\nError: {error}"
         if self.episode_active and not self.finish_requested:
             self._set_policy_controls_enabled(not self.finish_btn.disabled)
@@ -945,7 +961,6 @@ class PolicyRoboGUI:
         if not (
             self.episode_active
             and self.paused
-            and not self.rollout_started
             and not self.finish_requested
             and not self.finish_btn.disabled
             and not self._warmup_preview_closed
@@ -959,6 +974,7 @@ class PolicyRoboGUI:
             self._episode_id
             and str(metadata.get("episode_id", "")) == self._episode_id
             and str(metadata.get("run_dir", "")) == self.service_id
+            and str(metadata.get("control_revision", "")) == self._control_revision
         )
 
     def _clear_warmup_plan(self) -> None:

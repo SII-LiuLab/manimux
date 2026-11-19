@@ -161,6 +161,7 @@ def _worker_main(
                     deadline_ns=request.deadline_ns,
                     error=f"model_error:{type(exc).__name__}:{exc}"
                     + (f"; response_artifacts={journal.path}" if journal.path is not None else ""),
+                    error_kind="timeout" if isinstance(exc, TimeoutError) else None,
                 )
             _put_latest(response_queue, response, multi_inflight=multi_inflight)
     finally:

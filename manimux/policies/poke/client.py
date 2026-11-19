@@ -119,6 +119,7 @@ class PokePolicyModel:
         messages, observation = self.codec.encode(request)
         start = time.monotonic()
         raw, request_id, error = None, None, None
+        timed_out = False
         try:
             raw, request_id = self._request(
                 "/chat/completions",
@@ -130,6 +131,9 @@ class PokePolicyModel:
             raw = json.loads(raw)
         except Exception as exc:
             error = f"{type(exc).__name__}: {exc}".replace(self._key, "[REDACTED]")
+            timed_out = isinstance(exc, TimeoutError) or (
+                isinstance(exc, urllib.error.URLError) and isinstance(exc.reason, TimeoutError)
+            )
         timing = {
             "rtt_ms": (time.monotonic() - start) * 1000,
             "request_id": request_id,
@@ -148,7 +152,8 @@ class PokePolicyModel:
             provider="poke",
         )
         if error:
-            raise RuntimeError(f"Poke inference failed: {error}; response_log={path}")
+            failure = TimeoutError if timed_out else RuntimeError
+            raise failure(f"Poke inference failed: {error}; response_log={path}") from None
         try:
             result = self.codec.decode(raw)
         except (TypeError, ValueError, KeyError) as exc:

@@ -15,6 +15,7 @@ from manimux.runtime.inference import (
     EnsembleScope,
     InferenceSubmission,
     InferenceTimingError,
+    InferenceTimingRejection,
     RequestState,
 )
 from manimux.runtime.safety import RuntimeState
@@ -301,7 +302,7 @@ class PaintInferenceStrategy:
         actual = self._actual_trimmed_steps(chunk, now_ns)
         if actual > forecast:
             self._delay_forecast.append(actual)
-            raise ValueError(
+            raise InferenceTimingRejection(
                 "PAINT response advanced beyond its anchored prefix: "
                 f"actual d={actual}, conditioned d={forecast}"
             )
