@@ -14,6 +14,7 @@ class ExecutionResult:
     reference: ActionHorizon
     command: RobotCommand
     ik_status: dict | None = None
+    pending: tuple | None = None
 
 
 class ExecutionPipeline:
@@ -26,16 +27,24 @@ class ExecutionPipeline:
     def __init__(self, executor, *, kinematics, ik_options, control_dt_ns, motion_limits=None):
         self.executor = executor
         options = ik_parameters(**(ik_options or {}))
+        self.final_command_deadline = options["final_command_deadline"]
         self.resolver = None
         self.pose_limiter = None
         if options["mode"] == "step":
             self.resolver = StepIKResolver(
                 kinematics, budget_ms=options["budget_ms"] or control_dt_ns / 2e6,
                 backend=options["backend"], diff_ik=options["diff_ik"],
-                motion_limits=motion_limits, control_dt_ns=control_dt_ns,
+                rl_ik=options["rl_ik"], motion_limits=motion_limits, control_dt_ns=control_dt_ns,
             )
             if options["pose_speed_limit"] is not None:
                 self.pose_limiter = PoseSpeedLimiter(kinematics, options["pose_speed_limit"])
+
+        if self.final_command_deadline and not self.acceleration_limited:
+            raise ValueError("final-command deadlines require certified braking")
+
+    def close(self):
+        if self.resolver is not None:
+            self.resolver.close()
 
     @property
     def horizon_steps(self):
@@ -72,10 +81,52 @@ class ExecutionPipeline:
             command = self.executor.step(now_ns, state, reference)
         self.resolver.validate_command(last_command, command.groups, velocities)
         return ExecutionResult(reference, command, {
-            "backend": "diff", "success": False, "reason": reason, "fallback": "brake",
+            "backend": self.resolver.backend, "success": False,
+            "reason": reason, "fallback": "brake",
         })
 
     def step(self, now_ns, state, reference, *, last_command):
+        result = self.propose_step(now_ns, state, reference, last_command=last_command)
+        return self.finalize_step(result, state, last_command=last_command)
+
+    def finalize_step(self, result, state, *, last_command, safety=None):
+        """Consume the proposal at the caller's handoff, after both groups are checked."""
+        if result.pending is None:
+            if safety is not None:
+                safety.validate_command(result.command)
+            return result
+        started, deadline, snapshot, velocity = result.pending
+        failure = None
+        checked = None
+        if safety is not None:
+            try:
+                checked = safety.check_command(result.command)
+            except ValueError as exc:
+                failure = str(exc)
+        # The same deadline follows the packet through the caller and SafetyGuard.
+        # Reserve a small handoff margin for the final history swaps and return.
+        end = time.monotonic_ns()
+        result.ik_status["elapsed_ms"] = (end - started) / 1e6
+        if end + 20_000 >= deadline:
+            failure = "budget_exceeded"
+        result.pending = None
+        if failure is not None:
+            if self.resolver.rl is None:
+                self.resolver.reset()
+            backup = self.brake(result.command.monotonic_ns, state, last_command=last_command,
+                                plan_id=result.reference.plan_id, reason=failure)
+            backup.ik_status = {**result.ik_status, "success": False, "reason": failure,
+                                "fallback": "brake"}
+            if safety is not None:
+                safety.validate_command(backup.command)
+            return backup
+        self.executor.accept(snapshot, velocity)
+        if safety is not None:
+            safety.accept_checked(checked)
+        return result
+
+    def propose_step(self, now_ns, state, reference, *, last_command):
+        started = time.monotonic_ns()
         ik_status = None
         velocities = (
             self.executor.command_velocity(last_command) if self.acceleration_limited else None
@@ -83,7 +134,6 @@ class ExecutionPipeline:
         if self.resolver is not None:
             # Preserve one shared budget for pose limiting and both arm solves.
             with stage("step_ik"):
-                started = time.monotonic_ns()
                 deadline = started + self.resolver.budget_ns
                 limited_groups = {}
                 target = reference
@@ -92,9 +142,10 @@ class ExecutionPipeline:
                 # Differential IK integrates one command step. Start from the
                 # last dispatched command, including executor shaping, so servo
                 # lag does not discard progress. Analytic IK uses measured seeds.
-                seed = last_command if self.resolver.backend == "diff" else state.groups
+                seed = last_command if self.resolver.diff is not None else state.groups
                 resolved = self.resolver.resolve(
                     target, seed, deadline_ns=deadline, command_velocity=velocities,
+                    **({"measured": state.groups} if self.resolver.rl is not None else {}),
                 )
                 ik_status = {
                     **self.resolver.last_result,
@@ -123,6 +174,29 @@ class ExecutionPipeline:
             reference = resolved
         if reference.action_space != "joint_position":
             raise ValueError("joint executor requires a joint_position reference")
+        if self.final_command_deadline:
+            with stage("executor_step"):
+                command, proposed_velocity = self.executor.propose(now_ns, state, reference)
+            failure = None
+            try:
+                self.resolver.validate_command(last_command, command.groups, velocities)
+            except ValueError as exc:
+                failure = str(exc)
+            snapshot = copy_group_vector(command.groups)
+            proposed = ExecutionResult(reference, command, ik_status,
+                                       (started, deadline, snapshot, proposed_velocity))
+            end = time.monotonic_ns()
+            ik_status["elapsed_ms"] = (end - started) / 1e6
+            if end >= deadline or failure:
+                if self.resolver.rl is None:
+                    self.resolver.reset()
+                reason = "budget_exceeded" if end >= deadline else failure
+                result = self.brake(now_ns, state, last_command=last_command,
+                                    plan_id=reference.plan_id, reason=reason)
+                result.ik_status = {**ik_status, "success": False, "reason": reason,
+                                    "fallback": "brake"}
+                return result
+            return proposed
         with stage("executor_step"):
             command = self.executor.step(now_ns, state, reference)
         if self.acceleration_limited:

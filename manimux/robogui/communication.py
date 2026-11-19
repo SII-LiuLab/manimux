@@ -330,14 +330,14 @@ class ControlClient:
         self._socket.setsockopt(zmq.LINGER, 0)
         self._socket.connect(self._endpoint)
 
-    def poll_state(self) -> dict[str, Any] | None:
+    def poll_state(self, *, wait_ms: int | None = None) -> dict[str, Any] | None:
         """Return only received controls; absence of a reply is not a Pause command."""
         assert self._socket is not None
         try:
             if self._pending_since is None:
                 self._socket.send(b"state", flags=zmq.NOBLOCK)
                 self._pending_since = time.monotonic()
-            if self._socket.poll(self._timeout_ms, zmq.POLLIN):
+            if self._socket.poll(self._timeout_ms if wait_ms is None else wait_ms, zmq.POLLIN):
                 state = self._socket.recv_json()
                 self.last_reply_request_started_at = self._pending_since
                 self.last_reply_rtt_ms = (time.monotonic() - self._pending_since) * 1000
@@ -358,6 +358,19 @@ class ControlClient:
             self.last_status = "transport_error"
         self._connect()
         return None
+
+    def poll_lease(self, last_reply: float, idle_period_s: float) -> dict[str, Any]:
+        """Poll earlier during hand-guiding, within the original disconnect deadline."""
+        deadline = last_reply + idle_period_s + self._timeout_ms / 1000
+        remaining_ms = int((deadline - time.monotonic()) * 1000)
+        if remaining_ms > 0:
+            reply = self.poll_state(wait_ms=remaining_ms)
+            if reply is not None and time.monotonic() <= deadline:
+                return reply
+        if self._pending_since is not None:
+            self._connect()
+        self.last_status = "lease_deadline" if time.monotonic() >= deadline else self.last_status
+        return {}
 
     def poll(self) -> dict[str, Any]:
         """Keep the session-preparation API fail-closed when no reply arrives."""

@@ -63,6 +63,11 @@ inference:
   config: ../../pack_plate/pi05/checkpoint_comparison_20261028/serial32.yaml
   chunk_policy_steps: 18
 executor:
+  tianji_position_lead:
+    lead_ms: 66
+    ka_s2: 0.0024
+    accel_cap_deg: 0.5
+    max_offset_deg: 5
   config: ../../pack_plate/pi05/checkpoint_comparison_20261028/executor.yaml
   smooth:
     gripper:

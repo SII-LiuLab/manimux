@@ -59,6 +59,7 @@ robogui:
   policy_label: Pi05 / UMI Half Speed H50 / 29999 / Step DiffIK / Serial 50 / Step
     DiffIK
 recording:
+  config: recording.yaml
   enabled: true
 inference:
   decode_forecast_size: 0

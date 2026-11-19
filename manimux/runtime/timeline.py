@@ -57,6 +57,7 @@ class _ActivePlan:
 
     command_blend: _CommandBlend | None = None
     action_space: str = "joint_position"
+    executor_groups: GroupTrajectory | None = None
 
     @property
     def activation_time_ns(self) -> int:
@@ -72,7 +73,7 @@ class _ActivePlan:
         return self.start_time_ns + intervals * self.dt_ns
 
 
-def _sample_plan(plan: _ActivePlan, time_ns: int) -> GroupVector | None:
+def _sample_plan(plan: _ActivePlan, time_ns: int, *, for_executor=False) -> GroupVector | None:
     blend = plan.command_blend
     if blend is not None and blend.start_ns <= time_ns < blend.end_ns:
         duration = (blend.end_ns - blend.start_ns) / 1e9
@@ -108,7 +109,9 @@ def _sample_plan(plan: _ActivePlan, time_ns: int) -> GroupVector | None:
         name: (interpolate_pose(values[lower], values[upper], alpha)
                if plan.action_space == POSE_SPACE else
                (1.0 - alpha) * values[lower] + alpha * values[upper])
-        for name, values in plan.groups.items()
+        for name, values in (
+            plan.executor_groups if for_executor and plan.executor_groups is not None else plan.groups
+        ).items()
     }
 
 
@@ -236,6 +239,10 @@ class ActionTimeline:
                 return CommitResult(False, f"dimension_mismatch:{name}")
         runtime = chunk.runtime_trajectory
         if runtime is not None:
+            if runtime.executor_groups is not None and (
+                self.action_space != "joint_position" or blend_steps or self._sigmoid_smooth is not None
+            ):
+                return CommitResult(False, "executor_grid_requires_unblended_joint_timeline")
             if set(runtime.groups) != set(self._group_dims):
                 return CommitResult(False, "runtime_group_mismatch")
             for name, dim in self._group_dims.items():
@@ -436,6 +443,10 @@ class ActionTimeline:
                 groups=runtime_groups,
                 hold_from_step=runtime_hold_from_step,
                 unblended_groups=unblended_runtime_groups,
+                executor_groups=(None if runtime.executor_groups is None else {
+                    name: rows[runtime_start_index:runtime_end_index].copy()
+                    for name, rows in runtime.executor_groups.items()
+                }),
                 observation_time_ns=chunk.observation_time_ns,
                 hold_last_step=self._hold_last_step,
                 action_space=self.action_space,
@@ -677,7 +688,9 @@ class ActionTimeline:
         samples: dict[str, list[np.ndarray]] = {name: [] for name in self._group_dims}
         last: GroupVector | None = None
         for step in range(horizon_steps):
-            sample = self._sample_runtime(now_ns + step * dt_ns)
+            time_ns = now_ns + step * dt_ns
+            owner = self._runtime_plan_at(time_ns)
+            sample = None if owner is None else _sample_plan(owner, time_ns, for_executor=True)
             if sample is None:
                 if last is None:
                     return None

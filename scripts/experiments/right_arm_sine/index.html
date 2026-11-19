@@ -1,0 +1,114 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>右臂 · 正弦跟踪实验</title>
+<style>
+*{box-sizing:border-box}body{margin:auto;max-width:1120;padding:24px;background:#f4f6f5;color:#182d30;font:15px system-ui}h1{font-size:26px;margin:0}h2{font-size:17px;margin:0 0 12px}section{background:white;border:1px solid #ccd8d7;padding:18px;margin:14px 0;border-radius:8px}.row{display:flex;flex-wrap:wrap;gap:12px;align-items:end}label{display:grid;gap:5px}select,input,button{font:inherit;padding:7px}button{cursor:pointer;border:1px solid #94aaa7;border-radius:5px;background:#fff}button:disabled{opacity:.45}#start{background:#176963;color:white}#stop{color:#b72434}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}canvas{width:100%;background:#fafcfb;border:1px solid #e2e9e6}output{display:block;margin:10px 0;color:#205760}#message{color:#a82c2c;white-space:pre-wrap}#seek{width:100%}small{color:#4d6669} @media(max-width:720px){.grid{grid-template-columns:1fr}}
+</style>
+<h1>右臂正弦跟踪实验</h1>
+<section><div class="row">
+<label>设备<select id="mode"><option value="simulation">模拟</option><option value="hardware">Tianji 右臂</option></select></label>
+<button id="origin">采集右臂当前位置为起点</button>
+<label>轨迹<select id="pathType"><option value="x_sine">沿 X 前进 · Y 正弦摆动</option><option value="y_sine">沿 Y 横移 · X 正弦摆动</option><option value="y_only">仅沿 Y 横移 · 简谐往返</option></select></label>
+<label><span id="spanLabel">X 行程 mm</span><input id="span" type="number" min="20" max="160" value="90"></label>
+<label><span id="ampLabel">Y 振幅 mm</span><input id="amp" type="number" min="5" max="60" value="30"></label>
+<label>往返周期 s<input id="seconds" type="number" min="4" max="40" value="24"></label>
+<label>下发频率 Hz<select id="hz"><option>50</option><option selected>100</option><option>125</option><option>200</option><option>250</option></select></label>
+<label>位置超前 T · ms<input id="lead" type="number" min="0" max="100" step="any" value="0" required></label>
+<label>加速度系数 Ka · s²<input id="ka" type="number" min="0" step="any" value="0" required></label>
+<label>加速度项上限 · °<input id="accelCap" type="number" min="0" max="10" step="any" value="0.25" required></label>
+<label>每关节总补偿上限 · °<input id="cap" type="number" min="0" max="10" step="any" value="2" required></label>
+<label>Marvin 速度前馈<select id="ff"><option value="inherit">沿用控制器设置（同 rollout）</option><option value="0">关</option><option value="1">开</option></select></label></div>
+<p><small>右臂基座 XY 平面。周期越短，运动越快。模拟起点使用配置姿态，模拟反馈仅供检查界面。T 乘 SmoothExecutor 本拍输出的关节速度，Ka 乘最近约 20 ms 速度的拟合斜率。Ka 为 0 关闭加速度项，总上限为 0 关闭全部补偿。</small></p>
+<div class="row"><button id="preview">预览轨迹</button><button id="start" disabled>开始</button><button id="stop">停止运动</button></div>
+<output id="info"></output><output id="message"></output></section>
+<div class="grid"><section><h2>TCP 平面轨迹 · mm</h2><canvas id="xy" width="640" height="330"></canvas><small>灰线为预览，蓝点为原目标，绿点为实际下发，橙点为实测关节 FK，每点对应一个采样</small></section>
+<section><h2>同刻跟踪误差</h2><select id="metric"><option>原目标与反馈 TCP 距离 · mm</option><option>原目标与反馈最大关节误差 · °</option><option>控制器指令与反馈最大误差 · °</option><option>实际下发与反馈最大关节误差 · °</option></select>
+<canvas id="err" width="640" height="280"></canvas><output id="stats"></output></section></div>
+<section><div class="row"><h2>关节角 · °</h2><label>关节<select id="joint"><option>J1</option><option selected>J2</option><option>J3</option><option>J4</option><option>J5</option><option>J6</option><option>J7</option></select></label></div>
+<canvas id="angles" width="1000" height="220"></canvas><small>横轴为时间（s）。蓝色为原目标，绿色为实际下发，橙色为实测。</small><output id="jointSample"></output></section>
+<section><h2>实验回放</h2><div class="row"><select id="history"></select><button id="load">载入</button><button id="play">播放 / 暂停</button></div><input id="seek" type="range" min="0" value="0" max="0"><output id="record"></output></section>
+<script>
+const $=id=>document.getElementById(id), secret='{{TOKEN}}';
+let revision=0, previewId=null, path=[],rows=[],run=null,playing=false,offset=0,startClock=0,live=false,lastId='',liveId='',owner=false;
+async function call(url,body){const r=await fetch(url,body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json','X-Probe':secret},body:JSON.stringify(body)});const v=await r.json();if(!r.ok)throw Error(v);return v}
+function act(id,f){$(id).onclick=async()=>{try{$('message').textContent='';await f()}catch(e){$('message').textContent=e.message}}}
+function opts(){
+  if(!$('lead').checkValidity())throw Error('位置超前 T 请输入 0–100 ms');
+  if(!$('ka').checkValidity())throw Error('Ka 请输入非负数，单位 s²');
+  if(!$('accelCap').checkValidity()||!$('cap').checkValidity())throw Error('补偿角上限请输入 0–10°');
+  return {mode:$('mode').value,hz:+$('hz').value,seconds:+$('seconds').value,
+    path_type:$('pathType').value,span:+$('span').value,amp:$('amp').disabled?0:+$('amp').value,ff:$('ff').value==='inherit'?null:$('ff').value==='1',
+    lead_ms:$('lead').valueAsNumber,max_offset_deg:$('cap').valueAsNumber,
+    ka_s2:$('ka').valueAsNumber,accel_cap_deg:$('accelCap').valueAsNumber};
+}
+function accelSettings(settings){
+  return 'Ka = '+(settings.ka_s2??0)+' s²'+(settings.ka_s2>0?' · 加速度项上限 '+settings.accel_cap_deg+'°':'');
+}
+function invalidate(){revision++;previewId=null;$('start').disabled=true}
+['mode','hz','seconds','span','amp','ff','lead','cap','ka','accelCap'].forEach(id=>$(id).oninput=invalidate);
+function pathName(type='x_sine'){return Array.from($('pathType').options).find(option=>option.value===type)?.textContent??type}
+function syncPath(){
+  const type=$('pathType').value;
+  $('spanLabel').textContent=(type==='x_sine'?'X':'Y')+' 行程 mm';
+  $('ampLabel').textContent=type==='x_sine'?'Y 振幅 mm':type==='y_sine'?'X 振幅 mm':'摆动振幅（不适用）';
+  $('amp').disabled=type==='y_only';
+}
+$('pathType').onchange=()=>{syncPath();invalidate()};
+syncPath();
+act('origin',async()=>{invalidate();let a=await call('/origin',{});$('mode').value='hardware';$('info').textContent='已采集右臂起点 · '+a.q.map(x=>(x*180/Math.PI).toFixed(1)+'°').join('  ')});
+act('preview',async()=>{invalidate();const version=revision, settings=opts();let p=await call('/preview',settings);if(version!==revision)return;if(p.velocity_source!=='smooth_executor_output')throw Error('请重启正弦测试服务以加载执行器速度');if((p.path_type??'x_sine')!==settings.path_type)throw Error('请重启测试服务以加载横向轨迹');if((p.lead_ms??0)!==settings.lead_ms)throw Error('当前服务未加载位置超前功能，请重启测试服务后再预览');if((p.max_offset_deg??2)!==settings.max_offset_deg)throw Error('请重启测试服务以加载可调补偿上限');if(p.ka_s2!==settings.ka_s2||p.accel_cap_deg!==settings.accel_cap_deg)throw Error('请重启测试服务以加载加速度补偿');path=p.xy;previewId=p.id;rows=[];playing=false;run=null;$('seek').max=0;$('start').disabled=false;$('info').textContent=pathName(settings.path_type)+' · 执行器速度 · 预览通过 · 预计峰值关节速度 '+p.peak.toFixed(1)+' °/s · T = '+settings.lead_ms+' ms · 上限 '+(p.max_offset_deg??2)+'° · '+accelSettings(settings);draw()});
+act('start',async()=>{if(opts().mode==='hardware'&&!confirm('开始右臂实机运动？请确认预览轨迹范围内有足够空间。'))return;await call('/start',{id:previewId});invalidate();owner=true;live=true;liveId='';rows=[];playing=false;$('info').textContent='运行中'});
+act('stop',async()=>{await call('/stop',{})});
+function errorOf(r){
+  const metric=$('metric').selectedIndex;
+  if(metric===0)return Math.hypot(...(r[14]??r[5]).map((v,i)=>v-r[6][i]));
+  const target=metric===1?(r[13]??r[1]):metric===2?r[3]:r[1];
+  return Math.max(...target.map((v,i)=>Math.abs(v-r[2][i])));
+}
+function chart(id,lines,equal){const c=$(id),ctx=c.getContext('2d'),W=c.width,H=c.height;ctx.clearRect(0,0,W,H);const pts=lines.flatMap(x=>x[0]);if(!pts.length)return;let x=Infinity,X=-Infinity,y=Infinity,Y=-Infinity;
+for(const p of pts){x=Math.min(x,p[0]);X=Math.max(X,p[0]);y=Math.min(y,p[1]);Y=Math.max(Y,p[1])}
+const w=W-78,h=H-48;let sx=w/Math.max(.01,X-x),sy=h/Math.max(.01,Y-y);if(equal)sx=sy=Math.min(sx,sy);const px=v=>53+w/2+(v-(x+X)/2)*sx,py=v=>15+h/2-(v-(y+Y)/2)*sy;
+ctx.font='13px system-ui';ctx.fillStyle='#496568';ctx.strokeStyle='#cedbd9';ctx.strokeRect(53,15,w,h);ctx.fillText(x.toFixed(1),53,H-6);ctx.fillText(X.toFixed(1),W-54,H-6);ctx.fillText(Y.toFixed(1),3,py(Y)+5);ctx.fillText(y.toFixed(1),3,py(y)+5);
+for(const [series,color,previewLine] of lines){
+  if(previewLine){
+    ctx.strokeStyle=color;ctx.beginPath();
+    series.forEach((p,i)=>i?ctx.lineTo(px(p[0]),py(p[1])):ctx.moveTo(px(p[0]),py(p[1])));
+    ctx.stroke();
+  }else{
+    ctx.fillStyle=color;
+    for(const p of series) ctx.fillRect(px(p[0])-1,py(p[1])-1,2,2);
+  }
+}}
+function draw(){
+  const part=live?rows:rows.slice(0,+$('seek').value+1);
+  chart('xy',[[path,'#bbc5c4',true],[part.map(r=>r[14]??r[5]),'#29678a'],[part.map(r=>r[5]),'#147e70'],[part.map(r=>r[6]),'#de7635']],true);
+  const joint=$('joint').selectedIndex;
+  chart('angles',[
+    [part.map(r=>[r[0],(r[13]??r[1])[joint]]),'#29678a'],
+    [part.map(r=>[r[0],r[1][joint]]),'#147e70'],
+    [part.map(r=>[r[0],r[2][joint]]),'#de7635']
+  ],false);
+  const sample=part.at(-1);
+  $('jointSample').textContent=sample?[
+    '原目标 '+(sample[13]??sample[1])[joint].toFixed(3)+'°',
+    '下发 '+sample[1][joint].toFixed(3)+'°',
+    '实测 '+sample[2][joint].toFixed(3)+'°'
+  ].join(' · ')+(sample[18]?' · 参考速度 '+sample[18][joint].toFixed(2)+' °/s · 参考加速度 '+sample[19][joint].toFixed(1)+' °/s²':'')+(sample[16]?' · 加速度项（总限幅前） '+sample[16][joint].toFixed(3)+'°':''):'';
+  const errors=part.map(r=>[r[0],errorOf(r)]);
+  chart('err',[[errors,'#29678a']],false);
+  const last=errors.at(-1), unit=$('metric').selectedIndex?' °':' mm';
+  const p95=errors.map(p=>p[1]).sort((a,b)=>a-b)[Math.floor((errors.length-1)*.95)];
+  $('stats').textContent=last?part.length+' 个原始采样 · t = '+last[0].toFixed(3)+' s · 当前 '+last[1].toFixed(2)+unit+' · P95 '+p95.toFixed(2)+unit:'';
+}
+async function load(id){if(!id)return;liveId='';let v=await call('/run/'+id);run=v;rows=v.rows;path=v.xy;live=playing=false;$('seek').max=Math.max(0,rows.length-1);$('seek').value=$('seek').max;const ms=v.interval_ms_p50_p95_p99.map(x=>x.toFixed(2)).join(' / ');
+const end=Math.round(v.opts.seconds*v.opts.hz);
+const legacyDuration=!v.timing_basis && !v.error && rows.length>end ? rows[end][7]-rows[0][7] : null;
+const duration=v.motion_duration_s??legacyDuration, actual=v.motion_send_hz??(legacyDuration>0?end/legacyDuration:null);
+const timing=actual==null?'':' · 实际 '+actual.toFixed(1)+' Hz · 运动耗时 '+duration.toFixed(3)+' s';
+$('record').textContent=v.opts.mode+' · '+pathName(v.opts.path_type)+' · '+(v.execution_path==='rollout_post_ik_v1'?'Rollout 关节执行器':'历史直接下发')+' · '+v.opts.hz+' Hz · 周期 '+v.opts.seconds+' s · T = '+(v.columns?.includes('nominal_cmd_deg')?v.opts.lead_ms:0)+' ms'+(v.position_lead?' · 上限 '+v.position_lead.max_offset_deg+'°':'')+' · '+accelSettings(v.opts)+(v.position_lead?.velocity_source==='smooth_executor_output'?' · 执行器速度':v.position_lead?.velocity_source==='nominal_command'?' · 历史位置差分速度':'')+' · Marvin 前馈'+(v.opts.ff===null?'沿用控制器设置':v.opts.ff?'开':'关')+timing+' · 下发返回间隔 P50/P95/P99 '+ms+' ms · '+(v.error||'完成');draw()}
+act('load',()=>load($('history').value));$('seek').oninput=()=>{playing=false;draw()};$('metric').onchange=draw;$('joint').onchange=draw;
+act('play',()=>{if(!rows.length||live)return;if(playing){playing=false;return}if(+$('seek').value===rows.length-1)$('seek').value=0;offset=rows[+$('seek').value][0];startClock=performance.now();playing=true;frame()});
+function frame(){if(!playing)return;const t=offset+(performance.now()-startClock)/1000;let i=+$('seek').value;while(i+1<rows.length&&rows[i+1][0]<=t)i++;$('seek').value=i;draw();if(i+1===rows.length)playing=false;else requestAnimationFrame(frame)}
+async function poll(){try{if(owner)await call('/heartbeat',{});let s=await call('/state?id='+encodeURIComponent(liveId)+'&offset='+(liveId?rows.length:0)),st=s.status;if(st.phase==='running'){live=true;$('info').textContent='运行中 · '+st.samples+' 个采样';if(st.id!==liveId||st.offset===0){rows=[];liveId=st.id;playing=false}
+if(st.offset===rows.length && st.rows.length){rows=rows.concat(st.rows);draw()}}
+let options=s.runs.join('|');if($('history').dataset.keys!==options){$('history').replaceChildren(...s.runs.map(id=>new Option(id,id)));$('history').dataset.keys=options}
+if(st.phase==='finished'&&lastId!==st.id){lastId=st.id;owner=false;$('info').textContent=st.error||'实验完成';await load(st.id)}}catch(e){$('message').textContent=e.message}finally{setTimeout(poll,180)}}poll()
+</script></html>

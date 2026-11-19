@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import threading
 import time
 import uuid
@@ -11,9 +12,13 @@ from typing import Any, Protocol
 from manimux.clock import SystemClock
 from manimux.embodiments.robot import build_robot
 from manimux.experiment_list import ExperimentList, shared_service_contract
+from manimux.policies.base import action_interval, native_action_interval
 from manimux.policy_service import ManagedPolicyService
 from manimux.robogui.communication import ControlClient, RoboGUIPublisher, RuntimeEvent
 from manimux.runtime import RunResult, build_runtime
+
+
+_LOG = logging.getLogger(__name__)
 
 
 class _Runtime(Protocol):
@@ -94,6 +99,10 @@ class _IdleRecovery:
     def _build(self):
         return self._robot_factory(deepcopy(self._robot_config), SystemClock())
 
+    @property
+    def hand_guiding(self) -> bool:
+        return self._task in self._hand_guiding_actions and not self._recovery_stop.is_set()
+
     def _poll(self) -> None:
         if self._thread is None or self._thread.is_alive():
             return
@@ -122,7 +131,11 @@ class _IdleRecovery:
 
     def update(self, control: dict[str, Any]) -> None:
         self._poll()
-        if self._task in self._hand_guiding_actions and not control.get("recovery_lease", False):
+        if self.hand_guiding and not control.get("recovery_lease", False):
+            reason = "lease_revoked" if control else "no_valid_lease_reply"
+            if control.get("recovery_request") == "stop":
+                reason = "gui_stop"
+            _LOG.info("recovery_cancel action=%s arm=%s reason=%s", self._task, self._arm, reason)
             self._recovery_stop.set()
             self._state = "stopping"
         request = str(control.get("recovery_request", ""))
@@ -204,12 +217,21 @@ class _IdleRecovery:
 
     def _hand_guiding_active(self) -> None:
         if not self._recovery_stop.is_set():
+            _LOG.info("recovery_active action=%s arm=%s", self._task, self._arm)
             self._state = "active"
 
     def _hand_guide(self, action: str, groups: tuple[str, ...]) -> None:
-        self._build().hand_guiding_actions[action](
-            groups, self._recovery_stop, self._hand_guiding_active
-        )
+        started = time.monotonic()
+        try:
+            self._build().hand_guiding_actions[action](
+                groups, self._recovery_stop, self._hand_guiding_active
+            )
+        except Exception:
+            _LOG.exception("recovery_failed action=%s groups=%s", action, groups)
+            raise
+        finally:
+            _LOG.info("recovery_finished action=%s groups=%s elapsed_s=%.3f cancelled=%s",
+                      action, groups, time.monotonic() - started, self._recovery_stop.is_set())
 
     def _home(self) -> None:
         self._build().recover_home(self._recovery_stop)
@@ -220,6 +242,14 @@ class _IdleRecovery:
             self._state = "stopping"
             self._thread.join()
             self._poll()
+
+
+def _idle_recovery(config):
+    if config["robot"].get("options", {}).get("execute", False):
+        recovery = _IdleRecovery(config)
+        if recovery.available:
+            return recovery
+    return None
 
 
 class RuntimeSessionService:
@@ -267,10 +297,7 @@ class RuntimeSessionService:
         self._last_episode_dir: Path | None = None
         self._last_error = ""
         self._last_failure_id = ""
-        self._recovery = None
-        if config["robot"].get("options", {}).get("execute", False):
-            recovery = _IdleRecovery(config)
-            self._recovery = recovery if recovery.available else None
+        self._recovery = _idle_recovery(config)
 
     def _ready_metadata(self) -> dict[str, object]:
         return {
@@ -290,6 +317,11 @@ class RuntimeSessionService:
             "evaluation": deepcopy(self._config.get("evaluation", {"kind": "binary"})),
             "runtime": self._config["inference"]["algorithm"],
             "executor": self._config["executor"]["type"],
+            "action_playback": {
+                "hz": 1.0 / action_interval(self._config["policy"]),
+                "native_hz": 1.0 / native_action_interval(self._config["policy"]),
+                "control_hz": self._config["robot"]["control_hz"],
+            },
             "policy_label": self._config["robogui"]["policy_label"],
             "camera_map": self._config["policy"]["adapter"].get("camera_map", {}),
             "experiment_template": deepcopy(self._config["run"].get("experiment_template")),
@@ -326,16 +358,23 @@ class RuntimeSessionService:
         control = self._control_factory()
         publisher = self._publisher_factory()
         last_announcement = float("-inf")
+        last_reply = time.monotonic()
+        poll_lease = getattr(control, "poll_lease", None)
         try:
             while True:
                 if self._policy_service is not None:
                     self._policy_service.poll()
-                state = control.poll()
+                if self._recovery is not None and self._recovery.hand_guiding and poll_lease:
+                    state = poll_lease(last_reply, self._poll_interval_s)
+                else:
+                    state = control.poll()
                 recovery_control = (
                     state
                     if state.get("recovery_service_id") == str(self._run_dir.resolve())
                     else {}
                 )
+                if recovery_control.get("recovery_lease"):
+                    last_reply = time.monotonic()
                 if self._recovery is not None:
                     self._recovery.update(recovery_control)
                 if self._try_reload_config(state) or self._try_select_experiment(state):
@@ -367,7 +406,12 @@ class RuntimeSessionService:
                     ))
                 ):
                     return state
-                time.sleep(self._poll_interval_s)
+                # Use the idle interval to wait for a fresh reply instead of sleeping
+                # through most of the hand-guiding lease. Explicit Stop still wins.
+                sleep_s = self._poll_interval_s
+                if self._recovery is not None and self._recovery.hand_guiding:
+                    sleep_s = min(sleep_s, 0.02)
+                time.sleep(sleep_s)
         finally:
             try:
                 if self._recovery is not None:
@@ -396,18 +440,21 @@ class RuntimeSessionService:
             return False
         try:
             choice = self._experiment_list.choices[requested]
+            recovery = self._recovery
+            if choice.config["robot"] != self._config["robot"]:
+                recovery = _idle_recovery(choice.config)
             run_dir = self._session_dir_factory(choice.config, self._experiment_list, requested)
         except (KeyError, TypeError, OSError, ValueError) as exc:
             self._selection_error = f"Cannot select experiment: {exc}"
             return True
         self._config = deepcopy(choice.config)
+        self._recovery = recovery
         self._run_dir = run_dir
         self._selection_id = requested
         self._selection_error = self._last_error = self._last_failure_id = ""
         self._last_episode_dir = None
         if self._policy_service is not None:
             self._policy_service.request(choice, run_dir)
-        # Hardware/recovery contract is identical across the validated catalog.
         # Next Prepare builds a fresh worker, strategy, timeline and warmup state.
         return True
 
@@ -461,10 +508,7 @@ class RuntimeSessionService:
             next_contract = shared_service_contract(config)
             restart_model = any(previous_contract[key] != next_contract[key]
                                 for key in ("policy_server", "policy"))
-            recovery = None
-            if config["robot"].get("options", {}).get("execute", False):
-                candidate = _IdleRecovery(config)  # Construction only; no device connection.
-                recovery = candidate if candidate.available else None
+            recovery = _idle_recovery(config)
             run_dir = self._session_dir_factory(config, catalog, selected)
         except Exception as exc:  # Invalid disk edits must not take down the current session.
             self._reload_message = f"Config not applied: {_error_text(exc)}"
@@ -518,6 +562,14 @@ class RuntimeSessionService:
             self._last_failure_id = ""
             try:
                 rollout_config = deepcopy(self._config)
+                if "playback_hz" in request:
+                    # A Prepare override replaces the configured playback duration
+                    # for this rollout only. Check before constructing any hardware.
+                    rollout_config["policy"]["playback_hz"] = request["playback_hz"]
+                    rollout_config["policy"]["trajectory_duration_s"] = None
+                    if request["playback_hz"] is None:
+                        raise ValueError("Prepare playback_hz must be a finite positive number")
+                    action_interval(rollout_config["policy"])
                 task_command = str(request.get("task_command", "")).strip()
                 if (self._experiment_list is not None and task_command
                         and task_command != rollout_config["run"]["task"]):

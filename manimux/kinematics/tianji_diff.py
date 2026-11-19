@@ -326,6 +326,11 @@ class TianjiDifferentialIK:
         self._command_lower = self.lower + self.margin
         self._command_upper = self.upper - self.margin
 
+    def protected_position_bounds(self):
+        """Current joint box and wrist halfplanes in radians, including IK margins."""
+        return (np.radians(self._command_lower), np.radians(self._command_upper),
+                self._j67_matrix.copy(), np.radians(self._j67_bound - self.j67_margin))
+
     def ensure_elbow_branch(self, seed):
         """Select once from a stationary execution anchor, never from a target.
 
@@ -430,6 +435,34 @@ class TianjiDifferentialIK:
             if np.any(self._j67_matrix @ point > self._j67_bound - self.j67_margin + 3 * tol):
                 return "wrist_stopping_limit"
         return None
+
+    def constrain_increment(self, previous, desired, previous_velocity, dt_s):
+        """Shape a learned joint proposal using the step controller's stopping region."""
+        self.ensure_elbow_branch(previous)
+        q = np.degrees(previous)
+        old_v = np.degrees(previous_velocity)
+        horizon = self.braking_time(dt_s)
+        lower = np.maximum.reduce((np.full(7, -self.vmax), old_v - self.amax * dt_s,
+                                   (self._command_lower - q) / horizon))
+        upper = np.minimum.reduce((np.full(7, self.vmax), old_v + self.amax * dt_s,
+                                   (self._command_upper - q) / horizon))
+        requested = np.degrees(desired - previous) / dt_s
+        velocity = np.clip(requested, lower, upper)
+        wrist_cap = (self._j67_bound - self.j67_margin - self._j67_matrix @ q) / horizon
+        wrist_rate = self._j67_matrix @ velocity
+        wrist_fraction = 1.0
+        if np.any(wrist_rate > wrist_cap):
+            # The invariant backup and box-limited proposal are both inside the
+            # axis bounds. Interpolate the wrist pair along their common segment.
+            backup = (1 - dt_s / horizon) * old_v
+            base_rate = self._j67_matrix @ backup
+            rising = wrist_rate > base_rate
+            if rising.any():
+                ratios = (wrist_cap[rising] - base_rate[rising]) / (wrist_rate - base_rate)[rising]
+                wrist_fraction = float(np.clip(np.min(ratios), 0, 1))
+            velocity[5:7] = backup[5:7] + wrist_fraction * (velocity - backup)[5:7]
+        command = previous + dt_s * np.radians(velocity)
+        return command, wrist_fraction
 
     def brake(self, previous, previous_velocity, dt_s):
         """Certified ordinary-failure backup; never silently reset moving history."""

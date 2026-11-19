@@ -9,6 +9,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from manimux.kinematics.poses import interpolate_pose_rows
+from manimux.kinematics.retiming import plan_path_timing
 from manimux.kinematics.robot import RobotKinematics
 from manimux.kinematics.tianji_diff import rotation_matrix, rotation_vector
 from manimux.policies.base import action_interval, action_interval_ns, native_action_interval
@@ -259,35 +261,60 @@ class _Pi05TianjiEEAdapter(PolicyAdapter):
             waypoint = np.eye(4, dtype=np.float64)
             waypoint[:3, 3] = (1.0 - alpha) * start[:3, 3] + alpha * target[:3, 3]
             waypoint[:3, :3] = start[:3, :3] @ rotation_matrix(alpha * rotation)
-            if diff_solver is None:
-                result = model.ik(
-                    waypoint,
-                    current,
-                    fixed_coordinates={"gripper": gripper},
-                )
-                if not result.converged:
-                    raise ValueError(f"Tianji IK {result.reason}; rejecting the entire chunk")
-                current = _state_vector(result.joints, label="IK result").copy()
-            else:
-                result = diff_solver.solve(
-                    model.flange_target(waypoint, np.array([gripper])),
-                    current[:7],
-                    duration_s / substeps,
-                )
-                if not result.ok:
-                    raise ValueError(
-                        f"Tianji differential IK {result.reason}; rejecting the entire chunk "
-                        f"(lag_mm={result.pos_err_mm}, lag_deg={result.rot_err_deg}, "
-                        f"detail={result.detail})"
-                    )
-                current = np.r_[result.joints, gripper]
-                if lag is not None:
-                    lag["worst_lag_mm"] = max(lag["worst_lag_mm"], float(result.pos_err_mm))
-                    lag["worst_lag_deg"] = max(lag["worst_lag_deg"], float(result.rot_err_deg))
-                    lag["lag_exceedances"] += int(result.lag_exceeded)
+            current = self._solve_waypoint(model, current, waypoint, gripper, diff_solver,
+                                           duration_s / substeps, lag)
             if substep_joints is not None:
                 substep_joints.append(current[:7].copy())
         return current
+
+    @staticmethod
+    def _solve_waypoint(model, current, waypoint, gripper, diff_solver, dt_s, lag):
+        if diff_solver is None:
+            result = model.ik(
+                waypoint,
+                current,
+                fixed_coordinates={"gripper": gripper},
+            )
+            if not result.converged:
+                raise ValueError(f"Tianji IK {result.reason}; rejecting the entire chunk")
+            current = _state_vector(result.joints, label="IK result").copy()
+        else:
+            result = diff_solver.solve(
+                model.flange_target(waypoint, np.array([gripper])),
+                current[:7],
+                dt_s,
+            )
+            if not result.ok:
+                raise ValueError(
+                    f"Tianji differential IK {result.reason}; rejecting the entire chunk "
+                    f"(lag_mm={result.pos_err_mm}, lag_deg={result.rot_err_deg}, "
+                    f"detail={result.detail})"
+                )
+            current = np.r_[result.joints, gripper]
+            if lag is not None:
+                lag["worst_lag_mm"] = max(lag["worst_lag_mm"], float(result.pos_err_mm))
+                lag["worst_lag_deg"] = max(lag["worst_lag_deg"], float(result.rot_err_deg))
+                lag["lag_exceedances"] += int(result.lag_exceeded)
+        return current
+
+    def _solve_timed_path(self, model, seed, tcp_rows, timing, sample_dt_ns, solver, lag):
+        """Solve timed TCP samples once; retain source-knot joints for handoff matching."""
+        dt_s = sample_dt_ns / 1e9
+        knots = timing.knots
+        times = np.arange(math.ceil(knots[-1] / dt_s) + 1) * dt_s
+        phases = np.interp(times, knots, np.arange(len(knots)))
+        sampled = interpolate_pose_rows(tcp_rows, phases)
+        current = self._solve_knot(model, seed, pose_matrix(sampled[0, :7]), sampled[0, 7],
+                                   diff_solver=solver, lag=lag)
+        dense = np.empty((len(times), len(current)))
+        dense[0] = current
+        for i in range(1, len(times)):
+            current = self._solve_waypoint(model, current, pose_matrix(sampled[i, :7]),
+                                           sampled[i, 7], solver, dt_s, lag)
+            dense[i] = current
+        source_joints = np.column_stack([np.interp(knots, times, col) for col in dense.T])
+        source_joints[:, -1] = tcp_rows[:, -1]
+        return source_joints, dense
 
     def warmup_decode(self, partition: str | None) -> None:
         """Initialize the selected child process's IK backend without hardware."""
@@ -388,6 +415,19 @@ class _Pi05TianjiEEAdapter(PolicyAdapter):
         }
         if self.decode_pose_only:
             return pose_chunk(context, target_rows(targets), self._action_dt_ns)
+        # Preserve model targets before waypoint shaping or IK. This is recorded
+        # separately from canonical_raw, whose rows already contain IK solutions.
+        policy_targets = target_rows({name: targets[name] for name in groups_to_decode})
+        timing = None
+        timed_dt_ns = None
+        if context.tcp_retime_options is not None:
+            # Each decoder partition sees both arms and the same frozen RTC prefix.
+            geometry = {name: np.stack([pose for pose, _ in rows])
+                        for name, rows in targets.items()}
+            timing = plan_path_timing(geometry, gripper_targets, self._action_dt_ns / 1e9,
+                                      context.tcp_retime_options, context.rtc_prefix_steps)
+            timed_dt_ns = min(round(self._validation_dt_s * 1e9),
+                              self._action_dt_ns // context.tcp_retime_options["runtime_substeps"])
         handoff = None
         if context.handoff_reference is not None and self.waypoint_handoff is not None:
             # Plan over both groups even in a partition so atomic decodes agree.
@@ -423,6 +463,13 @@ class _Pi05TianjiEEAdapter(PolicyAdapter):
                     "worst_lag_deg": 0.0,
                     "lag_exceedances": 0,
                 }
+            if timing is not None:
+                groups[name], runtime_groups[name] = self._solve_timed_path(
+                    model, current, policy_targets[name], timing, timed_dt_ns, solver, lag,
+                )
+                if lag is not None:
+                    lag_stats[name] = lag
+                continue
             rows: list[np.ndarray] = []
             runtime_rows: list[np.ndarray] | None = (
                 [] if self.execute_diff_ik_substeps else None
@@ -476,7 +523,11 @@ class _Pi05TianjiEEAdapter(PolicyAdapter):
 
         runtime_trajectory = None
         runtime_dt_ns = None
-        if runtime_groups:
+        if timing is not None:
+            runtime_trajectory = RuntimeTrajectory(
+                context.observation_time_ns, timed_dt_ns, runtime_groups,
+            )
+        elif runtime_groups:
             if samples_per_action is None and handoff is None:
                 raise ValueError("diffIK runtime trajectory has no samples")
             runtime_dt_ns = (
@@ -506,12 +557,17 @@ class _Pi05TianjiEEAdapter(PolicyAdapter):
             groups=groups,
             source_offset_steps=0,
             runtime_trajectory=runtime_trajectory,
+            policy_targets=policy_targets,
             metadata={
                 "source_action_semantics": ACTION_SEMANTICS,
                 "native_action_semantics": NATIVE_ACTION_SEMANTICS,
                 "gripper_clip_tolerance": self._gripper_clip_tolerance,
                 "gripper_clip_max_abs": gripper_clip_max_abs,
                 "gripper_mapping": self._gripper_mapping.metadata(),
+                **({"pre_ik_knots_s": timing.knots.tolist(),
+                    "runtime_trajectory_dt_ns": timed_dt_ns,
+                    "execute_diff_ik_substeps": self.execute_diff_ik_substeps}
+                   if timing is not None else {}),
                 "ik_backend": self.ik_backend,
                 "ik_seed_source": context.ik_seed_source,
                 "ik_seed_time_ns": seed.monotonic_ns,
@@ -522,7 +578,7 @@ class _Pi05TianjiEEAdapter(PolicyAdapter):
                         "diff_ik_substeps_per_action": samples_per_action,
                         "runtime_trajectory_dt_ns": runtime_dt_ns,
                     }
-                    if runtime_trajectory is not None
+                    if runtime_trajectory is not None and timing is None
                     else {}
                 ),
                 **({"diff_ik_lag": lag_stats} if lag_stats else {}),
@@ -561,6 +617,7 @@ class Pi05PackPlateTacCapAdapter(_Pi05TianjiEEAdapter):
 
     _CHECKPOINT_VARIANTS = {
         "pi05_throw_ball_native_h50_step29999": "zero_pose",
+        "pi05_pack_plate_processed2_native_world_h50_step29999": "zero_pose",
         "pi05_pack_plate_umi_half_speed_h50_step29999": "zero_pose",
         "pi05_pack_plate_umi_dagger_step40000": "zero_pose",
         "pi05_pack_plate_umi_only_step40000": "zero_pose",
@@ -585,6 +642,7 @@ class Pi05PackPlateTacCapAdapter(_Pi05TianjiEEAdapter):
             in {
                 "pi05_throw_ball_native_h50_step29999",
                 "pi05_pack_plate_umi_half_speed_h50_step29999",
+                "pi05_pack_plate_processed2_native_world_h50_step29999",
             } else 32
         )
         if self._horizon_steps != horizon or abs(native_action_interval(policy) - 1 / 30) > 1e-9:

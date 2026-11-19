@@ -93,6 +93,19 @@ class SmoothExecutor:
     def horizon_steps(self) -> int:
         return 2
 
+    def output_velocity(self, group: str) -> np.ndarray:
+        """Nominal-tick velocity paired with the last output, including position clipping."""
+        if self._previous_velocity is None:
+            raise RuntimeError("SmoothExecutor has no command history")
+        velocity = self._previous_velocity[group].copy()
+        if len(self._command_history) >= 2:
+            previous = self._command_history[-2][1][group]
+            current = self._command_history[-1][1][group]
+            dt = self._output_dt_s
+            shaped = np.abs(current - (previous + velocity * dt)) > 1e-12
+            velocity[shaped] = (current[shaped] - previous[shaped]) / dt
+        return velocity
+
     def set_control_period(self, control_dt_s: float) -> None:
         """Retain filter/limit history and events while changing the sample period."""
         if not math.isfinite(control_dt_s) or control_dt_s <= 0:
@@ -625,6 +638,7 @@ class SmoothExecutor:
             output[name] = self._previous[name] + velocities[name] * self._dt_s
         self._shape_grippers(now_ns, reference, output, velocities, state)
         self._command_history.append((now_ns, copy_group_vector(output)))
+        self._output_dt_s = self._dt_s
         self._previous = copy_group_vector(output)
         self._previous_velocity = copy_group_vector(velocities)
         return RobotCommand(groups=output, monotonic_ns=now_ns, plan_id=reference.plan_id)

@@ -62,12 +62,17 @@ recording:
 inference:
   config: ../../pack_plate/pi05/checkpoint_comparison_20261028/rtc16.yaml
   chunk_policy_steps: 18
-  handoff_skip_steps: 2
+  handoff_skip_steps: 0
   blend_policy_steps: 2
   rtc:
     min_execute_policy_steps: 18
     initial_delay_policy_steps: 4
 executor:
+  tianji_position_lead:
+    lead_ms: 66
+    ka_s2: 0.0024
+    accel_cap_deg: 0.5
+    max_offset_deg: 5
   config: ../../pack_plate/pi05/checkpoint_comparison_20261028/executor.yaml
   smooth:
     gripper:

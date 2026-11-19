@@ -58,6 +58,18 @@ class DirectExecutor:
         state: RobotState,
         reference: ActionHorizon,
     ) -> RobotCommand:
+        command, velocities = self.propose(now_ns, state, reference)
+        if velocities is not None:
+            self.accept(copy_group_vector(command.groups), velocities)
+        return command
+
+    def accept(self, groups, velocities):
+        """Commit an owned snapshot after the caller verifies both groups."""
+        self._previous, self._previous_velocity = groups, velocities
+
+    def propose(self, now_ns, state, reference):
+        """Shape both groups without advancing an established command history."""
+        velocities = None
         output = {name: values[0].copy() for name, values in reference.groups.items()}
         if self._motion is not None:
             if self._previous is None or self._previous_velocity is None:
@@ -112,10 +124,8 @@ class DirectExecutor:
                     else previous + velocity * self._dt_s
                 )
                 velocities[name][index] = velocity
-            self._previous = copy_group_vector(output)
-            self._previous_velocity = velocities
         return RobotCommand(
             groups=output,
             monotonic_ns=now_ns,
             plan_id=reference.plan_id,
-        )
+        ), velocities

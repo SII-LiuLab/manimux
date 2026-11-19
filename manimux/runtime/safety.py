@@ -144,6 +144,14 @@ class SafetyGuard:
         }
 
     def validate_command(self, command: RobotCommand) -> None:
+        self.accept_checked(self.check_command(command))
+
+    def accept_checked(self, history):
+        if history is not None:
+            self._previous_command, self._previous_velocity = history
+
+    def check_command(self, command: RobotCommand):
+        """Check both groups without mutating the last dispatched rate state."""
         if set(command.groups) != set(self._group_dims):
             raise ValueError("command groups do not match robot configuration")
         candidate_velocity: dict[str, FloatArray] = {}
@@ -183,10 +191,8 @@ class SafetyGuard:
             candidate_velocity[name] = velocity
 
         if self._rate_limits_enabled:
-            self._previous_command = copy_group_vector(command.groups)
-            self._previous_velocity = {
-                name: velocity.copy() for name, velocity in candidate_velocity.items()
-            }
+            return copy_group_vector(command.groups), candidate_velocity
+        return None
 
 
 def command_safety_parameters(**options) -> dict:

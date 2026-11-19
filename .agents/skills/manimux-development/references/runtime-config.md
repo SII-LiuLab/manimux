@@ -4,6 +4,33 @@
 
 Source paths below are relative to the repository root.
 
+The local right-arm sine probe records its preview trajectory in `opts.path_type`.
+`x_sine` (also the default for older records) advances along base X and oscillates along Y.
+`y_sine` exchanges those axes. `y_only` uses the same half-cosine time law along Y and records zero cross-axis amplitude.
+The preview, post-IK executor and raw replay use the selected trajectory. The probe takes nominal velocity from the same SmoothExecutor output as the target angle. Acceleration uses a linear fit over consecutive nominal ticks spanning at least 20 ms, with a fresh window after a gap. The velocity and acceleration columns align with the held nominal target at feedback collection. New recordings declare the velocity source in position_lead metadata.
+
+The Throw Ball Pi05 catalog selects `executor.tianji_position_lead` after nominal execution. Both arms use T=66 ms, Ka=0.0024 s², a 0.5° acceleration term cap and a 5° total correction cap. Smooth and Direct supply their same-tick output velocity. Nominal history feeds IK and RTC. Issued history governs joint, wrist, rate and step braking constraints. A timeline gap clears derivative history and step IK brakes from the issued stream. Recordings add `ticks/nominal_command/<group>` alongside issued `ticks/command/<group>`.
+
+The separate retimed chunk IK method with `placement: before_smooth` differentiates the original dense DiffIK joint grid before the bridge, inside each plan, using its actual sample interval. Acceleration is the trailing linear slope of segment velocities over at least 20 ms. Matched path time selects the correction for each runtime row. A held endpoint has zero correction. Only the executor samples this corrected grid. The nominal timeline stays available for RTC conditioning. The tick record includes `scheduled` (raw joint reference), `pre_smooth_target` (protected compensated input, missing on holds) and `command` (Smooth output).
+
+## Offline replay extensions
+
+`python -m manimux.robogui.replay --plugin tracking --episode ... --robot ...`
+loads a read-only extension through `manimux.replay` entry points or `module:factory`.
+Factories take `(ActionReplayRoboGUI, episode_path)` and return an object with
+`update(tick_index)` and `close()`. They share the existing play/pause/seek clock;
+they must not construct a live runtime, command sockets or hardware drivers.
+The built-in tracking plugin uses camera capture times and plan source progress.
+Missing pre-IK targets are unavailable, never inferred from FK of IK results.
+`ActionChunk.policy_targets` is optional recording evidence: original absolute
+per-group-base TCP `[xyz, qwxyz, gripper]` rows before IK/waypoint shaping, anchored
+at the canonical chunk observation time and original dt. Pi05 Tianji populates it;
+partition decoding merges it, and recording writes it only under canonical_raw.
+An independent-group hold without targets omits this evidence for the merged chunk.
+The field never participates in execution. Retiming can change execution row counts
+while these original rows remain unchanged. A runtime restart is needed to capture
+new evidence; old recordings are not rewritten.
+
 ## Experiment lists and idle selection
 
 `manimux/experiment_list.py` loads a finite catalog through the existing CLI loader.
@@ -12,8 +39,11 @@ list, optional display labels and an optional `policy` group (default: `default`
 Task/method/rubric still belong to each resolved experiment. The first entry is selected
 initially. Entries in one policy group must share model initialization, policy I/O and
 sensor contracts. Across groups, policy clients, adapters, horizons, observation readers
-and model identities may differ. All entries must share the complete robot config,
-camera-server recipe and RoboGUI robot; output directories must differ. Different model
+and model identities may differ. Entries share the physical station, camera-server
+recipe and RoboGUI robot. On Tianji TacCap, policy groups can select gripper
+`control_mode`, `grasp_torque_nm` and `close_speed_radps` independently. Idle selection
+rebuilds recovery from the chosen robot settings before the next Prepare.
+The Pi05 Tianji adapter constructs IK and waypoint decoding per method. Output directories must differ. Different model
 services must use distinct client endpoints in externally managed mode. Method labels
 are unique per policy/task.
 
@@ -353,13 +383,56 @@ Record runtime evidence under `manimux/recording/`. Distinguish predicted action
 sent commands and measured motion; RoboGUI refresh rate is not control frequency.
 Do not reintroduce teleoperation or demonstration collection as part of replay.
 
+### Camera video and exact selected inference inputs
+
+`recording.video_fps: 30` enables the shared CPU MP4 writer for all runtime cameras,
+including Tianji. Install the `video` extra in the runtime environment
+(`uv sync --extra video`, preserving other required extras). The default is zero
+(off). Videos sample camera bundles during RUNNING ticks, not every inference
+request. Use `videos/index.json` capture timestamps, not MP4 frame number / FPS,
+to align observations across pauses or dropped bundles.
+
+`recording.inference_inputs: true` adds lossless, uncompressed NPZ snapshots after
+adapter preparation at the formal worker-submission boundary. Snapshots include
+RGB arrays and their capture timestamps/sequence IDs, measured state, instruction,
+UMI previous observations, converted model state and RTC / train-time prefix
+fields. They exclude warmup requests. They are not server-side normalized tensors,
+model random seeds, or proof that a coalesced upload was inferred. Join `request_seq`
+to `events.jsonl` responses / accepted plans; rejected replies remain diagnostic
+evidence. Model-side preprocessing requires the saved resolved configuration and
+matching source/checkpoint.
+
+`inference_inputs/request-000001.npz` contains numeric arrays and UTF-8 JSON
+metadata, with no pickle. `inference_inputs/index.jsonl` lists successfully written
+requests. Load with `manimux.recording.inputs.load_input_snapshot(path)`; the returned
+`request` is a plain dictionary with RGB at
+`saved["request"]["observation"]["frames"][camera]["data"]`. File metadata retains
+dataclass names; loading never imports or instantiates them.
+
+`input_queue_size` defaults to 2 request bundles; video has its separate
+`video_queue_size` (default 8). The control thread copies arrays, while bounded
+background writers perform disk IO / encoding. Full queues drop recording bundles
+without waiting for disk. `inference_submitted.input_recording` reports enqueue
+status; final `result.json.input_recording` reports submitted, saved, dropped,
+unsaved counts and errors. A queued file is not guaranteed saved until indexed.
+Check both input and video summaries before using a trial as a complete dataset.
+Raw RGB storage scales with resolution, history length and request rate; this is
+not a full-rate lossless camera archive. Benchmark `recording.input` and
+`recording.tick` timing at actual deployment resolution before throughput studies.
+
+An experiment may use `recording.config: recording.yaml` relative to its own file;
+inline fields override this profile. The pack-plate checkpoint comparison study
+selects its shared `recording.yaml` with 30 FPS video and inference inputs enabled.
+Other experiments retain defaults. Reload configuration / prepare a new rollout
+to apply edits; existing recordings cannot recover previously unsaved RGB.
+
 Idle recovery between rollouts (**Clear error**, **Return Home**, **Drag**, **Release**) is
 scheduled by the `manimux serve` session and implemented by the robot assembly. The
 session reads the assembly's `recovery_actions`, `hand_guiding_actions` and `drag_selections`.
 It calls `clear_errors()`, `recover_home(stop)` or the selected hand-guiding handler on a
 fresh, disconnected assembly using the configured construction options. Hand-guiding
 handlers receive groups, a stop event and an active callback; the robot owns mode entry,
-duration, monitoring and cleanup. Loss of the recovery lease cancels these handlers. Service
+duration, monitoring and cleanup. During hand-guiding, idle control polls start after at most 20 ms. A delayed GUI reply can renew the lease until the previous valid reply plus the idle poll interval and control timeout (120 ms with defaults). Explicit Stop, a revoked lease, a session mismatch or a missing fresh reply by that deadline cancels the handler. Service
 shutdown sets the recovery stop event before joining the worker. Idle Home implementations
 must cancel further motion and release owned resources before returning. For Tianji-TacCap,
 Home moves the arms to
@@ -412,6 +485,36 @@ acquisition rate and recording video rate independent. Horizon,
 decoded prefix and executed chunk length are also distinct. Do not infer one from
 another just because one example happens to use the same value.
 
+### Action playback speed
+
+`policy.playback_hz: null` preserves native timing. A positive finite value sets the
+runtime row interval to `1 / playback_hz`. For a native 30 Hz checkpoint, 15 Hz
+plays at half speed and 60 Hz at twice speed; a 100 Hz robot control loop still
+interpolates the retimed trajectory at 100 Hz. Keep `action_dt_s`, checkpoint
+identity and model observation-history periods unchanged. Do not combine
+`playback_hz` with the legacy `trajectory_duration_s` override.
+
+Use `native_action_interval()` for checkpoint checks and model-side metadata;
+`action_interval()` supplies effective runtime seconds and `action_interval_ns()`
+supplies the shared rounded nanosecond grid to adapters, IK, timelines, RTC/PAINT
+conditions, candidate validation, delay forecasts and source-progress scheduling.
+UMI's default
+first-action offset scales with that grid; an explicit `adapter.execution_offset_s`
+remains a wall-clock offset. Step IK still runs on the robot control clock.
+
+In `serve`, RoboGUI's **Action playback (Hz)** is editable before Prepare. Prepare
+freezes it in a deep copy of the selected configuration for that rollout, replacing
+any configured legacy duration. It does not mutate catalog defaults or restart the
+model. Config reload and experiment switches restore the selected YAML's value;
+service heartbeats preserve unsubmitted edits. `run` uses the YAML value. Episode
+metadata records effective `action_dt_s`, `model_action_dt_s`, `playback_hz` and
+`control_hz`. Source-step counts keep their existing meanings; durations expressed
+in seconds (timeouts, observation periods, refill thresholds) do not scale.
+
+Faster playback consumes the horizon sooner; it does not accelerate model compute.
+Inference latency, history availability, IK and existing motion limits still govern
+what can execute. Verify changed speeds offline before claiming physical success.
+
 ## Example and checks
 
 Trace `configs/experiments/put_bottles/pi05/yam_pi05_rtc_joint_step30000.yaml` under `manimux/`:
@@ -448,7 +551,13 @@ per-tick vendor branch. There is currently no general executor entry-point loade
 
 `records.py` reads finalized experiment trajectories; `action_replay.py` owns
 hardware-free display and its playback loop. The independent `python -m manimux.robogui.replay`
-entry point selects an episode and stream. Dashboard has no historical replay panel.
+entry point selects an episode and stream. Optional `--replay-root` enables the hierarchical
+`replay_browser.py` selector on the same server. It discovers closed recordings without
+walking Zarr chunks, stages each player in a separate GUI folder and scene namespace,
+then retires the old player's video readers after successful initialization. Shared-server
+players do not stop their host server on close; the browser owns that lifecycle. Failed
+loads preserve the previous paused replay. The launch-time model/source stay fixed, and
+selection is shared across connected viewers. Dashboard has no historical replay panel.
 Shared offline preset/model loaders live in `robot_view.py`. Keep these consumers out of the control loop.
 The [research workflow](../../../../guideline.html#experiments) describes current UI and identity fields.
 
@@ -473,36 +582,6 @@ runtime-owned decoder while formal scheduling is paused, keeps the inference req
 pending through decode completion, and drains both stages before backend reset. Its
 previews use the request observation as the IK seed and never enter the Timeline.
 History strategies collect measured observations on every warmup tick and may return
-### Action playback speed
-
-`policy.playback_hz: null` preserves native timing. A positive finite value sets the
-runtime row interval to `1 / playback_hz`. For a native 30 Hz checkpoint, 15 Hz
-plays at half speed and 60 Hz at twice speed; a 100 Hz robot control loop still
-interpolates the retimed trajectory at 100 Hz. Keep `action_dt_s`, checkpoint
-identity and model observation-history periods unchanged. Do not combine
-`playback_hz` with the legacy `trajectory_duration_s` override.
-
-Use `native_action_interval()` for checkpoint checks and model-side metadata;
-`action_interval()` supplies effective runtime seconds and `action_interval_ns()`
-supplies the shared rounded nanosecond grid to adapters, IK, timelines, RTC/PAINT
-conditions, candidate validation, delay forecasts and source-progress scheduling.
-UMI's default
-first-action offset scales with that grid; an explicit `adapter.execution_offset_s`
-remains a wall-clock offset. Step IK still runs on the robot control clock.
-
-In `serve`, RoboGUI's **Action playback (Hz)** is editable before Prepare. Prepare
-freezes it in a deep copy of the selected configuration for that rollout, replacing
-any configured legacy duration. It does not mutate catalog defaults or restart the
-model. Config reload and experiment switches restore the selected YAML's value;
-service heartbeats preserve unsubmitted edits. `run` uses the YAML value. Episode
-metadata records effective `action_dt_s`, `model_action_dt_s`, `playback_hz` and
-`control_hz`. Source-step counts keep their existing meanings; durations expressed
-in seconds (timeouts, observation periods, refill thresholds) do not scale.
-
-Faster playback consumes the horizon sooner; it does not accelerate model compute.
-Inference latency, history availability, IK and existing motion limits still govern
-what can execute. Verify changed speeds offline before claiming physical success.
-
 no submission until a valid window is available; UMI DP supplies its measured two-frame
 window to the delegate's warmup builder. Restart `serve` after changing a catalog's
 warmup settings, or use Reload config while idle to re-read the catalog.
@@ -573,73 +652,6 @@ Later IK rows retain sequential seeding. Measured observations are not modified.
 This reduces seed-time mismatch; it does not enforce branch continuity or cap steps.
 
 
-## Chunk IK and execution-time IK
-
-`execution.ik.mode` is an experiment setting: `chunk` (default) retains adapter
-chunk decoding, while `step` keeps an absolute TCP trajectory until each control
-tick. `execution.ik.budget_ms` is optional and defaults to half the control period.
-It must be positive and less than one control period.
-
-The step path is adapter pose decoding -> pose ActionTimeline -> one sampled
-pose per group -> ExecutionPipeline (optional PoseSpeedLimiter -> StepIKResolver
--> DirectExecutor) -> existing safety/send path.
-A pose row is `[x, y, z, qw, qx, qy, qz, gripper]`, in each robot group's base frame,
-with the configured TCP and normalized gripper. Decode relative outputs against
-the request observation anchor, never against a later execution seed. Timeline
-interpolation and blending use linear xyz/gripper and shortest-arc quaternion
-SLERP. Record `absolute_tcp_pose` plan chunks; scheduled/command rows remain joints.
-RoboGUI draws pose-plan positions directly, without FK on pose rows.
-
-The execution stages are built once and IK is warmed before the control loop. Analytic IK
-starts from measured joints; differential IK starts from the last dispatched command.
-Both solve only the current target.
-The pipeline receives the last sent command separately for failure holds and
-optional target limiting; the IK solver does not choose fallback commands. A shared budget
-covers all arms. If any arm fails, is nonfinite, or returns late, analytic IK and
-unconstrained-acceleration diffIK hold all groups and reset executor velocity history.
-Acceleration-aware step diffIK instead brakes both arms while retaining velocity history;
-see the constraint contract below. `step_ik_hold` / `step_ik_brake` record these paths; `run.control_timing: true` records the `step_ik` stage. YAM checks a
-cooperative deadline between native solver iterations. Other native solvers are
-checked after return; a long native call cannot be preempted. This is a soft
-budget, not a hard real-time guarantee or proof of physical tracking.
-
-Step mode requires direct execution, inline pose decoding, atomic groups, and
-linear/SLERP blend or sigmoid_smooth handoff. Smooth/MPC future-joint references, joint candidate scoring,
-temporal ensembling, command-cubic blending, waypoint handoff and decoder diffIK
-substeps are rejected explicitly. `execution.ik.backend` selects `analytic` (the
-existing native solver, default) or `diff` (the shared Tianji velocity QP).
-Keep adapter `ik_backend` omitted or `analytic` for pose-only decoding; execution
-backend selection is independent of the adapter's chunk solver.
-
-For step + diffIK, set `execution.ik.backend: diff` and optional
-`execution.ik.diff_ik` tuning. `max_velocity_rad_s` inherits the executor arm cap
-unless explicitly tightened. Step-only `max_acceleration_rad_s2` similarly inherits
-the executor acceleration cap and cannot exceed it. With acceleration enabled, the
-QP jointly constrains velocity change, joint positions and all four wrist planes,
-including a conservative stopping envelope. Both position and velocity history come
-from the final command path, never a speculative or rejected QP result.
-
-It requires composed Tianji kinematics with seven arm joints and one tool coordinate.
-One QP update uses the nominal control period with the tool offset removed once.
-`lag_policy: report` permits bounded progress with residual error; `abort` rejects
-excessive lag. Rejection/deadline and timeline gaps use certified deceleration when
-acceleration-aware, with `step_ik_brake` events and `fallback: brake`; they do not
-reset moving command velocity. The executor remains active with equal or higher
-limits, and its final output is checked against the QP's constraints before dispatch.
-A command history mismatch or unsafe final output fails explicitly.
-QP warm state resets after rejection, pause, Home, timeline gaps and episode warmup.
-Lifecycle pause/Home and emergency stops retain their separate reset behavior.
-Successful updates record `step_diff_ik` events and lag after optional pose limiting.
-This is command rate control, not exact pose IK or measured tracking assurance;
-no trajectory time stretching is introduced. See
-[Tianji step constraints](tianji-diff-ik.md#acceleration-aware-step-execution-2026-10-23)
-for the certificate, units and numerical acceptance rules.
-Ordinary joint adapters need no IK mode and reject `step`.
-
-Step DiffIK may additionally set `execution.ik.diff_ik.elbow_guard_deg: 1.0`
-(default null). It requires the step acceleration constraint and preserves the
-initial M6-40 elbow branch in the QP stopping region. Solver reset and timeline
-gaps retain the branch; only lifecycle `ExecutionPipeline.reset(reanchor=True)`
 ## Sigmoid overlap handoff
 
 `inference.handoff: sigmoid_smooth` is a peer of `blend` and `waypoint`, independent
@@ -741,6 +753,73 @@ Retiming separately allocates path timing, matches progress, and builds the exec
 proposal; the accepted timeline changes only after the final commit checks.
 
 
+## Chunk IK and execution-time IK
+
+`execution.ik.mode` is an experiment setting: `chunk` (default) retains adapter
+chunk decoding, while `step` keeps an absolute TCP trajectory until each control
+tick. `execution.ik.budget_ms` is optional and defaults to half the control period.
+It must be positive and less than one control period.
+
+The step path is adapter pose decoding -> pose ActionTimeline -> one sampled
+pose per group -> ExecutionPipeline (optional PoseSpeedLimiter -> StepIKResolver
+-> DirectExecutor) -> existing safety/send path.
+A pose row is `[x, y, z, qw, qx, qy, qz, gripper]`, in each robot group's base frame,
+with the configured TCP and normalized gripper. Decode relative outputs against
+the request observation anchor, never against a later execution seed. Timeline
+interpolation and blending use linear xyz/gripper and shortest-arc quaternion
+SLERP. Record `absolute_tcp_pose` plan chunks; scheduled/command rows remain joints.
+RoboGUI draws pose-plan positions directly, without FK on pose rows.
+
+The execution stages are built once and IK is warmed before the control loop. Analytic IK
+starts from measured joints; differential IK starts from the last dispatched command.
+Both solve only the current target.
+The pipeline receives the last sent command separately for failure holds and
+optional target limiting; the IK solver does not choose fallback commands. A shared budget
+covers all arms. If any arm fails, is nonfinite, or returns late, analytic IK and
+unconstrained-acceleration diffIK hold all groups and reset executor velocity history.
+Acceleration-aware step diffIK instead brakes both arms while retaining velocity history;
+see the constraint contract below. `step_ik_hold` / `step_ik_brake` record these paths; `run.control_timing: true` records the `step_ik` stage. YAM checks a
+cooperative deadline between native solver iterations. Other native solvers are
+checked after return; a long native call cannot be preempted. This is a soft
+budget, not a hard real-time guarantee or proof of physical tracking.
+
+Step mode requires direct execution, inline pose decoding, atomic groups, and
+linear/SLERP blend or sigmoid_smooth handoff. Smooth/MPC future-joint references, joint candidate scoring,
+temporal ensembling, command-cubic blending, waypoint handoff and decoder diffIK
+substeps are rejected explicitly. `execution.ik.backend` selects `analytic` (the
+existing native solver, default) or `diff` (the shared Tianji velocity QP).
+Keep adapter `ik_backend` omitted or `analytic` for pose-only decoding; execution
+backend selection is independent of the adapter's chunk solver.
+
+For step + diffIK, set `execution.ik.backend: diff` and optional
+`execution.ik.diff_ik` tuning. `max_velocity_rad_s` inherits the executor arm cap
+unless explicitly tightened. Step-only `max_acceleration_rad_s2` similarly inherits
+the executor acceleration cap and cannot exceed it. With acceleration enabled, the
+QP jointly constrains velocity change, joint positions and all four wrist planes,
+including a conservative stopping envelope. Both position and velocity history come
+from the final command path, never a speculative or rejected QP result.
+
+It requires composed Tianji kinematics with seven arm joints and one tool coordinate.
+One QP update uses the nominal control period with the tool offset removed once.
+`lag_policy: report` permits bounded progress with residual error; `abort` rejects
+excessive lag. Rejection/deadline and timeline gaps use certified deceleration when
+acceleration-aware, with `step_ik_brake` events and `fallback: brake`; they do not
+reset moving command velocity. The executor remains active with equal or higher
+limits, and its final output is checked against the QP's constraints before dispatch.
+A command history mismatch or unsafe final output fails explicitly.
+QP warm state resets after rejection, pause, Home, timeline gaps and episode warmup.
+Lifecycle pause/Home and emergency stops retain their separate reset behavior.
+Successful updates record `step_diff_ik` events and lag after optional pose limiting.
+This is command rate control, not exact pose IK or measured tracking assurance;
+no trajectory time stretching is introduced. See
+[Tianji step constraints](tianji-diff-ik.md#acceleration-aware-step-execution-2026-10-23)
+for the certificate, units and numerical acceptance rules.
+Ordinary joint adapters need no IK mode and reject `step`.
+
+Step DiffIK may additionally set `execution.ik.diff_ik.elbow_guard_deg: 1.0`
+(default null). It requires the step acceleration constraint and preserves the
+initial M6-40 elbow branch in the QP stopping region. Solver reset and timeline
+gaps retain the branch; only lifecycle `ExecutionPipeline.reset(reanchor=True)`
 or warmup selects a new anchor. A seed inside the guard is rejected before
 tracking. See [the DiffIK contract](tianji-diff-ik.md#optional-step-elbow-branch-protection-2026-10-23).
 
@@ -851,5 +930,56 @@ proposal without mutating accepted history. Failure follows normal rejection;
 only `on_plan_accepted` advances strategy history. Warmup does not call this hook.
 The recorder preserves the pre-transform `canonical_raw`, the returned `infra_output`
 and committed rows. Dense `runtime_trajectory` rows and timestamps are saved when
-present. The experimental retimed RTC plugin uses this hook; ordinary strategies
-keep their existing path.
+present. The retimed RTC plugin uses this hook for progress matching and handoff.
+For chunk IK, its decode context provides the timing options and frozen RTC prefix to
+both arm workers. Each computes identical knot times from the full predicted TCP and
+aperture paths, then solves its own arm on the resulting clock. The hook crops and
+samples the timed joint trajectory at unit playback rate. Step IK consumes the same
+TCP timing through the pose timeline.
+
+### Dual-arm Tianji F step execution
+
+Select `execution.ik.backend: rl` with the Pack Plate
+[comparison catalog](../../../../manimux/configs/experiments/pack_plate/pi05/dual_arm_ik_20261118/catalog.yaml).
+Both entries use the same 100 Hz direct executor, Pi05 settings, acceleration-aware
+Tianji stopping certificate and 2 ms final-command deadline. Each worker loads its
+own SHA-256-pinned NumPy actor in the peer RL-IK interpreter with CUDA hidden and
+BLAS limited to one thread. Paths under `rl_ik` resolve from the ManiMux repo root.
+Recreate the local exports in the peer repository with
+`CUDA_VISIBLE_DEVICES='' .venv/bin/python scripts/export_step_actor.py <left-F2000> <right-F2000>`.
+Warmup checks side, artifact integrity and FK against the configured TCP.
+
+On each tick the worker starts at the last issued joints, uses the measured
+gripper opening and every second accepted-command sample for the actor's 50 Hz
+history. It repeats the current TCP goal in the four preview slots and updates FK,
+pose history and previous action virtually within the request. The monotonic
+deadline is shared by both arms. `merge_reserve_us` reserves time for IPC return,
+final constraints and execution. The parent limits the total 10 ms command step
+and checks both final executor outputs before accepting the pair. Late or partial
+pairs brake from the previous command and velocity. Gap and lifecycle resets
+discard the sampled history. The caller checks the outer SafetyGuard before its shared-deadline
+acceptance gate, immediately before dispatch. The gate reserves a further
+20 microseconds for handing off the command.
+A deadline controls acceptance. A preempted process or fallback can return later.
+
+`step_rl_ik` and `step_ik_brake` events include per-arm request sequence, completed
+iterations, worker compute milliseconds and timeout state. A pending response has
+unknown iterations until `late_workers` supplies its original sequence and count.
+The runtime drains outstanding telemetry at normal episode finish. Timing covers
+the execution pipeline through the final caller decision, including SafetyGuard.
+Hardware transport follows that decision.
+
+The independent Pack Plate [CUDA configuration](../../../../manimux/configs/experiments/pack_plate/pi05/dual_arm_ik_20261118/pi05_rtc16_rl_cuda_1ms.yaml)
+selects `execution.ik.rl_ik.device: cuda` and `execution.ik.budget_ms: 1.0` with
+actuation disabled. The GPU option supports shared 1 or 2 ms budgets. Install the peer
+in the ManiMux environment with `uv pip install --no-deps -e ../rl-ik-reward-accuracy`.
+Warmup uses the configured peer Python for NVRTC compilation and numerical checks
+against both frozen NumPy actors. The control process uses the CUDA driver on visible
+device 0. A private stream runs the two actors together. Each graph uploads the
+target if needed, runs both refinements and returns the pair to pinned host memory.
+The first graph may borrow from the optional refinement reserve. A completed pair
+is copied before extra work starts, and all candidates pass the same command checks.
+The per-arm `state` identifies a late first graph, reuse of an earlier result from
+the same tick, or a busy stream from a previous tick. Iterations count completed
+steps in the returned candidate. Hardware dispatch and Pi05 GPU contention require
+separate measurements.

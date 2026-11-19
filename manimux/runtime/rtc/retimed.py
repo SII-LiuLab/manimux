@@ -7,12 +7,22 @@ trajectory, including its bridge, on the next observation's fixed H-row grid.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import replace
 
 import numpy as np
 from scipy.spatial.transform import Rotation
 
 from manimux.kinematics.poses import interpolate_pose_rows, pose_matrix
+from manimux.kinematics.retiming import (
+    gripper_transition_weights as gripper_transition_weights,
+)
+from manimux.kinematics.retiming import (
+    plan_path_timing,
+    rotation_distance,
+)
+from manimux.kinematics.retiming import (
+    retime_knots as retime_knots,
+)
 from manimux.policies.base import action_interval_ns
 from manimux.policy_adapter.pose_output import POSE_SPACE
 from manimux.runtime.inference import InferenceSubmission
@@ -70,56 +80,6 @@ def retimed_parameters(options):
     return values
 
 
-def gripper_transition_weights(protected, steps):
-    """Smoothstep from base timing (0) to ordinary retiming (1) outside protection."""
-    protected = np.asarray(protected, dtype=bool)
-    distance = np.full(len(protected), steps + 1, dtype=float)
-    distance[protected] = 0
-    # Shift the original mask, so overlapping ramps merge without growing it.
-    for offset in range(1, min(steps + 1, len(protected))):
-        distance[offset:] = np.minimum(
-            distance[offset:], np.where(protected[:-offset], offset, steps + 1)
-        )
-        distance[:-offset] = np.minimum(
-            distance[:-offset], np.where(protected[offset:], offset, steps + 1)
-        )
-    u = distance / (steps + 1)
-    return u * u * (3 - 2 * u)
-
-
-def retime_knots(distance, protected, dt_s, options, *, speed_protected=None,
-                 transition_weights=None):
-    """Set interval playback budgets, then equalize speed within that budget.
-
-    Gripper motion and the hard RTC prefix retain the configured playback rate.
-    Stationary intervals are excluded from equalization but may be slowed down.
-    """
-    distance = np.asarray(distance, dtype=float)
-    protected = np.asarray(protected, dtype=bool)
-    durations = np.full(len(distance), dt_s)
-    speed_protected = (protected if speed_protected is None
-                       else np.asarray(speed_protected, dtype=bool))
-    durations[~speed_protected] /= options["outside_gripper_speed_ratio"]
-    moving = ~protected
-    if moving.any() and distance[moving].sum() > 1e-12:
-        uniform = distance[moving] / distance[moving].mean()
-        ratio = (1 - options["strength"]) + options["strength"] * uniform
-        # A positive floor avoids deleting low-motion portions; preserve the budget.
-        floor = options["min_interval_ratio"]
-        excess = np.maximum(ratio - floor, 0)
-        ratio = (
-            floor + excess * (len(excess) * (1 - floor) / excess.sum())
-            if excess.sum()
-            else np.ones_like(excess)
-        )
-        durations[moving] *= ratio
-    if transition_weights is not None:
-        # Apply after equalization so it cannot undo the boundary taper. Do not
-        # renormalize the horizon: transitions intentionally change its duration.
-        durations = dt_s + transition_weights * (durations - dt_s)
-    return np.r_[0.0, np.cumsum(durations)]
-
-
 def interpolate_rows(rows, positions):
     p = np.clip(np.asarray(positions), 0, len(rows) - 1)
     lo = np.floor(p).astype(int)
@@ -127,25 +87,11 @@ def interpolate_rows(rows, positions):
     return rows[lo] * (1 - (p - lo))[..., None] + rows[hi] * (p - lo)[..., None]
 
 
-def rotation_distance(a, b):
-    return np.arccos(np.clip((np.einsum("...ij,...ij->...", a, b) - 1) / 2, -1, 1))
-
-
-@dataclass(frozen=True)
-class _RetimedPath:
-    geometry: dict
-    arm_lengths: dict
-    gripper_events: np.ndarray
-    gripper_protected: np.ndarray
-    transition_weights: np.ndarray | None
-    knots: np.ndarray
-    prefix: int
-
-
 class RetimedRtcStrategy(RtcInferenceStrategy):
     """Fixed model grid, variable source progress, executable-reference conditions."""
 
     def __init__(self, config):
+        self.pre_smooth_leads = {}
         self.options = retimed_parameters(config["inference"].get("rtc_retime", {}))
         inf = config["inference"]
         self._pose_mode = config.get("execution", {}).get("ik", {}).get("mode", "chunk") == "step"
@@ -293,49 +239,36 @@ class RetimedRtcStrategy(RtcInferenceStrategy):
             ]) for name, rows in groups.items()
         }
 
+    def prepare_decode_context(self, context):
+        if self._pose_mode:
+            return context
+        return replace(context, tcp_retime_options=self.options,
+                       rtc_prefix_steps=self._request_forecast.get(context.request_seq, 0))
+
     def _retime_path(self, chunk):
-        """Allocate shared dual-arm timing while preserving protected intervals."""
-        opt = self.options
-        dt = chunk.dt_ns / 1e9
-        h = chunk.horizon_steps
-        geo = self._geometry(chunk.groups)
-        increments = []
-        protected = np.zeros(h - 1, dtype=bool)
-        gripper_events = np.zeros(h - 1, dtype=bool)
-        arm_lengths = {}
-        for name, transforms in geo.items():
-            xyz = transforms[:, :3, 3]
-            translation = np.linalg.norm(np.diff(xyz, axis=0), axis=1)
-            rotation = rotation_distance(transforms[:-1, :3, :3], transforms[1:, :3, :3])
-            increments.append(np.hypot(translation, opt["rotation_radius_m"] * rotation))
-            arm_lengths[name] = np.r_[0, np.cumsum(translation)]
-            gripper_events |= (
-                np.abs(np.diff(chunk.groups[name][:, -1])) >= opt["gripper_event_delta"]
-            )
-            protected |= np.abs(np.diff(chunk.groups[name][:, -1])) >= opt["gripper_motion_delta"]
-        protected |= gripper_events
-        # Expand from the original motion mask only, without recursively padding.
-        for index in np.flatnonzero(protected):
-            protected[max(0, index - opt["gripper_protect_before_steps"]):index] = True
-        gripper_protected = protected.copy()
-        distance = np.max(increments, axis=0)
-        protected |= distance < opt["stationary_distance_m"]
-        # Keep the hard RTC prefix's original time allocation; it represents overlap.
         prefix = self._request_forecast.get(chunk.request_seq, 0)
-        protected[:prefix] = True
-        speed_protected = gripper_protected.copy()
-        speed_protected[:prefix] = True
-        transition_weights = (
-            gripper_transition_weights(gripper_protected, opt["gripper_transition_steps"])
-            if opt["gripper_transition_steps"] else None
-        )
-        knots = retime_knots(
-            distance, protected, dt, opt, speed_protected=speed_protected,
-            transition_weights=transition_weights,
-        )
-        return _RetimedPath(
-            geo, arm_lengths, gripper_events, gripper_protected, transition_weights, knots, prefix,
-        )
+        knots = chunk.metadata.get("pre_ik_knots_s")
+        if knots is not None:
+            # The decoder already solved the entire path on this clock.
+            if chunk.policy_targets is None or chunk.runtime_trajectory is None:
+                raise ValueError("Pre-IK timing requires TCP targets and timed joint samples")
+            groups = chunk.policy_targets
+            geometry = {name: np.stack([pose_matrix(row[:7]) for row in rows])
+                        for name, rows in groups.items()}
+            knots = np.asarray(knots, dtype=float)
+            if (knots.shape != (chunk.horizon_steps,) or not np.isfinite(knots).all()
+                    or knots[0] != 0 or np.any(np.diff(knots) <= 0)):
+                raise ValueError("Invalid pre-IK knot clock")
+        else:
+            if not self._pose_mode and (
+                chunk.metadata.get("ik_backend") or chunk.policy_targets is not None
+            ):
+                raise ValueError("Retimed IK chunk missing its pre-IK TCP timing")
+            groups = chunk.groups
+            geometry = self._geometry(groups)
+        apertures = {name: rows[:, -1] for name, rows in groups.items()}
+        return plan_path_timing(geometry, apertures, chunk.dt_ns / 1e9, self.options,
+                                prefix, knots=knots)
 
     def _outgoing_progress(self, chunk, now_ns, timeline, measured, current_command, old):
         """Measure traveled distance and recent direction on the outgoing reference."""
@@ -451,9 +384,16 @@ class RetimedRtcStrategy(RtcInferenceStrategy):
                     break
                 valid = True
                 for name in self._group_order:
-                    pose = self._reference_pose(
-                        name, self._interpolate(chunk.groups[name], candidates[index])
-                    )
+                    position = candidates[index]
+                    if "pre_ik_knots_s" in chunk.metadata:
+                        sampled = chunk.runtime_trajectory
+                        elapsed_s = np.interp(position, np.arange(h), knots)
+                        row = interpolate_rows(
+                            sampled.groups[name], elapsed_s * 1e9 / sampled.dt_ns
+                        )
+                    else:
+                        row = self._interpolate(chunk.groups[name], position)
+                    pose = self._reference_pose(name, row)
                     if (
                         np.linalg.norm(pose[:3, 3] - current_geo[name][0, :3, 3])
                         > opt["max_position_gap_m"]
@@ -510,7 +450,7 @@ class RetimedRtcStrategy(RtcInferenceStrategy):
             ):
                 raise ValueError("retimed_bridge_outside_joint_bounds")
 
-    def _handoff_protection_time(self, path, phase_time, now_ns, available, remaining):
+    def _handoff_protection_time(self, path, phase_time, now_ns):
         """Map the first remaining gripper protection/ramp to the execution clock."""
         protect_from_ns = None
         if self._sigmoid_handoff:
@@ -519,7 +459,7 @@ class RetimedRtcStrategy(RtcInferenceStrategy):
                 protect |= path.transition_weights < 1.0
             upcoming = np.flatnonzero(protect & (path.knots[1:] > phase_time))
             if len(upcoming):
-                lead = max(0.0, path.knots[upcoming[0]] - phase_time) * available / remaining
+                lead = max(0.0, path.knots[upcoming[0]] - phase_time)
                 protect_from_ns = now_ns + int(lead * 1e9)
         return protect_from_ns
 
@@ -548,11 +488,16 @@ class RetimedRtcStrategy(RtcInferenceStrategy):
         dense_times = np.arange(dense_count) * runtime_dt / 1e9
         available = (end_ns - now_ns) / 1e9
         source_phase = np.interp(
-            phase_time + dense_times * remaining / available, knots, np.arange(h)
+            phase_time + dense_times, knots, np.arange(h)
         )
         dense = {}
         for name, rows in chunk.groups.items():
-            if chunk.runtime_trajectory is None:
+            if "pre_ik_knots_s" in chunk.metadata:
+                original = chunk.runtime_trajectory
+                # Read the solved joint path at elapsed execution time, at 1x.
+                positions = (phase_time + dense_times) * 1e9 / original.dt_ns
+                dense[name] = interpolate_rows(original.groups[name], positions)
+            elif chunk.runtime_trajectory is None:
                 dense[name] = self._interpolate(rows, source_phase)
             else:
                 original = chunk.runtime_trajectory
@@ -564,6 +509,16 @@ class RetimedRtcStrategy(RtcInferenceStrategy):
         self._bridge_and_validate(
             dense, dense_times, runtime_dt, bridge, current_command, command_velocity,
         )
+        executor_groups = None
+        if self.pre_smooth_leads:
+            if chunk.metadata.get("ik_backend") != "diff" or "pre_ik_knots_s" not in chunk.metadata:
+                raise ValueError("Pre-smooth lead requires a timed dense differential IK solution")
+            solved = chunk.runtime_trajectory
+            positions = (phase_time + dense_times) * 1e9 / solved.dt_ns
+            executor_groups = {
+                name: lead.shape(solved.groups[name], solved.dt_ns, positions, dense[name])
+                for name, lead in self.pre_smooth_leads.items()
+            }
         # Canonical execution rows mirror the dense executable path, rather than
         # retaining stale pre-retiming rows for the next RTC request.
         times = chunk.observation_time_ns + np.arange(count, dtype=np.int64) * chunk.dt_ns
@@ -572,17 +527,17 @@ class RetimedRtcStrategy(RtcInferenceStrategy):
             for name, rows in dense.items()
         }
         mapping = np.interp(
-            phase_time + np.maximum(0, (times - now_ns) / 1e9) * remaining / available,
+            phase_time + np.maximum(0, (times - now_ns) / 1e9),
             knots,
             np.arange(h),
         )
         protect_from_ns = self._handoff_protection_time(
-            path, phase_time, now_ns, available, remaining,
+            path, phase_time, now_ns,
         )
         metadata = {
             **chunk.metadata,
             "rtc_retime": {
-                "schema": "rtc-retime-v1",
+                "schema": "rtc-retime-v2",
                 "strength": opt["strength"],
                 "outside_gripper_speed_ratio": opt["outside_gripper_speed_ratio"],
                 "base_playback_hz": 1 / dt,
@@ -613,7 +568,7 @@ class RetimedRtcStrategy(RtcInferenceStrategy):
         return replace(
             chunk,
             groups=groups,
-            runtime_trajectory=RuntimeTrajectory(now_ns, runtime_dt, dense),
+            runtime_trajectory=RuntimeTrajectory(now_ns, runtime_dt, dense, executor_groups),
             handoff_protect_from_ns=protect_from_ns,
             metadata=metadata,
         )

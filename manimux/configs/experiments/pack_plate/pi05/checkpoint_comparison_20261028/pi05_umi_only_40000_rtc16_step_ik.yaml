@@ -57,6 +57,7 @@ robogui:
   robot: tianji-taccap
   policy_label: Pi05 / UMI Only / 40000 / Step DiffIK / RTC 16 / Step DiffIK
 recording:
+  config: recording.yaml
   enabled: true
 inference:
   decode_forecast_size: 0

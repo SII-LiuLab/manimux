@@ -35,6 +35,7 @@ class ActionReplayRoboGUI:
         server=None,
         timestamps_ns: np.ndarray | None = None,
         source_label: str = "joint targets",
+        scene_root: str = "",
     ):
         if not np.isfinite(action_dt_s) or action_dt_s <= 0:
             raise ValueError("action_dt_s must be finite and positive")
@@ -56,6 +57,10 @@ class ActionReplayRoboGUI:
         self._position = 0.0
         self._last_time = time.monotonic()
         self._rendered = None
+        self.plugins = []
+        self.scene_root = scene_root.rstrip("/")
+        self._owns_server = server is None
+        self._closed = False
         self.server = server or viser.ViserServer(
             host=host, port=port, label="ManiMux Action Replay"
         )
@@ -100,7 +105,8 @@ class ActionReplayRoboGUI:
 
             self.tick()
         except BaseException:
-            self.server.stop()
+            if self._owns_server:
+                self.server.stop()
             raise
 
     def _build_scene(self):
@@ -111,27 +117,27 @@ class ActionReplayRoboGUI:
         self.server.initial_camera.look_at = view.camera_look_at
         self.server.initial_camera.up = (0.0, 0.0, 1.0)
         scene.add_grid(
-            "/floor",
+            f"{self.scene_root}/floor",
             width=view.grid_size[0],
             height=view.grid_size[1],
             position=view.grid_position,
         )
         for box in self.robot.scene_boxes:
             scene.add_box(
-                f"/environment/{box.name}",
+                f"{self.scene_root}/environment/{box.name}",
                 dimensions=box.dimensions,
                 position=box.position,
                 color=box.color,
             )
         for mesh in self.robot.static_meshes:
-            root = f"/environment/{mesh.name}"
+            root = f"{self.scene_root}/environment/{mesh.name}"
             scene.add_frame(root, show_axes=False, position=mesh.position, wxyz=mesh.orientation)
             ViserUrdf(self.server, mesh.urdf_path, root_node_name=root)
         self.robot_handles = {}
         for group in self.robot.groups:
             if group.urdf_path is None:
                 raise ValueError(f"Action replay requires URDF geometry for {group.name}")
-            root = f"/actions/{group.name}"
+            root = f"{self.scene_root}/actions/{group.name}"
             scene.add_frame(
                 root,
                 show_axes=False,
@@ -144,12 +150,16 @@ class ActionReplayRoboGUI:
 
     def seek(self, index: int) -> None:
         with self._lock:
+            if self._closed:
+                return
             self._position = float(self.times[int(np.clip(index, 0, self.count - 1))])
             self._last_time = time.monotonic()
             self.tick(now=self._last_time)
 
     def tick(self, *, now: float | None = None) -> None:
         with self._lock:
+            if self._closed:
+                return
             now = time.monotonic() if now is None else now
             if self.play.value:
                 self._position = min(
@@ -173,9 +183,20 @@ class ActionReplayRoboGUI:
                     f"time **{self.times[index]:.3f} s** · {self.source_label}"
                 )
             self._rendered = index
+            for plugin in self.plugins:
+                plugin.update(index)
 
     def close(self) -> None:
-        self.server.stop()
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            try:
+                for plugin in self.plugins:
+                    plugin.close()
+            finally:
+                if self._owns_server:
+                    self.server.stop()
 
 
 def serve_action_replay(path: Path, robot: RobotView, *, action_dt_s: float, host: str, port: int):

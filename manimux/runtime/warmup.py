@@ -13,6 +13,7 @@ from manimux.runtime.inference import (
     StrategyChunkSelector,
     build_warmup_submission,
     decode_strategy_action,
+    prepare_decode_context,
     seed_strategy_warmup,
 )
 from manimux.timing import stage
@@ -144,6 +145,7 @@ class PolicyWarmup:
             ik_seed_source="observation_state",
             max_source_steps=self.config["policy"]["horizon_policy_steps"],
         )
+        context = prepare_decode_context(self.strategy, context)
         if self.decoder is not None:
             # Reuse the runtime-owned decoder while formal scheduling is paused.
             # No next request or backend reset can pass this pending decode.

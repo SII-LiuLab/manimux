@@ -238,6 +238,12 @@ class ActionDecoderClient:
             ):
                 raise ValueError("action decode partitions have mismatched handoffs")
             merged.groups.update(other.groups)
+            if merged.policy_targets is None or other.policy_targets is None:
+                # An independent-group fallback can be a held trajectory with
+                # no model target; omit evidence instead of changing execution.
+                merged.policy_targets = None
+            else:
+                merged.policy_targets.update(other.policy_targets)
             merged_runtime = merged.runtime_trajectory
             other_runtime = other.runtime_trajectory
             if (merged_runtime is None) != (other_runtime is None):

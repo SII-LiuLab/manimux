@@ -94,9 +94,23 @@ envs/yam/.venv/bin/python -m manimux.robogui.replay \
 
 Sources are `state` (measured), `scheduled` (timeline reference), and `command`
 (executor output, not hardware receipt). The shared player starts paused, supports
-seeking/speed, and preserves `ticks/monotonic_ns` intervals. No RGB playback or hardware
-connection is performed. Use `--config /path/to/robogui.yaml` instead of `--robot` for
-custom offline display models. Missing streams and `.partial` episodes are rejected.
+seeking/speed, and preserves `ticks/monotonic_ns` intervals. No hardware connection is
+performed. Use `--config /path/to/robogui.yaml` instead of `--robot` for custom displays.
+Add `--plugin tracking` for indexed RGB video, error curves and a chunk execution/request
+timeline. The tracking layout gives both wrist videos and per-arm curves the main
+viewport, with shared playback controls and a full-width chunk timeline. The optional
+`Show 3D reference` control reveals the robot scene (hidden by default); wrist panels
+stack on narrow screens. `--allow-partial` admits interrupted episodes only after `result.json` exists.
+Empty or actively written episodes remain unavailable.
+
+Tracking compares pre-IK policy targets with decoded IK at the same source phase, and
+that trajectory with simultaneous encoder-derived TCP. Retimed source phase comes from
+the saved knot clock/matched phase; the execution reference also includes the bridge.
+Pi05 Tianji now records `canonical_raw/policy_targets` (`absolute-tcp-targets-v1`,
+per-group-base xyz/qwxyz/gripper rows). Historical missing targets are never replaced
+with post-IK rows or per-chunk maxima. Unsupported waypoint/step-IK mappings stay missing.
+New request/rejection events have monotonic timestamps. Historical rejection markers
+with no decision time are anchored to their request observation and labelled.
 
 ## Interpretation
 

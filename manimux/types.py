@@ -118,6 +118,8 @@ class ActionContext:
     handoff_reference: ActionHorizon | None = None
     # Timestamped accepted joint trajectory; independent of measured model input.
     decode_reference: ActionHorizon | None = None
+    tcp_retime_options: dict | None = None
+    rtc_prefix_steps: int = 0
 
 
 @dataclass(slots=True)
@@ -127,11 +129,18 @@ class RuntimeTrajectory:
     start_time_ns: int
     dt_ns: int
     groups: GroupTrajectory
+    # Optional executor-only targets on exactly the same grid as groups.
+    executor_groups: GroupTrajectory | None = None
 
     def __post_init__(self) -> None:
         if self.dt_ns <= 0:
             raise ValueError("runtime trajectory dt_ns must be positive")
         self.groups = _trajectory_groups(self.groups, label="runtime trajectory")
+        if self.executor_groups is not None:
+            self.executor_groups = _trajectory_groups(self.executor_groups, label="executor trajectory")
+            if (self.executor_groups.keys() != self.groups.keys() or
+                    any(self.executor_groups[g].shape != rows.shape for g, rows in self.groups.items())):
+                raise ValueError("Executor trajectory must match the runtime joint grid")
 
     @property
     def horizon_steps(self) -> int:
@@ -159,10 +168,15 @@ class ActionChunk:
     source_offset_steps: int = 0  # Leading source rows already removed by the adapter.
     metadata: dict[str, object] = field(default_factory=dict)  # Adapter-specific plan details.
     hold_from_step: dict[str, int] = field(default_factory=dict)  # First invalid row by group.
-    # Optional denser joint or TCP path in this chunk's action_space. Source groups/dt/horizon
+    # Optional denser joint or TCP path. Its action_space is the owning chunk's.
+    # Source groups/dt/horizon
     # remain the model-side contract used by scheduling, RTC and visualization.
     runtime_trajectory: RuntimeTrajectory | None = None
     handoff: AppliedHandoff | None = None  # Set when the chunk starts from a waypoint handoff.
+    # Original pre-IK absolute TCP rows [xyz, qwxyz, gripper], in each group base.
+    # Row zero is observation_time_ns; spacing is the original chunk dt_ns.
+    # Retained for recording only; never used to command hardware.
+    policy_targets: GroupTrajectory | None = None
     # Runtime handoff may not modify references at/after this protected event.
     handoff_protect_from_ns: int | None = None
 
@@ -176,6 +190,12 @@ class ActionChunk:
         ):
             raise ValueError("handoff_protect_from_ns must be a non-negative integer or null")
         self.groups = _trajectory_groups(self.groups, label="action chunk")
+        if self.policy_targets is not None:
+            self.policy_targets = _trajectory_groups(self.policy_targets, label="policy targets")
+            if set(self.policy_targets) != set(self.groups) or any(
+                rows.shape[1] != 8 for rows in self.policy_targets.values()
+            ):
+                raise ValueError("policy targets require one absolute TCP pose/gripper per group")
         if self.runtime_trajectory is not None and set(self.runtime_trajectory.groups) != set(
             self.groups
         ):
@@ -250,8 +270,12 @@ def copy_action_chunk(chunk: ActionChunk) -> ActionChunk:
                     name: values.copy()
                     for name, values in chunk.runtime_trajectory.groups.items()
                 },
+                executor_groups=(None if chunk.runtime_trajectory.executor_groups is None
+                                 else copy_group_vector(chunk.runtime_trajectory.executor_groups)),
             )
         ),
         handoff=chunk.handoff,
         handoff_protect_from_ns=chunk.handoff_protect_from_ns,
+        policy_targets=(None if chunk.policy_targets is None else
+                        {name: rows.copy() for name, rows in chunk.policy_targets.items()}),
     )

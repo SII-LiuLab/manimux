@@ -17,16 +17,31 @@ from manimux.robogui.replay_data.replay import JointReplay, load_joint_replay
 from .robots.base import RobotAdapter
 
 
-def create_recorded_replay(episode, robot, *, source="state", host="127.0.0.1", port=8087):
+def create_recorded_replay(episode, robot, *, source="state", host="127.0.0.1", port=8087,
+                           plugin=None, allow_partial=False, server=None, scene_root=""):
     """Reuse recorded timestamps and the shared, hardware-free trajectory player."""
     from .action_replay import ActionReplayRoboGUI
     from .records import SOURCES, load_episode_trajectory
 
-    actions, stamps = load_episode_trajectory(episode, source, robot)
-    return ActionReplayRoboGUI(
+    actions, stamps = load_episode_trajectory(episode, source, robot, allow_partial=allow_partial)
+    player = ActionReplayRoboGUI(
         actions, robot, action_dt_s=1.0, timestamps_ns=stamps,
         source_label=SOURCES[source], host=host, port=port,
+        server=server, scene_root=scene_root,
     )
+    if plugin is not None:
+        from manimux.plugins import load_plugin
+        try:
+            factory = load_plugin(plugin, group="manimux.replay", builtins={
+                "tracking": "manimux.robogui.tracking_replay:TrackingReplayPlugin",
+            })
+            extension = factory(player, Path(episode))
+            player.plugins.append(extension)
+            extension.update(0)
+        except BaseException:
+            player.close()
+            raise
+    return player
 
 
 def main() -> None:
@@ -37,15 +52,20 @@ def main() -> None:
     from .robot_view import load_robogui_config, load_robot_view
 
     parser = argparse.ArgumentParser(
-        description="Replay a finalized experiment trajectory; no robot connection or RGB video playback."
+        description="Offline recorded trajectory replay with optional synchronized video/tracking plugins."
     )
     parser.add_argument("--episode", type=Path, required=True, help="Finalized rollout directory")
+    parser.add_argument("--replay-root", type=Path,
+                        help="Enable hierarchical rollout selection below this recording directory")
     model = parser.add_mutually_exclusive_group(required=True)
     model.add_argument("--robot", help="RoboGUI robot preset, e.g. yam")
     model.add_argument("--config", type=Path, help="Custom RoboGUI YAML with offline RobotModel")
     parser.add_argument("--source", choices=tuple(SOURCES), default="state",
                         help="state: measured; scheduled: timeline reference; command: executor output")
     parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--plugin", help="Replay plugin: tracking, an entry point, or module:factory")
+    parser.add_argument("--allow-partial", action="store_true",
+                        help="Read an interrupted episode only after result.json was written")
     parser.add_argument("--port", type=int, default=8087)
     args = parser.parse_args()
     if not 0 <= args.port <= 65535:
@@ -54,9 +74,13 @@ def main() -> None:
     try:
         config = load_robogui_config(args.config, robot=args.robot)
         robot = load_robot_view(config)
-        robogui = create_recorded_replay(
-            episode, robot, source=args.source, host=args.host, port=args.port,
-        )
+        options = dict(source=args.source, host=args.host, port=args.port,
+                       plugin=args.plugin, allow_partial=args.allow_partial)
+        if args.replay_root is not None:
+            from .replay_browser import RecordedReplayBrowser
+            robogui = RecordedReplayBrowser(args.replay_root, episode, robot, **options)
+        else:
+            robogui = create_recorded_replay(episode, robot, **options)
     except (OSError, ValueError, KeyError) as exc:
         parser.error(str(exc))
     print(f"Recorded trajectory: {episode} · ticks/{args.source}")

@@ -11,23 +11,42 @@ from manimux.runtime.pose_limits import pose_speed_limit_parameters
 
 
 def ik_parameters(**options):
-    unknown = set(options) - {"mode", "backend", "diff_ik", "budget_ms", "pose_speed_limit"}
+    unknown = set(options) - {
+        "mode", "backend", "diff_ik", "budget_ms", "pose_speed_limit", "rl_ik",
+        "final_command_deadline",
+    }
     if unknown:
         raise ValueError(f"unknown execution.ik fields: {sorted(unknown)}")
     values = {
         "mode": "chunk", "backend": "analytic", "diff_ik": None,
-        "budget_ms": None, "pose_speed_limit": None, **options,
+        "budget_ms": None, "pose_speed_limit": None, "rl_ik": None,
+        "final_command_deadline": False, **options,
     }
     if values["mode"] not in {"chunk", "step"}:
         raise ValueError("execution.ik.mode must be chunk or step")
-    if values["backend"] not in {"analytic", "diff"}:
-        raise ValueError("execution.ik.backend must be analytic or diff")
-    if values["backend"] == "diff" and values["mode"] != "step":
+    if values["backend"] not in {"analytic", "diff", "rl"}:
+        raise ValueError("execution.ik.backend must be analytic, diff or rl")
+    if values["backend"] in {"diff", "rl"} and values["mode"] != "step":
         raise ValueError(
-            "execution.ik.backend=diff requires mode=step; chunk IK belongs to the adapter"
+            "constrained IK requires mode=step; chunk IK belongs to the adapter"
         )
-    if values["diff_ik"] is not None and values["backend"] != "diff":
-        raise ValueError("execution.ik.diff_ik requires backend=diff")
+    if values["diff_ik"] is not None and values["backend"] not in {"rl", "diff"}:
+        raise ValueError("execution.ik.diff_ik tuning requires backend=diff or rl")
+    if values["rl_ik"] is not None and not isinstance(values["rl_ik"], dict):
+        raise ValueError("rl_ik requires a mapping")
+    if (values["backend"] == "rl") != (values["rl_ik"] is not None):
+        raise ValueError("backend rl requires an rl_ik worker configuration")
+    if values["backend"] == "rl":
+        values["final_command_deadline"] = True
+        device = values["rl_ik"].get("device", "cpu")
+        if device not in {"cpu", "cuda"}:
+            raise ValueError("rl_ik.device must be cpu or cuda")
+        if device == "cuda" and values["budget_ms"] not in (1, 2):
+            raise ValueError("paired CUDA F requires a shared 1 or 2 ms deadline")
+        if device == "cpu" and values["budget_ms"] != 2:
+            raise ValueError("the dual-arm F configuration requires a shared 2 ms budget")
+    if values["final_command_deadline"] and values["backend"] not in {"rl", "diff"}:
+        raise ValueError("final_command_deadline requires a constrained step backend")
     budget = values["budget_ms"]
     if budget is not None and (not np.isfinite(budget) or budget <= 0):
         raise ValueError("execution.ik.budget_ms must be positive and finite")
@@ -94,7 +113,7 @@ def validate_ik_config(config):
             "select execution.ik.backend=diff for execution-time differential IK"
         )
     execution = config["execution"]["ik"]
-    if execution.get("backend", "analytic") == "diff":
+    if execution.get("backend", "analytic") in {"diff", "rl"}:
         from manimux.kinematics.tianji_diff import step_diff_config
 
         step_diff_config(config["executor"].get("motion_limits"), execution.get("diff_ik"))
@@ -112,13 +131,14 @@ class StepIKResolver:
     """
 
     def __init__(self, kinematics, *, budget_ms, backend="analytic", diff_ik=None,
-                 motion_limits=None, control_dt_ns=None):
+                 motion_limits=None, control_dt_ns=None, rl_ik=None):
         self.models = kinematics.models
         self.budget_ns = int(budget_ms * 1e6)
         self.last_result = {}
         self.backend = backend
         self.diff = None
-        if backend == "diff":
+        self.rl = None
+        if backend in {"diff", "rl"}:
             from manimux.kinematics.tianji_diff import TianjiStepDifferentialIK, step_diff_config
 
             self.diff = TianjiStepDifferentialIK(
@@ -131,6 +151,30 @@ class StepIKResolver:
                 raise ValueError(
                     "step diffIK velocity exceeds executor's effective max_step_dt_s cap"
                 )
+
+        if backend == "rl":
+            if control_dt_ns != 10_000_000 or not self.acceleration_limited:
+                raise ValueError("F execution requires acceleration limits and 100 Hz control")
+            if any(s.config.lag_policy != "report" for s in self.diff.solvers.values()):
+                raise ValueError("RL step execution supports lag_policy=report")
+            options = dict(rl_ik)
+            device = options.pop("device", "cpu")
+            if device == "cuda":
+                from manimux.runtime.rl_step_cuda import GPURefiner
+
+                self.rl = GPURefiner(options)
+                if self.rl.reserve_ns >= self.budget_ns:
+                    raise ValueError("paired CUDA merge reserve must fit the tick budget")
+            elif device == "cpu":
+                from manimux.runtime.rl_step import DualArmRefiner
+
+                self.rl = DualArmRefiner(options)
+            else:
+                raise ValueError(f"unknown paired F device: {device}")
+
+    def close(self):
+        if self.rl is not None:
+            self.rl.close()
 
     @property
     def acceleration_limited(self):
@@ -153,6 +197,8 @@ class StepIKResolver:
                 raise ValueError(f"final step diffIK command rejected: {name}:{reason}")
 
     def reset(self, *, reanchor=False):
+        if self.rl is not None:
+            self.rl.history.clear()
         if self.diff is not None:
             self.diff.reset()
             if reanchor:
@@ -173,7 +219,10 @@ class StepIKResolver:
                 solver = self.diff.solvers[name]
                 if getattr(solver.config, "elbow_guard_deg", None) is not None:
                     solver.ensure_elbow_branch(q[:7])
-                self.diff.solve(name, self.models[name].fk(q), q, q[-1], np.zeros(7))
+                if self.rl is None:
+                    self.diff.solve(name, self.models[name].fk(q), q, q[-1], np.zeros(7))
+            if self.rl is not None:
+                self.rl.warmup(self.models, groups)
             return
         for name, q in groups.items():
             model = self.models[name]
@@ -191,7 +240,28 @@ class StepIKResolver:
                     deadline_ns=time.monotonic_ns() + max(self.budget_ns, 5_000_000_000),
                 )
 
-    def resolve(self, reference, seed, *, deadline_ns=None, command_velocity=None):
+    def _refine_pair(self, reference, seed, measured, command_velocity, deadline):
+        output = {}
+        failure = None
+        candidates, diagnostics, late = self.rl.propose(reference, seed, measured, deadline)
+        dt = self.diff.dt_s
+        for name, q in candidates.items():
+            solver = self.diff.solvers[name]
+            start = seed[name][:7]
+            old_v = command_velocity[name][:7]
+            joint, fraction = solver.constrain_increment(start, q, old_v, dt)
+            diagnostics[name]["wrist_fraction"] = fraction
+            reason = solver.command_violation(start, joint, old_v, dt)
+            diagnostics[name]["constraint"] = reason
+            if reason is None:
+                output[name] = np.r_[joint, reference.groups[name][0, 7]]
+            else:
+                failure = f"{name}:{reason}"
+        if set(output) != set(seed):
+            failure = failure or "incomplete_pair"
+        return output, diagnostics, late, failure
+
+    def resolve(self, reference, seed, *, deadline_ns=None, command_velocity=None, measured=None):
         if reference.action_space != POSE_SPACE or set(reference.groups) != set(seed):
             raise ValueError("step IK requires a complete pose reference matching seed groups")
         started = time.monotonic_ns()
@@ -199,7 +269,11 @@ class StepIKResolver:
         output = {}
         diagnostics = {}
         failure = None
-        for name, rows in reference.groups.items():
+        if self.rl is not None:
+            output, diagnostics, late, failure = self._refine_pair(
+                reference, seed, measured, command_velocity, deadline,
+            )
+        for name, rows in (reference.groups.items() if self.rl is None else ()):
             if time.monotonic_ns() >= deadline:
                 failure = "budget_exceeded"
                 break
@@ -251,10 +325,12 @@ class StepIKResolver:
             "elapsed_ms": elapsed / 1e6,
             "success": failure is None,
             "reason": failure or ("ok" if self.diff is not None else "converged"),
-            **({"diff_ik": diagnostics} if self.diff is not None else {}),
+            **({"rl_ik": diagnostics, "late_workers": late} if self.rl is not None else
+               {"diff_ik": diagnostics} if self.diff is not None else {}),
         }
         if failure:
-            self.reset()
+            if self.rl is None:
+                self.reset()
             return None
         return replace(
             reference,

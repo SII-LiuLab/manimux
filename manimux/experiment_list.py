@@ -45,25 +45,40 @@ def shared_service_contract(config: dict) -> dict:
     Runtime strategies/executors are rebuilt by Prepare and may differ.
     """
     policy = config["policy"]
+    adapter = dict(policy.get("adapter") or {})
+    if adapter.get("type") == "manimux.policy_adapter.pi05.tianji:Pi05PackPlateTacCapAdapter":
+        if adapter.get("gripper_mapping") is None:
+            adapter.pop("gripper_mapping", None)
+        # Prepare constructs the local IK decoder for the selected method.
+        for key in ("ik_backend", "diff_ik", "execute_diff_ik_substeps", "handoff_waypoint"):
+            adapter.pop(key, None)
+    policy_contract = {key: policy.get(key) for key in (
+        "worker", "service", "options", "expected_backend", "action_dt_s", "horizon_policy_steps",
+    )}
+    policy_contract["adapter"] = adapter
     return {
         "policy_server": config.get("policy_server"),
         "camera_server": config.get("camera_server"),
         "robot": config["robot"],
         "sensors": config["sensors"],
         "robogui": config["robogui"]["robot"],
-        "policy": {
-            key: policy.get(key)
-            for key in (
-                "worker",
-                "service",
-                "adapter",
-                "options",
-                "expected_backend",
-                "action_dt_s",
-                "horizon_policy_steps",
-            )
-        },
+        "policy": policy_contract,
     }
+
+
+def _station_robot_contract(robot: dict) -> dict:
+    """Compare the physical station separately from per-rollout TacCap grasp settings."""
+    if robot.get("type") != "tianji_taccap":
+        return robot
+    station = deepcopy(robot)
+    components = station.get("options", {}).get("component_hardware", {})
+    for name in ("left_end_effector", "right_end_effector"):
+        settings = components.get(name, {})
+        for key in ("control_mode", "grasp_torque_nm", "close_speed_radps"):
+            settings.pop(key, None)
+        if not settings:
+            components.pop(name, None)
+    return station
 
 
 class ExperimentList:
@@ -187,6 +202,7 @@ def load_experiment_list(
             raise ValueError(f"Experiment {choice_id} requires robogui.enabled=true")
         current = shared_service_contract(config)
         station = {key: current[key] for key in ("camera_server", "robot", "robogui")}
+        station["robot"] = _station_robot_contract(current["robot"])
         if station_contract is not None and station != station_contract:
             changed = [key for key in station if station[key] != station_contract[key]]
             raise ValueError(

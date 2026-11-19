@@ -396,6 +396,11 @@ def seed_strategy_warmup(
         method(latency_ns=latency_ns)
 
 
+def prepare_decode_context(strategy, context: ActionContext) -> ActionContext:
+    prepare = getattr(strategy, "prepare_decode_context", None)
+    return context if prepare is None else prepare(context)
+
+
 def prepare_strategy_chunk(
     strategy: InferenceStrategy,
     *,

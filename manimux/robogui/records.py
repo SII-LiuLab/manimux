@@ -17,10 +17,10 @@ SOURCES = {
 
 
 def load_episode_trajectory(
-    episode: Path, source: str, robot: RobotView,
+    episode: Path, source: str, robot: RobotView, *, allow_partial: bool = False,
 ) -> tuple[dict[str, np.ndarray], np.ndarray]:
     """Read tick samples with their original host times; never resample feedback."""
-    if episode.name.endswith(".partial") or not (episode / "result.json").is_file():
+    if (episode.name.endswith(".partial") and not allow_partial) or not (episode / "result.json").is_file():
         raise ValueError("Choose a finalized episode with result.json")
     if source not in SOURCES:
         raise ValueError("Choose state, scheduled or command")
@@ -34,6 +34,8 @@ def load_episode_trajectory(
     )
     stamps = np.asarray(ticks["monotonic_ns"], dtype=np.int64)
     count = len(next(iter(actions.values())))
+    if count == 0:
+        raise ValueError("Episode has no recorded control ticks")
     if stamps.shape != (count,) or np.any(np.diff(stamps) <= 0):
         raise ValueError("Recorded timestamps must match samples and strictly increase")
     return actions, stamps

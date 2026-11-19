@@ -100,6 +100,11 @@ inference:
   expected_decode_s: 0.0
   decode_forecast_size: 0
 executor:
+  tianji_position_lead:
+    lead_ms: 66
+    ka_s2: 0.0024
+    accel_cap_deg: 0.5
+    max_offset_deg: 5
   config: ../../pack_plate/pi05/checkpoint_comparison_20261028/executor.yaml
   smooth:
     gripper:

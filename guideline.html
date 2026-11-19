@@ -169,18 +169,46 @@ root in four terminals, using the same experiment in cameras, model and runtime.
 </code></pre>
 <p>Open <code>http://127.0.0.1:8086</code>. <code>serve</code> waits for GUI preparation; it does not launch the other
 three services. <strong>Prepare can connect hardware and move to the configured start pose.</strong>
-Use <strong>Prepare → adjust layout → Activate Warmup → Start rollout → Finish</strong>.</p><p>Recovery controls follow the connected runtime's declared capabilities and arm selections. When idle Home is available, <strong>Finish rollout</strong> does not home; use <strong>Return Home</strong>, which applies to all configured arms. Otherwise Finish preserves the experiment's <code>home_on_close</code>. Drag and Release finish an active rollout without homing. Tianji Release offers continuous or five-second cooperative hand-guiding when declared; loss of the recovery lease cancels it. Release does not enforce ManiMux joint-position limits or a five-degree margin; controller faults and feedback remain monitored.</p><p>Pack-plate deployments select <code>tianji_taccap_pack_plate.yaml</code> for the saved <code>pack_plate_start</code> Home. Update older bound configurations and use Reload config while idle to load changed assembly control settings.</p><p>
+Use <strong>Prepare → adjust layout → Activate Warmup → Start rollout → Finish</strong>.</p>
+<p>For an early Release exit, the runtime terminal logs <code>recovery_active</code> on confirmed entry, <code>recovery_cancel</code> for Stop or a lost GUI lease, and <code>recovery_failed</code> for controller errors. Release 5s counts from confirmed entry.</p><p>Recovery controls follow the connected runtime's declared capabilities and arm selections. When idle Home is available, <strong>Finish rollout</strong> does not home; use <strong>Return Home</strong>, which applies to all configured arms. Otherwise Finish preserves the experiment's <code>home_on_close</code>. Drag and Release finish an active rollout without homing. Tianji Release offers continuous or five-second cooperative hand-guiding when declared; loss of the recovery lease cancels it. Release does not enforce ManiMux joint-position limits or a five-degree margin; controller faults and feedback remain monitored.</p><p>Pack-plate deployments select <code>tianji_taccap_pack_plate.yaml</code> for the saved <code>pack_plate_start</code> Home. Update older bound configurations and use Reload config while idle to load changed assembly control settings.</p><p>
 Warmup is explicit when <code>run.warmup_before_start: true</code>; otherwise go directly to Start.
 The button appears after Prepare. Both inline and process action decoding are supported;
 UMI DP waits for a measured two-frame observation window. After changing this setting
 in an experiment list, finish the rollout and click <strong>Reload config</strong> to reload the catalog.
 Follow the selected Finish/Home behavior before
 stopping runtime, then stop model, camera and GUI processes.</p>
+<details><summary>Tianji Pi05 Processed2 Native World H50 / 29999 (2026-11-08)</summary>
+<p>The 1028 catalog now defaults to <strong>Pi05 / Processed2 Native World H50 / 29999</strong>.
+Choose <strong>Serial 32 / 15 Hz</strong>, <strong>RTC 16 / 15 Hz</strong> or
+<strong>Async 16 / 15 Hz</strong>. QZ training source confirms the existing tool-axis,
+two-wrist, zero-pose TCP-relative contract, with a native 50-step prediction at 30 Hz.</p>
+<p>All three use <code>policy.playback_hz: 15.0</code>: action targets stay unchanged,
+their timing doubles, and robot control remains 100 Hz. Serial executes a 32-row prefix.
+RTC and ordinary Async use 16-row replan windows while retaining H50; Async uses progress
+triggering without action conditioning. Adjust <strong>Action playback (Hz)</strong> before Prepare.</p>
+<pre><code class="language-bash">cd /home/jw/Desktop/project/manimux
+bash manimux/configs/experiments/pack_plate/pi05/checkpoint_comparison_20261028/launch.sh \
+  check --policy 'Pi05 / Processed2 Native World H50 / 29999'
+# Finish the current rollout and stop its runtime, then restart once for the new code:
+bash manimux/configs/experiments/pack_plate/pi05/checkpoint_comparison_20261028/launch.sh runtime
+</code></pre>
+<p>Reuse the existing camera and GUI services. For a fresh setup, use the same script's
+<code>camera</code> and <code>gui</code> commands in separate terminals.
+The runtime manages the model service; open <code>http://127.0.0.1:8086</code>.
+The full catalog check currently reports missing metadata in the old UMI DAgger artifact;
+the explicit policy filter checks the new model while still loading the entire catalog.
+Offline checks passed; real-weight inference and physical trials remain untested.</p>
+</details>
 <details><summary>Tianji Pi05 UMI Half Speed H50 / 29999 (2026-11-06)</summary>
 <p>The existing 1028 catalog includes <strong>Pi05 / UMI Half Speed H50 / 29999</strong> and
 its <strong>Step DiffIK</strong> group alongside UMI Only and UMI DAgger. It predicts
 50 steps at 30 Hz. Half speed comes from training data resampling; the deployment
 rate remains 30 Hz. Choose Serial 50 or the existing RTC/Blend/Waypoint variants.</p>
+<p>The catalog also includes the 2026-11-05 Processed2 UMI DP scratch and RTC-finetuned
+checkpoints. Each offers Serial 32 and train-time RTC 16 with a fixed prefix of 5;
+both checkpoints report trained prefix lengths 0, 4 and 5. These DP choices use
+chunk DiffIK and the smooth executor. The Pi05 Step DiffIK choices instead select
+the direct executor; the remaining choices use the smooth executor.</p>
 <pre><code class="language-bash">cd /home/jw/Desktop/project/manimux
 # Offline configuration, adapter and Pi05 artifact checks:
 bash manimux/configs/experiments/pack_plate/pi05/checkpoint_comparison_20261028/launch.sh check
@@ -382,34 +410,6 @@ execution windows and ACT query intervals still limit submissions.</p>
 </tr>
 </tbody>
 </table>
-<p>Choose a refill threshold that leaves time for preparation, transport, inference
-and decoding. Outside refill mode, only the default <code>0.4</code> is tolerated and ignored;
-other explicit values, including <code>null</code>, are rejected. If a preset supplies another
-value, use a different preset or override it to <code>0.4</code> when changing triggers.</p>
-<p><code>first_step_when_ready</code> starts row zero when the result is accepted. Use it for the
-serial examples below. <code>drop_infer_latency</code> keeps the observation-based action
-clock and discards source rows whose times have passed before acceptance. Use it
-for the asynchronous examples. Neither setting changes the recorded observation
-timestamp. A late reply can have too few usable rows and be rejected.</p>
-<h3 id="meaning-of-chunk_policy_steps">Meaning of <code>chunk_policy_steps</code></h3>
-<p>Step counts are <strong>model action rows</strong>, not control-loop ticks. The runtime row interval dt
-is <code>1 / policy.playback_hz</code> when set, otherwise <code>policy.action_dt_s</code>.
-The legacy <code>policy.trajectory_duration_s</code> sets dt to
-<code>trajectory_duration_s / (H - 1)</code>; do not combine it with <code>playback_hz</code>.</p>
-<p>K rows span <code>(K - 1) * dt</code> between their first and last targets. Ordinary serial,
-serial ACT and BID additionally hold the last row for one interval, giving K * dt
-for K usable rows. AAC/AutoHorizon do not add that interval. Thus 12 rows at 30 Hz
-span about 0.367 s, or 0.4 s with the last-row hold; the control-loop rate does not
-change these times.</p>
-<table>
-<thead>
-<tr>
-<th>Algorithm</th>
-<th>Meaning of <code>chunk_policy_steps</code></th>
-<th>Valid setting / omitted value</th>
-</tr>
-</thead>
-<tbody>
 <h4 id="sigmoid-smooth-handoff">Sigmoid overlap handoff</h4>
 <p><code>inference.handoff</code> selects <code>blend</code> (default),
 <code>waypoint</code>, or <code>sigmoid_smooth</code>. This choice is independent of
@@ -479,10 +479,10 @@ Use <a href="manimux/configs/inference/sigmoid_smooth.yaml">the handoff preset</
 <a href="manimux/configs/examples/yam_pi05_rtc_sigmoid_smooth.yaml">the complete Pi05 RTC example</a>.
 Validate with <code>python -c 'from manimux.cli import load_config; load_config("manimux/configs/examples/yam_pi05_rtc_sigmoid_smooth.yaml")'</code>.
 Starting the example still requires a configured station and policy/camera services.</p>
-<tr>
-<td>Serial / Async with refill or continuous trigger</td>
-<td>Maximum source prefix; asynchronous latency trimming can shorten it further</td>
-<td>Integer 2 through H; omitted/null leaves <code>max_chunk_policy_steps</code> in control, whose default is null (full horizon)</td>
+<p>Choose a refill threshold that leaves time for preparation, transport, inference
+and decoding. Outside refill mode, only the default <code>0.4</code> is tolerated and ignored;
+other explicit values, including <code>null</code>, are rejected. If a preset supplies another
+value, use a different preset or override it to <code>0.4</code> when changing triggers.</p>
 <h4 id="action-playback-speed">Action playback speed</h4>
 <p>For a native 30 Hz model, set <code>policy.playback_hz</code> to 15 for half-speed
 playback, or 40, 50 or 60 for faster playback. Each returned row keeps its action
@@ -516,6 +516,34 @@ consume that time. Acceptance events record <code>conditioned_prefix_steps</code
 If the fixed rows expire before commit, the remaining free suffix can still be
 accepted. A completely expired horizon is rejected. Faster playback therefore
 does not guarantee that a fixed prefix still covers inference latency.</p>
+<p><code>first_step_when_ready</code> starts row zero when the result is accepted. Use it for the
+serial examples below. <code>drop_infer_latency</code> keeps the observation-based action
+clock and discards source rows whose times have passed before acceptance. Use it
+for the asynchronous examples. Neither setting changes the recorded observation
+timestamp. A late reply can have too few usable rows and be rejected.</p>
+<h3 id="meaning-of-chunk_policy_steps">Meaning of <code>chunk_policy_steps</code></h3>
+<p>Step counts are <strong>model action rows</strong>, not control-loop ticks. The runtime row interval dt
+is <code>1 / policy.playback_hz</code> when set, otherwise <code>policy.action_dt_s</code>.
+The legacy <code>policy.trajectory_duration_s</code> sets dt to
+<code>trajectory_duration_s / (H - 1)</code>; do not combine it with <code>playback_hz</code>.</p>
+<p>K rows span <code>(K - 1) * dt</code> between their first and last targets. Ordinary serial,
+serial ACT and BID additionally hold the last row for one interval, giving K * dt
+for K usable rows. AAC/AutoHorizon do not add that interval. Thus 12 rows at 30 Hz
+span about 0.367 s, or 0.4 s with the last-row hold; the control-loop rate does not
+change these times.</p>
+<table>
+<thead>
+<tr>
+<th>Algorithm</th>
+<th>Meaning of <code>chunk_policy_steps</code></th>
+<th>Valid setting / omitted value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Serial / Async with refill or continuous trigger</td>
+<td>Maximum source prefix; asynchronous latency trimming can shorten it further</td>
+<td>Integer 2 through H; omitted/null leaves <code>max_chunk_policy_steps</code> in control, whose default is null (full horizon)</td>
 </tr>
 <tr>
 <td>Async with progress trigger</td>
@@ -871,6 +899,50 @@ robot motion. Row skipping is unsupported for timeline/executor conditions.</li>
   decoding. Without calibration samples, the initial estimate is zero. See the
   <a href="manimux/configs/inference/README.md">preset guide</a> for warmup controls.</li>
 </ul>
+<h3 id="rtc-adaptive-speed">Experimental: RTC Adaptive Speed</h3>
+<p>The Processed2 Native World H50 policy group offers <strong>RTC Adaptive Speed / 15 Hz</strong>
+as a separate method. It combines partial speed equalization, bounded fractional-progress
+matching and a 0.20 s velocity bridge. The 15 Hz setting targets half the native 30 Hz
+path speed; acceleration limits, protected pauses and handoffs can change measured speed.</p>
+<pre><code class="language-yaml">inference:
+  algorithm: rtc
+  strategy: manimux.runtime.rtc.retimed:RetimedRtcStrategy
+  chunk_policy_steps: 32
+  handoff_skip_steps: 0
+  blend_policy_steps: 0
+  rtc_retime:
+    strength: 0.5
+    match_window_s: 0.6
+    bridge_s: 0.20
+</code></pre>
+<p>Use the complete <a href="manimux/configs/experiments/pack_plate/pi05/checkpoint_comparison_20261028/pi05_processed2_native_world_h50_29999_rtc_retime.yaml">experiment YAML</a>.
+Both arms share a time map computed from the policy TCP targets and gripper apertures before IK. Chunk IK solves the timed TCP samples in the decoder. Step IK solves the timed reference on each control tick. Rounding to the playback grid holds the endpoint. Subsequent RTC conditions
+sample the accepted dense execution reference. Incompatible incoming paths are rejected;
+the outgoing plan continues, with the normal hold if it expires. This remains an experimental
+execution transform and cannot correct a wrong predicted path. It supports single-inflight RTC with chunk IK or step IK.</p>
+<p>Restart runtime for the code change, select the policy and this method in RoboGUI,
+then Prepare. Source-to-execution mapping and dense trajectories are saved in rollout
+records. See the <a href=".agents/skills/manimux-inference/references/inference.md#experimental-rtc-with-adaptive-execution-speed">timing and evidence contract</a>.</p>
+<p>The Tianji multi-policy launcher includes the Throw Ball methods. Run <code>bash manimux/configs/experiments/pack_plate/pi05/checkpoint_comparison_20261028/launch.sh runtime</code> from the repository root. In RoboGUI select <strong>Pi05 / Throw Ball Native H50 / 29999</strong>, click <strong>Switch policy</strong>, then choose the method. The runtime manages the selected model process.</p>
+<p>The Throw Ball catalog adds <strong>RTC Gripper Protected 18 / Base 30 Hz</strong>
+(<a href="manimux/configs/experiments/throw_ball/pi05/tianji_pi05_native_h50_29999_rtc_retime_gripper.yaml">experiment YAML</a>).
+It uses <code>rtc_retime.outside_gripper_speed_ratio: 0.5</code> and
+<code>strength: 0.4</code>. Gripper-motion intervals use the configured playback rate;
+other intervals receive twice the duration before speed equalization. Either gripper's
+adjacent-row aperture change of at least 0.005 protects the shared interval.
+This method sets <code>gripper_protect_before_steps: 2</code> to also protect the
+two preceding policy intervals, clipped at the chunk start. These intervals retain
+base timing and are excluded from speed equalization; the general default is 0.
+It also sets <code>gripper_transition_steps: 5</code> (general default 0): five intervals
+outside each protected edge blend between base timing and the ordinary retimed duration
+using smoothstep weights. The protected region stays intact. Each side takes about
+250 ms for uniform 30/15 Hz motion; duration scales with playback frequency and varies
+with retiming. Overlapping ramps merge and chunk boundaries clip them. This softens
+the discrete timing change without guaranteeing continuous TCP velocity.
+The hard RTC overlap prefix also retains base timing. The existing playback control
+remains adjustable: 30 Hz means nominal 30/15 Hz; 20 Hz means 20/10 Hz.
+Retiming, the bridge and executor limits still affect final motion speed. The servo loop
+stays at 100 Hz. The ratio defaults to 1.0, preserving existing methods.</p>
 <p>SAPolicy can separately select <code>policy.adapter.ik_seed_source: previous_plan</code>
 to seed IK from the accepted joint trajectory at the first decoded source row's timestamp.
 If that timestamp has no accepted reference, it uses the runtime seed. Subsequent rows
@@ -898,50 +970,6 @@ The checkpoint, 30-step horizon, action frames and direct executor are unchanged
   blend_policy_steps: 0
   paint:
     initial_delay_policy_steps: 4
-<h3 id="rtc-adaptive-speed">Experimental: RTC Adaptive Speed</h3>
-<p>The Processed2 Native World H50 policy group offers <strong>RTC Adaptive Speed / 15 Hz</strong>
-as a separate method. It combines partial speed equalization, bounded fractional-progress
-matching and a 0.20 s velocity bridge. The 15 Hz setting targets half the native 30 Hz
-path speed; acceleration limits, protected pauses and handoffs can change measured speed.</p>
-<pre><code class="language-yaml">inference:
-  algorithm: rtc
-  strategy: manimux.runtime.rtc.retimed:RetimedRtcStrategy
-  chunk_policy_steps: 32
-  handoff_skip_steps: 0
-  blend_policy_steps: 0
-  rtc_retime:
-    strength: 0.5
-    match_window_s: 0.6
-    bridge_s: 0.20
-</code></pre>
-<p>Use the complete <a href="manimux/configs/experiments/pack_plate/pi05/checkpoint_comparison_20261028/pi05_processed2_native_world_h50_29999_rtc_retime.yaml">experiment YAML</a>.
-Both arms share one time map; gripper events are protected. Subsequent RTC conditions
-sample the accepted dense execution reference. Incompatible incoming paths are rejected;
-the outgoing plan continues, with the normal hold if it expires. This remains an experimental
-execution transform and cannot correct a wrong predicted path. It supports joint-space,
-single-inflight RTC without additional skip, blend, waypoint, source cap or ACT.</p>
-<p>Restart runtime for the code change, select the policy and this method in RoboGUI,
-then Prepare. Source-to-execution mapping and dense trajectories are saved in rollout
-records. See the <a href=".agents/skills/manimux-inference/references/inference.md#experimental-rtc-with-adaptive-execution-speed">timing and evidence contract</a>.</p>
-<p>The Throw Ball catalog adds <strong>RTC Gripper Protected 18 / Base 30 Hz</strong>
-(<a href="manimux/configs/experiments/throw_ball/pi05/tianji_pi05_native_h50_29999_rtc_retime_gripper.yaml">experiment YAML</a>).
-It uses <code>rtc_retime.outside_gripper_speed_ratio: 0.5</code> and
-<code>strength: 0.4</code>. Gripper-motion intervals use the configured playback rate;
-other intervals receive twice the duration before speed equalization. Either gripper's
-adjacent-row aperture change of at least 0.005 protects the shared interval.
-This method sets <code>gripper_protect_before_steps: 2</code> to also protect the
-two preceding policy intervals, clipped at the chunk start. These intervals retain
-base timing and are excluded from speed equalization; the general default is 0.
-It also sets <code>gripper_transition_steps: 5</code> (general default 0): five intervals
-outside each protected edge blend between base timing and the ordinary retimed duration
-using smoothstep weights. The protected region stays intact. Each side takes about
-250 ms for uniform 30/15 Hz motion; duration scales with playback frequency and varies
-with retiming. Overlapping ramps merge and chunk boundaries clip them. This softens
-the discrete timing change without guaranteeing continuous TCP velocity.
-The hard RTC overlap prefix also retains base timing. The existing playback control
-remains adjustable: 30 Hz means nominal 30/15 Hz; 20 Hz means 20/10 Hz.
-Retiming, the bridge and executor limits still affect final motion speed. The servo loop
-stays at 100 Hz. The ratio defaults to 1.0, preserving existing methods.</p>
     delay_buffer_size: 10
 </code></pre>
 <p>Use a positive initial delay <strong>d</strong> and execution/query window <strong>K</strong> satisfying
@@ -1507,7 +1535,7 @@ envs/yam/.venv/bin/python -m manimux serve \
 <tr><td>Task</td><td>Update prompt, rubric, reference layout library and per-method repeat progress. The mixed model receives the task instruction in each observation.</td></tr>
 <tr><td>Runtime method / parameters</td><td>Create a fresh runtime on the next Prepare: new worker, strategy, timeline and warmup. No old chunk or ensemble history is reused.</td></tr>
 <tr><td>Checkpoint, normalization, model initialization, policy adapter or action timing</td><td>May differ between explicit policy groups. Managed mode stops the old model and launches the new one; external mode requires separate service endpoints. Within one policy group the shared model and I/O contracts must match. The next Prepare creates the selected worker and adapter and checks backend identity and sampling capabilities.</td></tr>
-<tr><td>Camera-server recipe or robot configuration</td><td>Must match across the entire list, including robot control settings. Use a separate runtime for a different station contract.</td></tr>
+<tr><td>Camera-server recipe or robot configuration</td><td>All entries share the physical station and camera service. Tianji TacCap policy groups can select their own gripper control mode, grasp torque and closing speed. Recovery and Prepare use the selected settings.</td></tr>
 <tr><td>YAML edited on disk</td><td>Reload config re-reads and validates the list and referenced YAMLs while idle. It refreshes choices and opens a new session manifest. Managed model changes restart only that model; external camera changes require a service restart.</td></tr>
 </tbody></table>
 <p>Task/config selection is disabled while preparing, running, recovering or awaiting evaluation. Switching never starts a rollout. Backend identity and sampling capability checks remain enabled. In the mixed recipe, task_name identifies the shared deployment; <code>run.task</code> owns the actual instruction.</p>
@@ -1641,6 +1669,42 @@ exactly for score 1. Keep longer judgment criteria in the study record, not unkn
 <p>Use one rubric across compared methods. Version <code>rubric_id</code> when criteria change.
 Each rollout saves a snapshot; later YAML edits do not change historical scores.
 <a href="manimux/configs/evaluation/coin.yaml">Current coin template</a> · <a href="manimux/configs/evaluation/stack_blocks.yaml">Stacking template</a></p>
+<h3 id="record-video-inputs">Record video and selected model inputs</h3>
+<p>YAM and Tianji share the same CPU video recorder. Install the runtime's <code>video</code>
+extra (<code>uv sync --extra video</code>, retaining other required extras), then configure:</p>
+<pre><code>recording:
+  enabled: true
+  video_fps: 30.0
+  inference_inputs: true
+  input_queue_size: 2
+</code></pre>
+<p>The Tianji pack-plate checkpoint comparison recipes already select a shared
+<a href="manimux/configs/experiments/pack_plate/pi05/checkpoint_comparison_20261028/recording.yaml">recording.yaml</a>
+with these settings. Reload configuration and prepare a new rollout to apply them.
+Video FPS, model playback Hz and the 100 Hz robot control loop are independent.</p>
+<p><code>videos/*.mp4</code> provides a view of the rollout. Align frames using
+<code>videos/index.json</code>, because camera gaps and pauses are not represented by
+constant-rate MP4 playback. Videos are sampled and lossy.</p>
+<p><code>inference_inputs/request-*.npz</code> preserves the RGB images selected for each
+formal request, including DP history, image timestamps and sequences, measured state,
+instruction, converted model state and RTC / fixed-prefix conditions. The boundary is
+after adapter preparation and before worker inference; model-server preprocessing and
+random seeds are not captured. Warmup requests are excluded. A worker may coalesce a
+submitted request, so join <code>request_seq</code> to response / plan events before
+counting it as an inference.</p>
+<pre><code>from manimux.recording.inputs import load_input_snapshot
+
+saved = load_input_snapshot("rollout-.../inference_inputs/request-000001.npz")
+request = saved["request"]
+frames = request["observation"]["frames"]
+rgb = frames[next(iter(frames))]["data"]
+instruction = request["instruction"]
+</code></pre>
+<p>Only files listed in <code>inference_inputs/index.jsonl</code> are confirmed written.
+Inspect <code>result.json.input_recording</code> and <code>video_recording</code> for errors
+and dropped/unsaved counts. Bounded writers avoid waiting for disk in the control loop;
+array copies and encoding still cost CPU and raw snapshots can consume substantial disk.
+Previously unrecorded RGB cannot be recovered from numeric trajectories.</p>
 <h3 id="operate-each-trial">Operate each trial</h3>
 <ol>
 <li>Use <strong>Prepare Run</strong> for a free trial. For a scored trial, reset the scene, select <strong>Layout</strong>, then click <strong>Prepare Experiment</strong>; its Top reference is attached automatically.</li>
@@ -1675,6 +1739,7 @@ new YAML rules do not replace historical scoring rules. Free runs and partial at
         ├── events.jsonl
         ├── data.zarr/           # ticks + raw / strategy / committed plans
         ├── videos/             # camera video + index.json
+        ├── inference_inputs/   # optional lossless request NPZ + index.jsonl
         └── evaluation/
             └── human-label.json
 </code></pre>
@@ -1898,6 +1963,7 @@ new YAML rules do not replace historical scoring rules. Free runs and partial at
 <tr><td><code>config.policy.service</code></td><td>Named service binding, e.g. camera or policy.</td></tr>
 <tr><td><code>config.policy.startup_timeout_s</code></td><td>Startup/readiness timeout of the owning worker or sensor reader, seconds.</td></tr>
 <tr><td><code>config.policy.timeout_s</code></td><td>Owning component timeout: policy request deadline seconds or GUI control transport timeout seconds.</td></tr>
+<tr><td><code>config.policy.playback_hz</code></td><td>Default action playback Hz; null uses native timing. RoboGUI can override it for one rollout at Prepare.</td></tr>
 <tr><td><code>config.policy.trajectory_duration_s</code></td><td>Optional explicit trajectory duration when determining action spacing.</td></tr>
 <tr><td><code>config.policy.worker</code></td><td>Policy worker plugin/transport selector.</td></tr>
 <tr><td><code>config.policy_server.action_horizon</code></td><td>Model output action-point count.</td></tr>
@@ -1983,7 +2049,8 @@ new YAML rules do not replace historical scoring rules. Free runs and partial at
 <tr><td><code>config.sensors[].width</code></td><td>Requested image width; actual recorded pixels are determined by the served camera frames.</td></tr>
 </tbody></table></details>
 <details><summary>meta.json — rollout and backend snapshots</summary><table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody>
-<tr><td><code>action_dt_s</code></td><td>Spacing of model action points, in seconds; 1/30 here. Independent of 100-Hz command control.</td></tr>
+<tr><td><code>action_dt_s</code></td><td>Effective playback spacing of action rows, in seconds.</td></tr>
+<tr><td><code>model_action_dt_s</code>, <code>playback_hz</code>, <code>control_hz</code></td><td>Native model spacing, prepared action playback frequency and robot command frequency. These record the actual per-rollout timing, including a RoboGUI override.</td></tr>
 <tr><td><code>action_start_mode</code></td><td>Whether Timeline drops expired prefix rows (drop_infer_latency) or starts from the first available row when ready.</td></tr>
 <tr><td><code>blend_steps</code></td><td>Number of model steps configured for boundary blending; zero means no such blend.</td></tr>
 <tr><td><code>camera_map.{image_key}</code></td><td>Mapping from model image keys to camera-server source names.</td></tr>
@@ -2355,8 +2422,47 @@ envs/yam/.venv/bin/python -m manimux.robogui.replay \
 <code>command</code> shows executor output, not a hardware acknowledgment. For a custom display model,
 replace <code>--robot yam</code> with <code>--config /path/to/robogui.yaml</code>.
 The player starts paused and supports seeking and playback speed using recorded tick timestamps.
-It does not replay RGB videos or connect to hardware. No camera, policy or runtime service is needed.
-Partial episodes and records without the selected stream cannot be replayed.
+No camera, policy or runtime service is needed. Add <code>--plugin tracking</code> for recorded
+RGB video, a synchronized error cursor and the chunk execution/inference timeline:</p>
+<pre><code class="language-bash">.venv/bin/python -m manimux.robogui.replay \
+  --robot tianji --episode /path/to/session-xxx/rollout-001 \
+  --plugin tracking --port 8087
+</code></pre>
+<p>The tracking view opens with both wrist videos and their error curves side by side,
+with a full-width chunk timeline underneath. Playback controls stay at the top while
+scrolling. Select position (mm) or orientation (degrees) error; jump to a chunk or seek
+with the shared playback controls. Each wrist has its own camera selector. The optional
+<code>Show 3D reference</code> control reveals the robot scene; it is hidden by default.
+On narrow screens the wrist panels stack vertically. Video follows <code>videos/index.json</code>
+capture timestamps, not the MP4 frame rate. The execution lane shows actual active chunks
+and holds. The request lane shows accepted/rejected requests; historical rejection markers
+without a decision timestamp are labelled and placed at the request observation time.</p>
+<p>Add <code>--replay-root /path/to/data/experiments</code> to browse recordings in the
+same page. <strong>Choose rollout</strong> provides cascading folder selectors (experiment,
+mode, session), followed by the rollout. Select <strong>Load selected rollout</strong> to
+replace the video, curves and chunk timeline together; playback starts paused at frame 1.
+The loaded path remains visible while browsing another selection. Folder labels follow
+the recording directory structure; action playback Hz and algorithm come from the saved
+session configuration. <strong>Include interrupted rollouts</strong> exposes closed
+<code>.partial</code> recordings, and <strong>Refresh recordings</strong> rescans the root.
+Unfinished recordings without <code>result.json</code> are excluded. A failed load preserves
+the previous replay. All selections use the launch-time offline robot model and source;
+incompatible trajectories report a load error. This selector is shared by viewers of the
+same replay server.</p>
+<p><strong>Error semantics:</strong> policy → IK compares original absolute TCP targets with
+FK of decoded IK solutions at the same source progress. Retimed uses the saved knot clock
+and matched phase. IK → feedback compares that solution to simultaneous encoder-derived TCP.
+Execution-reference → feedback includes the bridge; command → feedback includes the executor.
+These are not external measurements or eventual endpoints after waiting. Missing data stays blank.</p>
+<p>New Pi05 Tianji chunk decodes record pre-IK targets under
+<code>plans/*/canonical_raw/policy_targets</code>. Restart the runtime after installing
+this code to capture them. Historical recordings cannot recover the policy → IK curve
+from IK outputs or per-chunk maximum residuals; available tracking curves and video still replay.
+Unsupported waypoint/step-IK source mappings show execution tracking only.
+Add <code>--allow-partial</code> for interrupted rollouts that already have
+<code>result.json</code>. Live writes and empty recordings remain unavailable.
+Without the plugin the player remains trajectory-only. Video requires the <code>video</code>
+optional dependency. Plugins use <code>manimux.replay</code> entry points or <code>module:factory</code>.
 <a href=".agents/skills/manimux-experiments/references/records.md">Recording contract</a></p>
 </section>
 <section aria-labelledby="reports" class="guide-page" data-page-id="reports" data-title="Evaluation reports" hidden=""><h2 id="reports">Reports</h2>
@@ -2591,8 +2697,16 @@ run:
       max_lag_mm: 5.0</code></pre>
 <p>The QP inherits <code>executor.motion_limits.arm.max_velocity</code> unless <code>execution.ik.diff_ik.max_velocity_rad_s</code> selects a tighter cap. Step-only <code>max_acceleration_rad_s2</code> inherits the executor acceleration cap unless explicitly tightened; a finite executor acceleration cap cannot be paired with null or a larger QP cap. With acceleration enabled, the QP uses the last command's velocity and jointly enforces acceleration, joint positions, all four buffered J6/J7 boundaries and room to brake. The objective and damping settings are unchanged.</p>
 <p>Direct execution remains active as an outer limiter. Configure its limits above the QP's so ordinary commands pass unchanged. The final executor output is validated before dispatch. Failed or late solves and timeline gaps use bounded deceleration for both arms, retaining velocity history; <code>step_ik_brake</code> records the cause and <code>fallback: brake</code>. An unsafe output or a state without a valid braking command stops execution explicitly. Pause, Home and emergency handling retain their separate lifecycle behavior. With acceleration disabled, the existing failure hold remains. <code>lag_policy: report</code> permits bounded progress with residual error; <code>abort</code> rejects excessive lag.</p>
+<p>The <a href="manimux/configs/experiments/pack_plate/pi05/dual_arm_ik_20261118/catalog.yaml">Pack Plate dual-arm IK comparison</a> pairs a 2 ms step DiffIK control with the experimental <code>execution.ik.backend: rl</code> setting. Both use Pi05 RTC16 and the same braking constraints. RL requires the two local frozen CPU exports. Worker iterations, late replies and fallback are recorded per arm. Use the <a href=".agents/skills/manimux-development/references/runtime-config.md#dual-arm-tianji-f-step-execution">runtime setup and timing contract</a> for offline verification.</p>
 <p>The <code>checkpoint_comparison_20261022</code> catalog's 12 Step variants use <strong>pi/2 rad/s, 80 rad/s² in DiffIK</strong> and <strong>pi rad/s, 160 rad/s² in the executor</strong>. Other variants retain the 80 rad/s² executor cap. The QP starts slowing near boundaries to retain a feasible stop; this does not impose a fixed target delay or guarantee continuous acceleration. Restart runtime after installing this implementation, then Prepare again. Later YAML-only edits can use idle Reload config. Successful ticks retain <code>step_diff_ik</code> residual diagnostics; these describe solved-command FK, not measured tracking. See the <a href=".agents/skills/manimux-development/references/tianji-diff-ik.md#acceleration-aware-step-execution-2026-10-23">constraint contract</a> for numerical reserves and offline checks.</p>
+<p>The separate Pack Plate <a href="manimux/configs/experiments/pack_plate/pi05/dual_arm_ik_20261118/pi05_rtc16_rl_cuda_1ms.yaml">dual-arm RL CUDA 1 ms configuration</a> uses each arm's frozen F actor on a shared GPU stream. Set <code>execution.ik.rl_ik.device: cuda</code> in that configuration. Arm and gripper actuation are disabled. Install the editable RL-IK peer in the ManiMux environment before warmup. The shared deadline includes final joint and command checks. When a pair misses that decision, both arms use the constrained braking command.</p>
 <p><strong>Step DiffIK elbow protection:</strong> <code>execution.ik.diff_ik.elbow_guard_deg: 1.0</code> preserves the starting elbow side and keeps one degree away from full extension. The 1022 catalog enables it for all twelve Step variants, with unchanged QP velocity, acceleration and damping. The bound participates in QP braking and final command checks; it does not change the physical-limit nullspace cost. QP failures and timeline gaps retain the chosen side. Home or pause reanchors it from the next execution seed. An initial pose already in the protection zone is rejected with a Home/reposition instruction; the solver never moves it automatically. Intentional elbow-side changes need a separate transition. The option defaults to disabled, requires a finite step acceleration cap, and supports the verified Tianji M6-40 geometry only.</p>
+<p>The Throw Ball Pi05 29999 catalog enables <code>executor.tianji_position_lead</code> on both seven-joint arms. Its settings are <code>lead_ms: 66</code>, <code>ka_s2: 0.0024</code>, <code>accel_cap_deg: 0.5</code> and <code>max_offset_deg: 5</code>. The position command uses the current executor velocity and its short-window slope. Final targets respect the joint and coupled wrist protection bounds and command rate limits. Gripper aperture passes through. Compare <code>ticks/nominal_command</code>, <code>ticks/command</code> and <code>ticks/state</code> for nominal target, issued target and feedback respectively. Restart the rollout runtime to load the implementation.</p>
+<p>The Throw Ball method <strong>DiffIK Lead then Smooth</strong> sets <code>executor.tianji_position_lead.placement: before_smooth</code> for chunk IK and retimed RTC. On each original dense IK segment it divides the joint increment by the IK sample interval and estimates acceleration from the slope of those segment velocities over at least 20 ms. It samples the correction at the matched path time, adds it to the bridged joint reference, clips against protected joint and wrist bounds, and passes the resulting position to Smooth for final dispatch. Inspect <code>ticks/scheduled</code>, <code>ticks/pre_smooth_target</code>, <code>ticks/command</code> and <code>ticks/state</code> in that order.</p>
+<p>The right-arm sine probe (<code>python -m scripts.experiments.right_arm_sine.server</code>) accepts position lead T from 0 to 100 ms per preview.
+The trajectory selector offers X travel with Y oscillation, Y travel with X oscillation, and a Y-only harmonic round trip. Travel is the positive displacement from the captured origin to the turnaround in the arm base frame. The Y-only option holds X, Z and orientation fixed. All three use the same round-trip timing and joint execution pipeline. Changing trajectory requires a new preview.
+It adds T times the same-tick SmoothExecutor output velocity before position dispatch, with an adjustable per-joint offset cap of 0 to 10 degrees (default 2 degrees). A nonnegative acceleration gain Ka (s², default 0) multiplies the nominal command acceleration estimated by fitting a line to consecutive executor velocities spanning at least 20 ms on the nominal control clock. Its own per-joint cap (0 to 10 degrees, default 0.25 degrees) applies before adding the velocity term and applying the total cap. A zero total cap disables both terms.
+After a skipped slot or a command gap longer than 1.5 periods, the probe carries forward the last issued offset and blends in fresh derivative estimates over 40 ms. During recovery it limits each joint's issued increment using the rollout velocity bound and keeps the configured total offset cap. Use the original target versus encoder error to compare runs. Replay also shows the issued command. The separate Marvin velocity feedforward selector controls the SDK setting.</p>
 <p><strong>Tianji command-to-measured tracking guard:</strong> <code>robot.options.hardware.max_tracking_error_deg</code> overrides the assembly threshold for both chunk and step execution. The shipped TacCap assemblies use 10 degrees. <code>robot.options.hardware.tracking_error_policy</code> selects <code>abort</code> (default) or <code>report</code>: above the threshold, abort stops execution; report continues dispatch and logs the largest joint error, target, measured angle and threshold at most once per second per arm. The 1022 Pi05 ratio catalog sets <code>hardware.tracking_error_policy: report</code> in its robot YAML with the existing 10 degree threshold. This setting is separate from IK <code>lag_policy: report</code>. This is independent of IK residuals and command velocity/acceleration limits. Explicit <code>null</code> disables only this guard; <code>0</code> does not disable it, and omitting the override inherits the assembly setting. Disabling the guard does not fix physical tracking lag. Position, rate, feedback freshness, control-mode and device-fault checks remain active. Use Reload config while idle to reload experiment/catalog edits; restart the runtime after driver code changes.</p>
 <p>Recorded step episodes keep committed plans in TCP space and scheduled tick references in joint space. Reference seam/overlap metrics read TCP positions directly; scheduled smoothness uses FK of the recorded post-IK joint references. These are reference metrics, not measured physical tracking error.</p>
 <p>The current pose is interpolated with linear position/gripper and quaternion SLERP, then analytic IK is seeded from the current measured joint state; differential IK is seeded from the last dispatched command. Both arms share the budget; a failed or late solution brakes both arms when differential IK acceleration constraints are enabled, otherwise it holds the previous command. Watch the <code>step_ik</code> timing stage and <code>step_ik_hold</code>/<code>step_ik_brake</code> events. The budget is cooperative: native calls cannot always be interrupted, so verify control timing on the target machine. Pose-space interpolation can produce a different joint path from interpolating a pre-solved joint chunk.</p>

@@ -39,6 +39,7 @@ from manimux.runtime.inference import (
     StrategyTimedHandoff,
     build_inference_strategy,
     decode_strategy_action,
+    prepare_decode_context,
     prepare_strategy_chunk,
     seed_strategy_warmup,
 )
@@ -59,8 +60,7 @@ from manimux.types import (
 
 logger = logging.getLogger(__name__)
 
-# These strategies consume a single complete adapter-decoded trajectory. Retimed
-# RTC transforms that trajectory only after the decoder processes return.
+# These strategies consume one complete adapter-decoded trajectory per response.
 _SINGLE_CHUNK_DECODE_STRATEGIES = frozenset({
     "async", "serial", "rtc", "rtc_retime", "train_time_rtc",
 })
@@ -285,6 +285,8 @@ class EdgeRuntime:
             measured_position_upper=command_safety.get("measured_position_upper"),
             control_dt_s=self._control_dt_ns / 1_000_000_000,
         )
+        self._pre_smooth_leads = {}
+        self._position_leads = self._build_position_leads(position_limit_abs)
         self._robogui = RoboGUIBridge(
             enabled=config["robogui"]["enabled"],
             robot=config["robogui"]["robot"],
@@ -306,6 +308,94 @@ class EdgeRuntime:
             config["executor"]["type"],
             config["inference"]["action_start_mode"],
         )
+
+    @staticmethod
+    def _record_step_ik(recorder, execution, steps, now_ns):
+        status = execution.ik_status
+        if status is None:
+            return
+        if not status["success"]:
+            event = "step_ik_brake" if status.get("fallback") == "brake" else "step_ik_hold"
+            recorder.event(event, step=steps, **status)
+        elif status.get("rl_ik") or status.get("diff_ik"):
+            event = "step_rl_ik" if status.get("rl_ik") else "step_diff_ik"
+            recorder.event(event, step=steps, monotonic_ns=now_ns, **status)
+
+    def _build_position_leads(self, absolute_limit):
+        cfg = self._config["executor"]
+        options = cfg.get("tianji_position_lead")
+        if options is None:
+            return {}
+        from manimux.embodiments.arm.tianji.position_lead import DiffIKReferenceLead, RolloutArmLead
+
+        resolver = self._execution.resolver
+        options = dict(options)
+        placement = options.pop("placement", "after_executor")
+        if placement not in {"before_smooth", "after_executor"}:
+            raise ValueError(f"Unknown Tianji position lead placement: {placement!r}")
+        if placement == "before_smooth":
+            from manimux.runtime.rtc.retimed import RetimedRtcStrategy
+            if (not isinstance(self._strategy, RetimedRtcStrategy) or resolver is not None or
+                    not isinstance(self._executor, SmoothExecutor) or
+                    self._config["inference"]["handoff"] != "blend"):
+                raise ValueError("Pre-smooth DiffIK lead requires chunk IK, retimed RTC and Smooth")
+        groups = self._config["robot"]["group_dims"]
+        if (self._config["robot"].get("type") != "tianji_taccap" or
+                groups != {"left_arm": 8, "right_arm": 8} or
+                self._execution.final_command_deadline or
+                not isinstance(self._executor, (SmoothExecutor, DirectExecutor)) or
+                (resolver is not None and not self._execution.acceleration_limited)):
+            raise ValueError("Tianji position lead requires dual-arm joint execution with chunk "
+                             "or acceleration-limited step IK and no final-command deadline")
+        solvers = (resolver.diff.solvers if resolver else getattr(self._adapter, "diff_solvers", {}))
+        if set(solvers) != set(groups):
+            raise ValueError("Tianji position lead requires differential IK protection for both arms")
+        safety = cfg["command_safety"]
+        if not cfg["motion_limits"] or not safety["max_velocity"]:
+            raise ValueError("Tianji position lead requires motion and command safety limits")
+        arm = cfg["motion_limits"]["arm"]
+        limit = np.inf if absolute_limit is None else absolute_limit
+        dt = self._control_dt_ns * 1e-9
+        vmax = (arm["max_velocity"] or np.inf) * min(1, (arm["max_step_dt_s"] or dt) / dt)
+        leads = {}
+        for name, solver in solvers.items():
+            accel = safety["max_acceleration"].get(name)
+            amax = np.inf if accel is None else np.asarray(accel[:7])
+            hardware_lo, hardware_hi = self._robot.arms[name].joint_limits
+            lower = np.maximum(np.maximum(safety["position_lower"][name][:7], hardware_lo), -limit)
+            upper = np.minimum(np.minimum(safety["position_upper"][name][:7], hardware_hi), limit)
+            if placement == "before_smooth":
+                self._pre_smooth_leads[name] = DiffIKReferenceLead(options, solver, lower, upper)
+                continue
+            leads[name] = RolloutArmLead(
+                options, self._control_dt_ns, solver, step_ik=resolver is not None,
+                lower=lower, upper=upper,
+                vmax=np.minimum(safety["max_velocity"][name][:7], vmax),
+                amax=np.minimum(amax, arm["max_acceleration"] or np.inf),
+            )
+        if self._pre_smooth_leads:
+            self._strategy.pre_smooth_leads = self._pre_smooth_leads
+        return leads
+
+    def _reset_command_history(self, state):
+        self._safety.reset(state)
+        for name, lead in self._position_leads.items():
+            lead.reset(state.groups[name])
+
+    def _compensated_command(self, nominal, tracking):
+        groups = copy_group_vector(nominal.groups)
+        velocities = {}
+        if tracking:
+            if isinstance(self._executor, SmoothExecutor):
+                velocities = {name: self._executor.output_velocity(name) for name in groups}
+            else:
+                velocities = self._executor.command_velocity(nominal.groups)
+        for name, lead in self._position_leads.items():
+            groups[name][:7] = lead.apply(
+                nominal.groups[name][:7], nominal.monotonic_ns,
+                velocities[name][:7] if tracking else None,
+            )
+        return replace(nominal, groups=groups)
 
     def _build_robot(self) -> RobotBase:
         return build_robot(self._config["robot"], self._clock)
@@ -443,7 +533,8 @@ class EdgeRuntime:
             state, now_ns, observation_state,
             seed_time_ns=self._adapter.decode_seed_time_ns(context),
         )
-        return replace(context, ik_seed=seed, ik_seed_source=source)
+        context = replace(context, ik_seed=seed, ik_seed_source=source)
+        return prepare_decode_context(self._strategy, context)
 
     def _validate_policy_capabilities(self) -> None:
         capabilities = getattr(self._worker, "capabilities", PolicyCapabilities())
@@ -486,6 +577,8 @@ class EdgeRuntime:
                 "task": self._config["run"]["task"],
                 "evaluation": dict(self._evaluation),
                 "executor_kind": self._config["executor"]["type"],
+                **({"tianji_position_lead": self._config["executor"]["tianji_position_lead"]}
+                   if self._position_leads or self._pre_smooth_leads else {}),
                 "execution_ik": self._config.get("execution", {}).get("ik", {"mode": "chunk"}),
                 "smooth": (
                     loads(dumps(deepcopy(self._config["executor"]["smooth"]), default=str))
@@ -517,6 +610,8 @@ class EdgeRuntime:
             video_fps=self._config["recording"]["video_fps"],
             video_codec=self._config["recording"]["video_codec"],
             video_queue_size=self._config["recording"]["video_queue_size"],
+            inference_inputs=self._config["recording"].get("inference_inputs", False),
+            input_queue_size=self._config["recording"].get("input_queue_size", 2),
             control_timing=timing,
         )
         accepted_plans = 0
@@ -572,7 +667,7 @@ class EdgeRuntime:
                     for name, values in initial_state.groups.items()
                 },
             )
-            self._safety.reset(initial_state)
+            self._reset_command_history(initial_state)
             self._executor.reset(initial_state)
             self._strategy.reset()
             self._scheduler.reset()
@@ -668,7 +763,7 @@ class EdgeRuntime:
                     timing.set_phase("homing")
                     self._robot.home()
                     state = self._robot.get_state()
-                    self._safety.reset(state)
+                    self._reset_command_history(state)
                     self._timeline = self._build_timeline()
                     self._executor.reset(state)
                     self._execution.reset(reanchor=True)
@@ -765,7 +860,7 @@ class EdgeRuntime:
                     self._executor.reset(state)
                     self._execution.reset(reanchor=True)
                     command = self._hold_command(self._clock.now_ns(), state.groups)
-                    self._safety.reset(state)
+                    self._reset_command_history(state)
                     with stage("safety_command"):
                         self._safety.validate_command(command)
                     self._robot.send_command(command)
@@ -1074,6 +1169,10 @@ class EdgeRuntime:
                                 + (chunk.source_offset_steps + chunk.horizon_steps - 1)
                                 * chunk.dt_ns
                             )
+                            if "pre_ik_knots_s" in chunk.metadata:
+                                source_end_ns = chunk.observation_time_ns + round(
+                                    chunk.metadata["pre_ik_knots_s"][-1] * 1e9
+                                )
                             if (
                                 self._decoder is not None
                                 and self._config["inference"]["action_start_mode"]
@@ -1303,20 +1402,22 @@ class EdgeRuntime:
                         )
                         with stage("worker_submit"):
                             self._worker.submit_latest(prepared_request)
+                        input_recording = recorder.record_input(prepared_request)
+                        selected_cameras = {
+                            name: {
+                                "sequence": frame.sequence,
+                                "capture_ns": frame.capture_monotonic_ns,
+                            }
+                            for name, frame in prepared_request.observation.frames.items()
+                        }
                         logger.info(
                             "inference_submitted seq=%d observation_ns=%d deadline_ns=%d "
                             "state_seq=%d cameras=%s",
                             request_seq,
                             prepared_request.observation_time_ns,
                             prepared_request.deadline_ns,
-                            state.sequence,
-                            {
-                                name: {
-                                    "sequence": frame.sequence,
-                                    "capture_ns": frame.capture_monotonic_ns,
-                                }
-                                for name, frame in frames.items()
-                            },
+                            prepared_request.observation.state.sequence,
+                            selected_cameras,
                         )
                         request_in_flight = True
                         last_submitted_seq = request_seq
@@ -1324,8 +1425,15 @@ class EdgeRuntime:
                         self._scheduler.on_submitted(now_ns)
                         recorder.event(
                             "inference_submitted",
+                            monotonic_ns=self._clock.now_ns(),
                             request_seq=request_seq,
                             **submission.event_fields,
+                            selected_observation={
+                                "observation_time_ns": prepared_request.observation_time_ns,
+                                "state_sequence": prepared_request.observation.state.sequence,
+                                "cameras": selected_cameras,
+                            },
+                            input_recording=input_recording,
                         )
                         active_horizon = self._timeline.active_horizon()
                         active_chunk_id = (
@@ -1378,21 +1486,23 @@ class EdgeRuntime:
                         horizon_steps=self._execution.horizon_steps,
                     )
                 scheduled = copy_group_vector(state.groups)
-                if self._state == RuntimeState.RUNNING and reference is not None:
-                    execution = self._execution.step(
+                pre_smooth_target = None
+                strict_step = False
+                tracking = self._state == RuntimeState.RUNNING and reference is not None
+                if tracking:
+                    strict_step = self._execution.final_command_deadline
+                    resolve = self._execution.propose_step if strict_step else self._execution.step
+                    execution = resolve(
                         now_ns, state, reference, last_command=last_command,
                     )
                     reference, command = execution.reference, execution.command
+                    tracking = execution.ik_status is None or execution.ik_status["success"]
                     scheduled = {name: values[0].copy() for name, values in reference.groups.items()}
-                    if execution.ik_status is not None and not execution.ik_status["success"]:
-                        kind = ("step_ik_brake" if execution.ik_status.get("fallback") == "brake"
-                                else "step_ik_hold")
-                        recorder.event(kind, step=steps, **execution.ik_status)
-                    elif execution.ik_status is not None and execution.ik_status.get("diff_ik"):
-                        recorder.event(
-                            "step_diff_ik", step=steps, monotonic_ns=now_ns,
-                            **execution.ik_status,
-                        )
+                    if self._pre_smooth_leads:
+                        pre_smooth_target = scheduled
+                        scheduled = self._timeline.sample_runtime(now_ns)
+                    if not strict_step:
+                        self._record_step_ik(recorder, execution, steps, now_ns)
                     if isinstance(self._executor, SmoothExecutor) and (
                         self._config["executor"]["smooth"]["release_guard"] is not None
                         or self._executor.uses_close_latch
@@ -1436,15 +1546,17 @@ class EdgeRuntime:
                     self._execution.reset(reanchor=True)
                     self._executor.reset(state)
                     command = self._hold_command(now_ns, state.groups)
-                    self._safety.reset(
-                        RobotState(
-                            copy_group_vector(command.groups),
-                            now_ns,
-                            state.sequence,
-                        )
-                    )
-                with stage("safety_command"):
-                    self._safety.validate_command(command)
+                    self._reset_command_history(state)
+                nominal_command = command
+                if self._position_leads and self._state == RuntimeState.RUNNING:
+                    with stage("position_lead"):
+                        command = self._compensated_command(nominal_command, tracking)
+                if not strict_step:
+                    with stage("safety_command"):
+                        if tracking:
+                            for name, lead in self._pre_smooth_leads.items():
+                                lead.validate_output(command.groups[name][:7])
+                        self._safety.validate_command(command)
                 log_dispatch = (
                     command.plan_id != last_dispatch_plan_id
                     or now_ns - last_dispatch_log_ns >= 1_000_000_000
@@ -1462,6 +1574,12 @@ class EdgeRuntime:
                             for name, values in command.groups.items()
                         },
                     )
+                if strict_step:
+                    with stage("safety_command"):
+                        execution = self._execution.finalize_step(
+                            execution, state, last_command=last_command, safety=self._safety,
+                        )
+                        nominal_command = command = execution.command
                 try:
                     self._robot.send_command(command)
                 except Exception:
@@ -1475,6 +1593,11 @@ class EdgeRuntime:
                         list(command.groups),
                     )
                     raise
+                if strict_step:
+                    scheduled = {
+                        name: values[0].copy() for name, values in execution.reference.groups.items()
+                    }
+                    self._record_step_ik(recorder, execution, steps, now_ns)
                 if log_dispatch:
                     logger.info(
                         "command_sent plan=%s physical_dispatch=%s",
@@ -1484,7 +1607,7 @@ class EdgeRuntime:
                     last_dispatch_log_ns = now_ns
                     last_dispatch_plan_id = command.plan_id
                 previous_command = copy_group_vector(last_command)
-                last_command = copy_group_vector(command.groups)
+                last_command = copy_group_vector(nominal_command.groups)
                 with stage("robogui_publish_state"):
                     self._robogui.publish_state(
                         state,
@@ -1504,6 +1627,8 @@ class EdgeRuntime:
                         state=state,
                         scheduled=scheduled,
                         command=command.groups,
+                        nominal_command=nominal_command.groups if self._position_leads else None,
+                        pre_smooth_target=pre_smooth_target,
                         sent_commands=getattr(self._robot, "sent_command_snapshots", lambda: {})(),
                         plan_id=command.plan_id,
                         inference_ms=last_inference_ms,
@@ -1535,6 +1660,10 @@ class EdgeRuntime:
                 timing.end()
 
             timing.end(completed=False)
+            resolver = self._execution.resolver
+            if resolver is not None and resolver.rl is not None:
+                for late in resolver.rl.finish_telemetry(wait_s=0.02):
+                    recorder.event("step_rl_ik_late", late_workers=late)
             episode_dir = recorder.finish(
                 run_completed=True,
                 terminal_reason=terminal_reason,
@@ -1587,7 +1716,7 @@ class EdgeRuntime:
                     self._robot.home()
                 except BaseException as exc:
                     cleanup_errors.append(exc)
-            closers = [self._robot.close, self._worker.close]
+            closers = [self._robot.close, self._worker.close, self._execution.close]
             if self._decoder is not None:
                 closers.append(self._decoder.close)
             for closer in closers:

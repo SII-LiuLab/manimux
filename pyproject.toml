@@ -25,6 +25,7 @@ tianji-diff-ik = [
   "osqp>=1,<2",
 ]
 replay = ["av>=12"]
+video = ["opencv-python-headless>=4.10"]
 
 # Model frameworks run in separate environments; these extras provide transport only.
 starvla = ["msgpack>=1.0.8", "websockets>=15"]

@@ -14,11 +14,13 @@ from manimux.types import (
     ActionChunk,
     ActionHorizon,
     GroupVector,
+    InferenceRequest,
     RobotState,
     SensorFrame,
     copy_action_chunk,
 )
 
+from .inputs import AsyncInputRecorder
 from .video import AsyncVideoRecorder
 
 logger = logging.getLogger(__name__)
@@ -30,6 +32,8 @@ class _TickRecord:
     state: GroupVector
     scheduled: GroupVector
     command: GroupVector
+    nominal_command: GroupVector | None
+    pre_smooth_target: GroupVector | None
     plan_id: str | None
     inference_ms: float | None
     camera_times_ns: dict[str, int]
@@ -56,6 +60,8 @@ class EpisodeRecorder:
         video_fps: float = 0.0,
         video_codec: str = "mp4v",
         video_queue_size: int = 8,
+        inference_inputs: bool = False,
+        input_queue_size: int = 2,
         control_timing: LoopTiming | None = None,
     ) -> None:
         self._partial_dir = run_dir / f"{episode_id}.partial"
@@ -74,6 +80,9 @@ class EpisodeRecorder:
             fps=video_fps,
             codec=video_codec,
             queue_size=video_queue_size,
+        )
+        self._inputs = AsyncInputRecorder(
+            self._partial_dir, enabled=inference_inputs, queue_size=input_queue_size
         )
         self._write_json(self._metadata_path, self._metadata)
         self.event("episode_started", episode_id=episode_id)
@@ -98,6 +107,10 @@ class EpisodeRecorder:
     def update_metadata(self, **fields: object) -> None:
         self._metadata.update(fields)
         self._write_json(self._metadata_path, self._metadata)
+
+    @timed("recording.input")
+    def record_input(self, request: InferenceRequest) -> dict:
+        return self._inputs.submit(request)
 
     @staticmethod
     def _copy_horizon(horizon: ActionHorizon) -> ActionHorizon:
@@ -145,6 +158,8 @@ class EpisodeRecorder:
         camera_times_ns: dict[str, int],
         frames: dict[str, SensorFrame] | None = None,
         sent_commands: dict[str, dict] | None = None,
+        nominal_command: GroupVector | None = None,
+        pre_smooth_target: GroupVector | None = None,
     ) -> None:
         self._ticks.append(
             _TickRecord(
@@ -152,6 +167,10 @@ class EpisodeRecorder:
                 state={name: value.copy() for name, value in state.groups.items()},
                 scheduled={name: value.copy() for name, value in scheduled.items()},
                 command={name: value.copy() for name, value in command.items()},
+                nominal_command=({name: value.copy() for name, value in nominal_command.items()}
+                                 if nominal_command is not None else None),
+                pre_smooth_target=(None if pre_smooth_target is None else
+                                   {name: value.copy() for name, value in pre_smooth_target.items()}),
                 plan_id=plan_id,
                 inference_ms=inference_ms,
                 camera_times_ns=dict(camera_times_ns),
@@ -183,10 +202,20 @@ class EpisodeRecorder:
         )
         plan_ids = ["" if record.plan_id is None else record.plan_id for record in self._ticks]
         ticks.create_dataset("plan_id", data=np.asarray(plan_ids, dtype="U64"))
-        for stage in ("state", "scheduled", "command"):
+        stages = ["state", "scheduled", "command"]
+        if any(record.nominal_command is not None for record in self._ticks):
+            stages.append("nominal_command")
+        if any(record.pre_smooth_target is not None for record in self._ticks):
+            stages.append("pre_smooth_target")
+        for stage in stages:
             stage_group = ticks.create_group(stage)
             for name, dim in self._group_dims.items():
-                stage_values = [getattr(record, stage)[name] for record in self._ticks]
+                if stage == "pre_smooth_target":
+                    missing = np.full(dim, np.nan)
+                    stage_values = [r.pre_smooth_target[name] if r.pre_smooth_target is not None
+                                    else missing for r in self._ticks]
+                else:
+                    stage_values = [(getattr(record, stage) or record.command)[name] for record in self._ticks]
                 array = (
                     np.stack(stage_values) if stage_values else np.empty((0, dim), dtype=np.float64)
                 )
@@ -263,6 +292,16 @@ class EpisodeRecorder:
                 )
                 for name, plan_values in chunk.groups.items():
                     stage.create_dataset(name, data=plan_values)
+                if stage_name == "canonical_raw" and chunk.policy_targets is not None:
+                    targets = stage.create_group("policy_targets")
+                    targets.attrs.update({
+                        "schema": "absolute-tcp-targets-v1",
+                        "frame": "per_group_base", "columns": "xyz_qwxyz_gripper",
+                        "observation_time_ns": chunk.observation_time_ns,
+                        "dt_ns": chunk.dt_ns,
+                    })
+                    for name, rows in chunk.policy_targets.items():
+                        targets.create_dataset(name, data=rows)
                 if chunk.runtime_trajectory is not None:
                     trajectory = chunk.runtime_trajectory
                     dense = stage.create_group("runtime_trajectory")
@@ -316,6 +355,7 @@ class EpisodeRecorder:
             steps=steps,
         )
         self._events.close()
+        inputs = self._inputs.close()
         video = self._video.close()
         self._write_zarr()
         self._write_json(
@@ -326,6 +366,7 @@ class EpisodeRecorder:
                 "steps": steps,
                 "wall_time_s": wall_time_s,
                 **timing_status,
+                "input_recording": inputs,
                 "video_recording": {
                     "enabled": video.enabled,
                     "frames_written": video.frames_written,
@@ -343,6 +384,7 @@ class EpisodeRecorder:
         timing_status = self._save_control_timing()
         self.event("episode_aborted", terminal_reason=reason, detail=detail)
         self._events.close()
+        inputs = self._inputs.close()
         video = self._video.close()
         self._write_zarr()
         self._write_json(
@@ -354,6 +396,7 @@ class EpisodeRecorder:
                 "steps": len(self._ticks),
                 "incomplete": True,
                 **timing_status,
+                "input_recording": inputs,
                 "video_recording": {
                     "enabled": video.enabled,
                     "frames_written": video.frames_written,

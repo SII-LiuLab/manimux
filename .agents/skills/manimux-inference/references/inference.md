@@ -135,7 +135,8 @@ the same checkpoint and Pi05 inference-time guidance, not the DP trained-prefix 
 The model still returns H50 at its native 30 Hz contract. Playback at 15 Hz gives
 the full decoded path a nominal two-times duration. `inference.rtc_retime.strength`
 (default 0.5) redistributes that budget toward equal path speed. Both arms use one
-phase map, based on the larger per-arm combined TCP translation/rotation increment;
+phase map, computed from both policy TCP paths before chunk or step IK. The larger
+per-arm combined translation/rotation increment sets each interval distance;
 `rotation_radius_m` converts angular motion into a distance metric. Individual arms
 need not have equal or constant speeds. Stationary intervals, gripper-motion
 intervals and the request's guidance-delay prefix retain their original allocation.
@@ -189,12 +190,12 @@ normal fresh-request/expired-plan hold behavior applies. This may cause a hold i
 successive proposals cannot join. Do not interpret rejection as a model fault.
 
 A 0.20 s position/velocity correction joins the issued command to the surviving
-retimed path. Aperture blending is monotone within that bridge. Dense decoded IK
-paths are resampled rather than discarded; the existing executor remains responsible
+retimed path. Aperture blending is monotone within that bridge. Chunk IK workers solve the timed TCP path and record its dense joint samples.
+Handoff reads these samples at elapsed execution time; the existing executor remains responsible
 for velocity/acceleration limits. The bridge changes the path locally and cannot
 promise exact half-speed measured motion. Prefix removal shortens the surviving
 horizon; it is not stretched back to H50. Rounding the endpoint to the playback grid
-adds at most one interval.
+adds an endpoint hold of up to one interval.
 
 Conditions sample the accepted **dense execution reference**, including the bridge,
 on the new observation's fixed H50 playback grid. Missing future rows have zero

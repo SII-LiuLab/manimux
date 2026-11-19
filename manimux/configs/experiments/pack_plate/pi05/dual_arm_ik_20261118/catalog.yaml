@@ -1,0 +1,9 @@
+experiments:
+  - id: pack_plate_diff
+    label: Pack Plate / diffIK 2 ms
+    policy: Pi05 UMI Half H50 29999
+    config: pi05_rtc16_diff_2ms.yaml
+  - id: pack_plate_rl
+    label: Pack Plate / dual-arm F 2 ms
+    policy: Pi05 UMI Half H50 29999
+    config: pi05_rtc16_rl_2ms.yaml

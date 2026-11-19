@@ -1,4 +1,4 @@
-# Replan at 16-step progress, latency-adjusted; retain the full 32-step prediction.
+# Replan at 16-step progress, latency-adjusted; retain the full configured horizon.
 # RTC 16 is not a fixed 16-row execution cap. No extra skip or blend.
 algorithm: rtc
 inference_schedule: single_inflight
