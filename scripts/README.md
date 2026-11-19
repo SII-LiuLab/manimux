@@ -30,6 +30,14 @@ python scripts/datasets/compute_yam_aac_ee_stats.py --help
 envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py --help
 ```
 
+The committed runtime lifecycle regression probe uses only disconnected in-memory
+devices and transports. It covers Finish/Home semantics, SDK ownership across failed
+cleanup, session admission, and RoboGUI retry requests:
+
+```bash
+uv run python -m unittest scripts.validation.runtime_lifecycle_probe -v
+```
+
 For self-contained chunk speed reports with online execution, offline Pi05
 predictions, wrist images and inference latency, see the
 [chunk speed diagnostics guide](../skills/manimux-experiments/references/chunk-speed.md).

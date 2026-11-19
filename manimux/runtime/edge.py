@@ -618,7 +618,20 @@ class EdgeRuntime(PlanningContext):
                 except BaseException as exc:
                     logger.error("shutdown_home_failed: %s", _exception_detail(exc))
                     errors.append(exc)
-            closers = [self._robot.close]
+            # Keep this runtime (and the original SDK owner) alive until close
+            # succeeds. A new session cannot recover a previous owner's lease.
+            while True:
+                try:
+                    shutdown_status.update("closing")
+                    with observe_release(
+                        shutdown_status.update, recover=shutdown_status.wait_for_release,
+                    ):
+                        self._robot.close()
+                    break
+                except BaseException as exc:
+                    errors.append(exc)
+                    shutdown_status.wait_for_cleanup(_exception_detail(exc))
+            closers = []
             if self._worker is not None:
                 closers.append(self._worker.close)
             if self._decoder is not None:
@@ -864,6 +877,12 @@ class EdgeRuntime(PlanningContext):
                     not getattr(robogui_control, "finish_request_id", "") or request_matches
                 ):
                     timing.set_phase("stopped")
+                    # Explicit hand-guiding transitions may skip Home, but a
+                    # device-owned mandatory Home contract cannot be bypassed.
+                    shutdown_home = can_home and (
+                        getattr(robogui_control, "finish_home", None) is not False
+                        or getattr(self._robot, "home_before_close", False)
+                    )
                     # Stop model requests before Home/recording cleanup can take time.
                     if self._worker is not None:
                         self._worker.request_stop()

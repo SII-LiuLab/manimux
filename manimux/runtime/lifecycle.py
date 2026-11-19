@@ -81,10 +81,10 @@ class ShutdownStatus:
         self._control_factory = control_factory
         self._recovery_token = ""
 
-    def update(self, phase, detail=""):
+    def update(self, phase: str, detail: str = "") -> None:
         with self._lock:
             self._phase, self._detail, self._since = phase, detail, time.monotonic()
-            if phase != "release_blocked":
+            if phase not in {"release_blocked", "cleanup_blocked"}:
                 self._recovery_token = ""
         if not self.enabled:
             return
@@ -160,6 +160,48 @@ class ShutdownStatus:
                     time.sleep(0.1)
         finally:
             client.close()
+
+    def wait_for_cleanup(self, reason: str) -> None:
+        """Wait for an explicit retry of close on the original resource owner.
+
+        A partial close may have released some controllers already, so this gate
+        never offers Home or overrides a controller's release checks. Without a
+        working GUI, retain ownership just like the supported-release gate.
+        """
+        # Later close attempts may enter the supported-release gate again.
+        # A partial close invalidates whole-assembly Home there as well.
+        self._home = None
+        while True:
+            try:
+                with self._lock:
+                    token = self._recovery_token = uuid.uuid4().hex
+                self.update("cleanup_blocked", reason)
+                # Back off even if constructing or closing the client fails.
+                time.sleep(0.1)
+                if not self.enabled:
+                    log.error("Cleanup incomplete; owner retained. RoboGUI is required to retry.")
+                    time.sleep(5.0)
+                    continue
+                client = self._control_factory()
+                try:
+                    while True:
+                        state = client.poll_state()
+                        request = (state or {}).get("shutdown_recovery")
+                        if (
+                            isinstance(request, dict)
+                            and request.get("token") == token
+                            and all(request.get(k) == v for k, v in self.identity.items())
+                            and request.get("action") == "retry_close"
+                        ):
+                            self.update("closing", "Operator requested cleanup retry.")
+                            return
+                        time.sleep(0.05)
+                finally:
+                    client.close()
+            except (Exception, KeyboardInterrupt) as exc:
+                # Transport failure or an interrupt cannot orphan the owner or
+                # let the session advertise readiness for a new Prepare.
+                log.error("Cleanup recovery unavailable; owner retained: %s", exc)
 
     def close(self):
         self._stop.set()

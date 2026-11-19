@@ -728,6 +728,9 @@ class PolicyRoboGUI:
             self.shutdown_release_btn = self.server.gui.add_button(
                 "Confirm support and release motor control", disabled=True, color="red",
             )
+            self.shutdown_retry_btn = self.server.gui.add_button(
+                "Retry cleanup", disabled=True, visible=False, color="blue",
+            )
 
         @self.shutdown_path_clear.on_update
         @self.shutdown_supported.on_update
@@ -743,6 +746,10 @@ class PolicyRoboGUI:
         def _release(_event: Any) -> None:
             self._request_shutdown_recovery("release")
 
+        @self.shutdown_retry_btn.on_click
+        def _retry(_event: Any) -> None:
+            self._request_shutdown_recovery("retry_close")
+
     def _reset_shutdown_recovery(self, *, hide: bool = True) -> None:
         self._shutdown_recovery_token = ""
         self._shutdown_recovery_request = {}
@@ -754,10 +761,20 @@ class PolicyRoboGUI:
 
     def _sync_shutdown_recovery_buttons(self) -> None:
         allowed = bool(
-            self.shutdown_phase == "release_blocked" and self._shutdown_recovery_token
+            self.shutdown_phase in {"release_blocked", "cleanup_blocked"}
+            and self._shutdown_recovery_token
             and not self._shutdown_recovery_request
             and time.time() - self.last_shutdown_time <= 3
         )
+        retry_cleanup = self.shutdown_phase == "cleanup_blocked"
+        self.shutdown_retry_btn.visible = retry_cleanup
+        self.shutdown_retry_btn.disabled = not (allowed and retry_cleanup)
+        for widget in (
+            self.shutdown_path_clear, self.shutdown_home_btn,
+            self.shutdown_supported, self.shutdown_release_btn,
+        ):
+            widget.visible = not retry_cleanup
+        allowed = allowed and not retry_cleanup
         self.shutdown_path_clear.disabled = not (allowed and self._shutdown_can_home)
         self.shutdown_supported.disabled = not allowed
         self.shutdown_home_btn.disabled = not (
@@ -768,8 +785,12 @@ class PolicyRoboGUI:
     def _request_shutdown_recovery(self, action: str) -> None:
         with self.lock:
             self._sync_shutdown_recovery_buttons()
-            button = self.shutdown_home_btn if action == "home" else self.shutdown_release_btn
-            if button.disabled or action not in {"home", "release"}:
+            button = {
+                "home": self.shutdown_home_btn,
+                "release": self.shutdown_release_btn,
+                "retry_close": self.shutdown_retry_btn,
+            }.get(action)
+            if button is None or button.disabled:
                 return
             self._shutdown_recovery_request = {
                 **self._shutdown_recovery_identity,
@@ -2570,6 +2591,7 @@ class PolicyRoboGUI:
                 "closing": "Closing runtime resources",
                 "finalizing": "Saving rollout",
                 "release_blocked": "Actuator release blocked · operator support required",
+                "cleanup_blocked": "Cleanup incomplete · retry required",
             }
             if phase not in labels:
                 return
@@ -2588,7 +2610,7 @@ class PolicyRoboGUI:
             self.status.content = f"🟠 **{labels[phase]} · {elapsed:.0f}s**"
             self.executor_info.value = labels[phase]
             detail = str(metadata.get("detail", ""))
-            if phase == "release_blocked":
+            if phase in {"release_blocked", "cleanup_blocked"}:
                 token = str(metadata.get("recovery_token", ""))
                 if token != self._shutdown_recovery_token:
                     self._reset_shutdown_recovery(hide=False)
@@ -2599,11 +2621,22 @@ class PolicyRoboGUI:
                 }
                 self.shutdown_recovery_folder.visible = True
                 if not self._shutdown_recovery_request:
-                    self.shutdown_recovery_text.content = (
-                        f"**Motor-control resources are still held; physical health is not guaranteed.**\n\n{detail}\n\n"
-                        "Clear the Home path before retrying Home, or physically support ALL arms "
-                        "and secure payloads before releasing control. Release does not Home."
-                    )
+                    if phase == "cleanup_blocked":
+                        self.shutdown_recovery_text.content = (
+                            "**Cleanup has not completed; Prepare remains blocked.**"
+                            f"\n\n{detail}\n\n"
+                            "Resolve the reported fault, then retry cleanup. This retries closing "
+                            "the current connections without repeating Home or clearing faults. "
+                            "Do not start another runtime while cleanup is pending."
+                        )
+                    else:
+                        self.shutdown_recovery_text.content = (
+                            "**Motor-control resources are still held; "
+                            f"physical health is not guaranteed.**\n\n{detail}\n\n"
+                            "Clear the Home path before retrying Home, "
+                            "or physically support ALL arms "
+                            "and secure payloads before releasing control. Release does not Home."
+                        )
                     if not token:
                         self.shutdown_recovery_text.content += (
                             "\n\nThis runtime has no GUI recovery channel. Do not assume release is available."
@@ -2611,12 +2644,17 @@ class PolicyRoboGUI:
                 self._sync_shutdown_recovery_buttons()
             else:
                 self._reset_shutdown_recovery()
-            if phase == "release_blocked" and detail != self._shutdown_detail:
+            if phase in {"release_blocked", "cleanup_blocked"} and detail != self._shutdown_detail:
                 self._shutdown_detail = detail
                 self._report_error(
                     "Hardware shutdown",
                     f"{detail}\nUse the Hardware recovery panel below. "
-                    "Releasing motor control requires physical support for ALL arms and payloads.",
+                    + (
+                        "Cleanup must complete before another Prepare."
+                        if phase == "cleanup_blocked" else
+                        "Releasing motor control requires physical support "
+                        "for ALL arms and payloads."
+                    ),
                 )
             return
         if event in {"episode_started", "episode_finished", "runtime_service_ready"}:

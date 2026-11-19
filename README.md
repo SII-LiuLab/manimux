@@ -247,6 +247,12 @@ envs/yam/.venv/bin/python -m manimux run \
 See [managed deployment](https://sii-liulab.github.io/manimux/guideline.html#managed-deployment)
 for external model/camera services, separate trial roots and Franka.
 
+Finish & Home returns to Home before closing. Explicit Drag/Release transitions can
+skip Home unless the assembly requires it (YAM does). If closing fails, RoboGUI keeps
+Prepare blocked and offers **Retry cleanup** on the existing connection; resolve the
+reported fault before retrying. A recovered cleanup failure still marks that rollout
+as aborted. See the [recovery guide](guideline.html#2-robogui).
+
 <a id="dream-1-hosted-inference"></a>
 
 **Next, choose your workflow:**

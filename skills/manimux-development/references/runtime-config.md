@@ -109,6 +109,20 @@ GUI code. The dashboard blocks controls during cleanup and uses this heartbeat
 separately from achieved-state freshness. Reporter liveness does not prove motion
 progress or controller health. A lost cleanup heartbeat leaves hardware state unknown.
 
+If `robot.close()` raises, `cleanup_blocked` retains the current runtime and assembly.
+Prepare and idle recovery stay unavailable until the original owner closes successfully.
+RoboGUI's **Retry cleanup** sends `shutdown_recovery.action=retry_close`, scoped to the
+current run directory, episode and fresh gate token. It retries only close, without
+repeating Home, clearing faults or granting supported-release permission. Partial
+controller cleanup cannot safely offer whole-robot Home. Failed attempts remain in the
+aborted recording even after recovery; stale requests, transport errors and interrupts
+never make a pending cleanup ready. Without a GUI recovery channel the owner stays blocked.
+The normal `release_blocked` gate and its physical-support confirmations remain separate.
+
+An accepted Finish with `finish_home=false` skips optional Home for explicit hand-guiding
+transitions. A missing value preserves the existing Home default; `home_before_close`
+always takes precedence. Assemblies without Home never receive that call.
+
 Both CLI `run --config` and session `run --config-list` call `build_runtime`, which
 constructs `EdgeRuntime` for every registered inference strategy. Model workers return
 actions and capabilities; they do not own robot Home or release. OpenWAM cache/sampling

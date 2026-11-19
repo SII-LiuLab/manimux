@@ -112,6 +112,11 @@ uv run manimux up --config <experiment.yaml> \
 
 手动分终端启动、Franka、外部模型/相机等说明见 [英文 README](README.md#start-the-services-by-hand) 与 [managed deployment](https://sii-liulab.github.io/manimux/guideline.html#managed-deployment)。
 
+Finish & Home returns Home before closing; Drag/Release can skip Home unless required
+by the assembly (YAM). Failed cleanup keeps Prepare blocked. Resolve the reported fault
+and use **Retry cleanup** on the existing connection; that rollout remains aborted.
+See the [recovery guide](guideline.html#2-robogui).
+
 **按目标选择入口：**
 
 | 我想… | 从这里开始 |
