@@ -21,6 +21,8 @@ class DecodeResult:
     response: InferenceResponse
     chunk: ActionChunk | None
     error: str | None = None
+    # Keep partition boundaries for classification; error remains the display text.
+    partition_errors: tuple[str, ...] = ()
 
 
 def _decode_main(
@@ -215,10 +217,11 @@ class ActionDecoderClient:
         self._pending = None
         errors = [p[1] for p in self._pieces.values() if p[1] is not None]
         if errors:
-            return DecodeResult(response, None, ";".join(errors))
+            return DecodeResult(response, None, ";".join(errors), partition_errors=tuple(errors))
         ordered = [self._pieces[p] for p in self._partitions]
         merged = ordered[0][0]
-        # Each partition returns ActionChunk; check timing, action semantics and groups before merging.
+        # Check each partition's ActionChunk timing, action semantics and groups
+        # before merging.
         fields = (
             "request_seq",
             "observation_time_ns",

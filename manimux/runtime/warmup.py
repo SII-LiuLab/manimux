@@ -175,13 +175,15 @@ class PolicyWarmup:
             self._event("warmup_failed", error=self.error)
 
     def _fail_response(
-        self, response: InferenceResponse, error: str, *, retryable: bool = False
+        self, response: InferenceResponse, error: str, *, retryable: bool | None = None
     ) -> None:
         job = self._pending.pop(response.request_seq)
         self.strategy.on_response_rejected(response)
         self.error = error
         self._retrying_preview = (
-            retryable or response.error_kind == "timeout" or _retryable_preview_rejection(error)
+            retryable
+            if retryable is not None
+            else response.error_kind == "timeout" or _retryable_preview_rejection(error)
         )
         self._event(
             "warmup_inference_failed",
@@ -300,7 +302,11 @@ class PolicyWarmup:
             error = decoded.error or self._decode_timeout_error
             self._decode_timeout_error = None
             if error:
-                self._fail_response(response, error)
+                errors = decoded.partition_errors or (error,)
+                self._fail_response(
+                    response, error,
+                    retryable=all(_retryable_preview_rejection(part) for part in errors),
+                )
             else:
                 self._finish_response(response, snapshot, decoded.chunk)
         wire = self.worker.poll() if self._pending else None

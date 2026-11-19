@@ -597,6 +597,10 @@ reset acknowledgement. Timing rejections use the next fresh observation without 
 the pending Start. This includes insufficient blend horizons and PAINT responses that
 outlast their anchored prefix; unrelated validation failures remain errors. A process
 decode that exceeds its deadline is drained before retrying or submitting reset.
+Partitioned decoding retains each failure in `DecodeResult.partition_errors` as well
+as the combined diagnostic text. A pending Start retries only when every failed
+partition has a retryable timing rejection; a mixed validation failure stops Start
+regardless of partition completion order.
 A Pause during draining returns to warmup. RoboGUI resumes previews after that Pause
 is acknowledged, accepting only previews with the current control revision and episode
 identity. The first Start still freezes the trial's identity. Only a fresh subsequent
