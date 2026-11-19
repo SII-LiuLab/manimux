@@ -4,7 +4,11 @@ from collections import Counter, deque
 from dataclasses import dataclass, replace
 from queue import Full
 
-from manimux.runtime.inference import InferenceTimingError, decode_strategy_action
+from manimux.runtime.inference import (
+    InferenceTimingError,
+    InferenceTimingRejection,
+    decode_strategy_action,
+)
 from manimux.runtime.planning import condition_overlap_fields
 from manimux.runtime.preview import PreviewPlanner
 from manimux.types import InferenceResponse, copy_action_chunk
@@ -18,6 +22,7 @@ def _retryable_preview_rejection(reason: str) -> bool:
         "plan_too_old",
         "no_future_horizon",
         "no_future_runtime_horizon",
+        "insufficient_blend_horizon",
         "handoff_missed",
         "superseded_response",
         "superseded_pending_response",
@@ -78,6 +83,7 @@ class PolicyWarmup:
         self.completed_requests = 0
         self.latest_branch = None
         self.error = ""
+        self._retrying_preview = False
         inference = config["inference"]
         delay_config = inference.get(inference["algorithm"], inference["rtc"])
         self.latency_ns = deque(
@@ -90,6 +96,7 @@ class PolicyWarmup:
         self._pending = {}
         self._waiting_response = None
         self._decoding_seq = None
+        self._decode_timeout_error = None
         self._reset_seq = None
         self._was_paused = True
         self._events = []
@@ -136,7 +143,7 @@ class PolicyWarmup:
             "error": self.error,
             "retrying_preview": (
                 (self.phase == "warming" or (self.phase == "draining" and not ready))
-                and _retryable_preview_rejection(self.error)
+                and self._retrying_preview
             ),
             "execution_ms": self._execution_ms,
             "ik_status": self._ik_status,
@@ -163,13 +170,19 @@ class PolicyWarmup:
         except Exception as exc:
             self.phase = "error"
             self._preview = None
+            self._retrying_preview = False
             self.error = f"{type(exc).__name__}: {exc}"
             self._event("warmup_failed", error=self.error)
 
-    def _fail_response(self, response: InferenceResponse, error: str) -> None:
+    def _fail_response(
+        self, response: InferenceResponse, error: str, *, retryable: bool = False
+    ) -> None:
         job = self._pending.pop(response.request_seq)
         self.strategy.on_response_rejected(response)
         self.error = error
+        self._retrying_preview = (
+            retryable or response.error_kind == "timeout" or _retryable_preview_rejection(error)
+        )
         self._event(
             "warmup_inference_failed",
             branch=job.branch,
@@ -178,7 +191,7 @@ class PolicyWarmup:
         )
         # Start still needs valid samples. An expired preview can be replaced
         # using the next fresh observation without discarding the Start request.
-        if self.phase == "draining" and not self.ready and not _retryable_preview_rejection(error):
+        if self.phase == "draining" and not self.ready and not self._retrying_preview:
             self.phase = "error"
 
     def _finish_response(self, response, snapshot, decoded=None):
@@ -203,6 +216,9 @@ class PolicyWarmup:
                 self.planner._decode_forecast.observe(chunk.metadata["decode_stage_ms"])
             decode_finished_ns = self.clock.now_ns()
             chunk, result, fields = self.planner.accept(chunk, response, snapshot.state)
+        except InferenceTimingRejection as exc:
+            self._fail_response(response, f"{type(exc).__name__}: {exc}", retryable=True)
+            return
         except (TypeError, ValueError) as exc:
             self._fail_response(response, f"{type(exc).__name__}: {exc}")
             return
@@ -229,6 +245,7 @@ class PolicyWarmup:
         self.completed_requests += 1
         self._branch_calls[job.branch] += 1
         self.error = ""
+        self._retrying_preview = False
         if self.phase == "warming":
             display = copy_action_chunk(chunk)
             display.request_seq = -(response.request_seq + 1)
@@ -265,13 +282,25 @@ class PolicyWarmup:
     def _poll(self, snapshot):
         """Drain model/decoder output; return whether this tick consumed a response."""
         processed = False
-        decoded = self.decoder.poll() if self.decoder is not None else None
+        try:
+            decoded = self.decoder.poll() if self.decoder is not None else None
+        except TimeoutError as exc:
+            if self._decoding_seq is None or not self.decoder.busy:
+                raise
+            # The process still owns this job. Keep polling until its result is
+            # drained; neither another decode nor backend reset may overtake it.
+            self._decode_timeout_error = f"decode_error:TimeoutError:{exc}"
+            self.error = self._decode_timeout_error
+            self._retrying_preview = True
+            return True
         if decoded is not None:
             self._decoding_seq = None
             processed = True
             response = decoded.response
-            if decoded.error:
-                self._fail_response(response, decoded.error)
+            error = decoded.error or self._decode_timeout_error
+            self._decode_timeout_error = None
+            if error:
+                self._fail_response(response, error)
             else:
                 self._finish_response(response, snapshot, decoded.chunk)
         wire = self.worker.poll() if self._pending else None
@@ -324,6 +353,7 @@ class PolicyWarmup:
             self.phase = "draining"
             self._preview = None
             self.error = ""
+            self._retrying_preview = False
             self._event("warmup_start_requested")
         elif paused and self.phase == "draining":
             self.phase = "warming"
@@ -373,8 +403,9 @@ class PolicyWarmup:
             for kind, fields in self.strategy.take_runtime_events(step=self.planner.steps):
                 self._event("warmup_strategy_event", strategy_event=kind, **fields)
         if self.phase == "draining" and not self._pending and self.ready:
-            if _retryable_preview_rejection(self.error):
+            if self._retrying_preview:
                 self.error = ""
+                self._retrying_preview = False
             try:
                 self._reset_seq = self.worker.submit_reset(self.session_id)
             except Full:

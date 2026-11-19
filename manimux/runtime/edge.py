@@ -968,6 +968,9 @@ class EdgeRuntime(PlanningContext):
                                     **preview_metadata,
                                     "episode_id": episode_id,
                                     "run_dir": str(self._run_dir.resolve()),
+                                    "control_revision": robogui_episode_metadata.get(
+                                        "control_status", {}
+                                    ).get("revision", ""),
                                     "runtime": self._strategy.name,
                                 },
                             )

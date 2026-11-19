@@ -431,7 +431,8 @@ Use <strong>Prepare → adjust layout → Activate Warmup → Start rollout → 
 Warmup is explicit when <code>run.warmup_before_start: true</code>. Start can be requested while warmup runs.
 If a preview expires before the required samples are ready, RoboGUI shows that warmup is retrying with a fresh observation.
 Formal execution waits for the required samples and backend reset acknowledgement. Pause cancels the pending Start while
-warmup is still collecting or draining previews. With warmup disabled, go directly to Start. Follow the selected Finish/Home behavior before
+warmup is still collecting or draining previews. Previews resume once the runtime confirms Pause;
+the trial identity remains frozen by the first Start. With warmup disabled, go directly to Start. Follow the selected Finish/Home behavior before
 stopping runtime, then stop model, camera and GUI processes.</p>
 <p>For another compatible method, select it in RoboGUI. For another collection/model,
 replace terminal 3 with that model's environment and launcher; do not reuse Pi05's interpreter.</p>

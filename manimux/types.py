@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, TypeAlias
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias
 
 import numpy as np
 from numpy.typing import NDArray
@@ -204,6 +204,8 @@ class InferenceResponse:
     observation_time_ns: int = 0
     # Streaming results must retain their own deadline while newer requests arrive.
     deadline_ns: int = 0
+    # Preserve typed transport failures independently of diagnostic text.
+    error_kind: Literal["timeout"] | None = None
 
 
 @dataclass(slots=True)

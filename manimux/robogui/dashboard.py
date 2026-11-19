@@ -913,8 +913,21 @@ class PolicyRoboGUI:
         if self._warmup is None:
             self.warmup_requested = False
             self.warmup_btn.disabled = True
+        # A cancelled Start may resume previews only after this Pause is
+        # acknowledged. rollout_started still freezes the trial's identity.
+        if (
+            self._warmup is not None
+            and self._warmup.get("phase") == "warming"
+            and self.paused
+            and self.rollout_started
+            and self._control_revision
+            and self._control_status is not None
+            and self._control_status.get("revision") == self._control_revision
+            and self._control_status.get("paused") is True
+        ):
+            self._warmup_preview_closed = False
         # Idle precedes explicit activation; it must not close this episode's
-        # preview gate. Start/Finish still permanently reject late previews.
+        # preview gate. Formal execution and Finish continue to close it.
         idle = self._warmup is not None and self._warmup.get("phase") == "idle"
         if not idle and not self._warmup_preview_allowed():
             self._clear_warmup_preview()
@@ -948,7 +961,6 @@ class PolicyRoboGUI:
         if not (
             self.episode_active
             and self.paused
-            and not self.rollout_started
             and not self.finish_requested
             and not self.finish_btn.disabled
             and not self._warmup_preview_closed
@@ -962,6 +974,7 @@ class PolicyRoboGUI:
             self._episode_id
             and str(metadata.get("episode_id", "")) == self._episode_id
             and str(metadata.get("run_dir", "")) == self.service_id
+            and str(metadata.get("control_revision", "")) == self._control_revision
         )
 
     def _clear_warmup_plan(self) -> None:

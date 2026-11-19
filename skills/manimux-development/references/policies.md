@@ -79,6 +79,15 @@ The client owns transport, backend wire encoding/decoding and capability/identit
 exchange. It does not own cameras, robot sessions, IK, motion smoothing or chunk
 handoff. Preserve reset behavior and response metadata across the wire boundary.
 
+Inference clients must preserve timeout classification when wrapping provider errors:
+raise `TimeoutError` for a provider timeout while retaining redacted diagnostic details
+and response-log paths. The worker carries this as `InferenceResponse.error_kind="timeout"`
+separately from the full `error` message. Dream SDK timeouts and Poke socket timeouts
+(including `URLError` wrapping `TimeoutError`) follow this contract. Authentication,
+availability and validation errors remain non-timeout failures; their messages alone
+must not classify them as timeouts. This classification permits warmup retries without
+adding a retry loop inside the client.
+
 When inspection shows that the requested integration owns a reusable runtime and
 serving contract, propose it as a peer framework and ask the user to confirm that
 scope. Keep a confirmed peer framework in an independently versioned

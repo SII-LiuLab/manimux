@@ -135,7 +135,8 @@ class DreamPolicyModel:
                 observation=observation, raw=None, timing=self.client.last_timing,
                 secret=key, error=f"{type(exc).__name__}: {message}",
             )
-            raise RuntimeError(
+            failure = TimeoutError if isinstance(exc, TimeoutError) else RuntimeError
+            raise failure(
                 f"Dream inference failed ({type(exc).__name__}): {message}; response_log={path}"
             ) from None
         # Persist before validation: a rejected response is precisely the evidence

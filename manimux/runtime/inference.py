@@ -20,6 +20,10 @@ from manimux.types import (
 )
 
 
+class InferenceTimingRejection(ValueError):
+    """One response missed its timing forecast; a fresh request may still succeed."""
+
+
 class InferenceTimingError(RuntimeError):
     """A schedule cannot progress; abort through the shared fault/Home path."""
 
