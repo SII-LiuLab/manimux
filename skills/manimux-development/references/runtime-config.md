@@ -408,6 +408,12 @@ assembled offline model, with camera slots and per-group display styles.
 `--robot <name>` selects that directory; `--config <path>` selects an explicit YAML.
 Do not create a second kinematic definition just for display.
 
+The [page shortcuts](../../../guideline.html#robogui-shortcuts) activate the existing
+Viser button IDs, not a separate control endpoint. The live client's key handler owns
+focus and dialog filtering; rollout admission, Pause and Finish/Home remain with the
+button callbacks. When updating Viser, verify the client script delivery, button IDs
+and Top image preview in a browser with synthetic data.
+
 ### Trace `--robot yam` to the rendered model
 
 ```text

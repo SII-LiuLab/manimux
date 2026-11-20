@@ -34,6 +34,7 @@ from .recordings_panel import RecordingsPanel
 from .reference_layouts import DEFAULT_LAYOUT_ROOT
 from .robot_view import RobotGroup, RobotView, load_robogui_config, load_robot_view
 from .score_choices import ScoreChoices
+from .shortcuts import install_shortcuts
 from .study_setup import completed_repeats, next_repeat, reference_task, remaining_trials, unscored_experiments
 from .top_overlay import TopViewOverlay
 
@@ -205,6 +206,17 @@ class PolicyRoboGUI:
         self.episode_finalized = False
         self._build_scene()
         self._build_gui()
+        install_shortcuts(
+            self.server,
+            {
+                "Z": self.prepare_normal_btn,
+                "X": self.prepare_experiment_btn,
+                "U": self.warmup_btn,
+                "Enter": self.start_btn,
+                "P": self.pause_btn,
+                "F": self.finish_btn,
+            },
+        )
         self.recordings_panel = RecordingsPanel(self)
         self._set_setup_controls_enabled(False)
         self._set_stage("waiting")
@@ -1070,7 +1082,9 @@ class PolicyRoboGUI:
         self.release_btn.visible = has_release
         self.stop_drag_btn.visible = has_hand_guiding
         self.recovery_status.visible = declared
-        self.finish_btn.label = "Finish & Home" if self.active_home_available else "Finish rollout"
+        self.finish_btn.label = (
+            "Finish & Home (F)" if self.active_home_available else "Finish rollout (F)"
+        )
         if has_hand_guiding and tuple(self.drag_arm.options) != self.recovery_selections:
             selected = self.drag_arm.value
             self.drag_arm.options = self.recovery_selections
@@ -1816,7 +1830,9 @@ class PolicyRoboGUI:
         allowed = enabled and not self.observe_only and not self.home_requested
         phase = self._warmup.get("phase") if self._warmup is not None else None
         formal_started = self.rollout_started and phase in {None, "complete"}
-        self.start_btn.label = "Resume rollout" if formal_started else "Start rollout"
+        self.start_btn.label = (
+            "Resume rollout (Enter)" if formal_started else "Start rollout (Enter)"
+        )
         self.start_btn.disabled = (
             not allowed or not self.paused or phase in {"idle", "draining", "resetting"}
         )
