@@ -50,8 +50,9 @@ For a config list, reject any station output override; recording.root belongs to
 config list. Help the user choose it once, then reuse it on subsequent launches. Keep secrets and machine bindings out of shared YAML.
 
 Return the written station path, a short binding summary, remaining unverified items
-and matched launch commands. Distinguish static validation from device connectivity
-and actual motion. Setup alone does not authorize launching services or moving hardware.
+and the station's [manual launch commands](../manimux-experiments/SKILL.md#manual-launch-commands).
+Distinguish static validation from device connectivity and actual motion. Setup alone
+does not authorize launching services or moving hardware.
 
 ## Bind an existing deployment
 
