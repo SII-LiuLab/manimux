@@ -408,6 +408,16 @@ assembled offline model, with camera slots and per-group display styles.
 `--robot <name>` selects that directory; `--config <path>` selects an explicit YAML.
 Do not create a second kinematic definition just for display.
 
+The [page shortcuts](../../../guideline.html#robogui-shortcuts) activate the existing
+Viser button IDs. Each browser tab uses its letter-shortcut preference for the
+letter bindings and all shortcut hints. With shortcuts switched off, the Top expand
+icon uses Viser's native image viewer. The client filters keys by focus
+and open dialogs. The button callbacks handle rollout admission, Pause
+and Finish/Home. When updating Viser, verify the client script delivery, button IDs
+and Top image preview in a browser with synthetic data. Focus an enabled Start or
+Finish button, open Top with T, and hold Enter to close it. Focus should return
+to the button. Only a fresh press after release should activate it.
+
 ### Trace `--robot yam` to the rendered model
 
 ```text

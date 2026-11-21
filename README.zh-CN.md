@@ -84,6 +84,9 @@ uv run manimux run --config-list manimux/configs/lists/example-synthetic.yaml
 
 模型环境与 checkpoint 仅在真实机器人部署时需要。
 
+RoboGUI 页面获得焦点时，可使用按钮文字后的[快捷键](https://sii-liulab.github.io/manimux/guideline.html#robogui-shortcuts)。
+`P` 暂停；`F` 结束本轮，机器人可能继续回 Home，不是急停。
+
 ### 第一次上真机前
 
 真机命令都会读取一份私有工位文件，里面绑定 CAN/IP、相机序列号、服务地址和 checkpoint 根目录。按机器人从模板复制一次再填写（[工位指南](skills/manimux-station-setup/references/station.md)）：
