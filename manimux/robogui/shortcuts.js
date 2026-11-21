@@ -23,7 +23,8 @@ function installLetterShortcutToggle() {
 
 function installShortcuts(buttonIds) {
   const installation = Symbol.for("manimux.robogui.shortcuts");
-  window[installation]?.();
+  // A client reconnect can reinstall these listeners while Enter is still down.
+  const previewEnterKeys = window[installation]?.() ?? new Set();
   installLetterShortcutToggle();
   const listeners = new AbortController();
   const options = { signal: listeners.signal, capture: true };
@@ -62,6 +63,12 @@ function installShortcuts(buttonIds) {
     const close = document.createElement("button");
     close.type = "button";
     close.textContent = "Close";
+    close.addEventListener("keydown", (event) => {
+      // The native click closes the dialog and returns focus before the key repeats.
+      if (event.isTrusted && event.key === "Enter" && !event.defaultPrevented) {
+        previewEnterKeys.add(event.code);
+      }
+    });
     close.onclick = () => dialog.close();
     const image = document.createElement("img");
     image.alt = "TOP · Layout reference";
@@ -93,8 +100,22 @@ function installShortcuts(buttonIds) {
     openReference(source);
   }, options);
 
+  document.addEventListener("keyup", (event) => {
+    if (event.isTrusted && event.key === "Enter") previewEnterKeys.delete(event.code);
+  }, options);
+
   document.addEventListener("keydown", (event) => {
-    if (!event.isTrusted || !document.hasFocus() || document.hidden || event.defaultPrevented || event.repeat ||
+    if (!event.isTrusted) return;
+    if (event.key === "Enter" && previewEnterKeys.has(event.code)) {
+      if (event.repeat) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+      // A fresh press also clears a release missed while the page was unfocused.
+      previewEnterKeys.delete(event.code);
+    }
+    if (!document.hasFocus() || document.hidden || event.defaultPrevented || event.repeat ||
         event.isComposing || event.keyCode === 229 || event.ctrlKey || event.metaKey ||
         event.altKey || event.shiftKey) return;
     const key = event.key.toLowerCase();
@@ -124,5 +145,6 @@ function installShortcuts(buttonIds) {
     listeners.abort();
     hints.remove();
     preview?.close();
+    return previewEnterKeys;
   };
 }

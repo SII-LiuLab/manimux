@@ -414,7 +414,9 @@ letter bindings and all shortcut hints. With shortcuts switched off, the Top exp
 icon uses Viser's native image viewer. The client filters keys by focus
 and open dialogs. The button callbacks handle rollout admission, Pause
 and Finish/Home. When updating Viser, verify the client script delivery, button IDs
-and Top image preview in a browser with synthetic data.
+and Top image preview in a browser with synthetic data. Focus an enabled Start or
+Finish button, open Top with T, and hold Enter to close it. Focus should return
+to the button. Only a fresh press after release should activate it.
 
 ### Trace `--robot yam` to the rendered model
 
