@@ -409,9 +409,11 @@ assembled offline model, with camera slots and per-group display styles.
 Do not create a second kinematic definition just for display.
 
 The [page shortcuts](../../../guideline.html#robogui-shortcuts) activate the existing
-Viser button IDs, not a separate control endpoint. The live client's key handler owns
-focus and dialog filtering; rollout admission, Pause and Finish/Home remain with the
-button callbacks. When updating Viser, verify the client script delivery, button IDs
+Viser button IDs. Each browser tab uses its letter-shortcut preference for the
+letter bindings and all shortcut hints. With shortcuts switched off, the Top expand
+icon uses Viser's native image viewer. The client filters keys by focus
+and open dialogs. The button callbacks handle rollout admission, Pause
+and Finish/Home. When updating Viser, verify the client script delivery, button IDs
 and Top image preview in a browser with synthetic data.
 
 ### Trace `--robot yam` to the rendered model

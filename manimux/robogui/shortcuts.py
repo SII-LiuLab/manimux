@@ -8,10 +8,7 @@ from viser import _messages
 
 
 def install_shortcuts(server: viser.ViserServer, buttons: dict[str, viser.GuiButtonHandle]) -> None:
-    button_ids = {}
-    for key, button in buttons.items():
-        button.label = f"{button.label} ({key})"
-        button_ids[key.lower()] = button._impl.uuid
+    button_ids = {key.lower(): button._impl.uuid for key, button in buttons.items()}
 
     script = Path(__file__).with_name("shortcuts.js").read_text(encoding="utf-8")
     message = _messages.RunJavascriptMessage(

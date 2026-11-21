@@ -259,7 +259,7 @@ class TopViewOverlay:
         content = (
             _PANEL_STYLE + '<div class="manimux-reference-anchor"></div>'
             '<section class="manimux-reference-panel">'
-            "<header><strong>TOP · Layout reference (T)</strong>"
+            "<header><strong>TOP · Layout reference</strong>"
             f"<span>{html.escape(label)}</span></header>"
             '<div class="manimux-reference-image-space"></div>'
             f"<footer>{html.escape(note)}</footer></section>"

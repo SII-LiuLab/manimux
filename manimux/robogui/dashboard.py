@@ -319,6 +319,7 @@ class PolicyRoboGUI:
             "Edit last evaluation", visible=False, disabled=True
         )
         self.instruction = self.server.gui.add_markdown(_instruction_markdown(""))
+        self.server.gui.add_html("<manimux-letter-shortcuts></manimux-letter-shortcuts>")
         self.new_rollout_folder = self.server.gui.add_folder(
             "Trial setup", expand_by_default=True
         )
@@ -1082,9 +1083,7 @@ class PolicyRoboGUI:
         self.release_btn.visible = has_release
         self.stop_drag_btn.visible = has_hand_guiding
         self.recovery_status.visible = declared
-        self.finish_btn.label = (
-            "Finish & Home (F)" if self.active_home_available else "Finish rollout (F)"
-        )
+        self.finish_btn.label = "Finish & Home" if self.active_home_available else "Finish rollout"
         if has_hand_guiding and tuple(self.drag_arm.options) != self.recovery_selections:
             selected = self.drag_arm.value
             self.drag_arm.options = self.recovery_selections
@@ -1830,9 +1829,7 @@ class PolicyRoboGUI:
         allowed = enabled and not self.observe_only and not self.home_requested
         phase = self._warmup.get("phase") if self._warmup is not None else None
         formal_started = self.rollout_started and phase in {None, "complete"}
-        self.start_btn.label = (
-            "Resume rollout (Enter)" if formal_started else "Start rollout (Enter)"
-        )
+        self.start_btn.label = "Resume rollout" if formal_started else "Start rollout"
         self.start_btn.disabled = (
             not allowed or not self.paused or phase in {"idle", "draining", "resetting"}
         )
