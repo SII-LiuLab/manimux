@@ -35,8 +35,10 @@ not establish that an object was successfully grasped or released.
   `<side>-gripper_pos.npy`, `top-images-rgb.mp4`, `write_complete.flag`) or ABC
   preview (`<split>/<episode>/states_actions.bin`). Robot config
   `manimux/configs/embodiment/robot/yam_dual.yaml`.
-- **Image to draw on**: an image, an `.mp4` (first frame) or a ManiMux episode dir
-  (`videos/<camera_name>.mp4`). It must come from the calibrated camera pose.
+- **Image to draw on**: an image, an `.mp4` (first frame) or a ManiMux episode dir.
+  For indexed episodes, `camera_name` selects the recorded camera name. Older profiles
+  can use a legacy filename stem that matches exactly one indexed camera. Episodes
+  without a video index read `videos/<camera_name>.mp4`. Use the calibrated camera pose.
 - **Inference session**: `rollout-*/result.json` plus `data.zarr/ticks/state/<arm>`
   and `ticks/monotonic_ns`. Only finalized attempts are loaded, including failures.
   Command and scheduled targets are not substituted for measured state. The points

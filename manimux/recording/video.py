@@ -4,6 +4,7 @@ import json
 import queue
 import re
 import threading
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,35 @@ from typing import Any
 import numpy as np
 
 from manimux.types import SensorFrame, UInt8Array
+
+
+def camera_video_stem(name: str) -> str:
+    """Return the recorder's base video filename stem for a camera name."""
+    normalized = re.sub(r"[^A-Za-z0-9_.-]+", "-", name).strip("-.")
+    return normalized or "camera"
+
+
+def indexed_camera_video(
+    videos: Path, camera: str, camera_index: dict[str, dict[str, Any]]
+) -> tuple[Path, dict[str, Any]]:
+    """Read the camera's file and capture metadata within an absolute videos directory."""
+    try:
+        spec = camera_index[camera]
+    except KeyError as exc:
+        raise ValueError(f"camera {camera!r} is not in the video index in {videos}") from exc
+    path = (videos / spec["file"]).resolve()
+    if path.parent != videos:
+        raise ValueError(f"camera {camera!r} video path escapes the recording")
+    # Check the whole index, including cameras that the reader does not select.
+    for other, entry in camera_index.items():
+        if other == camera:
+            continue
+        with suppress(FileNotFoundError, NotADirectoryError):
+            if path.samefile(videos / entry["file"]):
+                raise ValueError(
+                    f"camera {camera!r} shares source video {path.name!r} with camera {other!r}"
+                )
+    return path, spec
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +79,7 @@ class AsyncVideoRecorder:
         self._dropped_bundles = 0
         self._frames_written = 0
         self._timestamps: dict[str, list[int]] = {}
+        self._video_files: dict[str, str] = {}
         self._error: str | None = None
         self._thread: threading.Thread | None = None
         if self._enabled:
@@ -63,11 +94,6 @@ class AsyncVideoRecorder:
             daemon=True,
         )
         self._thread.start()
-
-    @staticmethod
-    def _safe_camera_name(name: str) -> str:
-        normalized = re.sub(r"[^A-Za-z0-9_.-]+", "-", name).strip("-.")
-        return normalized or "camera"
 
     def submit(self, frames: dict[str, SensorFrame]) -> None:
         if not self._enabled or not frames:
@@ -95,6 +121,7 @@ class AsyncVideoRecorder:
 
     def _run(self) -> None:
         writers: dict[str, Any] = {}
+        used_filenames: set[str] = set()
         try:
             import cv2
 
@@ -108,7 +135,13 @@ class AsyncVideoRecorder:
                     height, width = frame.image.shape[:2]
                     writer = writers.get(frame.camera_name)
                     if writer is None:
-                        path = self._video_dir / f"{self._safe_camera_name(frame.camera_name)}.mp4"
+                        stem = camera_video_stem(frame.camera_name)
+                        filename = f"{stem}.mp4"
+                        suffix = 2
+                        while filename.casefold() in used_filenames:
+                            filename = f"{stem}-{suffix}.mp4"
+                            suffix += 1
+                        path = self._video_dir / filename
                         writer = cv2.VideoWriter(
                             str(path),
                             video_writer_fourcc(*self._codec),
@@ -118,6 +151,8 @@ class AsyncVideoRecorder:
                         if not writer.isOpened():
                             raise RuntimeError(f"video writer did not open for {path}")
                         writers[frame.camera_name] = writer
+                        self._video_files[frame.camera_name] = filename
+                        used_filenames.add(filename.casefold())
                     writer.write(cv2.cvtColor(frame.image, cv2.COLOR_RGB2BGR))
                     self._timestamps.setdefault(frame.camera_name, []).append(
                         frame.capture_monotonic_ns
@@ -149,7 +184,7 @@ class AsyncVideoRecorder:
             "error": self._error,
             "cameras": {
                 name: {
-                    "file": f"{self._safe_camera_name(name)}.mp4",
+                    "file": self._video_files[name],
                     "capture_monotonic_ns": timestamps,
                 }
                 for name, timestamps in sorted(self._timestamps.items())

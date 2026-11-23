@@ -50,7 +50,9 @@ data/experiments/<campaign>/<algorithm>/session-*/
   output recorded after `robot.send_command()` returns; it is not a hardware acknowledgment.
   New recordings omit `optimized`, which previously duplicated `command` exactly. Existing
   recordings remain unchanged and may contain that historical field.
-- `videos/index.json` stores camera timestamps, frame counts, dropped bundles and encoder errors.
+- `videos/index.json` maps each camera name to its MP4 filename and capture timestamps.
+  Use the indexed filename when reading a rollout's frames for overlays or alignment.
+  The index also stores frame counts, dropped bundles and encoder errors.
 - `human-label.json` exists only when an operator saves an evaluation. New labels use
   `human-label-v2` without a smoothness score. Historical v1 files remain unchanged;
   their task results remain usable and their old smoothness field is ignored.

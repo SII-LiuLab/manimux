@@ -27,11 +27,14 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from typing import Any
 
 import cv2
 import numpy as np
 import yaml
 from PIL import Image, ImageDraw, ImageFont
+
+from manimux.recording.video import camera_video_stem, indexed_camera_video
 
 ARMS = ("left_arm", "right_arm")
 COLORS = {
@@ -96,13 +99,31 @@ def _nearest_indices(times, query):
     return np.where(np.abs(times[left] - query) <= np.abs(times[right] - query), left, right)
 
 
+def _indexed_video(index_path: Path, camera_name: str) -> tuple[Path, dict[str, Any]]:
+    index = json.loads(index_path.read_text())
+    try:
+        cameras = index["cameras"]
+        if camera_name not in cameras:
+            # Older profiles used the recorder's filename stem as the camera name.
+            matches = [name for name in cameras if camera_video_stem(name) == camera_name]
+            if len(matches) > 1:
+                raise ValueError(
+                    f"legacy camera name {camera_name!r} is ambiguous in {index_path}. "
+                    f"Use one of the recorded camera names {matches!r}."
+                )
+            if matches:
+                camera_name = matches[0]
+        return indexed_camera_video(index_path.parent.resolve(), camera_name, cameras)
+    except (KeyError, TypeError) as exc:
+        raise ValueError(f"invalid video index {index_path}: {exc}") from exc
+
+
 def _video_states(episode: Path, arms: dict, video: str):
     """Return video path and states aligned by monotonic capture time for rollouts."""
     if not (episode / "data.zarr").exists():
         return episode / video, arms, None
     times, _ = _rollout_states(episode)
-    index = json.loads((episode / "videos/index.json").read_text())
-    spec = index["cameras"][Path(video).stem]
+    path, spec = _indexed_video(episode / "videos/index.json", Path(video).stem)
     capture = np.asarray(spec["capture_monotonic_ns"], dtype=np.int64)
     nearest = _nearest_indices(times, capture)
     valid = (
@@ -110,7 +131,7 @@ def _video_states(episode: Path, arms: dict, video: str):
         & (capture <= times[-1])
         & (np.abs(times[nearest] - capture) <= 50_000_000)
     )
-    return episode / "videos" / spec["file"], {a: q[nearest] for a, q in arms.items()}, valid
+    return path, {a: q[nearest] for a, q in arms.items()}, valid
 
 
 def extract_points(dataset: Path, robot_config: Path, *, gripper_open=0.6):
@@ -443,7 +464,13 @@ def load_profile(path: Path) -> dict:
 
 
 def first_frame(episode: Path, camera_name: str) -> np.ndarray:
-    capture = cv2.VideoCapture(str(episode / "videos" / f"{camera_name}.mp4"))
+    videos = episode / "videos"
+    index_path = videos / "index.json"
+    if index_path.exists() or index_path.is_symlink():
+        path, _ = _indexed_video(index_path, camera_name)
+    else:
+        path = videos / f"{camera_name}.mp4"
+    capture = cv2.VideoCapture(str(path))
     ok, frame = capture.read()
     capture.release()
     if not ok:

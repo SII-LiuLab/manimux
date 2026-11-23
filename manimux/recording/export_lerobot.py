@@ -9,18 +9,34 @@ from tempfile import TemporaryDirectory
 import numpy as np
 import zarr
 
+from manimux.recording.video import indexed_camera_video
 
-def _times(values, label):
+
+def _times(values, label, *, allow_duplicates=False):
     times = np.asarray(values)
+    minimum_delta = 0 if allow_duplicates else 1
     if (
         times.ndim != 1
         or not len(times)
         or times.dtype.kind != "i"
-        or times[0] < 0
-        or np.any(np.diff(times) <= 0)
+        or np.any(times < 0)
+        or np.any(np.diff(times) < minimum_delta)
     ):
-        raise ValueError(f"{label} needs strictly increasing integer capture timestamps")
+        order = "nondecreasing" if allow_duplicates else "strictly increasing"
+        raise ValueError(f"{label} needs {order} integer capture timestamps")
     return times
+
+
+def _validate_recorded_layout(episode: Path, group: str, arm_dofs: int, gripper_dofs: int) -> None:
+    manifest = episode.parent / "session-manifest.json"
+    if not manifest.is_file():
+        return
+    config = json.loads(manifest.read_text()).get("config") or {}
+    layouts = config.get("robot", {}).get("group_layouts") or {}
+    recorded = layouts.get(group)
+    declared = {"arm_dofs": arm_dofs, "gripper_dofs": gripper_dofs}
+    if recorded is not None and any(recorded.get(key) != val for key, val in declared.items()):
+        raise ValueError(f"Group {group!r} layout {declared} conflicts with recorded {recorded}")
 
 
 def export_episode(
@@ -43,6 +59,9 @@ def export_episode(
         raise ValueError("require 1..1000 FPS and a positive finite age limit")
     if not cameras or len(set(cameras)) != len(cameras):
         raise ValueError("specify each selected camera once")
+    for camera in cameras:
+        if not camera or "/" in camera or "\x00" in camera:
+            raise ValueError(f"invalid LeRobot camera feature name {camera!r}")
     result = json.loads((episode / "result.json").read_text())
     if episode.name.endswith(".partial") or result.get("incomplete"):
         raise ValueError("source recording is incomplete")
@@ -61,6 +80,7 @@ def export_episode(
         or state.shape[1] - arm_dofs not in (0, 1)
     ):
         raise ValueError("expected arm joints and at most one normalized gripper")
+    _validate_recorded_layout(episode, group, arm_dofs, state.shape[1] - arm_dofs)
     names = [f"{group}.joint_{i + 1}.rad" for i in range(arm_dofs)]
     if state.shape[1] > arm_dofs:
         names.append(f"{group}.gripper.open_fraction")
@@ -72,17 +92,17 @@ def export_episode(
     index = json.loads((videos / "index.json").read_text())
     if index.get("error"):
         raise ValueError(f"source video recorder failed: {index['error']}")
+    camera_sources = {
+        camera: indexed_camera_video(videos, camera, index["cameras"]) for camera in cameras
+    }
     times = {"tick": tick_times}
     destination.parent.mkdir(parents=True, exist_ok=True)
     with TemporaryDirectory(dir=destination.parent) as temp, ExitStack() as stack:
         streams = {}
-        for camera in cameras:
-            entry = index["cameras"][camera]
-            path = (videos / entry["file"]).resolve()
-            if path.parent != videos or not camera.isidentifier():
-                raise ValueError("invalid camera file or feature name")
+        for camera, (path, entry) in camera_sources.items():
             key = f"observation.images.{camera}"
-            times[key] = _times(entry["capture_monotonic_ns"], camera)
+            # A cached capture can occupy multiple encoded video frames.
+            times[key] = _times(entry["capture_monotonic_ns"], camera, allow_duplicates=True)
             container = stack.enter_context(av.open(str(path)))
             video = container.streams.video[0]
             features[key] = {
