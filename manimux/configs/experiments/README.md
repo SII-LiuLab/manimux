@@ -6,7 +6,6 @@ Only the `example-*` studies are published; they are also the runtime examples:
 | --- | --- | --- |
 | [`example-synthetic/`](example-synthetic/README.md) | Synthetic robot and fake policy, no hardware or station file | `demo/{serial,async}` |
 | [`example-yam-pi05/`](example-yam-pi05/README.md) | Pi05 through XPolicyLab, YAM, Serial 30 Hz | `put_bottles/{serial,rtc,async10,rpent,chunktrust_ahs,chunktrust_ahs_rtc}` |
-| [`example-yam-molmoact2/`](example-yam-molmoact2/README.md) | Official HF YAM export through XPolicyLab, absolute joints | `coin/{serial,async}` |
 | [`example-yam-dream1/`](example-yam-dream1/README.md) | Hosted Dream-1 API, YAM, Serial 30 Hz | `put_bottles/{serial,rpent}` |
 | [`example-yam-poke/`](example-yam-poke/serial.yaml) | Hosted Poke API, YAM | `serial` |
 | [`example-tianji-pi05/`](example-tianji-pi05/README.md) | Pi05 pack-plate through XPolicyLab, Tianji Marvin + TacCap, actuation off | `pack_plate/{serial,async,rtc}` |

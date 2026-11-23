@@ -20,10 +20,6 @@
 /manimux/configs/local/yam_zero_*.json
 /manimux/configs/local/yam_zero_*.jsonl
 # Private checkpoint selections with machine-specific artifact paths.
-/manimux/configs/policy/openwam/yam/latest300ep-legato-step60000-cache-compile.yaml
-/manimux/configs/policy/openwam/yam/latest300ep-legato-step60000-eager.yaml
-/manimux/configs/policy/openwam/yam/latest300ep-train-time-rtc-step60000-cache-compile.yaml
-/manimux/configs/policy/pi05/yam/latest300/legato-official-step30000.yaml
 /manimux/configs/local/station.yaml
 /manimux/configs/local/deployments/
 /.vscode/
@@ -126,7 +122,6 @@ logs/
 /manimux/configs/policy/pi05/yam/put-bottles/joint-step30000.yaml
 /manimux/configs/policy/pi05/yam/finetune-pick-red-ball-box-step1000.yaml
 /manimux/configs/policy/pi05/yam/base.yaml
-/manimux/configs/policy/openwam/yam/latest300ep-step60000-cache-compile.yaml
 /manimux/configs/policy/openwam/yam/finetune-put-bottles-step30000.yaml
 /manimux/configs/policy/umi_dp/tianji/assembly.yaml
 /manimux/configs/embodiment/robot/tianji_taccap_pass_ball.yaml
@@ -164,3 +159,14 @@ logs/
 !/manimux/configs/local/*_example.yaml
 !/manimux/configs/local/synthetic.yaml
 /manimux/configs/policy/pi05/yam/3task/step60000.yaml
+
+# Private experiment presets and real-checkpoint probes are not public examples.
+/manimux/configs/examples/pi05-yam/
+/manimux/configs/examples/pi05-xpolicylab-yam/
+/manimux/configs/examples/rpent_pi05_yam.yaml
+/manimux/configs/experiments/example-yam-molmoact2/
+/manimux/configs/policy/**/latest*/
+/manimux/configs/policy/**/latest*.yaml
+/manimux/configs/policy/**/caps1010_3task_isaactex/
+/scripts/experiments/
+/scripts/validation/molmoact2_*probe.py

@@ -152,7 +152,7 @@ final step, because its trained prefix velocity shrinks to zero rather than stay
 constant (see the `OpenWAM_Legato` README). Its eager and cache-compile variants
 use distinct recipes and recording identities.
 
-## Local latest300 study (2026-10-20)
+## Trained continuation prefix repair
 
 For `OpenWAM_TrainRTC`, `inference.train_time_rtc.repair_prefix: true` enables
 exact restoration of the physical EEF20 condition after output transforms and
@@ -161,16 +161,3 @@ experiment variant for repaired trials. The suffix and scheduling are unchanged.
 The setting is supported for eager and cached sampling, but not `OpenWAM_Legato`.
 Reload the model service and runtime configuration to apply it; leave the operator
 in control of Finish/Home and the next Start.
-
-`manimux/configs/lists/{openwam-latest300-study}.yaml` (station-local; build it like the [example study](../../../../manimux/configs/lists/example-yam-pi05.yaml)) contains five
-tasks with Serial/Async only, 20/32 source steps, compilation and native DiT
-cache enabled for default sampling. Its policy recipe is a private, bound copy of
-`finetune.yaml` with `ckpt_dir` set to the 60k export and `dit_cache_modes: [default]`;
-use `envs/openwam/.venv/bin/python -m manimux.servers.policy --config-list ...`.
-Runtime and camera services use the same list with the YAM environment.
-Current chunk IK variants explicitly select `hold_last_valid` and use distinct
-`_ik_hold` recording identities. The shared YAM arm configuration currently sets `options.pos_threshold: 0.001` (1 mm) for position convergence and acceptance; orientation acceptance and joint limits remain unchanged.
-An offline replay accepted a previously rejected prediction with held rows; this
-is not physical validation or evidence of task success. Restart the model and
-runtime after normal Finish/Home to load these changes; never hot-swap hardware
-control to apply a configuration.
