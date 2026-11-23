@@ -1,0 +1,46 @@
+policy_name: MolmoAct2
+implementation: local
+protocol: ws
+host: 127.0.0.1
+port: 8506
+bench_name: ManiMux
+task_name: latest300
+ckpt_name: molmoact2_latest300_step30000
+env_cfg_type: yam_dual
+robot_action_dim_info:
+  arm_dim:
+  - 6
+  - 6
+  ee_dim:
+  - 1
+  - 1
+num_envs: 1
+action_type: joint
+eval_batch: false
+checkpoint_variant: molmoact2_latest300_step30000
+model_path: ${paths.checkpoints}/finetuned/MolmoAct2/molmoact2_latest300_step30000/hf
+norm_tag: yam_latest300_joint
+inference_action_mode: continuous
+expected_action_representation: absolute
+num_steps: 10
+actions_per_chunk: 30
+enable_cuda_graph: false
+return_denoise_trace: false
+attn_implementation: sdpa
+dtype: bfloat16
+device: cuda
+seed: 0
+backend_identity:
+  fields:
+  - implementation
+  - checkpoint_variant
+  - model_path
+  - norm_tag
+  - actions_per_chunk
+  - num_steps
+  - dtype
+  - seed
+  - enable_cuda_graph
+  - return_denoise_trace
+  model:
+    policy_family: molmoact2

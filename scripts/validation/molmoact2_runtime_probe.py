@@ -32,6 +32,8 @@ def run_with_model(model, model_cfg, args):
                    "--observation", str(args.observation), "--output", str(args.output),
                    "--seconds", str(args.seconds), "--variants", *args.variants,
                    "--endpoint", f"ws://127.0.0.1:{port}"]
+        if getattr(args, "recipes", None):
+            command += ["--recipes", str(args.recipes)]
         subprocess.run(command, check=True)
     finally:
         asyncio.run_coroutine_threadsafe(server.stop(), loop).result(timeout=40)
@@ -50,15 +52,22 @@ def main():
     parser.add_argument("--seconds", type=float, default=10)
     parser.add_argument("--variants", nargs="+", default=["async", "rtc", "paint", "autohorizon", "bid"])
     parser.add_argument("--endpoint", help="Internal client-only mode in the runtime environment")
+    parser.add_argument("--recipes", type=Path, help="Directory of runtime variant YAMLs")
+    parser.add_argument("--cuda-graph", action="store_true")
+    parser.add_argument("--trace", action="store_true")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[2]
-    recipes = root / "manimux/configs/experiments/example-yam-molmoact2/coin"
+    recipes = args.recipes or root / "manimux/configs/experiments/example-yam-molmoact2/coin"
     if args.endpoint is None:
         import yaml
         from XPolicyLab.policy.MolmoAct2.model import Model
         model_cfg = yaml.safe_load((root / "manimux/configs/policy/molmoact2/yam/latest300-step30000.yaml").read_text())
         model_cfg["model_path"] = str(args.checkpoint.resolve())
         model_cfg["num_steps"] = args.steps
+        model_cfg["enable_cuda_graph"] = args.cuda_graph
+        model_cfg["return_denoise_trace"] = args.trace
+        model_cfg["checkpoint_variant"] = args.checkpoint.parent.name
+        model_cfg["ckpt_name"] = args.checkpoint.parent.name
         model = Model(model_cfg)
         run_with_model(model, model_cfg, args)
         return

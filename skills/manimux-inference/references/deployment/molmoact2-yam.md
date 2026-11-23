@@ -29,19 +29,32 @@ not the RoboDojo model's normalization or robot layout. Select
   measured before claiming Async timing is sufficient for this one-second horizon.
 - HELLO verifies checkpoint, norm tag, horizon, steps, dtype and seed.
 - Serial/Async use `default`; BID uses `aac` independent candidates with shared
-  observation context. Local-source eager inference also implements `rtc`, `paint`
+  observation context and batched action-expert generation. Local-source inference also implements `rtc`, `paint`
   and `autohorizon`. The complete model horizon and `n_obs_steps=1` are required;
   AutoHorizon needs at least three solver steps. Check actual HELLO capabilities.
 - Example variants live beside `coin/async.yaml`: `rtc.yaml`, `paint.yaml`,
-  `autohorizon.yaml` and `bid.yaml`. BID uses 16 candidates and serial selection;
+  `autohorizon.yaml` and `bid.yaml`. BID uses 16 batched candidates and synchronous execution/selection;
   AutoHorizon uses its selected serial cadence. These presets are software integration
   examples, not tuned real-robot experiment arms or additions to the formal study.
 - RTC/PAINT conditions are physical absolute joint rows on the wire and are normalized
   only in XPolicyLab. Padding is excluded from guidance. AutoHorizon reads action
   self-attention; it does not interpret visual cross-attention as an action horizon.
 - Specialized sampling reuses the shared flow samplers and explicit model hooks.
-  Keep `enable_cuda_graph: false`; runtime delay constraints still apply. A successful
+  `enable_cuda_graph: true` supports ordinary, RTC, PAINT, AutoHorizon and candidates
+  through native CUDA Graph capture/replay, not `torch.compile`. Runtime delay constraints still apply. A successful
   sampler call does not imply all conditioned requests fit the 30-row horizon.
+- AHS uses `return_denoise_trace: true` and the shared ChunkTrust selector with a
+  MolmoAct2 H30 profile. Candidate horizons `[6,12,18,24,30]` are an explicit local
+  adaptation of the PI-family selector, not a claim of upstream MolmoAct2 results.
+  The model returns raw normalized velocities at every actual denoising step;
+  CPU selection and episode history stay outside capture. Trace-enabled services
+  advertise default/RTC only; select a separate trace recipe for AHS.
+- FULL checkpoint Coin examples are `coin/rtc_graph.yaml`, `paint_graph.yaml`,
+  `autohorizon_graph.yaml`, `ahs_graph.yaml` and `bid_graph.yaml` under
+  `manimux/configs/experiments/molmoact2-full-latest300-step30000/`.
+  They do not alter the existing Serial18 formal study list. Graph/trace flags
+  participate in backend identity checks; a compatible service reload is necessary
+  when selecting these configurations. No automatic service restart is performed.
 
 ## Environments and offline checks
 
@@ -118,7 +131,9 @@ the numerical sampler and require a separate physical-quality evaluation.
 
 A November 13, 2026 shared-RTX-4090 probe of the latest300 30k checkpoint found
 adapter medians of 262/646/630/267/2916 ms for default/RTC/PAINT/AutoHorizon/BID-16
-at ten steps. The ten-step RTC runtime reported an infeasible delay and issued
+at ten steps. That BID measurement used serial candidate generation, before the
+batched action-expert path; it is not a latency estimate for the current BID path.
+The ten-step RTC runtime reported an infeasible delay and issued
 mostly unconditioned requests; PAINT rejected two underestimated-prefix responses.
 Do not label that run sustained conditioned RTC or uninterrupted PAINT. These are
 hardware/configuration-specific measurements on saved, nonsimultaneous image/state

@@ -103,9 +103,9 @@ class ChunkTrustAhsStrategy(SynchronousChunkStrategy):
         self.options = ChunkTrustOptions.from_mapping(config["inference"]["chunktrust"])
         self._horizon = int(config["policy"]["horizon_policy_steps"])
         self._dt_ns = int(action_interval(config["policy"]) * 1e9)
-        if self._horizon != 50 or self._dt_ns < 1:
+        if self._horizon not in {30, 50} or self._dt_ns < 1:
             raise ValueError(
-                "ChunkTrust requires the PI H50 profile and a positive policy interval"
+                "ChunkTrust requires a supported H30/H50 profile and a positive policy interval"
             )
         self._selector = ChunkTrustAdapter(self.options, horizon=self._horizon, action_dim=14)
         self._profile: TraceProfile | None = None
@@ -199,7 +199,7 @@ class ChunkTrustAhsStrategy(SynchronousChunkStrategy):
             or chunk.hold_from_step or set(chunk.groups) != set(GROUPS)
             or any(values.shape != (self._horizon, 7) for values in chunk.groups.values())
         ):
-            raise ValueError("ChunkTrust requires a complete untrimmed H50 joint14 prediction")
+            raise ValueError(f"ChunkTrust requires a complete untrimmed H{self._horizon} joint14 prediction")
         offset = self._offset(mark)
         cached = self._pending.get(chunk.request_seq)
         if cached is not None:

@@ -146,3 +146,14 @@ logs/
 /scripts/validation/pi05_yam_offline_infer.py
 /scripts/validation/run_policy_branch_regressions.sh
 /website/.openai/hosting.json
+
+# Station-only YAM diagnostics and calibration tools; keep local copies.
+/scripts/setup/yam_*.py
+/scripts/setup/yam_*.html
+
+# Local station bindings and private experiment recipes.
+/manimux/configs/local/*
+!/manimux/configs/local/README.md
+!/manimux/configs/local/*_example.yaml
+!/manimux/configs/local/synthetic.yaml
+/manimux/configs/policy/pi05/yam/3task/step60000.yaml

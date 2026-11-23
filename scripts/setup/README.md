@@ -7,29 +7,8 @@
 | `export_chunktrust_backend.py` | Write a standalone XPolicyLab recipe for a ChunkTrust backend ([ChunkTrust](../../skills/manimux-inference/references/chunktrust.md)) |
 | `setup_openwam_local_env.sh` | Create the OpenWAM model environment ([OpenWAM runbook](../../skills/manimux-inference/references/deployment/openwam-yam.md)) |
 | `franka-linux-cp312.txt` | Pinned FR3 Franky/libfranka SDK artifact |
-| `yam_backlash.py` / `yam_backlash.html` | Live joint feedback and paired manual alignment measurements ([user guide](../../guideline.html#yam-backlash)) |
-| `yam_leader_backlash.py` / `yam_leader_backlash.html` | Independent motorized YAM leader readout on port 8769 ([user guide](../../guideline.html#yam-leader-backlash)) |
-| `yam_backlash_can.py` | Passive SocketCAN feedback and explicit read-status queries for the joint measurement UI |
-| `yam_set_home.py` | Preview or zero supported YAM joints at a saved reference or an explicitly selected current fixture pose ([user guide](../../guideline.html#yam-set-home)) |
 
-The command-line helpers print their options with `--help`. The backlash UI requires
-an explicit mode: `--mode demo` is disconnected, `--mode passive` subscribes to existing CAN
-feedback, and `--mode read` requests status replies only on Refresh or Record. The real
-modes do not initialize a controller or transmit motion/enable commands. The SDK
-installation checks below do not open devices. `yam_set_home.py` previews an explicit
-`--reference` without SDK/CAN access. With `--apply --fixture-supported --report`, every selected joint
-must match that historical raw-angle reference before any motor is enabled; each
-joint is checked again before zeroing. It does not move to the saved pose.
-With `--current-fixture`, fresh stable readings of the installed fixture replace
-historical targets for this run; the historical file remains unchanged for audit,
-and the same retry ledger remains active. Both modes save all prechecks before
-enabling and fsync each actual pre-write reading before issuing zero. The report
-preserves actual before/after angles and old Home coordinates; a locked state file
-beside the reference blocks automatic retries of already requested zero writes.
-Physical fixture support is required: the official SDK sends zero gains/torque
-during zeroing and this tool disables each motor afterward. It cannot zero an
-unsupported arm while maintaining continuous motor holding. An apply call without
-the support declaration is rejected before SDK/CAN or report access.
+The Python scripts print their options with `--help`; none of these helpers opens a device.
 
 ## Offline SDK installation checks
 

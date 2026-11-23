@@ -1,0 +1,10 @@
+# Software integration preset; qualify latency before physical execution.
+_base_: ../_base_.yaml
+inference:
+  algorithm: autohorizon
+  inference_schedule: serial
+  request_trigger: algorithm
+  chunk_policy_steps: null
+  action_start_mode: first_step_when_ready
+robogui:
+  policy_label: MolmoAct2 latest300 30k - autohorizon

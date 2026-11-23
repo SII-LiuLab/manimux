@@ -171,6 +171,18 @@ def compatible_history(saved: dict, current: dict) -> bool:
     from manimux.evaluation.rubric import explicit_evaluation
 
     saved = deepcopy(saved)
+    current = deepcopy(current)
+    # MolmoAct2 historically omitted these default-false recipe/HELLO fields.
+    # Normalize comparison copies only; true Graph/trace settings must still
+    # reject incompatible history, and saved manifests remain untouched.
+    for candidate in (saved, current):
+        recipe = candidate.get("policy_server", {})
+        if recipe.get("policy_name") == "MolmoAct2":
+            expected = candidate.get("policy", {}).get("expected_backend", {}).get("model")
+            for key in ("enable_cuda_graph", "return_denoise_trace"):
+                recipe.setdefault(key, False)
+                if isinstance(expected, dict):
+                    expected.setdefault(key, False)
     # Sessions before the shared IK policy stored it as policy.adapter.ik_failure_policy.
     legacy = saved.get("policy", {}).get("adapter", {}).pop("ik_failure_policy", None)
     if legacy is not None:

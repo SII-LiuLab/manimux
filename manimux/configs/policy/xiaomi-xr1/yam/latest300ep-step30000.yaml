@@ -22,7 +22,7 @@ repo_id: yam_latest_20261012_300ep
 model_path: "/media/ubuntu/CY\u7684\u4E09\u661FT7/ManiMux/checkpoints/finetuned/Xiaomi_Robotics_1/yam_latest300_v18_step30000"
 checkpoint_path: "/media/ubuntu/CY\u7684\u4E09\u661FT7/ManiMux/checkpoints/finetuned/Xiaomi_Robotics_1/yam_latest300_v18_step30000/epoch=7-step=30000.ckpt/checkpoint/mp_rank_00_model_states.pt"
 checkpoint_source: local_latest300_v18_step30000
-norm_stats_path: /home/ubuntu/manimux/manimux/configs/local/xr1-latest300-v18-norm.json
+norm_stats_path: ${paths.checkpoints}/xiaomi-xr1/latest300-v18-norm.json
 norm_stats_source: latest300_v18_training_config
 norm_stats_role: checkpoint_matched_yam_finetune
 vlm_processor_path: "/media/ubuntu/CY\u7684\u4E09\u661FT7/ManiMux/checkpoints/finetuned/Xiaomi_Robotics_1/yam_latest300_v18_step30000/processor"

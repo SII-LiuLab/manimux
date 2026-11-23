@@ -1,0 +1,10 @@
+# Explicit lower-step latency tradeoff; physical task quality is unqualified.
+_base_: paint.yaml
+policy_server:
+  num_steps: 5
+inference:
+  paint:
+    execution_policy_steps: 14
+    initial_delay_policy_steps: 14
+robogui:
+  policy_label: MolmoAct2 latest300 30k - paint (5 solver steps)
