@@ -125,6 +125,8 @@ uv run manimux up --config <experiment.yaml> \
 | 用 agent + VLA 规划（RPent） | [Dream-1 rpent](manimux/configs/experiments/example-yam-dream1/put_bottles/rpent.yaml) · [Pi05 rpent](manimux/configs/experiments/example-yam-pi05/put_bottles/rpent.yaml) |
 | 对比方法并评估 | [实验流程](https://sii-liulab.github.io/manimux/guideline.html#experiments) · [记录与回放](https://sii-liulab.github.io/manimux/guideline.html#records) |
 
+可以将已完成的单关节组实验导出为 [LeRobotDataset v3](https://sii-liulab.github.io/manimux/guideline.html#lerobot-export)，并用独立模型环境运行 [SmolVLA 离线示例](https://sii-liulab.github.io/manimux/guideline.html#smolvla-worker)。
+
 ## 贡献与社区
 
 欢迎贡献机器人/策略集成、推理策略、RoboGUI 与文档。请从 [贡献指南](.github/CONTRIBUTING.md) 开始；Agent 辅助开发可使用 [development skill](skills/manimux-development/SKILL.md)。

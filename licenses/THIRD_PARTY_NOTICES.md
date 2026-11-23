@@ -1,5 +1,9 @@
 # Third-party notices
 
+## Hugging Face LeRobot
+
+The optional integration uses [LeRobot v0.4.4](https://github.com/huggingface/lerobot/tree/8fff0fde7c79f23a93d845d1a50e985de01f8b8a), pinned in `third_party/LeRobot`. Its [upstream license](https://github.com/huggingface/lerobot/blob/8fff0fde7c79f23a93d845d1a50e985de01f8b8a/LICENSE) includes the Apache License 2.0 and notices for included components. Checkpoint weights are obtained separately.
+
 ## Flexiv Rizon4s model assets
 
 `manimux/embodiments/arm/flexiv/model.urdf` and `meshes/` contain the generated

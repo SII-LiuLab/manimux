@@ -78,6 +78,19 @@ policy dictionary and returns `reset(session_id)`, `infer(request)`,
 The client owns transport, backend wire encoding/decoding and capability/identity
 exchange. It does not own cameras, robot sessions, IK, motion smoothing or chunk
 handoff. Preserve reset behavior and response metadata across the wire boundary.
+When a backend requires exact robot group names and widths, report them as
+`PolicyCapabilities.required_robot_group_dims`. The runtime compares them with
+the resolved `robot.group_dims` before connecting the robot. Report any required
+RGB frame shapes in `required_camera_shapes`, keyed by the station camera names
+and ordered as height, width and channels. The runtime checks its fresh frames
+against these requirements before connecting.
+
+The LeRobot SmolVLA integration uses `policy.options.model_python` to launch its
+local worker in a separate environment, with a private inherited connection for
+requests, reset and capabilities. A supervisor owns the model process and reaps
+it when the policy worker exits. Backends that own a child process can report its
+liveness via `backend_is_alive()`. The policy worker exits when the backend dies.
+The model worker sends each raw prediction to the runtime journal before validating it. See the [SmolVLA runbook](../../manimux-inference/references/deployment/smolvla-offline.md).
 
 When inspection shows that the requested integration owns a reusable runtime and
 serving contract, propose it as a peer framework and ask the user to confirm that
