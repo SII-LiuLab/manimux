@@ -11,9 +11,7 @@ import numpy as np
 from numpy.typing import ArrayLike
 
 from manimux.clock import Clock, SystemClock
-from manimux.embodiments.arm._calibration import JointGripperCalibration
-from manimux.embodiments.arm._home import CalibratedHomeController
-from manimux.embodiments.arm.base import ArmState
+from manimux.embodiments.arm.base import ArmController, ArmState
 from manimux.types import FloatArray
 
 if TYPE_CHECKING:
@@ -77,7 +75,118 @@ class _CanTransport:
             self.bus = None
 
 
-class PiperController(CalibratedHomeController):
+class _JointGripperCalibration:
+    """Validate device commands and convert travel using measured endpoints.
+
+    The hardware gripper units belong to each controller. Reversed endpoints
+    are supported; out-of-range commands and measurements fail without clipping.
+    Nominal URDF finger travel is independent of this station calibration.
+    """
+
+    def __init__(
+        self,
+        *,
+        channel: str,
+        joint_limits: ArrayLike,
+        gripper_closed: float,
+        gripper_open: float,
+    ) -> None:
+        if not isinstance(channel, str) or not channel.strip() or channel.startswith("REPLACE"):
+            raise ValueError("channel must name the station's actual CAN interface")
+        bounds = np.asarray(joint_limits, dtype=float)
+        if (
+            bounds.shape != (6, 2)
+            or not np.isfinite(bounds).all()
+            or np.any(bounds[:, 0] >= bounds[:, 1])
+        ):
+            raise ValueError("joint_limits must contain six finite lower/upper pairs")
+        endpoints = np.asarray([gripper_closed, gripper_open], dtype=float)
+        if not np.isfinite(endpoints).all() or endpoints[0] == endpoints[1]:
+            raise ValueError("distinct finite closed/open gripper calibration is required")
+        self.channel = channel
+        self.bounds = bounds.copy()
+        self.closed = float(gripper_closed)
+        self.open = float(gripper_open)
+
+    def validate(self, targets: Mapping[str, ArrayLike]) -> FloatArray:
+        if set(targets) != {self.channel}:
+            raise ValueError("command must select exactly this controller's CAN channel")
+        q = np.asarray(targets[self.channel], dtype=float)
+        if q.shape != (7,) or not np.isfinite(q).all():
+            raise ValueError("command must contain six finite radians and one opening")
+        outside = (q[:6] < self.bounds[:, 0]) | (q[:6] > self.bounds[:, 1])
+        if np.any(outside):
+            index = int(np.flatnonzero(outside)[0])
+            raise ValueError(
+                f"{self.channel}: joint {index + 1} target {q[index]:.9g} rad is outside "
+                f"configured device bounds {self.bounds[index].tolist()} rad"
+            )
+        if not 0.0 <= q[6] <= 1.0:
+            raise ValueError(
+                f"{self.channel}: gripper target {q[6]:.9g} must be in [0, 1] normalized travel"
+            )
+        return q.copy()
+
+    def opening(self, raw: float) -> float:
+        value = (raw - self.closed) / (self.open - self.closed)
+        if not np.isfinite(value) or not 0.0 <= value <= 1.0:
+            raise ValueError("measured gripper is outside its configured calibration")
+        return float(value)
+
+    def raw_opening(self, opening: float) -> float:
+        return self.closed + opening * (self.open - self.closed)
+
+
+class _JointHomeMonitor:
+    """Measure joint arrival; the controller owns freshness and fault checks."""
+
+    def __init__(self, target, *, tolerance_rad, speed_rad_s, settle_s):
+        self.target = np.array(target, dtype=float, copy=True)
+        limits = np.asarray([tolerance_rad, speed_rad_s, settle_s], dtype=float)
+        if (self.target.ndim != 1 or not self.target.size or not np.isfinite(self.target).all()
+                or not np.isfinite(limits).all() or np.any(limits <= 0)):
+            raise ValueError("Home needs finite joint angles and positive arrival limits")
+        self.tolerance_rad, self.speed_rad_s, self.settle_s = limits
+        self.supported_release = False
+        self.invalidate()
+
+    def invalidate(self):
+        self._previous = None
+        self._stable_since = None
+        self._settled = False
+
+    def observe(self, state: ArmState) -> bool:
+        previous = self._previous
+        dofs = self.target.size
+        error = float(np.max(np.abs(state.joints[:dofs] - self.target)))
+        self.detail = f"Home position error={error:.6f} rad"
+        if previous is not None and state.monotonic_ns < previous.monotonic_ns:
+            self.invalidate()
+            raise RuntimeError("Home feedback timestamp moved backwards")
+        if previous is not None and state.monotonic_ns == previous.monotonic_ns:
+            # Re-reading a cached sample must not advance the stability window.
+            return self._settled and error <= self.tolerance_rad
+        self._previous = state
+        if previous is None:
+            return False
+        dt = (state.monotonic_ns - previous.monotonic_ns) / 1e9
+        speed = float(np.max(np.abs(state.joints[:dofs] - previous.joints[:dofs])) / dt)
+        self.detail += f", sampled joint speed={speed:.6f} rad/s"
+        if error > self.tolerance_rad or speed > self.speed_rad_s:
+            self._stable_since = None
+            self._settled = False
+        else:
+            if self._stable_since is None:
+                self._stable_since = state.monotonic_ns
+            self._settled = (state.monotonic_ns - self._stable_since) / 1e9 >= self.settle_s
+        return self._settled
+
+    def validate(self, state: ArmState):
+        if not self.supported_release and not self.observe(state):
+            raise RuntimeError(f"{self.detail}; retaining control until stationary at Home")
+
+
+class PiperController(ArmController):
     """One standard PiPER with its integrated width-controlled gripper.
 
     execute=False opens a receive-only session. Motors are enabled on connect
@@ -101,7 +210,7 @@ class PiperController(CalibratedHomeController):
         connect_timeout_s: float = 3.0,
         clock: Clock | None = None,
     ) -> None:
-        self.calibration = JointGripperCalibration(
+        self.calibration = _JointGripperCalibration(
             channel=channel,
             joint_limits=joint_limits,
             gripper_closed=gripper_closed,
@@ -144,6 +253,51 @@ class PiperController(CalibratedHomeController):
         self._sequence = 0
         self._home_monitor = None
         self._control_owned = False
+
+    def validate_commands(self, targets):
+        self.calibration.validate(targets)
+
+    def command_bounds(self):
+        # Six calibrated joint ranges plus the normalized integrated gripper.
+        return {self.channel: np.vstack((self.calibration.bounds, [0.0, 1.0]))}
+
+    def configure_home(self, target, **arrival_limits):
+        if self._control_owned:
+            raise RuntimeError("cannot change Home while motor control is owned")
+        q = np.asarray(target, dtype=float)
+        if q.shape != (6,):
+            raise ValueError("Home requires six arm joints, excluding the gripper")
+        self.calibration.validate({self.channel: np.r_[q, 0.5]})
+        self._home_monitor = _JointHomeMonitor(q, **arrival_limits)
+
+    def require_home_configuration(self):
+        if self.execute and self._home_monitor is None:
+            raise ValueError(f"{self.channel}: configure Home before connecting motor control")
+
+    def validate_release(self):
+        if not self.execute or not self._control_owned:
+            return
+        self.require_home_configuration()
+        if not self._home_monitor.supported_release:
+            self.validate_motion_ready()
+            self._home_monitor.validate(self.get_states()[self.channel])
+
+    def confirm_supported_release(self):
+        if self._home_monitor is not None:
+            self._home_monitor.supported_release = True
+
+    def await_release_permission(self):
+        from manimux.embodiments.robot.release import ReleaseDecision, require_supported_release
+
+        while True:
+            try:
+                self.validate_release()
+                return
+            except Exception as error:
+                decision = require_supported_release(f"{self.channel}: {error}")
+                if decision is ReleaseDecision.SUPPORTED_RELEASE:
+                    self.confirm_supported_release()
+                    return
 
     def connect(self) -> None:
         self.require_home_configuration()

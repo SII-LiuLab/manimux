@@ -3,6 +3,36 @@
 Source paths below are relative to the repository root. Read the current interface before copying
 an implementation; controller/session work can evolve independently.
 
+## New embodiment layout
+
+Before creating files, inspect the relevant base interface and comparable existing
+components. For arms, YAM, Franka and Tianji show the established component/controller
+boundaries; select the closest hardware ownership pattern and check it against the
+operation contract below. Align directory structure, configuration loading and public
+behavior, while keeping vendor-specific SDK semantics explicit.
+
+- Keep device implementations and assets under `embodiments/<kind>/<name>/`.
+  For arms, `arm.py` implements `ArmBase` and owns `load_model()`; controller-local
+  calibration, command limits and release checks belong with the controller.
+  Assembly behavior belongs under `embodiments/robot/<name>/` when an existing
+  assembly cannot supply it. Use the corresponding existing interfaces for tools
+  and sensors.
+- Start with the smallest useful layout. A short helper used only by a controller
+  stays in that module. Split out `controller.py`, `kinematics.py` or `session.py`
+  when a substantial implementation, dependency boundary or process owner warrants
+  it; these names are not a checklist of files to create. Avoid forwarding-only
+  wrappers, speculative base classes, empty scaffolding and duplicate guides.
+- Reuse existing factories, loaders, assemblies and FK/IK solvers. Extract a new
+  shared helper only for actual consumers with the same contract and a clear owning
+  layer. Similar code in two drivers does not by itself justify an intermediate
+  base class. Do not put device-specific helpers in the shared `arm/` or
+  `embodiments/` root, or disguise six-joint, integrated-gripper or CAN assumptions
+  as a general arm interface. An underscore prefix does not establish ownership.
+- Before delivery, review each added file's responsibility and callers, remove
+  redundant indirection and obsolete imports, and update the existing code map.
+  Verify the selected YAML through the real loader and the existing component
+  interface; directory alignment must preserve units, geometry and lifecycle behavior.
+
 ## Shared behavior across embodiments
 
 The same base-class operation has the same public meaning on every supported
@@ -27,6 +57,14 @@ and `settle_timeout_s` (also used while waiting for grippers to open). The shipp
 assemblies retain 100 Hz, 9 deg/s, 0.5 degrees and 5 seconds. Experiment
 `robot.options.hardware.home_motion` may override individual fields; these options
 belong to the assembly and are not forwarded to the arm SDK.
+
+Flexiv Home validates arm targets, moves and settles the arms, stops arm motion
+in IDLE, then commands controlled grippers to normalized opening 1.0 and waits
+for measured opening >= 0.98 using `home_motion.settle_timeout_s`. Connected Home
+respects `end_effector_control`; explicit idle Return Home temporarily enables
+tool control, restores the previous setting on success/failure, and closes the
+assembly. Cancellation, gripper faults and incomplete opening fail Home and
+attempt cleanup of all owned components. Sending an open command is not arrival.
 
 Document these lifecycle details in the integration's runbook:
 
@@ -82,6 +120,25 @@ change does not provide station/task-frame calibration or authorize hardware mot
 Keep observation and target conversion consistent with the selected site and validate
 the resolved assembly offline before deployment.
 
+Flexiv Rizon4s uses `embodiments/arm/flexiv` and the independent-session assembly
+`embodiments/robot/flexiv`. See its [runbook](../../../manimux/embodiments/arm/flexiv/README.md).
+Manual Drag/Release use the flat binding's NRT joint impedance API. Python owns
+lifecycle, feedback reference updates and monitoring. The assembly's guiding
+velocity/acceleration settings are separate from Home and policy limits. Keep
+controller health/freshness checks and cleanup; policy target margins do not
+apply to manual guiding. Native torque floating is not part of the selected path.
+Each bare arm has seven radians and zero gripper coordinates. The driver adapts
+policy target limits with `joint_limit_policy: reject|clip` (default reject).
+Clip saturates finite policy commands at SDK submission using device limits inset
+by `max(joint_margin, joint_clip_margin)`; the clip margin must be nonnegative.
+It logs requested/submitted joint values without interrupting inference. Home
+uses strict validation; health checks and SDK exceptions remain effective.
+Executor recordings precede this driver saturation; clipping logs identify the
+SDK-submitted targets. The driver supports
+flat/grouped RDK APIs; feedback host time is first observation of a new device
+timestamp. Nominal URDF poses use physical base_link, which may differ from RDK
+world/mounting coordinates. Calibrated private URDFs must preserve that convention.
+
 Start at `manimux/embodiments/arm/base.py`: `ArmBase`, `ArmController`, `ArmState`
 and `ArmModel`. Put a vendor implementation and its assets under
 `manimux/embodiments/arm/<name>/`; declare it in
@@ -136,7 +193,28 @@ explicit end-to-end extension; inheriting `EndEffectorBase` alone is insufficien
 Test the actual capability's units, command mapping and measured feedback, not a
 fake scalar adapter that discards unsupported coordinates.
 
+OmniGripper supports `position` (existing default) and `force_position` through
+one `GripperBase` implementation. Select control gains/rates in the experiment's
+`robot.options.component_hardware`; bind ports, motor SN and calibrated raw limits
+in the station. `connect` verifies identity and reads feedback without enabling.
+Executing workers own feedback queries; cached reads retain the receipt timestamp.
+Read-only operation queries on demand. The force-position controller budgets the
+encoded MIT PD request, not physical fingertip force. See the component README for
+parameters, protocol limits, feedback-only retries and retryable disable semantics.
+
 ## Assembly, coordinate layout and geometry
+
+OmniGripper's offline `load_model()` accepts `visual_asset`, resolved under its
+own `assets/` root. It defaults to `flange_reference`; `marvin_straight` selects
+the locally installed Marvin CAD with normalized opening and a mimic finger.
+RoboGUI preset `flexiv_omnigripper` uses the assembly
+`configs/embodiment/robot/flexiv_omnigripper_dual.yaml`. Fit the two physical
+flange-to-tool transforms through the assembly's end-effector `mount` entries;
+keep global scene placement in the RoboGUI preset. The source tool reference
+frame does not establish a calibrated fingertip TCP. The Flexiv assembly supplies
+a -6.31 mm flange-Z seating offset and a matching +6.31 mm `tcp_transform`
+translation to keep the gripper's rear face flush and retain the existing
+flange-reference TCP while fitting the visual geometry.
 
 Read `manimux/embodiments/robot/base.py`, its sibling `__init__.py`, and
 `manimux/embodiments/layout.py`. `RobotModel.from_config()` loads component models;
@@ -210,6 +288,18 @@ must have its own verified station source; an unavailable measurement remains un
 Follow the shared [information ownership workflow](policies.md#resolve-geometry-and-station-facts-before-asking-the-user)
 and test with nonidentity geometry to demonstrate that the selected model's values
 reach the adapter without hardcoded defaults or hardware connections.
+
+Models may implement `create_differential_ik(**options)` to supply an independent
+execution-time controller. `kinematics/base.py` defines `DifferentialIKStepResult`
+and the manipulator protocol; `composed.py` owns arm/tool composition. Like Tianji,
+the controller exposes `solve(target, previous, dt_s, ...)` and an `ok` result flag.
+Measured coordinates and fixed tool coordinates are explicit keyword inputs. An accepted differential
+increment includes admissible command bounds and does not claim exact-pose IK
+convergence. Composed models remove the requested tool offset once and delegate
+to the optional flange controller. Unsupported models raise explicitly; the
+runtime does not select a solver by robot name. See the
+[Flexiv execution contract](runtime-config.md#flexiv-execution-time-differential-ik)
+for failure handling and post-executor bound validation.
 
 YAM IK settings belong in the arm component's `options`, shared by model adapters.
 `pos_threshold` defaults to `0.0001` metres. An explicit YAML `null` disables only
@@ -331,6 +421,18 @@ the offline tool model owns flange-to-TCP geometry. Put actual addresses and ser
 in the private station file. This is a configuration fragment, not a shipped driver.
 
 ## Hardware exit safety
+
+Flexiv policy joint shaping is the private `_JointTargetGuard` in
+`embodiments/arm/flexiv/controller.py`, selected by the Pi05 experiment's per-arm `joint_safety` settings. It reproduces
+collection's measured/reference velocity and tracking envelope before a final
+SDK-bound clip. Keep the seven-radian joint contract and policy-independent
+controller entry; do not add model-specific J5 handling or Cartesian nullspace
+motion to joint predictions. Failed sends cannot advance the guard reference;
+Stop, Home and hand-guiding transitions reset it. Home remains strict. See the
+Flexiv component README for parameters, feedback tolerance and timeout semantics.
+Zero `joint_margin` and `joint_clip_margin` clip at the actual SDK bounds.
+`joint_limit_tolerance` is only a diagnostic threshold on executor targets; it
+must never expand those bounds, relax Home, or count failed sends as successful.
 
 An episode failure and actuator release are separate operations. Before granting
 release, audit the loaded driver rather than relying on method names.

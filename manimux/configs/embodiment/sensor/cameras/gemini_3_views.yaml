@@ -1,0 +1,32 @@
+service: camera
+cameras:
+  gemini_left_wrist:
+    config: ../orbbec.yaml
+    component: left_wrist_camera
+    options:
+      width: 640
+      height: 480
+      fps: 30
+      flip: false
+      enable_depth: false
+      max_frame_age_sec: 0.5
+  gemini_main:
+    config: ../orbbec.yaml
+    component: head_camera
+    options:
+      width: 640
+      height: 480
+      fps: 30
+      flip: false
+      enable_depth: false
+      max_frame_age_sec: 0.5
+  gemini_right_wrist:
+    config: ../orbbec.yaml
+    component: right_wrist_camera
+    options:
+      width: 640
+      height: 480
+      fps: 30
+      flip: false
+      enable_depth: false
+      max_frame_age_sec: 0.5

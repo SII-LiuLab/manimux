@@ -1,0 +1,14 @@
+type: end_effector
+implementation: manimux.embodiments.end_effector.omnigripper:OmniGripper
+action_layout: {arm_dofs: 0, gripper_dofs: 1}
+options: {}
+hardware:
+  motor_id: 0
+  master_id: 0
+  kp: 3.0
+  kd: 0.2
+  max_follow_rad: 0.1
+  max_error_rad: 0.2
+  max_torque_nm: 1.0
+  max_velocity_rad_s: 0.5
+  timeout_s: 0.2

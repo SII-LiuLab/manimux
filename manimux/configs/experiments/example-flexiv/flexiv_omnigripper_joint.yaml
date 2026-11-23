@@ -1,0 +1,45 @@
+# Requires a compatible 8-coordinate-per-arm model server. No sensors configured.
+# Execution stays disabled until the deployment is validated.
+run:
+  task_prompt: Flexiv OmniGripper joint policy
+  output_dir: ./data/flexiv
+  max_control_steps: 1500
+robot:
+  type: manimux.embodiments.robot.flexiv:build_robot
+  config: ../../embodiment/robot/flexiv_omnigripper_dual.yaml
+  control_hz: 50.0
+  options:
+    execute: false
+sensors: []
+policy:
+  worker: xpolicylab_ws
+  service: policy
+  action_dt_s: 0.05
+  horizon_policy_steps: 16
+  adapter:
+    type: manimux.policy_adapter.joint:JointAdapter
+    camera_map: {}
+  options:
+    action_format: joint
+inference:
+  algorithm: serial
+  chunk_policy_steps: 16
+  blend_policy_steps: 0
+  action_start_mode: first_step_when_ready
+  max_plan_age_s: 5.0
+executor:
+  type: smooth
+  smooth:
+    cutoff_hz: 5.0
+    position_limit_abs: null
+  motion_limits:
+    arm:
+      max_velocity: 0.15
+      max_acceleration: 0.3
+    gripper: {}
+robogui:
+  enabled: true
+  robot: flexiv-omnigripper-dual
+  policy_label: Flexiv OmniGripper joint policy
+recording:
+  enabled: true

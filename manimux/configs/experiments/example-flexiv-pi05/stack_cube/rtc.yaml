@@ -1,0 +1,17 @@
+# Same checkpoint, transforms and execution limits as Serial; only inference changes.
+_base_: ../../stack_cube/pi05/flexiv_pi05_serial_joint_step29999.yaml
+run:
+  output_dir: ./data/experiments/pi05-flexiv-stack-cube-step29999/rtc
+inference:
+  algorithm: rtc
+  inference_schedule: single_inflight
+  request_trigger: algorithm
+  chunk_policy_steps: null
+  action_start_mode: drop_infer_latency
+  rtc:
+    min_execute_policy_steps: 16
+    initial_delay_policy_steps: null
+    delay_buffer_size: 10
+    beta: 5.0
+robogui:
+  policy_label: Pi05 Flexiv stack cube 29999 - RTC (read-only)

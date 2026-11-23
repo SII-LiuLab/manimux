@@ -1,0 +1,11 @@
+# Same EE checkpoint and bounded IK; default model sampling with asynchronous admission.
+_base_: ee_umi_serial.yaml
+run:
+  output_dir: ./data/experiments/pi05-flexiv-stack-cube-ee-umi-step29999/async
+inference:
+  algorithm: async
+  inference_schedule: single_inflight
+  request_trigger: refill
+  chunk_policy_steps: 50
+robogui:
+  policy_label: Pi05 Flexiv EE UMI 29999 - Async (read-only)

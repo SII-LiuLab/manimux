@@ -1,0 +1,108 @@
+run:
+  warmup_before_start: true
+  sensor_reading:
+    mode: background
+    poll_hz: 50.0
+    max_frame_age_s: 0.5
+    startup_timeout_s: 10.0
+    shutdown_timeout_s: 2.0
+  control_timing: true
+robot:
+  type: manimux.embodiments.robot.flexiv:build_robot
+  config: ../../../embodiment/robot/flexiv_omnigripper_ee.yaml
+  control_hz: 100.0
+  options:
+    execute: false
+    component_hardware:
+      left_flexiv: &id001
+        control_mode: joint_impedance
+        joint_stiffness_scale: 1.0
+        joint_damping_ratio: 0.7
+        joint_margin: 0.0
+        joint_limit_policy: clip
+        joint_clip_margin: 0.0
+        joint_limit_tolerance: 0.0005235987755982988
+        joint_safety:
+          slowdown_zone: 0.17453292519943295
+          tracking_limit: 0.08726646259971647
+          max_dt_s: 0.016
+          tracking_timeout_s: 0.5
+      right_flexiv: *id001
+      left_omnigripper: &id002
+        control_mode: force_position
+        control_hz: 100.0
+        kp: 8.0
+        kd: 0.2
+        max_follow_rad: 0.1
+        max_error_rad: 0.2
+        max_torque_nm: 3.0
+        grasp_torque_nm: 0.3
+        max_velocity_rad_s: 1.2
+        max_acceleration_rad_s2: 6.0
+        max_feedback_velocity_rad_s: 1.5
+        max_temperature_c: 65.0
+        stale_timeout_s: 0.2
+        timeout_s: 0.1
+        feedback_retries: 1
+      right_omnigripper: *id002
+sensors:
+- name: flexiv_cameras
+  driver: camera_server
+  service: camera
+  options:
+    request_timeout_ms: 1000
+    max_frame_age_sec: 0.5
+    camera_names:
+    - gemini_left_wrist
+    - gemini_main
+    - gemini_right_wrist
+policy:
+  worker: xpolicylab_ws
+  service: policy
+  action_dt_s: 0.03333333333333333
+  horizon_policy_steps: 50
+  adapter:
+    type: manimux.policy_adapter.joint:JointAdapter
+    camera_map:
+      cam_head: gemini_main
+      cam_left_wrist: gemini_left_wrist
+      cam_right_wrist: gemini_right_wrist
+  options:
+    action_format: joint
+    request_timeout_s: 120.0
+    connect_timeout_s: 180.0
+    response_log_dir: data/diagnostics/pi05-flexiv-models
+  timeout_s: 30.0
+  startup_timeout_s: 180.0
+inference:
+  algorithm: serial
+  chunk_policy_steps: 50
+  blend_policy_steps: 0
+  action_start_mode: first_step_when_ready
+  max_plan_age_s: 5.0
+executor:
+  type: smooth
+  smooth:
+    cutoff_hz: 5.0
+    position_limit_abs: null
+    gripper:
+      mode: continuous
+  motion_limits:
+    arm:
+      max_velocity: 0.15
+      max_acceleration: 0.3
+    gripper:
+      max_velocity: 0.4
+      max_acceleration: 1.0
+robogui:
+  enabled: true
+  robot: flexiv-omnigripper-dual
+  policy_label: Pi05 Flexiv stack cube 29999 - Serial (read-only)
+recording:
+  enabled: true
+  video_fps: 30.0
+policy_server:
+  config: ../../../policy/pi05/flexiv/stack_cube/joint-step29999.yaml
+camera_server:
+  config: ../../../embodiment/sensor/cameras/gemini_3_views.yaml
+_base_: ../../../tasks/flexiv_stack_cube.yaml

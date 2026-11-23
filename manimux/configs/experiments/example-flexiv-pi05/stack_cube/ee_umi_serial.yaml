@@ -1,0 +1,26 @@
+# Reuse joint-profile sensing, timing and controller limits; select EE semantics explicitly.
+_base_: ../../stack_cube/pi05/flexiv_pi05_serial_joint_step29999.yaml
+run:
+  output_dir: ./data/experiments/pi05-flexiv-stack-cube-ee-umi-step29999/serial
+robot:
+  config: ../../../embodiment/robot/flexiv_omnigripper_ee.yaml
+policy:
+  action_decoding: process
+  adapter:
+    type: manimux.policy_adapter.pose:PoseAdapter
+    group_prefixes: {left_arm: left, right_arm: right}
+    action_semantics: absolute_per_arm_base_xyz_wxyz
+    pose_frame: flange
+    gripper_output: clip
+    parallel_ik: true
+  options:
+    action_format: pose
+    response_log_dir: data/diagnostics/pi05-flexiv-ee-umi
+execution:
+  ik:
+    mode: chunk
+    failure_policy: hold_last_valid
+robogui:
+  policy_label: Pi05 Flexiv EE UMI 29999 - Serial (read-only)
+policy_server:
+  config: ../../../policy/pi05/flexiv/stack_cube/ee-umi-step29999.yaml

@@ -1,0 +1,37 @@
+_base_: _base_.yaml
+policy:
+  action_decoding: inline
+  adapter:
+    type: manimux.policy_adapter.pose:PoseAdapter
+    group_prefixes:
+      left_arm: left
+      right_arm: right
+    action_semantics: absolute_per_arm_base_xyz_wxyz
+    pose_frame: flange
+    gripper_output: clip
+    parallel_ik: false
+  options:
+    action_format: pose
+executor:
+  type: direct
+execution:
+  ik:
+    mode: step
+    solver: differential
+    budget_ms: 5.0
+    failure_policy: hold_last_valid
+    differential:
+      max_joint_velocity_rad_s: 0.9047786842338604
+      max_linear_m_s: 0.2592
+      max_angular_rad_s: 1.0857344210806326
+      max_step_dt_s: 0.016
+      tracking_limit_rad: 0.08726646259971647
+      slowdown_zone_rad: 0.17453292519943295
+      avoidance_zone_rad: 0.4363323129985824
+      nullspace_rate_rad_s: 0.3490658503988659
+      nullspace_enabled: true
+      joint_margin_rad: 0.0
+      rotation_weight_m: 0.2
+      damping: 0.01
+policy_server:
+  config: ../../../policy/pi05/flexiv/stack_cube/ee-umi-step29999.yaml

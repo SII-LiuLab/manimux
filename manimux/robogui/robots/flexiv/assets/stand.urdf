@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<robot name="flexiv_dual_arm_stand">
+  <!-- Optional local CAD wrapper; the STL is not distributed with ManiMux. -->
+  <!-- Source STL is in meters and Z-up; center its 860 mm base plate in XY. -->
+  <link name="stand">
+    <visual name="stand_cad">
+      <origin xyz="-0.43 -0.43 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="dual_arm_stand_20260523.stl" scale="1 1 1"/>
+      </geometry>
+      <material name="powder_coated_steel">
+        <color rgba="0.74 0.77 0.80 1"/>
+      </material>
+    </visual>
+  </link>
+</robot>

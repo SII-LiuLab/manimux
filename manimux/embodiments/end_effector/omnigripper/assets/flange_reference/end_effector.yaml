@@ -1,0 +1,10 @@
+# Flange reference only: no calibrated tool TCP or visual geometry.
+name: omnigripper_flange_reference
+urdf: end_effector.urdf
+root_link: omnigripper_base
+mount: {xyz: [0.0, 0.0, 0.0], rpy: [0.0, 0.0, 0.0]}
+tcp: {xyz: [0.0, 0.0, 0.0], rpy: [0.0, 0.0, 0.0]}
+inputs: 1
+rest_inputs: [1.0]
+aperture_input: 0
+joints: []

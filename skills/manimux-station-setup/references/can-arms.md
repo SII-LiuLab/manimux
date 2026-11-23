@@ -142,13 +142,17 @@ controller for the arm being changed; keep SDK calls inside its session owner.
 
 | File | Responsibility |
 | --- | --- |
-| `embodiments/arm/_urdf.py` | Shared offline arm model loading and visual mapping |
+| `embodiments/arm/arx_x5/arm.py`, `embodiments/arm/piper/arm.py` | Component-owned offline model loading and visual mapping |
 | `kinematics/urdf_manipulator.py` | URDF FK and bounded numerical IK |
-| `embodiments/arm/_calibration.py` | Required station endpoints and command validation |
-| `embodiments/arm/piper/controller.py` | Owned CAN transport, packet receipt, readiness and PiPER commands |
-| `embodiments/arm/arx_x5/controller.py` | Parent RPC lifecycle, calibrated commands and cached state |
+| `embodiments/arm/piper/controller.py` | Owned CAN transport, packet receipt, calibrated commands and Home release gate |
+| `embodiments/arm/arx_x5/controller.py` | Parent RPC lifecycle, calibrated commands, cached state and Home release gate |
 | `embodiments/arm/arx_x5/session.py` | Child process that owns the native X5 binding and control modes |
 | `embodiments/robot/can_arms/robot.py` | Assembly factory, configured controllers and station bindings |
+
+Each arm implements `ArmBase` directly, as do YAM, Franka and Tianji.
+Station calibration and Home monitoring are private controller implementation
+details; they do not impose a six-joint CAN contract on the shared arm interface.
+The URDF FK/IK solver remains shared in `kinematics/`.
 
 The [asset preparation scripts](../../../scripts/assets/README.md) regenerate public
 models. The [SDK installation probe](../../../scripts/setup/README.md) performs

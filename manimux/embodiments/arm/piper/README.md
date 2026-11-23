@@ -27,7 +27,7 @@ replay, supported model scope and reproducible asset preparation. Run
 from the pinned official source. No SDK source or native libraries are bundled.
 
 `arm.py` owns offline model loading; `controller.py` owns communication and
-feedback lifecycle. Shared station calibration lives in `arm/_calibration.py`,
-independently of nominal finger geometry. See the
+feedback lifecycle, station calibration and the Home release gate. Calibration
+is independent of nominal finger geometry. See the
 [SDK installation guide](../../../../skills/manimux-station-setup/references/robot-sdks.md) for dependencies
 and the offline API/FK probe.

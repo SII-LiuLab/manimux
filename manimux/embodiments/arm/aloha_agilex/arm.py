@@ -2,18 +2,35 @@
 
 from pathlib import Path
 
-from manimux.embodiments.arm._urdf import IntegratedArm
-from manimux.embodiments.arm.base import ArmModel
+from manimux.embodiments.arm.base import ArmBase, ArmController, ArmModel
 
 from .kinematics import AlohaAgilexKinematics
 
 
-class AlohaAgilexArm(IntegratedArm):
+class AlohaAgilexArm(ArmBase):
     """Integrated seven-coordinate model; no hardware controller is provided.
 
     A future driver must supply ArmController with this exact coordinate contract.
     Offline model loading neither constructs nor imports an ARX/PiPER SDK session.
     """
+
+    num_joints = 7
+
+    def __init__(self, controller, *, kinematics) -> None:
+        self._controller = controller
+        self._kinematics = kinematics
+
+    @property
+    def controller(self) -> ArmController:
+        return self._controller
+
+    @property
+    def channel(self) -> str:
+        return self._controller.channel
+
+    @property
+    def kinematics(self) -> AlohaAgilexKinematics:
+        return self._kinematics
 
     @classmethod
     def load_model(cls, *, side: str) -> ArmModel:

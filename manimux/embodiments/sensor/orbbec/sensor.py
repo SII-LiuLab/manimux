@@ -72,7 +72,7 @@ class OrbbecSensor(SensorBase):
             self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._shape[1])
             self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._shape[0])
             self._cap.set(cv2.CAP_PROP_FPS, self._fps)
-            self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 2)
+            self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
             self._thread = threading.Thread(
                 target=self._capture, name=f"gemini-{self.camera_serial}", daemon=True
             )
@@ -93,12 +93,13 @@ class OrbbecSensor(SensorBase):
                 self._error = "Capture failed or image dimensions differ from configuration"
                 self._stop.wait(0.02)
                 continue
+            received_ns = self.clock.now_ns()
             rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
             if self._flip:
                 rgb = cv2.rotate(rgb, cv2.ROTATE_180)
             with self._lock:
                 self._sequence += 1
-                self._frame = SensorFrame(self.name, rgb, self.clock.now_ns(), self._sequence)
+                self._frame = SensorFrame(self.name, rgb, received_ns, self._sequence)
                 self._error = ""
             self._ready.set()
 

@@ -19,6 +19,6 @@ Run `scripts/assets/prepare_arx_x5.py --help` to regenerate this model
 from the pinned sources. SDK source and compiled libraries remain external.
 
 `arm.py` owns offline model loading. `controller.py` owns parent-side calibration
-and RPC lifecycle; `session.py` owns the native binding in the child process.
+and the Home release gate as well as RPC lifecycle; `session.py` owns the native binding in the child process.
 Installation and the pure-FK probe are documented in the
 [SDK installation guide](../../../../skills/manimux-station-setup/references/robot-sdks.md).

@@ -1,0 +1,11 @@
+_base_: _base_.yaml
+experiment:
+  task: stack_cube
+  variant: joint_smooth_serial_h50
+inference:
+  algorithm: serial
+  inference_schedule: serial
+  request_trigger: algorithm
+  chunk_policy_steps: 50
+robogui:
+  policy_label: Pi05 JOINT 29999 / Serial / Smooth

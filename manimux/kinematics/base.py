@@ -79,6 +79,64 @@ class IKResult:
 
 
 @dataclass(frozen=True, slots=True)
+class DifferentialIKStepResult:
+    """An accepted velocity-integrated step need not reach the final pose.
+
+    Like Tianji differential results, ``ok`` means the step is accepted, not
+    that the target pose was reached. This execution-time result additionally
+    requires command bounds; Tianji retains its chunk-solver diagnostics.
+    A rejected step has no candidate. Callers own command holds and tool behavior.
+    ``limited`` describes valid bounded progress, not mathematical convergence.
+    ``position_bounds`` contains one [lower, upper] pair per coordinate for this
+    tick. Check the final executor output against it; smoothing must not bypass
+    a measured-tracking or joint-limit constraint.
+    """
+
+    ok: bool
+    reason: str = ""
+    joints: FloatArray | None = None
+    limited: bool = False
+    position_bounds: FloatArray | None = None
+
+    def __post_init__(self):
+        if self.ok:
+            q = np.array(self.joints, dtype=float, copy=True)
+            if q.ndim != 1 or not q.size or not np.isfinite(q).all():
+                raise ValueError("accepted differential IK requires finite joint positions")
+            q.setflags(write=False)
+            object.__setattr__(self, "joints", q)
+            bounds = np.array(self.position_bounds, dtype=float, copy=True)
+            if (
+                bounds.shape != (q.size, 2)
+                or not np.isfinite(bounds).all()
+                or np.any(bounds[:, 0] > bounds[:, 1])
+                or np.any(q < bounds[:, 0] - 1e-10)
+                or np.any(q > bounds[:, 1] + 1e-10)
+            ):
+                raise ValueError("differential IK requires valid bounds containing its command")
+            bounds.setflags(write=False)
+            object.__setattr__(self, "position_bounds", bounds)
+        elif self.joints is not None or self.position_bounds is not None or not self.reason.strip():
+            raise ValueError("rejected differential IK requires a reason and no candidate")
+
+
+class DifferentialIKStepSolver(Protocol):
+    """Offline, stateful solver using separate command and measured coordinates.
+
+    Transforms use the model's base/TCP, metres and radians. ``dt_s`` is the
+    available integration interval; no wall-time backlog is implied. Reset at
+    rollout boundaries and when a multi-group step is discarded. This interface
+    does not read hardware or choose execution's fallback command.
+    """
+
+    def reset(self) -> None: ...
+
+    def solve(
+        self, target, previous, dt_s, *, measured, fixed_coordinates
+    ) -> DifferentialIKStepResult: ...
+
+
+@dataclass(frozen=True, slots=True)
 class KinematicCoordinate:
     """One independent input/output coordinate of a manipulator model.
 
@@ -126,6 +184,10 @@ class ManipulatorKinematicsBase(ABC):
     def num_coordinates(self) -> int:
         """Dimension of FK input, IK seed and successful IK result."""
         return len(self.coordinates)
+
+    def create_differential_ik(self, **options):
+        """Optional independent DifferentialIKStepSolver; never an exact-pose IK alias."""
+        raise NotImplementedError("this manipulator has no execution-time differential IK")
 
     @property
     @abstractmethod
@@ -201,6 +263,10 @@ class FlangeKinematicsBase(ABC):
     def num_arm_joints(self) -> int:
         """Number of arm joints, excluding the end effector."""
         raise NotImplementedError
+
+    def create_differential_ik(self, **options):
+        """Optional flange step solver with separate previous/measured joints and dt."""
+        raise NotImplementedError("this arm has no execution-time differential IK")
 
     @abstractmethod
     def fk_flange(self, joints: FloatArray) -> FloatArray:

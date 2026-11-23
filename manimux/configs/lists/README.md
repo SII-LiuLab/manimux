@@ -32,7 +32,18 @@ is supplied, which refreshes the derived inventory.
 Published lists: [`example-synthetic`](example-synthetic.yaml) (no hardware; its `local`
 selects the empty `local/synthetic.yaml` station), [`example-yam-pi05`](example-yam-pi05.yaml),
 [`example-yam-dream1`](example-yam-dream1.yaml) and
-[`example-tianji-pi05`](example-tianji-pi05.yaml).
+[`example-tianji-pi05`](example-tianji-pi05.yaml), and
+[`example-flexiv-pi05-models`](example-flexiv-pi05-models.yaml).
+
+Optional `policy_switching: on_demand` allows different XPolicyLab model recipes
+with identical robot and camera services. The generic policy launcher owns one
+model subprocess and loads the selected recipe on the next client connection.
+Use `manimux.servers.policy --config-list <list>` without `--experiment-id` for
+this mode. Model identity/capability checks still apply; active connections block
+cross-model replacement. Idle RoboGUI selection rebuilds the adapter/runtime at
+Prepare. Sampler changes for the same recipe retain loaded weights. Each model's
+dependencies must be installed in the launcher's environment; no hardware is
+owned by the model catalog.
 
 Only the published `example-*` lists and this README are allowlisted in Git. Other local
 lists remain ignored unless deliberately published together with their variants.

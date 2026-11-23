@@ -1,0 +1,11 @@
+_base_: _ee_.yaml
+experiment:
+  task: stack_cube
+  variant: ee_diffik_serial_h50
+inference:
+  algorithm: serial
+  inference_schedule: serial
+  request_trigger: algorithm
+  chunk_policy_steps: 50
+robogui:
+  policy_label: Pi05 EE 29999 / Serial / diffIK
