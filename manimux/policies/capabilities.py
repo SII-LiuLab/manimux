@@ -12,6 +12,7 @@ class PolicyCapabilities:
     multi_inflight: bool = False
     required_robot_group_dims: dict[str, int] | None = None
     required_camera_shapes: dict[str, tuple[int, int, int]] = field(default_factory=dict)
+    train_time_rtc_prefix_repair: bool = False
 
     def supports(self, sampling_mode: str) -> bool:
         return sampling_mode in self.sampling_modes

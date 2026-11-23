@@ -50,6 +50,11 @@ from manimux.runtime.rtc.request import RtcInferenceRequest
 from manimux.runtime.train_time_rtc import TrainTimeRtcRequest
 from manimux.types import InferenceRequest, InferenceResponse
 
+# This published revision implements repair in both samplers but predates
+# advertising it in the HELLO continuation metadata.
+_PREFIX_REPAIR_REVISION = "736e88c5024c77b281453dd5e3568e1aefdf67e4"
+_PREFIX_REPAIR_MODULES = (".Pi_05_TrainRTC.model", ".OpenWAM_TrainRTC.model")
+
 
 class XPolicyLabWsPolicyModel:
     """WebSocket inference backend; robot semantics stay in the adapter."""
@@ -457,10 +462,21 @@ class XPolicyLabWsPolicyModel:
             else getattr(client, "sampling_modes", frozenset({"default"}))
         )
         metadata = {} if client is None else getattr(client, "backend_metadata", {})
+        model = metadata.get("model", {})
+        continuation = model.get("continuation")
+        module = model.get("module")
+        repair_prefix = (
+            metadata.get("server_revision") == _PREFIX_REPAIR_REVISION
+            and isinstance(module, str)
+            and ("." + module).endswith(_PREFIX_REPAIR_MODULES)
+        )
+        if isinstance(continuation, dict):
+            repair_prefix = continuation.get("repair_prefix", repair_prefix) is True
         return PolicyCapabilities(
             sampling_modes=modes,
             backend_metadata=dict(metadata),
             multi_inflight=client is not None and getattr(client, "multi_inflight", False),
+            train_time_rtc_prefix_repair="train_time_rtc" in modes and repair_prefix is True,
         )
 
 

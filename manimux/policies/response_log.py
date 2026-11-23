@@ -11,12 +11,26 @@ import time
 from contextvars import ContextVar
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
 from manimux.policies.base import DEFAULT_PROVIDER_KEY_ENV
 
 _current: ContextVar[ResponseLog | None] = ContextVar("policy_response_log", default=None)
+_DEFAULT_PROVIDER_LOG_DIRS = {
+    "dream_api": "data/diagnostics/dream-api",
+    "poke_api": "data/diagnostics/poke-api",
+    "manimux.policies.dream.client:build_model": "data/diagnostics/dream-api",
+    "manimux.policies.poke.client:build_model": "data/diagnostics/poke-api",
+}
+
+
+def response_log_root(config: dict[str, Any]) -> Path | None:
+    """Resolve the shared journal directory and keep explicit opt-outs."""
+    default_root = _DEFAULT_PROVIDER_LOG_DIRS.get(config.get("worker", ""))
+    root = config.get("options", {}).get("response_log_dir", default_root)
+    return None if root is None else Path(root)
 
 
 def _redact(text: str, secret: str) -> str:
@@ -62,7 +76,7 @@ def _safe(value: object, secret: str = "") -> object:
 class ResponseLog:
     def __init__(self, config, request, *, api_key_env: str | None = None):
         options = config.get("options", {})
-        root = options.get("response_log_dir")
+        root = response_log_root(config)
         default_env = DEFAULT_PROVIDER_KEY_ENV.get(config.get("worker"), "")
         self._key_env = api_key_env if api_key_env is not None else options.get(
             "api_key_env", default_env

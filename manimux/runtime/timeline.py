@@ -233,8 +233,9 @@ class ActionTimeline:
         command_velocity: GroupVector | None = None,
         retain_terminal_target: bool = False,
         observation_capture_time_ns: int | None = None,
+        admission_time_ns: int | None = None,
     ) -> CommitResult:
-        """Validate capture age, then align the chunk on its action grid."""
+        """Check freshness at admission and align the action grid against now_ns."""
         if type(handoff_skip_steps) is not int:
             raise ValueError("handoff_skip_steps must be an integer")
         if chunk.action_space != self.action_space:
@@ -247,9 +248,10 @@ class ActionTimeline:
             chunk.observation_time_ns
             if observation_capture_time_ns is None else observation_capture_time_ns
         )
-        age_at_commit_ns = max(0, now_ns - capture_ns)
+        admission_ns = now_ns if admission_time_ns is None else admission_time_ns
+        age_at_commit_ns = max(0, admission_ns - capture_ns)
         if max_plan_age_ns is not None and age_at_commit_ns > max_plan_age_ns:
-            return CommitResult(False, "plan_too_old")
+            return CommitResult(False, "plan_too_old", timeline_latency_ns=age_at_commit_ns)
         if self._hold_last_step and chunk.source_offset_steps and not self._allow_retimed_suffix:
             return CommitResult(False, "serial_requires_untrimmed_chunk")
         if set(chunk.groups) != set(self._group_dims):

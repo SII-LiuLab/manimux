@@ -8,6 +8,7 @@ from dataclasses import dataclass, fields
 import numpy as np
 
 from manimux.policies.base import action_interval
+from manimux.policies.capabilities import PolicyCapabilities
 from manimux.runtime.inference import InferenceSubmission
 from manimux.runtime.rtc.strategy import RtcInferenceStrategy
 from manimux.types import InferenceRequest
@@ -31,8 +32,10 @@ class TrainTimeRtcInferenceStrategy(RtcInferenceStrategy):
     """RTC scheduling with a fixed prefix or a separately forecast decode budget."""
 
     def __init__(self, config: dict) -> None:
-        self._delay_estimator = config["inference"]["train_time_rtc"]["delay_estimator"]
-        self._fixed_prefix_steps = config["inference"]["train_time_rtc"]["fixed_prefix_steps"]
+        options = config["inference"]["train_time_rtc"]
+        self._delay_estimator = options["delay_estimator"]
+        self._fixed_prefix_steps = options["fixed_prefix_steps"]
+        self._repair_prefix = options["repair_prefix"]
         identity = (config["policy"].get("expected_backend") or {}).get("model", {})
         continuation_method = identity.get("continuation", {}).get("method")
         if (continuation_method is None and identity.get("policy_family") == "openwam"
@@ -40,7 +43,7 @@ class TrainTimeRtcInferenceStrategy(RtcInferenceStrategy):
             # Existing OpenWAM recipes pin the training config hash instead of
             # repeating its continuation fields in expected_backend.
             continuation_method = "train_time_rtc"
-        if config["inference"]["train_time_rtc"]["repair_prefix"] and (
+        if self._repair_prefix and (
             identity.get("policy_family") not in {"pi05", "openwam"}
             or continuation_method != "train_time_rtc"
         ):
@@ -112,6 +115,13 @@ class TrainTimeRtcInferenceStrategy(RtcInferenceStrategy):
     def required_sampling_modes(self) -> frozenset[str]:
         return frozenset({"default", "train_time_rtc"})
 
+    def validate_capabilities(self, capabilities: PolicyCapabilities) -> None:
+        if self._repair_prefix and not capabilities.train_time_rtc_prefix_repair:
+            raise RuntimeError(
+                "train_time_rtc.repair_prefix requires a backend that supports prefix repair. "
+                "Update the model service or disable repair_prefix"
+            )
+
     def _hard_prefix(self, submission: InferenceSubmission) -> InferenceSubmission:
         source = submission.request
         # The parent's soft mask is only an intermediate scheduling result.
@@ -134,7 +144,7 @@ class TrainTimeRtcInferenceStrategy(RtcInferenceStrategy):
             action_condition=condition,
             condition_weights=weights,
             prefix_steps=count,
-            repair_prefix=self._config["inference"]["train_time_rtc"]["repair_prefix"],
+            repair_prefix=self._repair_prefix,
         )
         return InferenceSubmission(
             request=request,

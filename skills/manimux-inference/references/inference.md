@@ -74,9 +74,10 @@ sampling and physical action output transforms, before grouping/latency trimming
 `actions[:prefix_steps] = action_condition[:prefix_steps]`. The target is the
 request-aligned remainder of the previous chunk, not its original first rows.
 The unconditioned first request and suffix are unchanged. Runtime forwards this
-flag per request and records it in submission events. Other backends are rejected
-when this option is enabled. Restart runtime and model after installing this code;
-changing the flag alone does not change weights or the model service contract.
+flag per request and records it in submission events. Startup checks that the
+backend advertises `model_metadata.continuation.repair_prefix: true` in HELLO or
+uses the verified XPolicyLab submodule revision `736e88c`. Restart the runtime
+and model after installing this code.
 Use new variant IDs when comparing repaired and unrepaired runs.
 
 `algorithm: train_time_rtc` uses a prefix-trained sampler instead of inference-time

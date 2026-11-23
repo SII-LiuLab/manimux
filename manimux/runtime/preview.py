@@ -123,14 +123,14 @@ class PreviewPlanner(PlanningContext):
             last_command=self.last_command,
         )
         anchor = self.execution.reference_from_joints(commit.current_command)
-        now_ns = self._clock.now_ns()
+        now_ns = admission_ns = self._clock.now_ns()
         if selector is not None:
             chunk = selector.select_chunk(chunk=chunk, now_ns=now_ns)
             chunk = prepare_strategy_chunk(
                 self._strategy, chunk=chunk, response=response, now_ns=now_ns
             )
-            if self._commits_after_selection():
-                now_ns = self._clock.now_ns()
+            admission_ns = self._clock.now_ns()
+            now_ns = self._plan_action_time(now_ns, admission_ns)
         source_end_ns = (
             chunk.observation_time_ns
             + (chunk.source_offset_steps + chunk.horizon_steps - 1) * chunk.dt_ns
@@ -146,6 +146,7 @@ class PreviewPlanner(PlanningContext):
             chunk,
             now_ns=now_ns,
             observation_capture_time_ns=response.observation_time_ns,
+            admission_time_ns=admission_ns,
             max_plan_age_ns=int(settings["max_plan_age_s"] * 1e9),
             current_command=anchor,
             blend_steps=commit.blend_steps,
@@ -164,6 +165,7 @@ class PreviewPlanner(PlanningContext):
                 response=response,
                 now_ns=now_ns,
             )
+            fields["observation_to_commit_ms"] = result.timeline_latency_ns / 1e6
         return chunk, result, fields
 
     def tick(self, state, *, loop_started_ns):

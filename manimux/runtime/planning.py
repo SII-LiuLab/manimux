@@ -31,13 +31,16 @@ def condition_overlap_fields(fields: dict, horizon_steps: int) -> dict[str, int]
 
 
 class PlanningContext:
-    def _commits_after_selection(self) -> bool:
-        """Ordinary AHS starts its prefix after local selection work."""
+    def _plan_action_time(self, aligned_time_ns: int, admission_time_ns: int) -> int:
+        """Return the action-grid time for the selected chunk."""
         settings = self._config["inference"]
-        return (
-            settings["algorithm"] == "chunktrust_ahs"
+        if (
+            settings["algorithm"] in {"chunktrust_ahs", "chunktrust_ahs_rtc"}
             and settings["action_start_mode"] == "first_step_when_ready"
-        )
+        ):
+            # ChunkTrust selects a prefix from rows, then plays it when ready.
+            return admission_time_ns
+        return aligned_time_ns
 
     def _build_timeline(self) -> ActionTimeline:
         return ActionTimeline(

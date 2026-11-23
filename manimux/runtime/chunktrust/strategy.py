@@ -175,8 +175,8 @@ class ChunkTrustAhsStrategy(SynchronousChunkStrategy):
     def select_chunk(self, *, chunk: ActionChunk, now_ns: int) -> ActionChunk:
         """Select after decoding and retain this clock in the proposal snapshot.
 
-        Ordinary AHS starts execution after local work completes. RTC retains its
-        shared scoring/commit clock for time-aligned conditioning and cropping.
+        Both paths start execution once selection is ready. RTC computes its
+        source offset from submitted rows at the selection snapshot.
         """
         decoded = self._decoded.get(chunk.request_seq)
         if decoded is None or decoded[0] != chunk.plan_id:
