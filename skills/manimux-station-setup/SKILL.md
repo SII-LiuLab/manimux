@@ -84,11 +84,11 @@ For a config list, reject any station output override; recording.root belongs to
 config list. Help the user choose it once, then reuse it on subsequent launches. Keep secrets and machine bindings out of shared YAML.
 
 Return the written station path, a short binding summary, remaining unverified items
-and matched launch commands. Distinguish static validation from device connectivity
-and actual motion. Setup alone does not authorize launching services or moving hardware.
-Include each selected arm/camera and transform's source, resolved value and validation
-status. Ask the user to check this concrete mapping after the agent has written it;
-approval of that mapping is not permission to start the robot.
+and the station's [manual launch commands](../manimux-experiments/SKILL.md#manual-launch-commands).
+Include the source, resolved value and validation status for each selected arm,
+camera and transform. Distinguish static validation from device connectivity and
+actual motion. Ask the user to check the written mapping. Service startup and
+robot motion require explicit authorization for those actions.
 
 ## Bind an existing deployment
 

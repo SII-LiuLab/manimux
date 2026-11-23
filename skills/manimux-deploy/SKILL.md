@@ -39,6 +39,10 @@ These dependencies are probed but never started, adopted or stopped; keep their 
 service owners and network tunnels available. Config-list studies and other model
 frameworks retain their existing runbooks; do not silently convert them.
 
+When the user asks for experiment commands rather than asking you to deploy, give the
+[manual launch commands](../manimux-experiments/SKILL.md#manual-launch-commands).
+Do not replace the individual commands with `manimux up` or start services yourself.
+
 ## Resolve and launch
 
 1. Inspect current deployment state, the requested model/robot runbook, candidate runtime
