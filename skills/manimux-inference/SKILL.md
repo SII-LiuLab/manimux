@@ -23,7 +23,8 @@ separate trial root and no study scoring/progress is enabled. No list or duplica
 config is needed. Optional `--once` connects immediately and exits after one rollout.
 Use the same input flag/file and station for camera, generic policy and runtime.
 Validate with `inspect --config` or `inspect --config-list` and service `--check`.
-Camera/model services remain separate from the runtime command.
+Camera/model services remain separate from the runtime command. When handing a model
+runbook to an operator, expand it into [one standalone command per service](../manimux-experiments/SKILL.md#manual-launch-commands).
 
 ## Configure a comparison
 

@@ -1,6 +1,6 @@
 ---
 name: manimux-experiments
-description: Build a custom ManiMux real-robot study from a supported deployment, configure tasks and scoring, collect traceable trials, and evaluate recordings. Use for new experiment setup, comparison protocols, progress, human scores, trajectory metrics and optional PRM reports.
+description: Generate manual launch commands for an existing ManiMux experiment, or build and evaluate a real-robot study from a supported deployment. Use for tasks and scoring, comparison protocols, trial tracking, trajectory metrics and optional PRM reports.
 ---
 
 # ManiMux Experiments
@@ -8,6 +8,31 @@ description: Build a custom ManiMux real-robot study from a supported deployment
 Work from the user's checkout. Read the [repository guide](../manimux-development/references/agent-guide.md)
 before editing. This is the entry point for building or evaluating a user's own study;
 use the development skill only when a required component or behavior is missing.
+
+## Manual launch commands
+
+When asked for an experiment's launch commands, use its config or config list, station
+bindings and the matching [model runbook](../manimux-inference/references/deployment/).
+Run the applicable offline checks first (`manimux inspect`, camera/model `--check`,
+RoboGUI preset/config validation). Report their results separately; a request for
+commands is not permission to start services.
+
+For a local camera and model server, return **four labelled code blocks: Camera, Model,
+RoboGUI, Runtime**. Each block contains **one single-line command** the operator can
+paste into a fresh terminal on that service's host, from any directory, and press Enter
+once. If the recipe uses a hosted or reused service, identify it in its slot instead
+of giving a duplicate launch command.
+
+- In the reply, expand runbook shorthand such as `$MM_LIST` and `<model-env>` to the
+  verified **absolute paths on the target host**. Use each service's own interpreter or
+  executable, and absolute paths for scripts, configs, station files and other path
+  arguments. Shell-quote paths as needed. If a required path or binding is unknown,
+  ask for that fact instead of guessing or handing over a template. Keep committed
+  examples portable.
+- Do not require a shared setup block, prior `export`, `source`, environment activation
+  or `cd`. Put a necessary non-secret environment setting directly before the relevant
+  executable as `NAME=value`. If the launcher requires a particular working directory,
+  set it within that same line. Never paste credentials into commands.
 
 ## Start from the user's experiment
 
@@ -163,8 +188,9 @@ Follow the stages that remain unfinished; do not repeat an already working deplo
 5. **Validate and launch.** Inspect the config list, selected service recipes and output
    directories without constructing hardware. `inspect --config-list ... --index`
    refreshes the derived inventory; camera and generic policy `--check` do not start
-   devices/model. Deliver all service commands with the same `--config-list`, station
-   and explicit ID when service configuration differs. Use the model's environment.
+   devices/model. In the [manual launch commands](#manual-launch-commands), use the same
+   `--config-list` and station for camera, model and runtime, with an explicit ID where
+   the runbook requires it. RoboGUI uses its own preset or GUI config.
    This Pi05 comparison uses fixed 32-step windows, not 16; other models use the
    agreed ratio. Report AutoHorizon separately as adaptive. Configuration work does
    not authorize service startup or motion.
