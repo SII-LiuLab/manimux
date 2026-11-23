@@ -24,13 +24,15 @@ A request is withheld, never filled with a substitute frame, while the 32-step-o
 missing. The XPolicyLab session path (`memory_source: session`) needs one `update_obs` per
 executed step and is unusable here.
 
-## Private configuration and environment
+## Configuration and environment
 
-Create a private policy recipe selecting the checkpoint's own weights and dataset
-statistics. Keep training configuration, asset paths and study lists local. Bind
-paths through `${paths.checkpoints}` in a private station file. Select a model
-configuration compatible with the vendored runtime; verify its accepted fields
-before construction. Set `replan_steps: 32` for the history contract described above.
+Start with the [serial example](../../../../manimux/configs/examples/yam-xpolicylab/internw0-serial.yaml)
+for the request-memory adapter, strategy and camera mapping. In a private copy of
+its recipe, select the checkpoint's own weights and dataset statistics. Keep
+training configuration, asset paths and study lists local. Bind
+`${paths.checkpoints}` in the station file. Select a model configuration compatible
+with the vendored runtime and verify its accepted fields before construction. Set
+`replan_steps: 32` for the history contract described above.
 
 Use an isolated model environment compatible with the vendored InternW0 source and
 its VLM/video assets. Do not replace packages in an active model environment.

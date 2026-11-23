@@ -1,0 +1,27 @@
+# Use the checkpoint's own normalization statistics. Select a compatible model
+# configuration in a private copy if the shipped eval_model.yaml differs.
+policy_name: InternW0_delta
+protocol: ws
+host: 127.0.0.1
+port: 8500
+env_cfg_type: yam_dual
+robot_action_dim_info: {arm_dim: [6, 6], ee_dim: [1, 1]}
+num_envs: 1
+action_type: joint
+eval_batch: false
+checkpoint_variant: internw0_yam_example
+memory_source: request
+checkpoint_path: ${paths.checkpoints}/internw0-yam/robodojo.pt
+dataset_stats_path: ${paths.checkpoints}/internw0-yam/dataset_stats.json
+train_config_path: config/eval_model.yaml
+base_model_dir: ${paths.checkpoints}/internw0-yam/assets/Wan-AI/Wan2.2-TI2V-5B
+vlm_model_path: ${paths.checkpoints}/internw0-yam/assets/Alibaba-DAMO-Academy/RynnBrain1.1-2B
+device: cuda
+mixed_precision: bf16
+action_horizon: 32
+replan_steps: 32
+num_inference_steps: 10
+action_hz: 30.0
+allow_dummy_policy: false
+backend_identity:
+  fields: [policy_name, checkpoint_variant, action_horizon]

@@ -1,0 +1,22 @@
+# Select a Pi05 VLASH checkpoint and set a delay within its trained range.
+_base_: _base_.yaml
+run:
+  task_prompt: put_bottles_into_the_bin
+policy:
+  horizon_policy_steps: 50
+  adapter:
+    camera_map:
+      cam_head: d405_front
+      cam_left_wrist: d405_left
+      cam_right_wrist: d405_right
+policy_server:
+  config: ../../policy/pi05/yam/vlash/example.yaml
+inference:
+  algorithm: vlash
+  inference_schedule: single_inflight
+  action_start_mode: drop_infer_latency
+  vlash:
+    delay_policy_steps: 6
+    min_execute_policy_steps: 32
+robogui:
+  policy_label: Pi05 VLASH YAM

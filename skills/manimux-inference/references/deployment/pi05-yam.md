@@ -114,6 +114,11 @@ separate from results for new settings.
 
 ## VLASH-trained joint checkpoints
 
+The [VLASH example](../../../../manimux/configs/examples/yam-xpolicylab/vlash.yaml)
+selects the runtime strategy and a placeholder policy recipe. In a private copy,
+fill in the checkpoint step, training dataset ID, normalization digest and trained
+delay range.
+
 Use `Pi_05_VLASH` for the independent VLASH core implementation. Its vendored
 OpenPI source is verified against the training snapshot manifest; its wrapper
 reuses the Pi05 transport and advertises only `default` sampling. Launch through

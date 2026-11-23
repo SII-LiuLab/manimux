@@ -1,8 +1,9 @@
 # MolmoAct2 + YAM deployment
 
-Use a private deployment configuration matching the checkpoint's robot layout,
-normalization assets and action horizon. Keep checkpoint selections, study presets,
-recorded inputs and benchmark results outside the public repository.
+Start with the [serial example](../../../../manimux/configs/examples/yam-xpolicylab/molmoact2-serial.yaml).
+Its recipe uses checkpoint and normalization placeholders for offline configuration
+checks. In a private copy, select an export matching the robot layout, normalization
+assets and action horizon. Keep study presets, recorded inputs and benchmark results local.
 
 ## Model and action contract
 
@@ -54,8 +55,8 @@ MOLMOACT2_PROFILE=official_yam MOLMOACT2_PYTHON=3.12 bash third_party/XPolicyLab
 ```
 
 The default installation profile remains RoboDojo. Do not replace packages inside
-another running model's environment. Bind `services.policy_molmoact2.endpoint`,
-checkpoints, camera serials and YAM buses in one private station file.
+another running model's environment. The example uses `services.policy.endpoint`.
+Bind the selected endpoint, checkpoints, camera serials and YAM buses in the station file.
 
 From the repository root, set `STATION` to that file and run:
 

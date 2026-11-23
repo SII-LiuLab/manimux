@@ -1,0 +1,23 @@
+# InternW0-Delta request memory sends live, anchor and recent views together.
+_base_: _base_.yaml
+policy:
+  horizon_policy_steps: 32
+  adapter:
+    type: manimux.policy_adapter.internw0.adapter:InternW0Adapter
+    physical_cameras: [d405_front, d405_left, d405_right]
+    camera_map:
+      cam_head: d405_front
+      cam_left_wrist: d405_left
+      cam_right_wrist: d405_right
+      cam_head_anchor: d405_front@anchor
+      cam_left_wrist_anchor: d405_left@anchor
+      cam_right_wrist_anchor: d405_right@anchor
+      cam_head_recent: d405_front@recent
+      cam_left_wrist_recent: d405_left@recent
+      cam_right_wrist_recent: d405_right@recent
+policy_server:
+  config: ../../policy/internw0/yam/example.yaml
+inference:
+  strategy: manimux.policy_adapter.internw0.memory:build_strategy
+robogui:
+  policy_label: InternW0-Delta YAM - Serial
