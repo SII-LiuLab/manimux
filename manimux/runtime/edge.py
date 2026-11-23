@@ -367,6 +367,14 @@ class EdgeRuntime(PlanningContext):
         if self._worker is None:
             return
         capabilities = getattr(self._worker, "capabilities", PolicyCapabilities())
+        required_groups = capabilities.required_robot_group_dims
+        configured_groups = self._config["robot"]["group_dims"]
+        if required_groups is not None and required_groups != configured_groups:
+            with failure_context("model", "robot group compatibility"):
+                raise RuntimeError(
+                    f"Policy requires robot.group_dims {required_groups}, "
+                    f"configured {configured_groups}"
+                )
         missing = self._strategy.required_sampling_modes.difference(capabilities.sampling_modes)
         if missing:
             raise RuntimeError(
@@ -668,7 +676,16 @@ class EdgeRuntime(PlanningContext):
             # Policy startup can be slow; recheck sensors before enabling hardware.
             preparation.update("Checking fresh camera frames")
             with failure_context("camera", "fresh frame check before robot connection"):
-                sensor_reader.read()
+                frames = sensor_reader.read()
+                for name, expected_shape in capabilities.required_camera_shapes.items():
+                    frame = frames.get(name)
+                    if frame is None:
+                        raise ValueError(f"Missing required policy camera {name!r}")
+                    if frame.data.shape != expected_shape:
+                        raise ValueError(
+                            f"Policy camera {name!r} requires RGB shape {expected_shape}, "
+                            f"got {frame.data.shape}"
+                        )
             # Do not leave background requests queued across blocking SDK calls.
             # Preserve the fresh-camera preflight before connecting the robot.
             if sensor_reader.mode == "background":

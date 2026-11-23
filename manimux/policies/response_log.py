@@ -17,7 +17,7 @@ import numpy as np
 _current: ContextVar[ResponseLog | None] = ContextVar("policy_response_log", default=None)
 
 
-def _safe(value):
+def _safe(value: object) -> object:
     if is_dataclass(value) and not isinstance(value, type):
         return _safe(asdict(value))
     if isinstance(value, dict):
@@ -57,7 +57,7 @@ class ResponseLog:
         self.count = 0
         self.started_ns = 0 if self.path is None else time.monotonic_ns()
 
-    def write(self, name, payload):
+    def write(self, name: str, payload: object) -> None:
         if self.path is not None:
             self.path.mkdir(parents=True, exist_ok=True)
             text = json.dumps(_safe(payload), allow_nan=False)
@@ -105,7 +105,7 @@ class ResponseLog:
         self.token = _current.set(self)
         return self
 
-    def capture(self, payload, stage, metadata=None):
+    def capture(self, payload: object, stage: str, metadata: object = None) -> None:
         if self.path is None:
             return
         self.count += 1
@@ -135,7 +135,7 @@ class ResponseLog:
             _current.reset(self.token)
 
 
-def capture_response(payload, *, stage="provider", metadata=None):
+def capture_response(payload: object, *, stage: str = "provider", metadata: object = None) -> None:
     """Called immediately after receive, before inspecting provider fields."""
     log = _current.get()
     if log is not None:

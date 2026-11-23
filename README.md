@@ -264,6 +264,8 @@ for external model/camera services, separate trial roots and Franka.
 
 <a id="contributing"></a>
 
+Export a finalized joint rollout to [LeRobotDataset v3](https://sii-liulab.github.io/manimux/guideline.html#lerobot-export) and try the [hardware-free SmolVLA example](https://sii-liulab.github.io/manimux/guideline.html#smolvla-worker) with a separate model environment.
+
 ## Contributing & community
 
 Contributions to robot and policy integrations, inference strategies, RoboGUI,

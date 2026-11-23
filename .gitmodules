@@ -11,3 +11,6 @@
 [submodule "RPent"]
 	path = third_party/RPent
 	url = https://github.com/RLinf/RPent.git
+[submodule "LeRobot"]
+	path = third_party/LeRobot
+	url = https://github.com/huggingface/lerobot.git

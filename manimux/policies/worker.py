@@ -78,10 +78,12 @@ def _worker_main(
     except Exception as exc:
         _put_latest(startup_queue, ("error", f"capability_error:{type(exc).__name__}:{exc}"))
         return
+    backend_health = getattr(model, "backend_is_alive", None)
+    backend_health = backend_health if callable(backend_health) else None
     _put_latest(startup_queue, ("ready", capabilities))
     try:
         pending_request = None
-        while True:
+        while backend_health is None or backend_health():
             if multi_inflight:
                 response = model.poll()
                 if response is not None:
@@ -94,7 +96,10 @@ def _worker_main(
                     request = pending_request
                 pending_request = None
             else:
-                request = request_queue.get()
+                try:
+                    request = request_queue.get(timeout=0.05 if backend_health else None)
+                except queue.Empty:
+                    continue
             if request is None:
                 break
             if isinstance(request, _PolicyResetRequest):

@@ -1,0 +1,54 @@
+# Smoke test for the public SmolVLA base checkpoint with synthetic inputs and commands.
+robot:
+  type: manimux.dispatch.demo:build_robot
+  group_dims: {arm: 6}
+  control_hz: 20.0
+  options:
+    execute: false
+sensors:
+  - &rgb
+    driver: scripts.validation.starvla_fixtures.sensor:build_sensor
+    name: camera1
+    width: 256
+    height: 256
+  - <<: *rgb
+    name: camera2
+  - <<: *rgb
+    name: camera3
+policy:
+  worker: lerobot_smolvla
+  device: cpu
+  action_dt_s: 0.1
+  horizon_policy_steps: 50
+  startup_timeout_s: 180
+  timeout_s: 25
+  adapter:
+    type: manimux.policy_adapter.joint:JointAdapter
+    camera_map:
+      observation.images.camera1: camera1
+      observation.images.camera2: camera2
+      observation.images.camera3: camera3
+  options:
+    checkpoint: ${paths.smolvla_checkpoint}
+    model_python: ${paths.smolvla_env}/bin/python
+    group: arm
+    action_semantics: absolute_joint_position
+    model_units_per_robot_unit: [1, 1, 1, 1, 1, 1]
+    model_zero: [0, 0, 0, 0, 0, 0]
+    response_log_dir: ${paths.smolvla_logs}
+inference:
+  algorithm: serial
+  action_start_mode: first_step_when_ready
+  blend_policy_steps: 0
+executor:
+  type: direct
+robogui:
+  enabled: false
+  robot: smolvla-offline
+  policy_label: SmolVLA offline
+recording:
+  enabled: true
+  video_fps: 0
+run:
+  task_prompt: Pick up the block.
+  max_control_steps: 600

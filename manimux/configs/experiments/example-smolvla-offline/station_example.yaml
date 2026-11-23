@@ -1,0 +1,5 @@
+# Copy to .local/smolvla/station.yaml. Paths are relative to the copied file.
+paths:
+  smolvla_checkpoint: ../../checkpoints/pretrained/smolvla_base
+  smolvla_env: ../../envs/smolvla
+  smolvla_logs: ../../data/diagnostics/smolvla
