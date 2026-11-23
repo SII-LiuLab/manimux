@@ -1368,13 +1368,7 @@ class EdgeRuntime(PlanningContext):
                                         commit_anchor = self._execution.reference_from_joints(
                                             commit.current_command
                                         )
-                                        if (
-                                            selector is not None
-                                            and self._config["inference"]["algorithm"]
-                                            == "chunktrust_ahs"
-                                            and self._config["inference"]["action_start_mode"]
-                                            == "first_step_when_ready"
-                                        ):
+                                        if selector is not None and self._commits_after_selection():
                                             # Ordinary AHS starts its prefix after local work.
                                             # Time-aligned selectors retain their scoring clock.
                                             now_ns = self._clock.now_ns()

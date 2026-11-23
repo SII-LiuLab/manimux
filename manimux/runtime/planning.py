@@ -31,6 +31,14 @@ def condition_overlap_fields(fields: dict, horizon_steps: int) -> dict[str, int]
 
 
 class PlanningContext:
+    def _commits_after_selection(self) -> bool:
+        """Ordinary AHS starts its prefix after local selection work."""
+        settings = self._config["inference"]
+        return (
+            settings["algorithm"] == "chunktrust_ahs"
+            and settings["action_start_mode"] == "first_step_when_ready"
+        )
+
     def _build_timeline(self) -> ActionTimeline:
         return ActionTimeline(
             ({name: 8 for name in self._config["robot"]["group_dims"]}

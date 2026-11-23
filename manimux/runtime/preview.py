@@ -129,6 +129,8 @@ class PreviewPlanner(PlanningContext):
             chunk = prepare_strategy_chunk(
                 self._strategy, chunk=chunk, response=response, now_ns=now_ns
             )
+            if self._commits_after_selection():
+                now_ns = self._clock.now_ns()
         source_end_ns = (
             chunk.observation_time_ns
             + (chunk.source_offset_steps + chunk.horizon_steps - 1) * chunk.dt_ns
