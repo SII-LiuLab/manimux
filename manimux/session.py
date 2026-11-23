@@ -260,12 +260,24 @@ class RuntimeSessionService:
 
     def _ready_metadata(self) -> dict[str, object]:
         from manimux.agents.execution import execution_choices
+        from manimux.collections import service_contract
+
+        # Advertise only selections the idle switch handler can accept. A catalog
+        # may contain several model-service profiles; changing an external service
+        # still requires a restart, rather than a selectable but broken GUI option.
+        contract = service_contract(self._config)
+        choices = (
+            [choice.metadata() for choice in self._experiment_list.choices.values()
+             if service_contract(choice.config) == contract]
+            if self._experiment_list else []
+        )
         return {
             "execution_choices": execution_choices(self._config),
             "execution_mode": self._config["run"].get("execution_mode", "vla"),
             "run_dir": str(self._run_dir.resolve()),
             "history_sessions": self._config["run"].get("history_sessions", []),
-            "experiment_choices": self._experiment_list.metadata() if self._experiment_list else [],
+            "experiment_choices": choices,
+            "study_choices": self._experiment_list.metadata() if self._experiment_list else [],
             "experiment_id": self._selection_id,
             "selection_error": self._selection_error,
             "initial_pose": initial_pose_metadata(self._config),

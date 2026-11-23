@@ -3,8 +3,23 @@
 # Local training jobs, cluster submission payloads, and TensorBoard operations.
 # These are intentionally kept out of the public ManiMux repository.
 /.local/
+# Keep real API credentials local; empty example files are publishable.
+.env
+.env.*
+*.env
+!.env.example
+!*.env.example
 # Private training recipes, launchers, notes and outputs stay outside the package.
 /training/
+# Private research configurations, analyses, media and experiment outputs.
+/research/
+# Local station bindings and physical calibration evidence.
+/manimux/configs/local/station_molmoact2.yaml
+/manimux/configs/local/yam_home_*.json
+/manimux/configs/local/yam_home_*.jsonl
+/manimux/configs/local/yam_zero_*.json
+/manimux/configs/local/yam_zero_*.jsonl
+# Private checkpoint selections with machine-specific artifact paths.
 /manimux/configs/local/station.yaml
 /manimux/configs/local/deployments/
 /.vscode/
@@ -26,8 +41,7 @@ data/
 __pycache__/
 *.py[cod]
 dist/
-checkpoints/pretrained/
-checkpoints/finetuned/
+/checkpoints/
 recordings/
 logs/
 **/SOURCE.json
@@ -108,7 +122,6 @@ logs/
 /manimux/configs/policy/pi05/yam/put-bottles/joint-step30000.yaml
 /manimux/configs/policy/pi05/yam/finetune-pick-red-ball-box-step1000.yaml
 /manimux/configs/policy/pi05/yam/base.yaml
-/manimux/configs/policy/openwam/yam/latest300ep-step60000-cache-compile.yaml
 /manimux/configs/policy/openwam/yam/finetune-put-bottles-step30000.yaml
 /manimux/configs/policy/umi_dp/tianji/assembly.yaml
 /manimux/configs/embodiment/robot/tianji_taccap_pass_ball.yaml
@@ -135,3 +148,25 @@ logs/
 /scripts/validation/pi05_yam_offline_infer.py
 /scripts/validation/run_policy_branch_regressions.sh
 /website/.openai/hosting.json
+
+# Station-only YAM diagnostics and calibration tools; keep local copies.
+/scripts/setup/yam_*.py
+/scripts/setup/yam_*.html
+
+# Local station bindings and private experiment recipes.
+/manimux/configs/local/*
+!/manimux/configs/local/README.md
+!/manimux/configs/local/*_example.yaml
+!/manimux/configs/local/synthetic.yaml
+/manimux/configs/policy/pi05/yam/3task/step60000.yaml
+
+# Private experiment presets and real-checkpoint probes are not public examples.
+/manimux/configs/examples/pi05-yam/
+/manimux/configs/examples/pi05-xpolicylab-yam/
+/manimux/configs/examples/rpent_pi05_yam.yaml
+/manimux/configs/experiments/example-yam-molmoact2/
+/manimux/configs/policy/**/latest*/
+/manimux/configs/policy/**/latest*.yaml
+/manimux/configs/policy/**/caps1010_3task_isaactex/
+/scripts/experiments/
+/scripts/validation/molmoact2_*probe.py

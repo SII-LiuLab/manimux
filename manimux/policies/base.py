@@ -7,6 +7,11 @@ from typing import Protocol
 from manimux.policies.capabilities import PolicyCapabilities
 from manimux.types import ActionChunk, InferenceRequest
 
+DEFAULT_PROVIDER_KEY_ENV = {
+    "dream_api": "DREAM_API_KEY",
+    "poke_api": "PLATFORM_API_KEY",
+}
+
 
 class PolicyModel(Protocol):
     def reset(self, session_id: str) -> None: ...

@@ -1,4 +1,4 @@
-"""Request-scoped evidence captured before wire/action decoding and rejection."""
+"""Experiment records linking provider replies to requests and rejected actions."""
 
 from __future__ import annotations
 
@@ -6,51 +6,81 @@ import base64
 import hashlib
 import json
 import math
+import os
 import time
 from contextvars import ContextVar
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
+from manimux.policies.base import DEFAULT_PROVIDER_KEY_ENV
+
 _current: ContextVar[ResponseLog | None] = ContextVar("policy_response_log", default=None)
+_DEFAULT_PROVIDER_LOG_DIRS = {
+    "dream_api": "data/diagnostics/dream-api",
+    "poke_api": "data/diagnostics/poke-api",
+    "manimux.policies.dream.client:build_model": "data/diagnostics/dream-api",
+    "manimux.policies.poke.client:build_model": "data/diagnostics/poke-api",
+}
 
 
-def _safe(value: object) -> object:
+def response_log_root(config: dict[str, Any]) -> Path | None:
+    """Resolve the shared journal directory and keep explicit opt-outs."""
+    default_root = _DEFAULT_PROVIDER_LOG_DIRS.get(config.get("worker", ""))
+    root = config.get("options", {}).get("response_log_dir", default_root)
+    return None if root is None else Path(root)
+
+
+def _redact(text: str, secret: str) -> str:
+    return text.replace(secret, "[redacted]") if secret else text
+
+
+def _safe(value: object, secret: str = "") -> object:
     if is_dataclass(value) and not isinstance(value, type):
-        return _safe(asdict(value))
+        return _safe(asdict(value), secret)
     if isinstance(value, dict):
         return {
-            str(k): "[redacted]"
+            _redact(str(k), secret): "[redacted]"
             if any(
                 s in str(k).lower()
                 for s in ("authorization", "api_key", "token", "password", "secret")
             )
-            else _safe(v)
+            else _safe(v, secret)
             for k, v in value.items()
         }
     if isinstance(value, np.ndarray):
         return {
-            "dtype": str(value.dtype),
+            "dtype": _redact(str(value.dtype), secret),
             "shape": list(value.shape),
-            "values": _safe(value.tolist()),
+            "values": _safe(value.tolist(), secret),
         }
     if isinstance(value, np.generic):
-        return _safe(value.item())
+        return _safe(value.item(), secret)
     if isinstance(value, (list, tuple)):
-        return [_safe(v) for v in value]
+        return [_safe(v, secret) for v in value]
     if isinstance(value, bytes):
+        if secret:
+            value = value.replace(os.fsencode(secret), b"[redacted]")
         return {"encoding": "base64", "data": base64.b64encode(value).decode("ascii")}
     if isinstance(value, float) and not math.isfinite(value):
         return str(value)
-    if value is None or isinstance(value, (str, int, float, bool)):
+    if isinstance(value, str):
+        return _redact(value, secret)
+    if value is None or isinstance(value, (int, float, bool)):
         return value
-    return {"type": type(value).__qualname__, "repr": repr(value)}
+    return {"type": type(value).__qualname__, "repr": _redact(repr(value), secret)}
 
 
 class ResponseLog:
-    def __init__(self, config, request):
-        root = config.get("options", {}).get("response_log_dir")
+    def __init__(self, config, request, *, api_key_env: str | None = None):
+        options = config.get("options", {})
+        root = response_log_root(config)
+        default_env = DEFAULT_PROVIDER_KEY_ENV.get(config.get("worker"), "")
+        self._key_env = api_key_env if api_key_env is not None else options.get(
+            "api_key_env", default_env
+        )
         self.path = response_log_path(root, request.session_id, request.request_seq)
         self.config, self.request = config, request
         self.count = 0
@@ -59,7 +89,9 @@ class ResponseLog:
     def write(self, name: str, payload: object) -> None:
         if self.path is not None:
             self.path.mkdir(parents=True, exist_ok=True)
-            (self.path / name).write_text(json.dumps(_safe(payload), allow_nan=False) + "\n")
+            secret = os.environ.get(self._key_env, "") if isinstance(self._key_env, str) else ""
+            text = json.dumps(_safe(payload, secret), allow_nan=False)
+            (self.path / name).write_text(text + "\n")
 
     def __enter__(self):
         if self.path is None:
@@ -100,7 +132,7 @@ class ResponseLog:
         self.token = _current.set(self)
         return self
 
-    def capture(self, payload: object, stage: str) -> None:
+    def capture(self, payload: object, stage: str, metadata: object = None) -> None:
         if self.path is None:
             return
         self.count += 1
@@ -110,6 +142,7 @@ class ResponseLog:
                 "stage": stage,
                 "received_ns": time.monotonic_ns(),
                 "response": payload,
+                "metadata": metadata,
             },
         )
 
@@ -129,11 +162,11 @@ class ResponseLog:
             _current.reset(self.token)
 
 
-def capture_response(payload: object, *, stage: str = "provider") -> None:
+def capture_response(payload: object, *, stage: str = "provider", metadata: object = None) -> None:
     """Called immediately after receive, before inspecting provider fields."""
     log = _current.get()
     if log is not None:
-        log.capture(payload, stage)
+        log.capture(payload, stage, metadata)
 
 
 def response_log_path(root, session_id, request_seq):

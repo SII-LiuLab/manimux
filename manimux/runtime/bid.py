@@ -83,7 +83,7 @@ class BidBackwardStrategy(SynchronousChunkStrategy):
         if kwargs["runtime_state"] != RuntimeState.RUNNING:
             return None
         # RequestScheduler owns serial completion, capacity, refill and rate admission.
-        return self.build_warmup_submission(**{
+        return self._make_submission(**{
             key: kwargs[key]
             for key in ("session_id", "request_seq", "now_ns", "snapshot", "adapter")
         })
@@ -96,14 +96,6 @@ class BidBackwardStrategy(SynchronousChunkStrategy):
                 "robot_config": str(self._config["robot"]["config"]),
             }
         return options
-
-    def build_warmup_submission(
-        self, *, session_id, request_seq, now_ns, snapshot, adapter, conditioned=False,
-    ) -> InferenceSubmission:
-        return self._make_submission(
-            session_id=session_id, request_seq=request_seq,
-            now_ns=now_ns, snapshot=snapshot, adapter=adapter,
-        )
 
     def decode_action(self, raw, context, *, adapter) -> ActionChunk:
         candidates = raw.get("bid_candidates") if isinstance(raw, Mapping) else None

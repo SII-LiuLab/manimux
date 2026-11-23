@@ -68,7 +68,7 @@ def validate_capabilities(
     *,
     rtc: bool = False,
 ) -> TraceProfile:
-    """Check the joint Pi05 H50 contract before connecting hardware or previewing.
+    """Check a supported raw-velocity joint profile before hardware or previewing.
 
     RTC requires evidence that *both* sampling paths return raw trace and that
     guidance excludes model padding. A callable RTC hook alone is insufficient.
@@ -76,16 +76,24 @@ def validate_capabilities(
     policy = config["policy"]
     _equal(policy.get("worker"), "xpolicylab_ws", "policy.worker")
     horizon = _integer(policy.get("horizon_policy_steps"), "policy.horizon_policy_steps")
-    _equal(horizon, 50, "ChunkTrust prediction horizon")
     metadata = _mapping(capabilities.backend_metadata, "backend")
     model = _mapping(metadata.get("model"), "backend.model")
-    for key, expected in {"policy_family": "pi05", "action_type": "joint"}.items():
-        _equal(model.get(key), expected, f"backend.model.{key}")
-    observation_profile = model.get("observation_profile")
-    if type(observation_profile) is not str or observation_profile not in {"aloha", "yam_native"}:
-        raise ValueError("ChunkTrust requires a live Pi05 ALOHA/YAM native-joint profile")
+    _equal(model.get("action_type"), "joint", "backend.model.action_type")
     execution = _mapping(model.get("execution"), "backend.model.execution")
-    _equal(execution.get("backend"), "jax", "backend.model.execution.backend")
+    family = model.get("policy_family")
+    if family == "pi05":
+        _equal(horizon, 50, "ChunkTrust Pi05 prediction horizon")
+        observation_profile = model.get("observation_profile")
+        if type(observation_profile) is not str or observation_profile not in {"aloha", "yam_native"}:
+            raise ValueError("ChunkTrust requires a live Pi05 ALOHA/YAM native-joint profile")
+        _equal(execution.get("backend"), "jax", "backend.model.execution.backend")
+    elif family == "molmoact2":
+        _equal(horizon, 30, "ChunkTrust MolmoAct2 prediction horizon")
+        _equal(model.get("implementation"), "local", "backend.model.implementation")
+        _equal(model.get("action_semantics"), "absolute_joint_position", "backend.model.action_semantics")
+        _equal(execution.get("backend"), "torch", "backend.model.execution.backend")
+    else:
+        raise ValueError(f"ChunkTrust has no validated raw-velocity profile for policy_family={family!r}")
     _equal(model.get("action_horizon"), horizon, "backend.model.action_horizon")
     num_steps = _integer(model.get("num_steps"), "backend.model.num_steps")
     seed = _integer(model.get("inference_seed"), "backend.model.inference_seed", minimum=0)

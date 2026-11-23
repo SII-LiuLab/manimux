@@ -24,7 +24,7 @@ from manimux.evaluation.rubric import evaluation_parameters
 from manimux.failures import failure_context
 from manimux.policies import ActionDecoderClient, PolicyCapabilities, metadata_mismatches
 from manimux.policies.base import action_interval
-from manimux.policies.response_log import response_log_path
+from manimux.policies.response_log import response_log_path, response_log_root
 from manimux.policies.worker import PolicyWorkerClient
 from manimux.policy_adapter import build_policy_adapter
 from manimux.recording import EpisodeRecorder
@@ -524,12 +524,10 @@ class EdgeRuntime(PlanningContext):
         pending_visuals: dict[int, dict[str, object]] = {}
         pending_observation_states: dict[int, RobotState] = {}
         pending_response = None
+        evidence_root = response_log_root(self._config["policy"])
 
         def rejected_response(response, reason):
-            evidence = response_log_path(
-                self._config["policy"]["options"].get("response_log_dir"),
-                response.session_id, response.request_seq,
-            )
+            evidence = response_log_path(evidence_root, response.session_id, response.request_seq)
             if evidence is not None and "response_artifacts=" not in reason:
                 reason += f"; response_artifacts={evidence}"
             return replace(response, error=reason)
@@ -1189,8 +1187,7 @@ class EdgeRuntime(PlanningContext):
 
                 if response is not None:
                     evidence = response_log_path(
-                        self._config["policy"]["options"].get("response_log_dir"),
-                        response.session_id, response.request_seq,
+                        evidence_root, response.session_id, response.request_seq
                     )
                     if not self._min_execute_steps:
                         request_in_flight = False
@@ -1323,23 +1320,12 @@ class EdgeRuntime(PlanningContext):
                                 _group_action_summary(chunk.groups),
                             )
                             previous_reference = self._timeline.sample(now_ns)
-                            previous_horizon = self._timeline.active_horizon()
-                            previous_chunk_id = (
-                                None
-                                if self._timeline.accepted_request_seq < 0
-                                else self._timeline.accepted_request_seq
-                            )
-                            previous_chunk_index = self._timeline.cursor(now_ns)
                             commit = self._strategy.commit_settings(
                                 response=response,
                                 measured=state.groups,
                                 last_command=last_command,
                             )
-                            # FK/decoding may consume time. Crop against the actual commit time.
-                            now_ns = self._clock.now_ns()
-                            chunk.metadata["observation_to_commit_ms"] = (
-                                now_ns - chunk.observation_time_ns
-                            ) / 1e6
+                            now_ns = admission_ns = self._clock.now_ns()
                             source_end_ns = (
                                 chunk.observation_time_ns
                                 + (chunk.source_offset_steps + chunk.horizon_steps - 1)
@@ -1375,27 +1361,13 @@ class EdgeRuntime(PlanningContext):
                                         commit_anchor = self._execution.reference_from_joints(
                                             commit.current_command
                                         )
-                                        if (
-                                            selector is not None
-                                            and self._config["inference"]["algorithm"]
-                                            == "chunktrust_ahs"
-                                            and self._config["inference"]["action_start_mode"]
-                                            == "first_step_when_ready"
-                                        ):
-                                            # Ordinary AHS starts its prefix after local work.
-                                            # Time-aligned selectors retain their scoring clock.
-                                            now_ns = self._clock.now_ns()
-                                            latency_ms = (
-                                                now_ns - chunk.observation_time_ns
-                                            ) / 1e6
-                                            chunk.metadata["observation_to_commit_ms"] = latency_ms
-                                            if canonical_raw is not None:
-                                                canonical_raw.metadata[
-                                                    "observation_to_commit_ms"
-                                                ] = latency_ms
+                                        admission_ns = self._clock.now_ns()
+                                        now_ns = self._plan_action_time(now_ns, admission_ns)
                                         result = self._timeline.commit(
                                             chunk,
                                             now_ns=now_ns,
+                                            observation_capture_time_ns=response.observation_time_ns,
+                                            admission_time_ns=admission_ns,
                                             max_plan_age_ns=int(
                                                 self._config["inference"]["max_plan_age_s"]
                                                 * 1_000_000_000
@@ -1414,9 +1386,9 @@ class EdgeRuntime(PlanningContext):
                             if result.accepted:
                                 accepted_plans += 1
                                 last_inference_ms = response.inference_ms
-                                chunk.metadata["timeline_latency_ms"] = (
-                                    result.timeline_latency_ns / 1_000_000
-                                )
+                                latency_ms = result.timeline_latency_ns / 1e6
+                                chunk.metadata["observation_to_commit_ms"] = latency_ms
+                                chunk.metadata["timeline_latency_ms"] = latency_ms
                                 chunk.metadata["blend_mode"] = self._config["inference"].get(
                                     "blend_mode", "linear"
                                 )
@@ -1429,6 +1401,7 @@ class EdgeRuntime(PlanningContext):
                                     raise RuntimeError("accepted plan missing committed horizon")
                                 if canonical_raw is None:
                                     raise RuntimeError("accepted plan missing canonical raw chunk")
+                                canonical_raw.metadata["observation_to_commit_ms"] = latency_ms
                                 logger.info(
                                     "plan_accepted seq=%d plan=%s trimmed=%d committed_steps=%d",
                                     chunk.request_seq,
@@ -1460,7 +1433,7 @@ class EdgeRuntime(PlanningContext):
                                         "plan_boundary",
                                         **build_plan_boundary_payload(
                                             step=steps,
-                                            monotonic_ns=now_ns,
+                                            monotonic_ns=admission_ns,
                                             blend_anchor_source=commit.anchor_source,
                                             blend_steps=commit.blend_steps,
                                             trimmed_steps=result.trimmed_steps,
@@ -1479,6 +1452,7 @@ class EdgeRuntime(PlanningContext):
                                         committed=committed,
                                         metadata={
                                             "runtime": self._strategy.name,
+                                            "inference_schedule": self._scheduler.mode,
                                             "raw_horizon_steps": chunk.horizon_steps,
                                             "committed_horizon_steps": committed.horizon_steps,
                                             "time_trimmed_steps": result.time_trimmed_steps,
@@ -1489,21 +1463,15 @@ class EdgeRuntime(PlanningContext):
                                             "decode_stage_ms": chunk.metadata.get(
                                                 "decode_stage_ms"
                                             ),
-                                            "previous_chunk_id": previous_chunk_id,
-                                            "previous_chunk_index": previous_chunk_index,
+                                            "previous_chunk_id": result.previous_chunk_id,
+                                            "previous_chunk_index": result.previous_chunk_index,
                                             "previous_chunk_horizon_steps": (
-                                                0
-                                                if previous_horizon is None
-                                                else previous_horizon.horizon_steps
+                                                result.previous_chunk_horizon_steps
                                             ),
-                                            "superseded_steps": (
-                                                0
-                                                if previous_horizon is None
-                                                else max(
-                                                    0,
-                                                    previous_horizon.horizon_steps
-                                                    - previous_chunk_index,
-                                                )
+                                            "superseded_steps": max(
+                                                0,
+                                                result.previous_chunk_horizon_steps
+                                                - result.previous_chunk_index,
                                             ),
                                             **submission_visuals,
                                             **event_fields,
@@ -1524,8 +1492,8 @@ class EdgeRuntime(PlanningContext):
                                 if result.reason == "plan_too_old":
                                     diagnostics = {
                                         "observation_to_commit_ms": (
-                                            now_ns - chunk.observation_time_ns
-                                        ) / 1e6,
+                                            result.timeline_latency_ns / 1e6
+                                        ),
                                         "max_plan_age_ms": (
                                             self._config["inference"]["max_plan_age_s"] * 1000
                                         ),

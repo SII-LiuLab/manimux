@@ -1,0 +1,45 @@
+# Configure the three station transforms before constructing this adapter.
+# right_arm is a template selection; the other group holds its runtime reference.
+run:
+  task_prompt: Put the bottles into the bin.
+  max_control_steps: 6000
+  warmup_before_start: true
+  sensor_reading: {mode: background, poll_hz: 100.0, max_frame_age_s: 0.5}
+robot:
+  type: yam
+  config: ../../embodiment/robot/yam_dual.yaml
+  control_hz: 100.0
+  options:
+    execute: false
+    move_to_start_on_connect: false
+sensors:
+  - name: yam_cameras
+    driver: camera_server
+    service: camera
+    options:
+      request_timeout_ms: 500
+      max_frame_age_sec: 0.5
+      camera_names: [d405_right]
+camera_server:
+  config: ../../embodiment/sensor/cameras/realsense_3_views.yaml
+policy:
+  config: ../../policy/poke/yam/api.yaml
+inference:
+  algorithm: serial
+  inference_schedule: serial
+  request_trigger: algorithm
+  chunk_policy_steps: 40
+  action_start_mode: first_step_when_ready
+  max_plan_age_s: 65.0
+  blend_policy_steps: 0
+  handoff_skip_steps: 0
+executor:
+  config: ../../executor/yam_smooth_standard.yaml
+  type: smooth
+robogui:
+  enabled: true
+  robot: yam
+  policy_label: Poke-Aurora - calibrated single arm - Serial + Smooth
+recording:
+  enabled: true
+  video_fps: 30.0

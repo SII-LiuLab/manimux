@@ -414,6 +414,7 @@ root in four terminals, using the same config list in cameras, model and runtime
   --config-list manimux/configs/lists/example-yam-pi05.yaml
 </code></pre>
 <h3 id="2-robogui">2 · RoboGUI</h3>
+<p>Select the display with <code>--robot</code> or <code>--config</code>; RoboGUI has no implicit robot preset. Use <code>--list-robots</code> to list presets.</p>
 <pre><code class="language-bash">envs/yam/.venv/bin/python -m manimux.robogui.dashboard \
   --robot yam --host 127.0.0.1 --port 8086
 </code></pre>
@@ -876,6 +877,16 @@ asynchronous scheduler and executor, without a local model server or GPU.
 The first supported provider is <code>policy.worker: dream_api</code>.
 Other providers need an explicit observation/action adapter; arbitrary JSON
 responses are not robot commands.</p>
+<p>Dream and Poke both read credentials from the runtime environment. Public,
+empty templates live in <code>manimux/configs/credentials/dream.env.example</code>
+and <code>manimux/configs/credentials/poke.env.example</code>. Copy the needed
+template to <code>.local/credentials/dream.env</code> or
+<code>.local/credentials/poke.env</code>, fill in the key only in that local copy,
+then run <code>source .local/credentials/dream.env</code> or
+<code>source .local/credentials/poke.env</code> in the terminal that launches
+ManiMux. The templates include <code>export</code>, so child processes inherit
+the variable. Clients do not load these files automatically. Real credential
+files are Git-ignored; publish only empty templates.</p>
 <p>Install the optional client with <code>pip install -e '.[dream]'</code>.
 Set <code>DREAM_API_KEY</code> in the runtime environment, never in configuration
 files. Dream-1 beta uses one current frame per camera (overhead and both wrists).
@@ -889,12 +900,11 @@ python -m scripts.validation.dream_api_probe --config /path/to/your/dream-smooth
 For operator-controlled deployment, use the same config with the camera server
 and <code>manimux run --config ...</code>; no <code>policy_server</code> is needed.
 The key must be present in the process that runs the policy worker.
-Every SDK response is saved before validation under
-<code>policy.options.response_log_dir</code> (default
-<code>data/diagnostics/dream-api</code>), including rejected responses.
-Each JSON record links raw actions to session/request, prompt, state, camera hashes
-and timing; errors identify the file and offending action values.
-Non-finite numbers use explicit strings and credentials are redacted.
+With experiment response recording configured, the shared worker saves SDK responses
+before decoding under <code>policy.options.response_log_dir</code> (the recipe uses
+<code>data/diagnostics/dream-api</code>). Request, response and outcome files link inputs,
+raw actions, rejected output and timing to the session/request. Credentials are redacted.
+The API client itself performs no archive I/O outside an active recorder.
 Finite gripper commands are clipped to <code>[0,1]</code>, following the official
 Dream robot adapter. Raw values and affected rows remain in the diagnostic record;
 joint predictions are unchanged and non-finite output is still rejected.
@@ -924,8 +934,9 @@ Home/plane calibration convention</a>; no additional robot runtime is required.<
 python -m scripts.validation.poke_api_probe --config /path/to/calibrated-poke.yaml --recorded-observation /path/to/observation.npz --calls 3 --output /tmp/poke-probe.json</code></pre>
 <p>The probe constructs no hardware drivers. Use <code>--model-state /path/to/state.json</code>
 with an explicit model-frame eight-number array for an interface-only test that skips FK/IK.
-Every response is saved before validation under <code>data/diagnostics/poke-api</code>,
-with request ID, input identity and timing. The current integration uses stateless
+The shared experiment recorder preserves raw HTTP responses before JSON/action decoding,
+including malformed output, under the configured response directory. The recipe uses
+<code>data/diagnostics/poke-api</code>; standalone client calls do not create archives. The current integration uses stateless
 calls; cloud sessions and execution receipts are not implemented. It does not retry
 failed requests or claim that predicted actions were physically executed.
 Only default sampling with one request in flight is supported. Targets use 30 Hz;
@@ -1324,7 +1335,8 @@ the 16-step threshold is counted from activation: at 10 Hz the next request star
 after 1.6 seconds. The previous trajectory continues during inference.
 This submission threshold is separate from <code>min_plan_hold_policy_steps</code>,
 which only delays replacement by an already returned prediction.</p>
-<p>The first request is immediate. Later requests wait for both the progress threshold
+<p>The first request is immediate. A complete first chunk on the observation clock
+starts untrimmed at acceptance. Later requests wait for both the progress threshold
 and an available worker. Continue the old trajectory while inference runs, then trim
 the new result's expired prefix and switch on its action clock. Rejected results do
 not reset progress. The threshold must be smaller than the model horizon. Omit
@@ -1400,6 +1412,8 @@ continue from the previous IK solution. This leaves measured model observations 
 and does not impose a joint-step limit or guarantee IK branch continuity.</p>
 </section>
 <section aria-labelledby="train-time-rtc" class="guide-page" data-page-id="train-time-rtc" data-title="Train-time RTC" hidden=""><h2 id="train-time-rtc">Train-time RTC</h2>
+<p>VLASH-trained Pi05 uses the separate <code>Pi_05_VLASH</code> backend and <code>inference.algorithm: vlash</code>. Set <code>inference.vlash.delay_policy_steps</code> within the checkpoint's trained range and <code>inference.vlash.min_execute_policy_steps</code> for the observation-relative request window. It conditions on the outgoing action immediately before takeover, while keeping the current images; it does not freeze a denoising prefix. Use inline joint decoding, Direct, and zero blending/rate mapping. See the <a href="skills/manimux-inference/references/deployment/pi05-yam.md#vlash-trained-joint-checkpoints">VLASH deployment contract</a>.</p>
+<p>Pi05 and OpenWAM support <code>inference.train_time_rtc.repair_prefix: true</code> (default: <code>false</code>). After sampling and output transforms, it exactly restores the request-aligned old-chunk prefix before latency trimming. New suffix actions and scheduling are unchanged. This option requires a Pi05 or OpenWAM train-time RTC backend with prefix-repair support. The startup handshake checks this capability. Use a new experiment variant ID for repaired trials.</p>
 <p>Prefix-trained UMI-DP checkpoints use <code>algorithm: train_time_rtc</code> and <code>inference_schedule: single_inflight</code>. They advertise the separate <code>train_time_rtc</code> sampling capability; ordinary RTC guidance checkpoints do not support this mode.</p>
 <p>The pack-plate recipe fixes five leading action rows with <code>delay_estimator: fixed</code> and <code>fixed_prefix_steps: 5</code>. The first request and unavailable committed prefixes are unconditioned. Fixed prefixes do not guarantee latency coverage. Dynamic <code>decode_max</code> and <code>end_to_end_max</code> estimators are also available.</p>
 <p>Use <code>action_start_mode: drop_infer_latency</code>, <code>blend_policy_steps: 0</code> and <code>handoff_skip_steps: 0</code>. Both inline and process decoding are supported. Put these settings in your experiment variant, organized like the <a href="#example-study">example study</a>.</p>
@@ -1908,6 +1922,10 @@ Progress requires the built-in Async strategy with single-inflight scheduling.</
 <td>DP environment; <code>manimux.servers.dp --experiment</code></td>
 </tr>
 <tr>
+<td><a href="skills/manimux-inference/references/deployment/molmoact2-yam.md">MolmoAct2 / YAM</a></td>
+<td>MolmoAct2 environment; <code>manimux.servers.policy --config</code>; absolute joints; Serial/Async, RTC, PAINT, AutoHorizon and BID support local-source CUDA Graph replay with <code>enable_cuda_graph: true</code>. BID generates independent candidates in one action-expert batch with shared observation context. AHS additionally requires <code>return_denoise_trace: true</code> and the H30 candidate profile; selection stays outside the graph. Qualify latency before hardware. Source, training and HF export live in <code>XPolicyLab/policy/MolmoAct2/</code>; YAM uses <code>implementation: local</code>.</td>
+</tr>
+<tr>
 <td><a href="skills/manimux-inference/references/deployment/openwam-yam.md">OpenWAM / YAM</a></td>
 <td>OpenWAM environment; <code>manimux.servers.policy --config-list</code></td>
 </tr>
@@ -2012,6 +2030,7 @@ Once any rollout record exists, including a partial rollout, condition checks ap
 </code></pre>
 <p>Restarting the same config list resumes progress from the same destination. Selecting an entry in RoboGUI and using <code>--experiment-id</code> resolve to the same identity and directory. Each launch/selection creates a session; repeats create rollouts, not new YAML files. The same variant launched through <code>run --config</code> is an unscored trial. It does not load study history or consume repeat slots. Trial recordings default to <code>data/trials/&lt;task&gt;/&lt;variant&gt;/session-…</code>; <code>--output-dir</code> selects another trial root. For standalone configs without experiment identity, the directory uses the filename and a hash of its absolute path. If configured, <code>run.output_dir</code> replaces <code>data</code> as the parent of <code>trials/</code>.</p>
 <p>Session manifests freeze the resolved configuration, component/base hashes and config list identity. Changed scientific conditions under an already recorded variant ID are rejected: create a clearly named variant. Labels and trial budgets can change without pretending that the model or algorithm changed.</p>
+<p>Adding unrelated devices to a shared station does not change an experiment's conditions. Bindings used by the selected robot assembly or camera recipe remain part of the condition check; complete station bindings remain in session manifests.</p>
 <p>Existing recordings keep their paths, raw contents and recorded configurations. A config list entry may declare <code>history: [old-study/step32/coin/rtc_beta10]</code>, relative to <code>recording.root</code>. Only sessions with matching saved effective conditions count toward current progress. Canonical paths deduplicate aliases. Finalized, valid scored experiments count; partial, unlabelled and invalid attempts remain distinguishable. Under the Layout selector, RoboGUI lists every method of the current task with its remaining trials and the exact missing layout/repeat slots, so a skipped slot stays visible before switching methods. Historical 16-step data are preserved for analysis and never relabelled as 32-step trials.</p>
 <p><code>inspect --config-list … --index</code> refreshes the derived <code>recordings-index-v2.json</code> inside the config list's recording directory. It inventories real session directories without following aliases. It is a snapshot, not the score authority; labels are read from recordings. The earlier <code>recordings-index.json</code> and migration/deletion receipts remain historical records. Index generation never rewrites raw episode files.</p>
 <h3 id="delete-recordings">Delete recordings and retest</h3>
@@ -2087,6 +2106,7 @@ envs/yam/.venv/bin/python -m manimux run \
 <h3 id="experiment-switch-boundaries">Switching boundaries</h3>
 <table><thead><tr><th>Change</th><th>Behavior</th></tr></thead><tbody>
 <tr><td>Compatible task, method, parameters or named starting pose</td><td>Idle-only selection after recovery/evaluation. A fresh runtime on Prepare clears previous chunks and sampling state.</td></tr>
+<tr><td>XPolicyLab action frequency (<code>policy.action_dt_s</code>)</td><td>May switch between completed trials with unchanged service recipes. Prepare rebuilds the client and action timing; no model restart is needed.</td></tr>
 <tr><td>Different camera set, checkpoint, robot or model initialization</td><td>May coexist in a config list, but cannot hot-switch. Select <code>--experiment-id ID</code> for runtime and matching services; restart affected services explicitly.</td></tr>
 <tr><td>Ambiguous camera/model launch</td><td>Without an explicit ID, that service's configurations must agree across the config list; otherwise launch fails with a selection error.</td></tr>
 <tr><td>YAML edited on disk</td><td>Restart runtime to reload. Restart model/camera services if their configuration changed. No automatic hardware restart.</td></tr>
@@ -2186,14 +2206,11 @@ hold. Start drains warmup and waits for backend reset acknowledgement and a fres
 observation before native Astra begins deciding. A reset failure keeps the planner
 blocked. Warmup does not relax deadlines or plan-age limits, and does not guarantee
 that later model calls will meet them.</p>
-<p>For an explicit RPent debugging condition, add
-<code>agent.debug_max_plan_age_s: 2.0</code> to the experiment. This optional finite,
-positive value changes the plan-age limit only for managed GUI RPent, including its
-warmup. Provider request timeout, control freshness and
-motion checks stay unchanged. Use a distinct debug variant rather than changing an
-existing recorded condition; the setting is included in its condition fingerprint.
-The disconnected <a href="manimux/configs/experiments/example-rpent-synthetic/demo/rpent_gui_debug.yaml">RPent debug
-example</a> shows this opt-in.</p>
+<p>Set RPent plan-age limits using the shared <code>inference.max_plan_age_s</code>
+experiment setting. Warmup and execution use that same resolved limit. Select a distinct
+variant when changing a recorded condition; the
+<a href="manimux/configs/experiments/example-rpent-synthetic/demo/rpent_gui_debug.yaml">disconnected example</a>
+uses a 2-second limit without an agent-specific debugging override.</p>
 <p>To test RPent using only observation and motion primitives, set
 <code>agent.policy_enabled: false</code> in the experiment. This boolean defaults
 to true. RPent then offers <code>observe</code>, <code>move_to</code>,
@@ -2428,6 +2445,10 @@ task when it remains available. Each task remembers its own selection during thi
 show their current phase and elapsed time. A progress heartbeat means the reporter is alive,
 not that the robot has reached its target. If the heartbeat is lost, the UI marks hardware
 state unknown and keeps another Prepare blocked until the runtime reports completion or failure.</p>
+<p>After Prepare, the robot holds its reached pose while waiting and warming up.
+Pause holds the position measured when pausing; Home replaces it with the reached Home pose.
+These targets stay fixed until the next transition, rather than following hand movement
+or drift. Pause / Hold is position control, not a manual-drag mode.</p>
 <ol>
 <li>Use <strong>Prepare Run</strong> for a free trial. For a scored trial, reset the scene, select <strong>Layout</strong>, then click <strong>Prepare Experiment</strong>; its Top reference is attached automatically.</li>
 <li>Press <kbd>T</kbd> or click the Top layout reference's expand icon to fill this browser window. Press <kbd>T</kbd>, <kbd>Esc</kbd> or the close button to return.</li>

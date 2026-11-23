@@ -156,7 +156,6 @@ class ChunkTrustAhsRtcStrategy(ChunkTrustAhsStrategy):
         fields.update(
             forecast_delay=mark.forecast, measured_delay=delay,
             request_to_commit_ms=(now_ns - mark.started_ns) / 1e6,
-            observation_to_commit_ms=elapsed / 1e6,
         )
 
     def state_dict(self) -> dict[str, Any]:

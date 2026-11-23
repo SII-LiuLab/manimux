@@ -40,6 +40,9 @@ ManiMux 位于策略服务与机器人硬件之间，负责观测/动作适配�
 [架构与扩展协议](skills/manimux-development/references/README.md) · [推理指南](https://sii-liulab.github.io/manimux/guideline.html#algorithms)
 
 完整功能矩阵（本体 / 策略 / 推理）见 [英文 README](README.md#feature-matrix)。
+其中包括 [Poke-Aurora API](https://sii-liulab.github.io/manimux/guideline.html#poke-api)（需完成工位标定）和 [ChunkTrust AHS](https://sii-liulab.github.io/manimux/guideline.html#chunktrust)：串行 AHS 需要支持 denoising trace 的后端；RTC+AHS 已集成运行时，但 RTC+trace 真实后端仍待验证。
+
+启用 [Train-time RTC 前缀修复](https://sii-liulab.github.io/manimux/guideline.html#train-time-rtc) 时，ManiMux 会在启动握手阶段检查模型服务是否支持该选项。
 
 ## 快速开始
 

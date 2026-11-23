@@ -90,15 +90,11 @@ acknowledgement and acquires a new observation before enabling native Astra.
 Reset failure leaves the planner blocked. Warmup does not relax plan-age, deadline
 or motion checks; cold calls can still be rejected before later requests warm up.
 
-For an explicit debugging condition, the experiment's optional
-`agent.debug_max_plan_age_s` accepts a finite positive number of seconds. Only
-managed GUI RPent applies it to its copied runtime configuration, including the
-warmup preview. The provider request timeout, control freshness and
-motion checks are unchanged. This field is included in collection fingerprints
-only when set; use a distinct debug variant instead of changing a recorded condition.
-The session manifest retains the base limit and opt-in, while the agent's
-`runtime-config.json` records the effective limit. See
-`configs/experiments/example-rpent-synthetic/demo/rpent_gui_debug.yaml` for a disconnected 2-second example.
+Set plan-age limits through the ordinary `inference.max_plan_age_s` experiment
+setting. Managed RPent and its warmup use the same resolved inference configuration;
+there is no separate agent debugging override. Use a distinct variant when changing
+an experimental condition. `configs/experiments/example-rpent-synthetic/demo/rpent_gui_debug.yaml` is a disconnected
+example using that shared setting.
 
 To test observation and motion primitives without VLA, set the experiment's
 `agent.policy_enabled: false`. It accepts only a boolean and defaults to enabled.

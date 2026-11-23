@@ -6,6 +6,33 @@ disable-model-invocation: true
 
 # Contribute ManiMux video-wall footage
 
+## Robot authorization — required for every task
+
+Without explicit user permission, do not start or restart a robot, connect its
+controller, enable actuators, or cause robot motion. This includes Prepare, Warmup
+on connected hardware, Start, Home, gripper calibration, replay and recovery/release.
+Invoking this skill or requesting integration, configuration, testing, evaluation or
+video capture does not grant that permission. Reuse explicit authorization already
+given for the same robot and operation; do not ask for it repeatedly.
+
+Complete configuration, code and disconnected validation first. If permission is
+missing, show the concrete robot, resolved configuration and intended operations,
+then ask before the first hardware-affecting action. Configuration review is not
+robot-start authorization. Leave physical controls with the operator by default.
+`execute: false`, “dry run” and “warmup” are not evidence of isolation: constructors,
+connect and cleanup can move hardware. Use disconnected models/fake devices offline.
+A separately authorized GUI/model/camera service launch may proceed only after
+verifying it will not connect or actuate the robot. Preserve existing service and
+hardware ownership; do not stop, restart or release an active robot to test a change.
+
+For every model/backend, retain the shared observation/action adapter and execution
+protocol. Do not add a backend-specific `native` action path to make a capture work.
+Reuse resolved embodiment/tool geometry, station calibration and model metadata;
+do not ask the user to repeat facts already recorded. If development is necessary,
+inspect this checkout's shared contracts first. Only a demonstrated inability to
+conform justifies requesting explicit user approval for an exception; neither an
+existing legacy path nor a footage request grants it.
+
 You are the contributor's local agent. Deliver a validated ZIP of this station's
 footage to the contributor, who will forward it to the video editor. Do not upload
 or message anyone automatically. This package is self-contained: no originating

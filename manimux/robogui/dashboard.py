@@ -142,6 +142,7 @@ class PolicyRoboGUI:
         self.new_rollout_requested = False
         self._rollout_request: dict[str, Any] = {}
         self._experiment_choices: list[dict[str, Any]] = []
+        self._study_choices: list[dict[str, Any]] = []
         self._experiment_id = ""
         self._pending_experiment_id = ""
         self._pending_initial_pose_id = ""
@@ -1502,6 +1503,7 @@ class PolicyRoboGUI:
             mode = str(metadata.get("execution_mode", mode))
         self._set_execution_mode(mode)
         self._experiment_choices = list(metadata.get("experiment_choices", []))
+        self._study_choices = list(metadata.get("study_choices", self._experiment_choices))
         self._experiment_id = str(metadata.get("experiment_id", ""))
         visible = bool(self._experiment_choices)
         self.experiment_task.visible = self.experiment_config.visible = visible
@@ -1573,7 +1575,7 @@ class PolicyRoboGUI:
         root, task = self._study_root, self.task_command
         defaults = dict(self._research_defaults)
         sessions = self._history_sessions
-        choices = [c for c in self._experiment_choices if c.get("task") == task]
+        choices = [c for c in self._study_choices if c.get("task") == task]
         layouts, reference = self.top_overlay.layouts if self.top_overlay is not None else None, self._reference_task
         self._history_epoch += 1
         epoch = self._history_epoch
@@ -3015,8 +3017,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--reference-root", type=Path, default=DEFAULT_LAYOUT_ROOT)
     parser.add_argument(
         "--robot",
-        default="tianji",
-        help="RoboGUI preset folder containing robogui.yaml; see --list-robots",
+        help="RoboGUI preset folder containing robogui.yaml; required unless --config is set; see --list-robots",
     )
     parser.add_argument(
         "--list-robots",
@@ -3049,6 +3050,8 @@ def main() -> None:
             )
         )
         return
+    if args.config is None and not args.robot:
+        parser.error("choose a display with --robot <preset> (for example --robot yam) or --config <file>; see --list-robots")
     live = not args.demo
     args.bridge_endpoint = args.bridge_endpoint or (
         "tcp://127.0.0.1:5568" if live else "tcp://127.0.0.1:*")

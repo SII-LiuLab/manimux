@@ -12,6 +12,10 @@ Skills route agents to these same maintained protocol guides.
 
 ## Engineering discussion rule
 
+- Explain specialized terms on first use with their concrete inputs, outputs, owning
+  layer and an example when useful. Do not use terse labels such as “native passthrough”
+  as a substitute for explaining what is preserved, converted and validated. Give
+  enough detail for the user to assess the design and its implementation status.
 - Do not begin a response to a challenge with an automatic apology or concession.
   A question or counterexample is a request to examine the design, not an instruction
   to abandon it. Inspect evidence and state your own project-level judgment first.
@@ -26,6 +30,31 @@ Skills route agents to these same maintained protocol guides.
   configuration migration, service restarts or hardware motion.
 
 ## Documentation ownership
+
+Production code implements reusable behavior and experiment recording. Keep temporary
+debugging, test fixtures and one-off integration reports in tests/validation scripts.
+Do not remove recorded observations, raw predictions, rejected responses, timing or
+evaluation data merely because they help diagnosis: they are experiment functionality
+when used for reproducibility, analysis or operator feedback. Trace consumers before
+cleanup and consolidate duplicate recording through the existing shared recorder.
+See [the development boundary](../SKILL.md#keep-experiments-and-development-debugging-separate).
+
+Skills are reusable instructions for agents working with a user's own models and
+station. Put shared requirements and inspection/validation steps before examples.
+Do not turn one user's checkpoint, arm, calibration, window size or experiment into
+a default rule. Keep model-specific facts in references, identified as examples or
+documented constraints. All models/backends obey the
+[shared protocol and exception gate](policies.md#mandatory-shared-contract-for-every-model-and-backend):
+conform first; only a demonstrated inability to conform justifies requesting explicit
+user approval for a native exception. Existing exceptions do not authorize new ones.
+
+Every skill entry point must explicitly prohibit starting/connecting or actuating a
+robot without user permission, including skills that usually only render or evaluate
+saved data. Preserve that direct rule when adding, splitting or distributing a skill;
+a reference link or a claim that a command is a dry run is insufficient. Honor already
+granted authorization for its exact scope. Prepare a concrete, disconnected-validated
+result before requesting any missing hardware authorization. A configuration review
+and a protocol-exception approval each remain separate from robot-start permission.
 
 Root `README.md` explains project purpose, architecture and entry points. Directory
 READMEs locate that directory's files and ownership boundaries; they are not duplicate
@@ -250,6 +279,13 @@ Fixing a legacy bug does not authorize migrating unrelated models or stopping li
   an unreachable submodule revision or assume a developer branch.
 - Commit or push only when requested. Keep unrelated edits and submodule pointers unchanged.
 
+## Independent work directories
+
+New task directories and worktrees must carry a root `WORKSPACE.md` explaining their
+purpose, provenance, current state and retention/cleanup conditions. Follow the
+[workspace context rule](../SKILL.md#leave-context-in-independent-work-directories)
+when creating, resuming, handing off or cleaning them; do not rely on session memory.
+
 ## Public branch changes
 
 Changes to `main` must go through a pull request; do not push directly to it.
@@ -257,3 +293,8 @@ Keep local training variants and station-specific work on their designated branc
 until explicitly selected for public release. Build cleanup PRs from `main` so they
 do not pull in unrelated local experiments. Review references before removing scratch
 files; keep maintained runtime implementations, licenses and actively used assets.
+
+The `ziyang` integration pins XPolicyLab's `ziyang` branch, including the local
+`Pi_05_TrainRTC`, `OpenWAM_TrainRTC`, `Pi_05_Legato`, `OpenWAM_Legato` and `Pi_0_FAST`
+extensions. Do not merge these source additions or their submodule revision into
+`main` without explicit release authorization; prepare public changes independently.

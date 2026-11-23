@@ -207,7 +207,7 @@ def main():
     ):
         raise ValueError("This probe accepts only the offline test robot and synthetic sensors")
     robot = build_robot(config["robot"], SystemClock())
-    adapter = build_policy_adapter(config["robot"], config["policy"], kinematics=robot.kinematics)
+    adapter = build_policy_adapter(config["robot"], config["policy"], kinematics=robot.kinematics, ik_options=config["execution"]["ik"])
     client = StarVlaPolicyModel(config["policy"])
     report = dict(
         status="running",

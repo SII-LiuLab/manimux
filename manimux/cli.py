@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import logging
+import math
 import multiprocessing as mp
 import signal
 import subprocess
@@ -262,7 +263,7 @@ def bind_station(config: dict, local: str | Path) -> dict:
         server.pop("backend_identity", None)
         # Provider field names differ; station paths do not change the selected
         # checkpoint variant, normalization identity, horizon or action contract.
-        pi05 = server.get("policy_name") == "Pi_05"
+        pi05 = server.get("policy_name") in {"Pi_05", "Pi_05_VLASH"}
         if pi05 and server.get("observation_profile") == "tianji_taccap_pi05_zero_pose":
             # New EE profile: explicit checkpoint directories or a station storage root.
             if "checkpoints" in paths:
@@ -736,7 +737,20 @@ def prepare_experiment(**options) -> dict:
     values["run"] = run_parameters(**values["run"])
     if values.get("agent") is not None:
         from manimux.agents.execution import agent_parameters
-        values["agent"] = agent_parameters(values["agent"])
+
+        agent = values["agent"]
+        # Older RPent sessions used this value to override the shared plan age.
+        if "debug_max_plan_age_s" in agent:
+            age = agent.pop("debug_max_plan_age_s")
+            if (
+                isinstance(age, bool)
+                or not isinstance(age, (int, float))
+                or not math.isfinite(age)
+                or age <= 0
+            ):
+                raise ValueError("agent.debug_max_plan_age_s must be a finite positive number")
+            values["inference"]["max_plan_age_s"] = float(age)
+        values["agent"] = agent_parameters(agent)
     if values["run"]["execution_mode"] is None:
         # An agent profile makes this an RPent experiment.
         values["run"]["execution_mode"] = "rpent" if values.get("agent") else "vla"

@@ -4,6 +4,12 @@
 
 Source paths below are relative to the repository root.
 
+RoboGUI chunk plans carry the resolved `inference_schedule`, including warmup
+previews. Completed serial actions stay purple while the next request is pending
+and after handoff. The orange handoff interval applies to overlapping inference;
+do not infer scheduling from the algorithm name, since adaptive algorithms can
+also run asynchronously. Latency trimming and skipped actions keep their own colors.
+
 Service configuration checks must not import recording storage dependencies.
 `manimux.recording.recording_parameters` is lightweight; the package loads
 `EpisodeRecorder` lazily only when runtime recording is requested. Verify model
@@ -16,6 +22,13 @@ and resolves named poses. `manimux/cli.py` loads component references and local 
 `manimux/collections.py` validates `configs/lists/*.yaml`, assigns stable output identity,
 selects trial budgets, checks saved-condition fingerprints and imports matching history.
 `manimux/experiment_list.py` is the internal selection/metadata representation.
+
+Condition fingerprints include the recorded robot assembly digest and the bindings
+used by the selected assembly or camera recipe. Filter out unused station bindings
+only when the assembly file matches that digest. Older manifests without an assembly
+digest retain all recorded bindings for comparison. Ignore a new station binding
+only when the verified current assembly and camera recipe leave it unused.
+Full bindings remain in the original session manifests.
 
 Formal studies use `run --config-list ... [--experiment-id ...]`. Any concrete
 runtime variant can also use `run --config` for interactive unscored trials, or
@@ -34,6 +47,12 @@ checks shared service contracts before creating a session and rejects incompatib
 switches. Collections may enumerate incompatible services, but camera/model launchers
 require an explicit ID when their recipes differ. No automatic service restart or hot
 model reload. Starting-pose-only changes are compatible and take effect at Prepare.
+The selection menu lists service-compatible methods. Remaining Trials uses all
+methods in the selected task's collection.
+For XPolicyLab, `policy.action_dt_s` is runtime-owned and may change between
+completed trials when the service recipes match. Prepare rebuilds the client
+frequency and adapter timestamps; checkpoint, backend identity, horizon and
+server-side timing settings still participate in compatibility checks.
 
 Prepare uses a retained `prepare_request_id`: reading controls does not consume it.
 In plain `run --config` demo/trial sessions, RoboGUI exposes an editable **Task prompt**
@@ -199,6 +218,13 @@ and this mode does not consult `refill_threshold_s`. Validate K < H, no source c
 `drop_infer_latency` or `first_step_when_ready`, and no waypoint or skipped-row handoff.
 With `first_step_when_ready` and an uncropped adapter output, progress starts at
 zero on activation, so K policy intervals pass before the next submission.
+With progress-triggered Async, a complete first chunk on the observation clock
+starts untrimmed at commit. Later chunks use their source time grid. Adapter
+timing offsets, pretrimmed chunks and dense trajectories keep their declared grid.
+VLASH also starts its first measured-state chunk untrimmed. Time-aligned strategies
+such as asynchronous BID follow their configured action-start mode from the first
+chunk. Plan age and E2E latency use the measured capture time, including when the action
+grid starts at a different time.
 This is distinct from `min_plan_hold_policy_steps`, which gates replacement,
 not submission. Warmup uses the same progress trigger through its private planner.
 
@@ -406,6 +432,8 @@ constructs `RobotView(RobotModel.from_config(model), config)`. Start from
 A new body normally needs a `robogui/robots/<name>/robogui.yaml` pointing to its
 assembled offline model, with camera slots and per-group display styles.
 `--robot <name>` selects that directory; `--config <path>` selects an explicit YAML.
+The standalone dashboard requires one of these selections; it never assumes a robot
+from installed SDKs or station device names. `--list-robots` works without a selection.
 Do not create a second kinematic definition just for display.
 
 The [page shortcuts](../../../guideline.html#robogui-shortcuts) activate the existing
@@ -606,6 +634,12 @@ waits for the in-flight request, then acknowledged backend reset; only a fresh s
 observation enters formal execution. Warmup timings remain separate from formal metrics.
 The control mailbox suppresses activation/selection on stale transport snapshots.
 
+Physical position hold latches the measured pose after Prepare, on entry to Pause
+(including control-loss and agent holds), and after Home. Waiting and Warmup keep
+that target fixed; they never update it from each tick's measured position. Resume
+clears the latch so the next Pause captures a fresh pose. This is position control,
+not manual drag, and does not change controller gains or gravity compensation.
+
 RPent with policy calls enabled uses this same optional activation flow. Its preview retains the selected
 VLA prompt, horizon and runtime settings and reuses policy-call gripper and
 calibrated path validation. The original operator pause state drives warmup;
@@ -615,11 +649,11 @@ reset acknowledgement and the next fresh observation. Reset failure, cancellatio
 or stale controls cannot enable it. Preview work creates no agent tool calls or
 formal dispatched-step/chunk counts, and all timing and motion limits still apply.
 
-An explicit `agent.debug_max_plan_age_s` overrides only managed GUI RPent's copied
-plan-age limit for both preview and execution. It must be finite and positive. Provider
-request timeouts, control freshness and motion checks remain unchanged. The opt-in
-participates in the collection fingerprint; select a new debug variant for recorded
-conditions. Omission preserves existing fingerprints and runtime behavior.
+Managed RPent uses the ordinary `inference.max_plan_age_s` for preview and execution.
+Use the shared experiment setting when creating a variant. The loader maps the old
+`agent.debug_max_plan_age_s` override to `inference.max_plan_age_s` for both archived
+and live configurations. Request timeouts, control freshness and motion checks
+remain separate.
 
 `agent.policy_enabled: false` selects observation and motion primitives only for
 managed RPent. This boolean defaults to true. It omits the policy worker and VLA
@@ -668,6 +702,16 @@ work occur on control ticks and are reported separately as `execution_ms`/`ik_st
 they must not be mislabeled as GPU inference or whole-chunk decode. GUI preview cursors,
 trimming and condition spans come from the runtime preview, not a free-running client
 animation. Preview commands/plans are excluded from formal recordings and step counts.
+The accepted plan identifies the outgoing source chunk that owned the runtime
+reference immediately before the new runtime trajectory activates. Its source cursor
+is evaluated at that activation, including when dense samples begin before source
+row zero. Both formal and warmup views use this boundary. Warmup converts outgoing
+IDs to its negative display namespace alongside the incoming ID.
+Configured warmup previews provide `previous_chunk_id` (null on the first plan)
+and `previous_chunk_index` together. Older configured senders that omit both fields
+still render using runtime cursor updates, without an exact handoff annotation.
+A partial boundary is malformed. Local animation is reserved for historical previews
+without configured planning.
 
 ## Opt-in inference composition
 
@@ -984,6 +1028,19 @@ service heartbeat. Recheck the metadata/result/label revision at confirmation.
 Refresh repeat history and existing derived indexes after deletion/restoration.
 Imported history is read-only in this panel. Test path boundaries, partial records,
 changed labels, rollback, ID allocation, progress and GUI lifecycle interlocks.
+
+### VLASH future-state timing
+
+`inference.algorithm: vlash` requires a checkpoint with a verified future-state
+training contract. `delay_policy_steps` changes the model state and action origin,
+not the observation capture/deadline. `min_execute_policy_steps` is measured on
+the original observation clock (output progress plus shift), as for TT-RTC.
+`VlashInferenceRequest.model_observation` is only the wire input; the original
+request observation remains measured. The common JointAdapter preserves the
+complete output and the strategy shifts its source clock before timeline commit.
+No source rows are fabricated or clamped, and VLASH never sends a hard action
+prefix to the model. Unsupported execution/normalization combinations fail before
+hardware construction. See the Pi05 deployment runbook for validation boundaries.
 
 
 ### Pose decoding and process warmup

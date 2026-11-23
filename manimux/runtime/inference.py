@@ -280,6 +280,7 @@ InferenceStrategyFactory = Callable[[dict], InferenceStrategy]
 
 
 _STRATEGY_BUILTINS: dict[str, InferenceStrategyFactory | str] = {
+    "vlash": "manimux.runtime.vlash:VlashInferenceStrategy",
     "async": DefaultChunkStrategy,
     "serial": DefaultChunkStrategy,
     "rtc": "manimux.runtime.rtc.strategy:RtcInferenceStrategy",
@@ -324,45 +325,6 @@ def build_inference_strategy(config: dict) -> InferenceStrategy:
 
         strategy = EnsembleStrategy(strategy, config)
     return strategy
-
-
-def build_warmup_submission(
-    strategy: InferenceStrategy,
-    config: dict,
-    *,
-    session_id: str,
-    request_seq: int,
-    now_ns: int,
-    snapshot: ObservationSnapshot,
-    adapter: PolicyAdapter,
-    conditioned: bool = False,
-) -> InferenceSubmission:
-    """Legacy sampler-probe helper, not the runtime warmup entry point.
-
-    PolicyWarmup uses RequestScheduler.build_submission on a preview timeline.
-    This helper does not provide scheduling/conditioning parity with rollout.
-    """
-    method = getattr(strategy, "build_warmup_submission", None)
-    if callable(method):
-        return method(
-            session_id=session_id,
-            request_seq=request_seq,
-            now_ns=now_ns,
-            snapshot=snapshot,
-            adapter=adapter,
-            conditioned=conditioned,
-        )
-    return InferenceSubmission(
-        request=InferenceRequest(
-            session_id=session_id,
-            request_seq=request_seq,
-            observation_time_ns=snapshot.state.monotonic_ns,
-            deadline_ns=now_ns + int(config["policy"]["timeout_s"] * 1_000_000_000),
-            observation=adapter.build_observation(snapshot),
-            instruction=config["run"]["task_prompt"],
-        ),
-        event_fields={"conditioned": False},
-    )
 
 
 def seed_strategy_warmup(

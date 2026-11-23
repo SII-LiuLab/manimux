@@ -5,6 +5,31 @@ description: Produces and refines ManiMux product demo videos, including archite
 
 # ManiMux Demo Video
 
+## Robot authorization — required for every task
+
+Without explicit user permission, do not start or restart a robot, connect its
+controller, enable actuators, or cause robot motion. This includes Prepare, Warmup
+on connected hardware, Start, Home, gripper calibration, replay and recovery/release.
+Invoking this skill or requesting integration, configuration, testing, evaluation or
+video capture does not grant that permission. Reuse explicit authorization already
+given for the same robot and operation; do not ask for it repeatedly.
+
+Complete configuration, code and disconnected validation first. If permission is
+missing, show the concrete robot, resolved configuration and intended operations,
+then ask before the first hardware-affecting action. Configuration review is not
+robot-start authorization. Leave physical controls with the operator by default.
+`execute: false`, “dry run” and “warmup” are not evidence of isolation: constructors,
+connect and cleanup can move hardware. Use disconnected models/fake devices offline.
+A separately authorized GUI/model/camera service launch may proceed only after
+verifying it will not connect or actuate the robot. Preserve existing service and
+hardware ownership; do not stop, restart or release an active robot to test a change.
+
+All models/backends must follow the [shared integration contract](../manimux-development/references/policies.md#mandatory-shared-contract-for-every-model-and-backend).
+Reuse resolved embodiment/tool geometry and station calibration before asking for
+missing physical facts. Do not introduce a backend-specific `native` action path
+for convenience. Only a demonstrated inability to conform justifies requesting an
+explicit user-approved exception; legacy implementations are not new templates.
+
 Create an English product film from real captured evidence and explicitly labelled
 planned interactions. Preserve the visual direction and resource limits below.
 Use [manimux-deploy](../manimux-deploy/SKILL.md) only when new service capture is needed.

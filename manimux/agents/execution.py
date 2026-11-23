@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 import sys
 from pathlib import Path
 
@@ -16,7 +15,7 @@ def default_planner_python() -> str:
 
 
 def agent_parameters(options: dict) -> dict:
-    check_fields(options, {"config", "python", "debug_max_plan_age_s", "policy_enabled"}, "agent")
+    check_fields(options, {"config", "python", "policy_enabled"}, "agent")
     if not isinstance(options.get("config"), str) or not options["config"].strip():
         raise ValueError("agent.config must reference an RPent recipe")
     python = options.get("python", default_planner_python())
@@ -27,12 +26,6 @@ def agent_parameters(options: dict) -> dict:
         if type(options["policy_enabled"]) is not bool:
             raise ValueError("agent.policy_enabled must be a boolean")
         values["policy_enabled"] = options["policy_enabled"]
-    if "debug_max_plan_age_s" in options:
-        age = options["debug_max_plan_age_s"]
-        if (isinstance(age, bool) or not isinstance(age, (int, float))
-                or not math.isfinite(age) or age <= 0):
-            raise ValueError("agent.debug_max_plan_age_s must be a finite positive number")
-        values["debug_max_plan_age_s"] = float(age)
     return values
 
 

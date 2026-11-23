@@ -28,16 +28,11 @@ def main():
         type=Path,
         help="Write a checkpoint-bound ManiMux config and paired server config; do not serve",
     )
-    parser.add_argument(
-        "--dummy", action="store_true", help="Protocol debugging only; no model weights"
-    )
     args = parser.parse_args()
     if bool(args.bind_runtime_config) != bool(args.runtime_template):
         parser.error("--bind-runtime-config and --runtime-template must be supplied together")
     for path in (REPO, REPO / "third_party", REPO / "third_party" / "XPolicyLab"):
         sys.path.insert(0, str(path))
-    from XPolicyLab.policy.OpenWAM.model import validate_deployment
-
     from manimux.cli import read_experiment
     from manimux.policies.recipe import read_policy_recipe
     config = read_policy_recipe(args.config, local=args.local)
@@ -45,13 +40,15 @@ def main():
         raise ValueError("Expected the standard XPolicy OpenWAM WebSocket config")
     if args.checkpoint:
         config["ckpt_dir"] = str(args.checkpoint.resolve())
-    if args.dummy:
-        config["allow_dummy_policy"] = True
+    if config.get("allow_dummy_policy"):
+        raise ValueError(
+            "OpenWAM deployment requires a real model; dummy policies are test fixtures only"
+        )
+    from XPolicyLab.policy.OpenWAM.model import validate_deployment
+
     report = validate_deployment(config)
     print(json.dumps(report, indent=2), flush=True)
     if args.bind_runtime_config:
-        if config.get("allow_dummy_policy"):
-            raise ValueError("Cannot bind deployment identity to a dummy policy")
         output = args.bind_runtime_config.resolve()
         server_output = output.with_name(output.stem + "-server.yaml")
         if output.exists() or server_output.exists():

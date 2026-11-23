@@ -5,6 +5,31 @@ description: Generate manual launch commands for an existing ManiMux experiment,
 
 # ManiMux Experiments
 
+## Robot authorization — required for every task
+
+Without explicit user permission, do not start or restart a robot, connect its
+controller, enable actuators, or cause robot motion. This includes Prepare, Warmup
+on connected hardware, Start, Home, gripper calibration, replay and recovery/release.
+Invoking this skill or requesting integration, configuration, testing, evaluation or
+video capture does not grant that permission. Reuse explicit authorization already
+given for the same robot and operation; do not ask for it repeatedly.
+
+Complete configuration, code and disconnected validation first. If permission is
+missing, show the concrete robot, resolved configuration and intended operations,
+then ask before the first hardware-affecting action. Configuration review is not
+robot-start authorization. Leave physical controls with the operator by default.
+`execute: false`, “dry run” and “warmup” are not evidence of isolation: constructors,
+connect and cleanup can move hardware. Use disconnected models/fake devices offline.
+A separately authorized GUI/model/camera service launch may proceed only after
+verifying it will not connect or actuate the robot. Preserve existing service and
+hardware ownership; do not stop, restart or release an active robot to test a change.
+
+All models/backends must follow the [shared integration contract](../manimux-development/references/policies.md#mandatory-shared-contract-for-every-model-and-backend).
+Reuse resolved embodiment/tool geometry and station calibration before asking for
+missing physical facts. Do not introduce a backend-specific `native` action path
+for convenience. Only a demonstrated inability to conform justifies requesting an
+explicit user-approved exception; legacy implementations are not new templates.
+
 Work from the user's checkout. Read the [repository guide](../manimux-development/references/agent-guide.md)
 before editing. This is the entry point for building or evaluating a user's own study;
 use the development skill only when a required component or behavior is missing.
@@ -133,10 +158,10 @@ The implemented protocol is documented in
 Do not create a second catalog format. Direct variant launches are unscored trials;
 formal scoring/progress requires `--config-list`.
 
-Publication is explicit: the public repository tracks only the example study
-(`experiments/example-yam-pi05/`, `lists/example-yam-pi05.yaml`). The user's own
-studies stay local through `.gitignore`; do not force-add them. Build new studies in
-the same layout: list → variants that inherit a runtime example and a task.
+Publication is explicit. Inspect the current checkout's ignore rules and study
+allowlists; do not assume a previous user's published model or study applies here.
+Do not force-add ignored studies. If the user requests publishing a study, update
+its experiment and config list allowlists together and verify its dependencies.
 
 ## Build a new real-robot experiment
 
@@ -188,13 +213,15 @@ Follow the stages that remain unfinished; do not repeat an already working deplo
 5. **Validate and launch.** Inspect the config list, selected service recipes and output
    directories without constructing hardware. `inspect --config-list ... --index`
    refreshes the derived inventory; camera and generic policy `--check` do not start
-   devices/model. In the [manual launch commands](#manual-launch-commands), use the same
-   `--config-list` and station for camera, model and runtime, with an explicit ID where
-   the runbook requires it. RoboGUI uses its own preset or GUI config.
-   This Pi05 comparison uses fixed 32-step windows, not 16; other models use the
-   agreed ratio. Report AutoHorizon separately as adaptive. Configuration work does
-   not authorize service startup or motion.
-6. **Collect and evaluate.** In interactive run mode select Task/Method/Layout → Prepare Run
+   devices/model. Follow the [manual launch commands](#manual-launch-commands).
+   Use the same `--config-list` and station for camera, model and runtime. Supply an
+   explicit experiment ID when service configurations differ or the runbook requires
+   it. Use the model's environment. RoboGUI uses its own preset or GUI config.
+   Read window sizes and ratios from the active study protocol and resolved variants.
+   Report adaptive horizons, including AutoHorizon, separately from fixed windows.
+   Configuration work does not authorize service startup or motion.
+6. **Collect and evaluate.** In interactive run mode, after explicit robot authorization,
+   the operator uses RoboGUI to select Task/Method/Layout → Prepare Run
    or Prepare Experiment → Activate Warmup → Start → Finish → save/skip evaluation.
    Prepare may connect/move the robot as configured. Each attempt gets a new rollout;
    reset the scene per protocol. Report generation is a separate offline step below.
@@ -214,10 +241,18 @@ Before moving records, classify each saved manifest; keep adaptive selectors sep
 from fixed windows and distinguish Async refill/progress and RTC beta. Move whole
 sessions, preserve snapshots/labels, verify hashes and retain a path mapping. Historical
 aliases must not be counted alongside canonical paths. Update README, guideline and
-active catalog references when retiring launch entries. This user's Pi05 active protocol
-uses K=32; old K=16 records are archival and must not be supplied as new launch commands.
+active catalog references when retiring launch entries. Resolve the active protocol
+version from the current study; archived window sizes or other settings must not
+be supplied as new launch commands merely because old recordings used them.
 
 ## Evaluate saved trials
+
+Experiment evidence is a maintained product feature, not disposable debug output.
+Preserve the observations, provider responses, action/feedback traces, configuration,
+timing and reports used for reproducibility and evaluation. Development-only probes
+and temporary dumps belong outside production modules. Before cleanup, trace consumers
+and retain the shared experiment recording path; do not delete data or recording
+functionality simply because a filename contains `debug` or `diagnostic`.
 
 - [Evidence and reporting](references/evidence-and-reporting.md): locate sessions,
   qualify cohorts, preserve setting identities and update progress/result rows.

@@ -141,6 +141,9 @@ RoboGUI provides the operator workspace.
 Unmarked hardware entries are experimental. See the [support catalog](https://sii-liulab.github.io/manimux/guideline.html#support)
 and [supported combinations](https://sii-liulab.github.io/manimux/guideline.html#optional-algorithm-composition) for compatibility and validation scope.
 
+Optional [Train-time RTC prefix repair](https://sii-liulab.github.io/manimux/guideline.html#train-time-rtc)
+requires a compatible model service. ManiMux checks support during the startup handshake.
+
 ## Quick start
 
 Requires **Python 3.11 or 3.12** and [uv](https://docs.astral.sh/uv/).

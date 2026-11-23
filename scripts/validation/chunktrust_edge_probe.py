@@ -74,10 +74,11 @@ def run_case(
     anchor_pressure_steps=0,
     missing_trace=False,
     bid=False,
+    ahs_rtc=False,
     max_plan_age_s=None,
     edge_type=EdgeRuntime,
 ):
-    fixture = Harness(output / "inputs", legacy=legacy or bid)
+    fixture = Harness(output / "inputs", legacy=legacy or bid, rtc=ahs_rtc)
     config = deepcopy(fixture.config)
     if bid:
         settings = yaml.safe_load(
@@ -134,7 +135,7 @@ def run_case(
             self.session = session
             self.queue = deque()
             self.is_alive = True
-            self.capabilities = synthetic_capabilities(config, rtc=False)
+            self.capabilities = synthetic_capabilities(config, rtc=ahs_rtc)
             if bid:
                 self.capabilities = PolicyCapabilities(
                     frozenset({"default", "aac"}), self.capabilities.backend_metadata
@@ -368,10 +369,46 @@ class EdgeChecks(unittest.TestCase):
         self.assertTrue(any(item["bid"]["overlap_steps"] for item in result["accepted"]))
         for accepted, selected in zip(result["accepted"], result["selections"], strict=True):
             self.assertEqual(accepted["accepted_ns"], selected["snapshot_ns"])
+            self.assertEqual(
+                accepted["observation_to_commit_ms"],
+                (accepted["actual_ns"] - accepted["observation_ns"]) / 1e6,
+            )
             self.assertEqual(accepted["bid"], selected["bid"])
             self.assertEqual(
                 accepted["actual_ns"] - accepted["accepted_ns"], 3 * result["policy_dt_ns"]
             )
+
+    def test_bid_rejects_when_selection_finishes_after_max_plan_age(self):
+        result = run_case(
+            self.output / "bid-selection-expired",
+            bid=True, pressure_steps=4, max_plan_age_s=0.1,
+        )
+        self.assertTrue(result["completed"])
+        self.assertTrue(result["selections"])
+        self.assertFalse(result["accepted"])
+        self.assertTrue(result["rejections"])
+        for rejection in result["rejections"]:
+            self.assertEqual(rejection["reason"], "plan_too_old")
+            self.assertGreater(rejection["observation_to_commit_ms"], 100.0)
+        self.assertTrue(all(command["plan_id"] is None for command in result["commands"]))
+
+    def test_ahs_rtc_submits_row_zero_after_selection_work(self):
+        result = run_case(
+            self.output / "ahs-rtc-pressure",
+            ahs_rtc=True, pressure_steps=1, max_plan_age_s=0.5,
+        )
+        self.assertTrue(result["completed"])
+        self.assertTrue(result["accepted"])
+        self.assertFalse(result["rejections"])
+        for accepted, recorded in zip(result["accepted"], result["recorded_accepts"], strict=True):
+            self.assertGreater(accepted["accepted_ns"], accepted["proposal"]["handoff_time_ns"])
+            self.assertEqual(accepted["actual_ns"], accepted["accepted_ns"])
+            self.assertEqual(accepted["actual_ns"], accepted["timeline_start_ns"])
+            latency_ms = (accepted["actual_ns"] - accepted["observation_ns"]) / 1e6
+            self.assertEqual(recorded["observation_to_commit_ms"], latency_ms)
+            self.assertEqual(recorded["measured_delay"], 2)
+        self.assertTrue(result["history_rows"])
+        self.assertEqual(result["history_rows"][0]["source_row"], 0)
 
     def check_baseline(self, label, **options):
         if self.baseline_edge is None:
@@ -393,13 +430,15 @@ class EdgeChecks(unittest.TestCase):
 
 
 def comparison_data(result):
-    """Ignore random plan identifiers, retaining commands, selection and commit timing."""
+    """Compare action timing independently of identifiers and latency instrumentation."""
     plans = {}
 
     def normalize(value):
         if isinstance(value, dict):
             result = {}
             for key, item in value.items():
+                if key == "observation_to_commit_ms":
+                    continue
                 if key == "plan_id" and item is not None:
                     item = plans.setdefault(item, len(plans))
                 result[key] = normalize(item)

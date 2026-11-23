@@ -111,3 +111,39 @@ human task success. Check video indexes for missing frames/errors before using v
 as evidence. [Experiment setup and evaluation](../../../manimux-experiments/SKILL.md)
 links the recording schema, cohort selection and report CLI. Keep historical trials
 separate from results for new settings.
+
+## VLASH-trained joint checkpoints
+
+The [VLASH example](../../../../manimux/configs/examples/yam-xpolicylab/vlash.yaml)
+selects the runtime strategy and a placeholder policy recipe. In a private copy,
+fill in the checkpoint step, training dataset ID, normalization digest and trained
+delay range.
+
+Use `Pi_05_VLASH` for the independent VLASH core implementation. Its vendored
+OpenPI source is verified against the training snapshot manifest; its wrapper
+reuses the Pi05 transport and advertises only `default` sampling. Launch through
+`manimux.servers.policy` in the Pi05 environment, using the same private config
+list and station as camera/runtime. Do not load it through `Pi_05_TrainRTC`.
+
+The checkpoint must retain `provenance/recipe.json` beside its step directory,
+`assets/continuation.json` with method `none`, and its own shifted-anchor
+normalization. The recipe selects `train_config_name: pi05_yam_vlash` and declares
+`vlash: {max_delay_steps: ..., state_source: previous_action}` in backend identity.
+Keep checkpoint paths in private recipes with `${paths.checkpoints}` bindings.
+
+`inference.algorithm: vlash` uses `vlash.delay_policy_steps` and
+`vlash.min_execute_policy_steps`. The latter is observation-relative progress,
+including the future output offset, matching the existing TT-RTC source window.
+For delay d>0, images stay at t. Model state uses the outgoing Direct target at
+t+d-1, including its normalized gripper bounds. The prediction starts at t+d.
+Early responses wait for the prediction grid, and late responses crop expired
+rows on that grid. Plan age and E2E latency use the original capture time.
+Bootstrap and exhausted outgoing plans use delay zero with measured state.
+The first accepted bootstrap chunk starts from row zero at acceptance.
+
+Current qualification is limited to single-inflight inline absolute joint
+output, Direct execution and no blend/rate mapping. Preserve measured state for
+runtime safety/recording; only the wire model input uses the future-state copy.
+Warmup uses the same strategy and separately exercises bootstrap/future-state
+branches. Source/transform/timeline checks do not establish real-weight forward
+latency or physical success.

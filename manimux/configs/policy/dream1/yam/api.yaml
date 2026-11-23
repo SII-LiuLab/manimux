@@ -1,0 +1,22 @@
+# Hosted inference: no local policy server, model weights or GPU required.
+worker: dream_api
+service: dream_api
+action_dt_s: 0.03333333333333333
+horizon_policy_steps: 48
+timeout_s: 5.0
+startup_timeout_s: 30.0
+expected_backend:
+  server: dream_api
+  model: {checkpoint: dreamlabs/dream-1-beta, embodiment: yam}
+options:
+  checkpoint: dreamlabs/dream-1-beta
+  api_key_env: DREAM_API_KEY
+  request_timeout_s: 5.0
+  obs_window: 1
+  image_size: [320, 176]
+  jpeg_quality: 85
+  response_log_dir: data/diagnostics/dream-api
+adapter:
+  type: manimux.policy_adapter.dream_yam:DreamYamJointAdapter
+  group_prefixes: {left_arm: left, right_arm: right}
+  camera_map: {overhead: d405_front, wrist_l: d405_left, wrist_r: d405_right}

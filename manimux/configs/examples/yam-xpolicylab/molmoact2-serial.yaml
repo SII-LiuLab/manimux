@@ -1,0 +1,13 @@
+# Select a YAM export with absolute joints and the horizon and rate declared here.
+_base_: _base_.yaml
+policy:
+  horizon_policy_steps: 30
+  adapter:
+    camera_map:
+      cam_high: d405_front
+      cam_left_wrist: d405_left
+      cam_right_wrist: d405_right
+policy_server:
+  config: ../../policy/molmoact2/yam/example.yaml
+robogui:
+  policy_label: MolmoAct2 YAM - Serial

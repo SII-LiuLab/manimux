@@ -30,6 +30,10 @@ class CommitResult:
     time_trimmed_steps: int = 0
     # Intentional post-decode prefix crop, included in trimmed_steps.
     handoff_skipped_steps: int = 0
+    # Outgoing source-plan cursor at takeover, independent of GUI heartbeat cadence.
+    previous_chunk_id: int | None = None
+    previous_chunk_index: int = 0
+    previous_chunk_horizon_steps: int = 0
 
 
 @dataclass(slots=True)
@@ -56,6 +60,11 @@ class _ActivePlan:
 
     command_blend: _CommandBlend | None = None
     action_space: str = "joint_position"
+    source_plan: _ActivePlan | None = None
+
+    def cursor(self, now_ns: int) -> int:
+        position = (now_ns - self.start_time_ns) // self.dt_ns
+        return min(max(0, int(position)), self.horizon_steps)
 
     @property
     def activation_time_ns(self) -> int:
@@ -125,6 +134,7 @@ class ActionTimeline:
         action_start_mode: str = "drop_infer_latency",
         hold_last_step: bool = False,
         allow_retimed_suffix: bool = False,
+        start_first_plan_at_commit: bool = False,
         blend_mode: str = "linear",
         gripper_indices: dict[str, int] | None = None,
     ) -> None:
@@ -145,6 +155,7 @@ class ActionTimeline:
         # first_step_when_ready starts the untrimmed chunk at commit; drop_infer_latency
         # keeps the source row grid, so a plan may start up to one row after the commit.
         self._starts_at_commit = action_start_mode == "first_step_when_ready"
+        self._start_first_plan_at_commit = start_first_plan_at_commit
         if allow_retimed_suffix and not (self._starts_at_commit and hold_last_step):
             raise ValueError("retimed suffixes require commit-time playback with a final interval")
         self._allow_retimed_suffix = allow_retimed_suffix
@@ -189,10 +200,7 @@ class ActionTimeline:
     def cursor(self, now_ns: int) -> int:
         """Return the current index in the committed plan for observers."""
         active = self._active
-        if active is None or now_ns <= active.start_time_ns:
-            return 0
-        position = (now_ns - active.start_time_ns) // active.dt_ns
-        return min(max(0, int(position)), active.horizon_steps)
+        return 0 if active is None else active.cursor(now_ns)
 
     def active_horizon(self) -> ActionHorizon | None:
         """Copy the trimmed/blended model-source horizon for observers and RTC."""
@@ -224,8 +232,10 @@ class ActionTimeline:
         handoff_skip_steps: int = 0,
         command_velocity: GroupVector | None = None,
         retain_terminal_target: bool = False,
+        observation_capture_time_ns: int | None = None,
+        admission_time_ns: int | None = None,
     ) -> CommitResult:
-        """Validate, time-align, trim, and activate a new action chunk."""
+        """Check freshness at admission and align the action grid against now_ns."""
         if type(handoff_skip_steps) is not int:
             raise ValueError("handoff_skip_steps must be an integer")
         if chunk.action_space != self.action_space:
@@ -234,8 +244,14 @@ class ActionTimeline:
             return CommitResult(False, "joint_handoff_on_pose_timeline")
         if chunk.request_seq <= self._accepted_request_seq:
             return CommitResult(False, "stale_request_seq")
-        if max_plan_age_ns is not None and now_ns - chunk.observation_time_ns > max_plan_age_ns:
-            return CommitResult(False, "plan_too_old")
+        capture_ns = (
+            chunk.observation_time_ns
+            if observation_capture_time_ns is None else observation_capture_time_ns
+        )
+        admission_ns = now_ns if admission_time_ns is None else admission_time_ns
+        age_at_commit_ns = max(0, admission_ns - capture_ns)
+        if max_plan_age_ns is not None and age_at_commit_ns > max_plan_age_ns:
+            return CommitResult(False, "plan_too_old", timeline_latency_ns=age_at_commit_ns)
         if self._hold_last_step and chunk.source_offset_steps and not self._allow_retimed_suffix:
             return CommitResult(False, "serial_requires_untrimmed_chunk")
         if set(chunk.groups) != set(self._group_dims):
@@ -260,6 +276,16 @@ class ActionTimeline:
 
         # Earliest wall-clock time at which the committed plan may start.
         earliest_ns = now_ns
+        # An enabled bootstrap can start with a full first chunk. Adapter
+        # offsets and dense or joined trajectories retain their own time grid.
+        starts_at_commit = self._starts_at_commit or (
+            self._start_first_plan_at_commit
+            and self._active is None
+            and chunk.handoff is None
+            and chunk.runtime_trajectory is None
+            and chunk.source_offset_steps == 0
+            and chunk.observation_time_ns == capture_ns <= now_ns
+        )
         if chunk.handoff is not None:
             # The handoff time is on the source row grid that drop_infer_latency keeps.
             if self._starts_at_commit:
@@ -274,15 +300,13 @@ class ActionTimeline:
             reason = self._check_handoff(chunk, earliest_ns)
             if reason is not None:
                 return CommitResult(False, reason)
-        # Elapsed source-trajectory time when execution starts.
-        age_at_commit_ns = max(0, earliest_ns - chunk.observation_time_ns)
         # First source row whose timestamp is not earlier than earliest_ns.
         # An exact row boundary keeps that row; a start between rows discards
         # the earlier row instead of retiming an already-expired target.
         source_cursor = first_future_step(chunk.observation_time_ns, chunk.dt_ns, earliest_ns)
         # Rows to remove from this chunk, excluding rows already removed upstream.
         time_trimmed_steps = (
-            0 if self._starts_at_commit else max(0, source_cursor - chunk.source_offset_steps)
+            0 if starts_at_commit else max(0, source_cursor - chunk.source_offset_steps)
         )
         clock_trimmed_steps = time_trimmed_steps
         # Skip source actions without moving the time at which the new plan starts.
@@ -303,7 +327,7 @@ class ActionTimeline:
         first_time_step = chunk.source_offset_steps + clock_trimmed_steps
         start_time_ns = (
             earliest_ns
-            if self._starts_at_commit
+            if starts_at_commit
             else chunk.observation_time_ns + first_time_step * chunk.dt_ns
         )
 
@@ -361,11 +385,11 @@ class ActionTimeline:
         if runtime is not None:
             source_end_time_ns = (
                 start_time_ns + (end - trimmed_steps - 1) * chunk.dt_ns
-                if self._starts_at_commit
+                if starts_at_commit
                 else chunk.observation_time_ns
                 + (chunk.source_offset_steps + end - 1) * chunk.dt_ns
             )
-            if self._starts_at_commit:
+            if starts_at_commit:
                 runtime_time_index = 0
                 # Cap dense rows on their original clock before retiming to commit.
                 # Inference/decode latency must not consume a serial prefix.
@@ -423,7 +447,7 @@ class ActionTimeline:
             for name, step in chunk.hold_from_step.items():
                 invalid_time_ns = (
                     start_time_ns + max(0, step - trimmed_steps) * chunk.dt_ns
-                    if self._starts_at_commit
+                    if starts_at_commit
                     else chunk.observation_time_ns
                     + (chunk.source_offset_steps + step - row_skip_steps) * chunk.dt_ns
                 )
@@ -446,7 +470,14 @@ class ActionTimeline:
                 observation_time_ns=chunk.observation_time_ns,
                 hold_last_step=self._hold_last_step,
                 action_space=self.action_space,
+                source_plan=new_plan,
             )
+        activation_ns = runtime_plan.activation_time_ns
+        # A pending trajectory at or after this boundary is superseded without
+        # taking ownership. Dense trajectories may activate before their source row.
+        outgoing = self._runtime_plan_at(activation_ns - 1)
+        if outgoing is not None and outgoing.source_plan is not None:
+            outgoing = outgoing.source_plan
         self._outgoing = self._retain_outgoing(self._outgoing, self._active, new_plan, now_ns)
         self._runtime_outgoing = self._retain_outgoing(
             self._runtime_outgoing, self._runtime_active, runtime_plan, now_ns
@@ -459,6 +490,9 @@ class ActionTimeline:
             "accepted",
             trimmed_steps=trimmed_steps,
             timeline_latency_ns=age_at_commit_ns,
+            previous_chunk_id=None if outgoing is None else outgoing.request_seq,
+            previous_chunk_index=0 if outgoing is None else outgoing.cursor(activation_ns),
+            previous_chunk_horizon_steps=0 if outgoing is None else outgoing.horizon_steps,
             time_trimmed_steps=time_trimmed_steps,
             handoff_skipped_steps=handoff_skipped_steps,
         )

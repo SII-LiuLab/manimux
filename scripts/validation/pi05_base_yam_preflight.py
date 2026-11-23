@@ -74,7 +74,7 @@ def main() -> int:
     robot = build_robot(robot_config, clock)
     sensor = build_sensor(config["sensors"][0], clock)
     model = build_policy_model(policy_config)
-    adapter = build_policy_adapter(robot_config, policy_config)
+    adapter = build_policy_adapter(robot_config, policy_config, ik_options=config["execution"]["ik"])
     session_id = f"pi05-preflight-{uuid.uuid4().hex[:8]}"
 
     try:

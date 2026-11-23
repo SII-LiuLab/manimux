@@ -13,6 +13,8 @@ from copy import deepcopy
 from datetime import UTC
 from pathlib import Path
 
+import yaml
+
 from manimux.configuration import initial_pose_metadata, safe_id
 from manimux.experiment_list import ExperimentChoice, ExperimentList, shared_service_contract
 
@@ -39,8 +41,29 @@ def _real_paths(value):
     return value
 
 
+def _assembly_source_hash(config: dict) -> str | None:
+    path = (config.get("robot") or {}).get("config")
+    return (config.get("config_sources") or {}).get(str(path)) if path else None
+
+
+def _used_component_names(config: dict, digest: str) -> set[str] | None:
+    try:
+        data = Path(config["robot"]["config"]).read_bytes()
+    except OSError:
+        return None
+    if hashlib.sha256(data).hexdigest() != digest:
+        return None
+    assembly = yaml.safe_load(data)
+    if not isinstance(assembly, dict) or not isinstance(assembly.get("components"), dict):
+        return None
+    cameras = (config.get("camera_server") or {}).get("cameras") or {}
+    return set(assembly["components"]).union(
+        camera["component"] for camera in cameras.values() if "component" in camera
+    )
+
+
 def fingerprint(config: dict) -> str:
-    """Effective scientific conditions; exclude storage, provenance and UI cosmetics."""
+    """Effective scientific conditions without storage or UI options."""
     from manimux.evaluation.rubric import explicit_evaluation
     from manimux.runtime import inference_parameters
 
@@ -58,6 +81,20 @@ def fingerprint(config: dict) -> str:
             "recording",
         )
     }
+    # A shared station also binds devices used by other assemblies. Only the
+    # selected assembly and camera recipe consume these per-component bindings.
+    # Only a file matching the recorded assembly can identify unused bindings.
+    robot = fields.get("robot") or {}
+    options = robot.get("options", {})
+    bindings = options.pop("component_hardware", None) or {}
+    digest = _assembly_source_hash(config)
+    if digest is not None:
+        fields["assembly_sha256"] = digest
+        components = _used_component_names(config, digest)
+        if components is not None:
+            bindings = {name: value for name, value in bindings.items() if name in components}
+    if bindings:
+        options["component_hardware"] = bindings
     # Display-only cold-start wait does not change rollout inference deadlines,
     # actions or scoring. Preserve its value in manifests, not scientific identity.
     if isinstance(fields.get("policy"), dict):
@@ -93,10 +130,6 @@ def fingerprint(config: dict) -> str:
     }
     # Keep the scientific identity stable across the prompt field rename.
     fields["run"]["task"] = prompt
-    debug_age = (config.get("agent") or {}).get("debug_max_plan_age_s")
-    if debug_age is not None:
-        # Preserve every historical fingerprint when this opt-in is absent.
-        fields["agent"] = {"debug_max_plan_age_s": float(debug_age)}
     if (config.get("agent") or {}).get("policy_enabled") is False:
         fields.setdefault("agent", {})["policy_enabled"] = False
     # Normalization of legacy, pre-defaulted manifests is done by their loader.
@@ -158,6 +191,36 @@ def compatible_history(saved: dict, current: dict) -> bool:
     from manimux.evaluation.rubric import explicit_evaluation
 
     saved = deepcopy(saved)
+    current = deepcopy(current)
+    saved_digest = _assembly_source_hash(saved)
+    current_digest = _assembly_source_hash(current)
+    if saved_digest is None and current_digest is not None:
+        # Preserve every recorded binding. Only station additions that the
+        # verified current assembly and camera recipe cannot use are ignored.
+        used = _used_component_names(current, current_digest)
+        if used is not None:
+            saved_options = (saved.get("robot") or {}).get("options") or {}
+            options = current["robot"].get("options", {})
+            recorded = saved_options.get("component_hardware") or {}
+            bindings = options.get("component_hardware") or {}
+            options["component_hardware"] = {
+                name: value for name, value in bindings.items() if name in recorded or name in used
+            }
+    if saved_digest is None or current_digest is None:
+        for config in (saved, current):
+            path = (config.get("robot") or {}).get("config")
+            (config.get("config_sources") or {}).pop(str(path), None)
+    # MolmoAct2 historically omitted these default-false recipe/HELLO fields.
+    # Normalize comparison copies only; true Graph/trace settings must still
+    # reject incompatible history, and saved manifests remain untouched.
+    for candidate in (saved, current):
+        recipe = candidate.get("policy_server") or {}
+        if recipe.get("policy_name") == "MolmoAct2":
+            expected = (candidate.get("policy", {}).get("expected_backend") or {}).get("model")
+            for key in ("enable_cuda_graph", "return_denoise_trace"):
+                recipe.setdefault(key, False)
+                if isinstance(expected, dict):
+                    expected.setdefault(key, False)
     # Sessions before the shared IK policy stored it as policy.adapter.ik_failure_policy.
     legacy = saved.get("policy", {}).get("adapter", {}).pop("ik_failure_policy", None)
     if legacy is not None:

@@ -8,6 +8,7 @@ from dataclasses import dataclass, fields
 import numpy as np
 
 from manimux.policies.base import action_interval
+from manimux.policies.capabilities import PolicyCapabilities
 from manimux.runtime.inference import InferenceSubmission
 from manimux.runtime.rtc.strategy import RtcInferenceStrategy
 from manimux.types import InferenceRequest
@@ -24,15 +25,29 @@ class TrainTimeRtcRequest(InferenceRequest):
     action_condition: np.ndarray | None = None
     condition_weights: np.ndarray | None = None
     prefix_steps: int = 0
+    repair_prefix: bool = False
 
 
 class TrainTimeRtcInferenceStrategy(RtcInferenceStrategy):
     """RTC scheduling with a fixed prefix or a separately forecast decode budget."""
 
     def __init__(self, config: dict) -> None:
-        self._delay_estimator = config["inference"]["train_time_rtc"]["delay_estimator"]
-        self._fixed_prefix_steps = config["inference"]["train_time_rtc"]["fixed_prefix_steps"]
+        options = config["inference"]["train_time_rtc"]
+        self._delay_estimator = options["delay_estimator"]
+        self._fixed_prefix_steps = options["fixed_prefix_steps"]
+        self._repair_prefix = options["repair_prefix"]
         identity = (config["policy"].get("expected_backend") or {}).get("model", {})
+        continuation_method = identity.get("continuation", {}).get("method")
+        if (continuation_method is None and identity.get("policy_family") == "openwam"
+                and config.get("policy_server", {}).get("policy_name") == "OpenWAM_TrainRTC"):
+            # Existing OpenWAM recipes pin the training config hash instead of
+            # repeating its continuation fields in expected_backend.
+            continuation_method = "train_time_rtc"
+        if self._repair_prefix and (
+            identity.get("policy_family") not in {"pi05", "openwam"}
+            or continuation_method != "train_time_rtc"
+        ):
+            raise ValueError("repair_prefix requires a Pi05 or OpenWAM train-time RTC backend")
         self._action_offset_ns = round(
             config["policy"]
             .get("adapter", {})
@@ -100,6 +115,13 @@ class TrainTimeRtcInferenceStrategy(RtcInferenceStrategy):
     def required_sampling_modes(self) -> frozenset[str]:
         return frozenset({"default", "train_time_rtc"})
 
+    def validate_capabilities(self, capabilities: PolicyCapabilities) -> None:
+        if self._repair_prefix and not capabilities.train_time_rtc_prefix_repair:
+            raise RuntimeError(
+                "train_time_rtc.repair_prefix requires a backend that supports prefix repair. "
+                "Update the model service or disable repair_prefix"
+            )
+
     def _hard_prefix(self, submission: InferenceSubmission) -> InferenceSubmission:
         source = submission.request
         # The parent's soft mask is only an intermediate scheduling result.
@@ -122,12 +144,14 @@ class TrainTimeRtcInferenceStrategy(RtcInferenceStrategy):
             action_condition=condition,
             condition_weights=weights,
             prefix_steps=count,
+            repair_prefix=self._repair_prefix,
         )
         return InferenceSubmission(
             request=request,
             event_fields={
                 **submission.event_fields,
                 "prefix_steps": count,
+                "repair_prefix": request.repair_prefix,
                 "conditioned": count > 0,
             },
         )
@@ -192,25 +216,10 @@ class TrainTimeRtcInferenceStrategy(RtcInferenceStrategy):
             return {"ordinary": 2}
         return super().warmup_required_calls
 
-    def build_warmup_submission(self, **kwargs) -> InferenceSubmission:
-        if self._delay_estimator != "fixed":
-            return self._hard_prefix(super().build_warmup_submission(**kwargs))
-        # Warmup has no committed timeline. Hold the measured pose for exactly
-        # the configured prefix, independent of the parent's synthetic delay.
-        submission = super().build_warmup_submission(**{**kwargs, "conditioned": False})
-        count = self._fixed_prefix_steps if kwargs.get("conditioned", False) else 0
-        if count:
-            measured = np.concatenate(
-                [kwargs["snapshot"].state.groups[name] for name in self._group_order]
-            )
-            horizon = self._config["policy"]["horizon_policy_steps"]
-            submission.request.action_condition = np.repeat(measured[None, :], horizon, axis=0)
-            submission.request.condition_weights = (np.arange(horizon) < count).astype(float)
-        return self._hard_prefix(submission)
-
 
 def train_time_rtc_parameters(**options) -> dict:
     values = {
+        "repair_prefix": False,
         "delay_estimator": "decode_max",
         "fixed_prefix_steps": 5,
         "min_execute_policy_steps": None,
@@ -221,6 +230,8 @@ def train_time_rtc_parameters(**options) -> dict:
     if unknown:
         raise ValueError(f"unsupported train-time RTC fields: {sorted(unknown)}")
     values.update(options)
+    if type(values["repair_prefix"]) is not bool:
+        raise ValueError("train_time_rtc.repair_prefix must be a boolean")
     if values["delay_estimator"] not in {"fixed", "decode_max", "end_to_end_max"}:
         raise ValueError(
             "train_time_rtc.delay_estimator must be fixed, decode_max or end_to_end_max"

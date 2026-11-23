@@ -5,10 +5,57 @@ description: Implement or review ManiMux components, model adapters, inference s
 
 # ManiMux Development
 
+## Robot authorization — required for every task
+
+Without explicit user permission, do not start or restart a robot, connect its
+controller, enable actuators, or cause robot motion. This includes Prepare, Warmup
+on connected hardware, Start, Home, gripper calibration, replay and recovery/release.
+Invoking this skill or requesting integration, configuration, testing, evaluation or
+video capture does not grant that permission. Reuse explicit authorization already
+given for the same robot and operation; do not ask for it repeatedly.
+
+Complete configuration, code and disconnected validation first. If permission is
+missing, show the concrete robot, resolved configuration and intended operations,
+then ask before the first hardware-affecting action. Configuration review is not
+robot-start authorization. Leave physical controls with the operator by default.
+`execute: false`, “dry run” and “warmup” are not evidence of isolation: constructors,
+connect and cleanup can move hardware. Use disconnected models/fake devices offline.
+A separately authorized GUI/model/camera service launch may proceed only after
+verifying it will not connect or actuate the robot. Preserve existing service and
+hardware ownership; do not stop, restart or release an active robot to test a change.
+
 Read the [repository guide](references/agent-guide.md) and relevant nested/framework
 `AGENTS.md` before editing. For a custom study using supported components, start with
 [experiments](../manimux-experiments/SKILL.md); for another local hardware installation,
 use [station setup](../manimux-station-setup/SKILL.md).
+
+## Leave context in independent work directories
+
+When creating a separate task directory, scratch project, checkout or Git worktree,
+write `WORKSPACE.md` at its root immediately, before substantive work. A directory
+name or chat history is not sufficient context for the next session. For a normal
+source/package directory, add its purpose to the owning README instead of adding
+workspace notes to every generated subdirectory. Do not overwrite an existing README.
+
+Keep the note concise and include:
+
+- Why this directory was created, the task it serves and why the existing workspace
+  was insufficient. For an older directory, mark unknown history rather than invent it.
+- Creation and last-update dates, the canonical project path, and any available task
+  link. For Git worktrees, record the branch, starting commit and intended merge target;
+  identify separately modified submodules as well.
+- What belongs here: implementation, tests, benchmarks, results or publication assets;
+  list the important entry points and related input/output or paper paths.
+- Current status, completed checks, remaining work and the next concrete step.
+  Distinguish implemented code, offline checks and real-model/hardware validation.
+- What is unique or uncommitted, what has been merged (with commit/PR references),
+  and when the directory can be removed or archived. Record an explicit keep decision.
+
+Read this note before resuming, repurposing, merging or cleaning the directory, and
+verify it against the current files and Git state. Update it at milestones and before
+handoff or ending a work session; preserve it when moving or archiving the directory.
+Keep local workspace notes out of public commits unless publication is requested:
+use the repository's local Git exclude file. Never include credentials in the note.
 
 ## Choose the owning layer
 
@@ -42,6 +89,17 @@ do not require other Harnesses to copy RPent's Toolkit, HTTP transport or planne
 
 ## Implement against the contract
 
+- Apply the [shared model contract](references/policies.md#mandatory-shared-contract-for-every-model-and-backend)
+  to every model/backend, including hosted APIs and peer frameworks. Convert backend
+  responses to the common grouped joint/pose representation and reuse compatible
+  adapters. Never add a native path for convenience or copy a legacy exception.
+  If conformance is genuinely infeasible, document the exact gap and shared-extension
+  alternatives, then obtain explicit user confirmation before adding an exception.
+- Resolve groups, cameras, geometry and calibration from the actual experiment,
+  embodiment/tool model, station and model contract before asking the user. Missing
+  access to known geometry is an implementation task, not a request to recalibrate.
+  Follow [information ownership and review](references/policies.md#resolve-geometry-and-station-facts-before-asking-the-user).
+  Write and validate the mapping, then present the values and sources for user review.
 - Preserve unrelated work and state the edit scope. Reuse the existing factory,
   configuration loader and runtime loop. Validate data in the layer that owns it.
 - Preserve units, frames, group order, input/output shapes, timestamps, action meaning,
@@ -77,6 +135,24 @@ Matching method names alone is insufficient. Fail explicitly for unsupported mod
 - Keep deployment constants in YAML. New capability needs an explicit protocol when
   it cannot fit the existing one; do not hide extra tool coordinates or weaken IK to
   imitate a supported interface.
+
+## Keep experiments and development debugging separate
+
+Classify code by its consumer and lifecycle, not by words such as log, diagnostic or
+statistics. Experiment recording is product functionality: preserve observations,
+provider responses (including rejected output), actions, execution feedback, timings,
+configuration and evaluation artifacts needed for reproducibility and analysis.
+Use the shared recording path and experiment/session identity; do not duplicate an
+archive inside each client or make a standalone transport call create evidence files.
+
+Temporary print/dump statements, integration probes, fake responses, ad hoc timing
+reports and development-only behavior overrides belong in tests or validation scripts.
+Do not add them to production modules, hide them behind new debug flags, or create a
+second implementation of an existing configuration setting. Keep transport, identity
+and action-contract checks, actionable errors, and user-facing runtime status.
+Before deleting existing instrumentation, trace its recording/evaluation/UI consumers.
+Remove development scaffolding and duplicates; do not remove experimental evidence.
+Verify both retained experiment recording and ordinary client behavior after cleanup.
 
 ## Physical hardware safety is a required review
 
@@ -119,6 +195,13 @@ and the embodiment's implementation before declaring a lifecycle change complete
 
 ## Complete and verify
 
+Before declaring an integration complete, review the full client-to-adapter path:
+common representation (or explicitly approved exception), declared semantics and
+capabilities, resolved information sources, real loader/adapter compatibility and
+disconnected validation. Verify malformed or unsupported responses fail rather than
+falling back to native. Report legacy gaps honestly; editing these skills alone does
+not migrate code. Do not hand off an unapproved native integration as finished.
+
 ### Deployment handoff requires a complete run without hardware commands
 
 Before handing a new or changed policy integration to an operator, the agent must
@@ -132,12 +215,14 @@ real-station qualification. If representative observations or provider access ar
 unavailable, state the missing verification rather than claim readiness.
 
 The agent owns the diagnose/fix/retest loop before asking the operator to Start.
-Persist raw provider responses **before** decoding or rejection, linked to session,
+Use the shared experiment recorder, or test-owned capture for standalone probes, to
+persist raw provider responses **before** decoding or rejection, linked to session,
 request sequence, input identity, prompt/model and timing. Preserve malformed output
 as well as successful output; redact credentials and avoid dumping images into
 console logs. Errors must identify field, expected/actual shape or range, invalid
-indices/count and the saved artifact path. Do not silently clip or substitute invalid
-actions just to pass. Use the provider's documented action semantics for any conversion.
+indices/count; recorded rejection events must link the evidence path. Do not silently
+clip or substitute invalid actions just to pass. Use the provider's documented action
+semantics for any conversion.
 Verify rejected-response persistence, timeout/error handling, request association and
 no hardware sends. Run multiple consecutive representative requests, inspect admission
 and command output, and report rejections/limitations rather than merely process exit.

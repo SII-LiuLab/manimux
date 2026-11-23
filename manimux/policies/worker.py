@@ -135,7 +135,7 @@ def _worker_main(
                 )
                 _put_latest(response_queue, response, multi_inflight=multi_inflight)
                 continue
-            journal = ResponseLog(config, request)
+            journal = ResponseLog(config, request, api_key_env=getattr(model, "key_env", None))
             try:
                 if multi_inflight:
                     if not model.submit(request):

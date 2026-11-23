@@ -68,6 +68,18 @@ checks alone do not establish hardware performance.
 
 ### Train-time RTC
 
+`inference.train_time_rtc.repair_prefix` defaults to `false`. For the Pi05
+train-time RTC backend, `true` restores the binary conditioned prefix after
+sampling and physical action output transforms, before grouping/latency trimming:
+`actions[:prefix_steps] = action_condition[:prefix_steps]`. The target is the
+request-aligned remainder of the previous chunk, not its original first rows.
+The unconditioned first request and suffix are unchanged. Runtime forwards this
+flag per request and records it in submission events. Startup checks that the
+backend advertises `model_metadata.continuation.repair_prefix: true` in HELLO or
+uses the verified XPolicyLab submodule revision `736e88c`. Restart the runtime
+and model after installing this code.
+Use new variant IDs when comparing repaired and unrepaired runs.
+
 `algorithm: train_time_rtc` uses a prefix-trained sampler instead of inference-time
 PiGDM/soft-inpaint guidance. `TrainTimeRtcInferenceStrategy` reuses RTC scheduling
 and accepted-plan feedback. The pack-plate preset selects

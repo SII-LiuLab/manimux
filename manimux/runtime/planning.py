@@ -19,6 +19,8 @@ def condition_overlap_fields(fields: dict, horizon_steps: int) -> dict[str, int]
     (ChunkTrust RTC reports that budget as frozen_budget). PAINT conditions only
     on its delay prefix.
     """
+    if "vlash_delay_steps" in fields:
+        return {"conditioned_overlap_steps": 0, "frozen_steps": 0}
     if "delay_steps" in fields:
         delay = max(0, int(fields["delay_steps"]))
         return {"conditioned_overlap_steps": delay, "frozen_steps": delay}
@@ -29,6 +31,17 @@ def condition_overlap_fields(fields: dict, horizon_steps: int) -> dict[str, int]
 
 
 class PlanningContext:
+    def _plan_action_time(self, aligned_time_ns: int, admission_time_ns: int) -> int:
+        """Return the action-grid time for the selected chunk."""
+        settings = self._config["inference"]
+        if (
+            settings["algorithm"] in {"chunktrust_ahs", "chunktrust_ahs_rtc"}
+            and settings["action_start_mode"] == "first_step_when_ready"
+        ):
+            # ChunkTrust selects a prefix from rows, then plays it when ready.
+            return admission_time_ns
+        return aligned_time_ns
+
     def _build_timeline(self) -> ActionTimeline:
         return ActionTimeline(
             ({name: 8 for name in self._config["robot"]["group_dims"]}
@@ -39,6 +52,10 @@ class PlanningContext:
             gripper_indices=((self._config["executor"].get("smooth") or {}).get(
                 "gripper") or {}).get("group_indices", {}),
             action_start_mode=self._config["inference"]["action_start_mode"],
+            start_first_plan_at_commit=(
+                self._config["inference"]["request_trigger"] == "progress"
+                or getattr(self._strategy, "start_first_plan_at_commit", False)
+            ),
             allow_retimed_suffix=getattr(self._strategy, "allow_retimed_suffix", False),
             hold_last_step=(
                 (
