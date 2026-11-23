@@ -1335,7 +1335,8 @@ the 16-step threshold is counted from activation: at 10 Hz the next request star
 after 1.6 seconds. The previous trajectory continues during inference.
 This submission threshold is separate from <code>min_plan_hold_policy_steps</code>,
 which only delays replacement by an already returned prediction.</p>
-<p>The first request is immediate. Later requests wait for both the progress threshold
+<p>The first request is immediate. A complete first chunk on the observation clock
+starts untrimmed at acceptance. Later requests wait for both the progress threshold
 and an available worker. Continue the old trajectory while inference runs, then trim
 the new result's expired prefix and switch on its action clock. Rejected results do
 not reset progress. The threshold must be smaller than the model horizon. Omit

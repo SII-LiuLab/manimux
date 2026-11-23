@@ -23,10 +23,11 @@ and resolves named poses. `manimux/cli.py` loads component references and local 
 selects trial budgets, checks saved-condition fingerprints and imports matching history.
 `manimux/experiment_list.py` is the internal selection/metadata representation.
 
-Condition fingerprints include component bindings used by the selected robot assembly
-or camera recipe. Additional devices in a shared station do not change that experiment's
-conditions. Full bindings remain in session manifests; historical manifests are never
-rewritten. If the assembly cannot be resolved, retain all bindings in the fingerprint.
+Condition fingerprints include the recorded robot assembly digest and the bindings
+used by the selected assembly or camera recipe. Filter out unused station bindings
+only when the assembly file matches that digest. Older manifests without an assembly
+digest compare full bindings on both sides. Full bindings remain in the original
+session manifests.
 
 Formal studies use `run --config-list ... [--experiment-id ...]`. Any concrete
 runtime variant can also use `run --config` for interactive unscored trials, or
@@ -45,6 +46,8 @@ checks shared service contracts before creating a session and rejects incompatib
 switches. Collections may enumerate incompatible services, but camera/model launchers
 require an explicit ID when their recipes differ. No automatic service restart or hot
 model reload. Starting-pose-only changes are compatible and take effect at Prepare.
+The selection menu lists service-compatible methods. Remaining Trials uses all
+methods in the selected task's collection.
 For XPolicyLab, `policy.action_dt_s` is runtime-owned and may change between
 completed trials when the service recipes match. Prepare rebuilds the client
 frequency and adapter timestamps; checkpoint, backend identity, horizon and
@@ -214,9 +217,12 @@ and this mode does not consult `refill_threshold_s`. Validate K < H, no source c
 `drop_infer_latency` or `first_step_when_ready`, and no waypoint or skipped-row handoff.
 With `first_step_when_ready` and an uncropped adapter output, progress starts at
 zero on activation, so K policy intervals pass before the next submission.
-`drop_infer_latency` trims elapsed rows only when a plan takes over from an active
-one. The first plan of an episode (or after reset) starts untrimmed at commit, because
-the arm stood still during that inference; it therefore also runs K intervals first.
+With progress-triggered Async, a complete first chunk on the observation clock
+starts untrimmed at commit. Later chunks use their source time grid. Adapter
+timing offsets, pretrimmed chunks and dense trajectories keep their declared grid.
+Other strategies follow the configured action-start mode from the first chunk.
+Plan age and E2E latency use the measured capture time, including when the action
+grid starts at a different time.
 This is distinct from `min_plan_hold_policy_steps`, which gates replacement,
 not submission. Warmup uses the same progress trigger through its private planner.
 
@@ -642,8 +648,10 @@ or stale controls cannot enable it. Preview work creates no agent tool calls or
 formal dispatched-step/chunk counts, and all timing and motion limits still apply.
 
 Managed RPent uses the ordinary `inference.max_plan_age_s` for preview and execution.
-Change the shared experiment setting in a new variant rather than adding an agent-only
-runtime override. Request timeouts, control freshness and motion checks remain separate.
+Use the shared experiment setting when creating a variant. The loader maps the old
+`agent.debug_max_plan_age_s` override to `inference.max_plan_age_s` for both archived
+and live configurations. Request timeouts, control freshness and motion checks
+remain separate.
 
 `agent.policy_enabled: false` selects observation and motion primitives only for
 managed RPent. This boolean defaults to true. It omits the policy worker and VLA
@@ -692,15 +700,16 @@ work occur on control ticks and are reported separately as `execution_ms`/`ik_st
 they must not be mislabeled as GPU inference or whole-chunk decode. GUI preview cursors,
 trimming and condition spans come from the runtime preview, not a free-running client
 animation. Preview commands/plans are excluded from formal recordings and step counts.
-The accepted plan carries the outgoing chunk ID and final source cursor from
-`ActionTimeline.commit`, evaluated at the incoming plan's activation time. Both formal
-and warmup views use this boundary; the last GUI heartbeat must not freeze the outgoing
-cursor early or replace runtime handoff metadata. Warmup converts outgoing IDs to its
-negative display namespace alongside the incoming ID.
-Configured warmup previews require explicit `previous_chunk_id` (null on the first
-plan) and `previous_chunk_index`; missing fields are reported as malformed messages
-before updating the display. Local animation is limited to historical previews that
-do not declare configured planning.
+The accepted plan identifies the outgoing source chunk that owned the runtime
+reference immediately before the new runtime trajectory activates. Its source cursor
+is evaluated at that activation, including when dense samples begin before source
+row zero. Both formal and warmup views use this boundary. Warmup converts outgoing
+IDs to its negative display namespace alongside the incoming ID.
+Configured warmup previews provide `previous_chunk_id` (null on the first plan)
+and `previous_chunk_index` together. Older configured senders that omit both fields
+still render using runtime cursor updates, without an exact handoff annotation.
+A partial boundary is malformed. Local animation is reserved for historical previews
+without configured planning.
 
 ## Opt-in inference composition
 

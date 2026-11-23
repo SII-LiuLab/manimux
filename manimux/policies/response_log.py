@@ -14,44 +14,59 @@ from pathlib import Path
 
 import numpy as np
 
+from manimux.policies.base import DEFAULT_PROVIDER_KEY_ENV
+
 _current: ContextVar[ResponseLog | None] = ContextVar("policy_response_log", default=None)
 
 
-def _safe(value: object) -> object:
+def _redact(text: str, secret: str) -> str:
+    return text.replace(secret, "[redacted]") if secret else text
+
+
+def _safe(value: object, secret: str = "") -> object:
     if is_dataclass(value) and not isinstance(value, type):
-        return _safe(asdict(value))
+        return _safe(asdict(value), secret)
     if isinstance(value, dict):
         return {
-            str(k): "[redacted]"
+            _redact(str(k), secret): "[redacted]"
             if any(
                 s in str(k).lower()
                 for s in ("authorization", "api_key", "token", "password", "secret")
             )
-            else _safe(v)
+            else _safe(v, secret)
             for k, v in value.items()
         }
     if isinstance(value, np.ndarray):
         return {
-            "dtype": str(value.dtype),
+            "dtype": _redact(str(value.dtype), secret),
             "shape": list(value.shape),
-            "values": _safe(value.tolist()),
+            "values": _safe(value.tolist(), secret),
         }
     if isinstance(value, np.generic):
-        return _safe(value.item())
+        return _safe(value.item(), secret)
     if isinstance(value, (list, tuple)):
-        return [_safe(v) for v in value]
+        return [_safe(v, secret) for v in value]
     if isinstance(value, bytes):
+        if secret:
+            value = value.replace(os.fsencode(secret), b"[redacted]")
         return {"encoding": "base64", "data": base64.b64encode(value).decode("ascii")}
     if isinstance(value, float) and not math.isfinite(value):
         return str(value)
-    if value is None or isinstance(value, (str, int, float, bool)):
+    if isinstance(value, str):
+        return _redact(value, secret)
+    if value is None or isinstance(value, (int, float, bool)):
         return value
-    return {"type": type(value).__qualname__, "repr": repr(value)}
+    return {"type": type(value).__qualname__, "repr": _redact(repr(value), secret)}
 
 
 class ResponseLog:
-    def __init__(self, config, request):
-        root = config.get("options", {}).get("response_log_dir")
+    def __init__(self, config, request, *, api_key_env: str | None = None):
+        options = config.get("options", {})
+        root = options.get("response_log_dir")
+        default_env = DEFAULT_PROVIDER_KEY_ENV.get(config.get("worker"), "")
+        self._key_env = api_key_env if api_key_env is not None else options.get(
+            "api_key_env", default_env
+        )
         self.path = response_log_path(root, request.session_id, request.request_seq)
         self.config, self.request = config, request
         self.count = 0
@@ -60,10 +75,8 @@ class ResponseLog:
     def write(self, name: str, payload: object) -> None:
         if self.path is not None:
             self.path.mkdir(parents=True, exist_ok=True)
-            text = json.dumps(_safe(payload), allow_nan=False)
-            secret = os.environ.get(self.config.get("options", {}).get("api_key_env", ""), "")
-            if secret:
-                text = text.replace(json.dumps(secret)[1:-1], "[redacted]")
+            secret = os.environ.get(self._key_env, "") if isinstance(self._key_env, str) else ""
+            text = json.dumps(_safe(payload, secret), allow_nan=False)
             (self.path / name).write_text(text + "\n")
 
     def __enter__(self):

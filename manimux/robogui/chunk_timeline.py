@@ -192,10 +192,10 @@ class ChunkTimelineView:
             return
         configured = bool(metadata.get("configured_planning", False))
         plan_metadata = {k: v for k, v in metadata.items() if k != "warmup_preview"}
-        if configured:
-            # A missing runtime boundary is an invalid message, not permission to
-            # substitute a stale display cursor. Validate before changing the view.
-            for key in ("previous_chunk_id", "previous_chunk_index"):
+        boundary = ("previous_chunk_id", "previous_chunk_index")
+        if configured and any(key in metadata for key in boundary):
+            # Older runtimes send measured cursor updates without handoff metadata.
+            for key in boundary:
                 if key not in metadata:
                     raise ValueError(f"Configured warmup preview missing {key}")
         lane = WarmupPreviewLane(

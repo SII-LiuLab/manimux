@@ -1389,6 +1389,7 @@ class EdgeRuntime(PlanningContext):
                                         result = self._timeline.commit(
                                             chunk,
                                             now_ns=now_ns,
+                                            observation_capture_time_ns=response.observation_time_ns,
                                             max_plan_age_ns=int(
                                                 self._config["inference"]["max_plan_age_s"]
                                                 * 1_000_000_000

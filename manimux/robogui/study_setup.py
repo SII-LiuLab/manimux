@@ -22,10 +22,9 @@ def completed_repeats(
 ) -> dict[tuple[str, str], set[int]]:
     """Read finalized, human-scored trials across sessions of this method's output root.
 
-    Failed tasks count; invalid/skipped/unstarted attempts do not. An explicitly
-    attested score-only record can reserve its scored slot without asserting a
-    complete trajectory. Reference hashes
-    keep a replaced layout from inheriting trials from the previous image.
+    Failed tasks count. Invalid, skipped and unstarted attempts are excluded.
+    An attested score-only record can count a started trial with an incomplete
+    trajectory. Reference hashes preserve progress for the recorded layout image.
     """
     result: dict[tuple[str, str], set[int]] = {}
     for path in _record_files(root, history_sessions, "evaluation/human-label.json"):
@@ -41,10 +40,12 @@ def completed_repeats(
             continue
         if label.get("task_result") not in {"success", "failure"}:
             continue
-        score_only = _score_only_progress_credit(episode, meta_bytes, label_bytes)
-        if (episode.name.endswith(".partial") or not meta.get("identity_frozen")) and not score_only:
+        if (not meta.get("identity_frozen") or not meta.get("experiment_mode")
+                or meta.get("task") != task):
             continue
-        if not meta.get("experiment_mode") or meta.get("task") != task:
+        if episode.name.endswith(".partial") and not _score_only_progress_credit(
+            episode, meta_bytes, label_bytes
+        ):
             continue
         if any(meta.get(k, "") != defaults.get(k, "") for k in ("experiment_name", "condition")):
             continue

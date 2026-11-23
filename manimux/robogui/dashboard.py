@@ -142,6 +142,7 @@ class PolicyRoboGUI:
         self.new_rollout_requested = False
         self._rollout_request: dict[str, Any] = {}
         self._experiment_choices: list[dict[str, Any]] = []
+        self._study_choices: list[dict[str, Any]] = []
         self._experiment_id = ""
         self._pending_experiment_id = ""
         self._pending_initial_pose_id = ""
@@ -1502,6 +1503,7 @@ class PolicyRoboGUI:
             mode = str(metadata.get("execution_mode", mode))
         self._set_execution_mode(mode)
         self._experiment_choices = list(metadata.get("experiment_choices", []))
+        self._study_choices = list(metadata.get("study_choices", self._experiment_choices))
         self._experiment_id = str(metadata.get("experiment_id", ""))
         visible = bool(self._experiment_choices)
         self.experiment_task.visible = self.experiment_config.visible = visible
@@ -1573,7 +1575,7 @@ class PolicyRoboGUI:
         root, task = self._study_root, self.task_command
         defaults = dict(self._research_defaults)
         sessions = self._history_sessions
-        choices = [c for c in self._experiment_choices if c.get("task") == task]
+        choices = [c for c in self._study_choices if c.get("task") == task]
         layouts, reference = self.top_overlay.layouts if self.top_overlay is not None else None, self._reference_task
         self._history_epoch += 1
         epoch = self._history_epoch

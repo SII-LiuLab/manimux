@@ -4,7 +4,7 @@ import os
 
 import numpy as np
 
-from manimux.policies.base import action_interval
+from manimux.policies.base import DEFAULT_PROVIDER_KEY_ENV, action_interval
 from manimux.policies.capabilities import PolicyCapabilities, metadata_mismatches
 from manimux.policies.dream.codec import CAMERAS, DreamCodec
 from manimux.policies.response_log import capture_response
@@ -38,7 +38,7 @@ class DreamPolicyModel:
             raise ValueError(
                 "Dream request timeout and action interval must be finite and positive"
             )
-        self.key_env = options.get("api_key_env", "DREAM_API_KEY")
+        self.key_env = options.get("api_key_env", DEFAULT_PROVIDER_KEY_ENV["dream_api"])
         if not isinstance(self.key_env, str) or not self.key_env.isidentifier():
             raise ValueError("api_key_env must name an environment variable")
         self.codec = DreamCodec(config)

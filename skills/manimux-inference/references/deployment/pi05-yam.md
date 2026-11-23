@@ -134,11 +134,11 @@ Keep checkpoint paths in private recipes with `${paths.checkpoints}` bindings.
 `inference.algorithm: vlash` uses `vlash.delay_policy_steps` and
 `vlash.min_execute_policy_steps`. The latter is observation-relative progress,
 including the future output offset, matching the existing TT-RTC source window.
-For delay d>0, images stay at t, model state is outgoing action[t+d-1], and the
-prediction starts at t+d. There is no frozen denoising prefix. Early responses
-wait on the shared timeline; late responses trim only rows after t+d. Bootstrap
-and exhausted outgoing plans use delay zero with measured state. Record this
-fallback rather than treating it as future-state conditioning.
+For delay d>0, images stay at t. Model state uses the outgoing Direct target at
+t+d-1, including its normalized gripper bounds. The prediction starts at t+d.
+Early responses wait for the prediction grid, and late responses crop expired
+rows on that grid. Plan age and E2E latency use the original capture time.
+Bootstrap and exhausted outgoing plans use delay zero with measured state.
 
 Current qualification is limited to single-inflight inline absolute joint
 output, Direct execution and no blend/rate mapping. Preserve measured state for

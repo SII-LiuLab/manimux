@@ -41,6 +41,7 @@ class PlanningContext:
             gripper_indices=((self._config["executor"].get("smooth") or {}).get(
                 "gripper") or {}).get("group_indices", {}),
             action_start_mode=self._config["inference"]["action_start_mode"],
+            start_first_plan_at_commit=self._config["inference"]["request_trigger"] == "progress",
             allow_retimed_suffix=getattr(self._strategy, "allow_retimed_suffix", False),
             hold_last_step=(
                 (

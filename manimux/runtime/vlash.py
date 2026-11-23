@@ -7,7 +7,9 @@ therefore never be trimmed a second time against the original image clock.
 """
 from dataclasses import dataclass, replace
 
+from manimux.embodiments.layout import action_contract_group_indices
 from manimux.policies.base import action_interval
+from manimux.runtime.executors.direct import bound_gripper_targets
 from manimux.runtime.inference import DefaultChunkStrategy, InferenceSubmission
 from manimux.runtime.safety import RuntimeState
 from manimux.types import InferenceRequest, ObservationSnapshot, RobotState, copy_group_vector
@@ -57,6 +59,10 @@ class VlashInferenceStrategy(DefaultChunkStrategy):
                 or config["policy"]["adapter"]["type"] != "manimux.policy_adapter.joint:JointAdapter"
                 or config["policy"]["adapter"].get("gripper_mapping")):
             raise ValueError("VLASH currently requires single-inflight, inline absolute joints, Direct, no blending or rate mapping")
+        indices = action_contract_group_indices(config)
+        if indices is None:
+            indices = limits.get("gripper", {}).get("group_indices")
+        self._gripper_indices = indices or {}
         self.warmup_required_calls = {"ordinary": 1, **({"conditioned": 2} if self.delay else {})}
         super().__init__(config)
 
@@ -81,14 +87,17 @@ class VlashInferenceStrategy(DefaultChunkStrategy):
         origin = snapshot.state.monotonic_ns
         delay = self.delay if timeline.active_plan_id is not None else 0
         # Training uses action[t+d-1] as state for action[t+d:t+d+H].
-        future = timeline.sample(origin + (delay - 1) * self.dt_ns) if delay else None
-        if delay and future is None:
-            # No invented extrapolation beyond the available outgoing trajectory.
+        future = timeline.sample_runtime(origin + (delay - 1) * self.dt_ns) if delay else None
+        model_snapshot = snapshot
+        if future is None:
             delay = 0
-        model_snapshot = snapshot if not delay else ObservationSnapshot(
-            state=RobotState(copy_group_vector(future), origin, snapshot.state.sequence),
-            frames=snapshot.frames,
-        )
+        else:
+            future = copy_group_vector(future)
+            bound_gripper_targets(future, self._gripper_indices)
+            model_snapshot = ObservationSnapshot(
+                state=RobotState(future, origin, snapshot.state.sequence),
+                frames=snapshot.frames,
+            )
         submission = super().build_submission(snapshot=snapshot, timeline=timeline, now_ns=now_ns,
             runtime_state=runtime_state, request_state=request_state, **kwargs)
         request = submission.request
@@ -108,15 +117,13 @@ class VlashInferenceStrategy(DefaultChunkStrategy):
         })
 
     def prepare_chunk(self, *, chunk, response, now_ns):
+        del now_ns
         delay = self._requests[response.request_seq]
         if (chunk.action_space != "joint_position" or chunk.source_offset_steps
                 or chunk.hold_from_step or chunk.runtime_trajectory is not None or chunk.handoff is not None
                 or chunk.dt_ns != self.dt_ns
                 or chunk.horizon_steps != self._config["policy"]["horizon_policy_steps"]):
             raise ValueError("VLASH requires full absolute joint predictions on the configured clock")
-        age_limit = self._config["inference"]["max_plan_age_s"]
-        if age_limit is not None and now_ns - response.observation_time_ns > age_limit * 1e9:
-            raise ValueError("VLASH observation exceeded max_plan_age_s")
         return replace(chunk, observation_time_ns=response.observation_time_ns + delay * self.dt_ns,
             metadata={**chunk.metadata, "vlash_delay_steps": delay,
                 "observation_capture_time_ns": response.observation_time_ns,

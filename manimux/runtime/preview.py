@@ -112,11 +112,11 @@ class PreviewPlanner(PlanningContext):
         if chunk.action_space != self._timeline.action_space:
             raise ValueError(f"Warmup requires canonical {self._timeline.action_space} output")
         now_ns = self._clock.now_ns()
-        if isinstance(self._strategy, StrategyChunkSelector):
-            chunk = self._strategy.select_chunk(chunk=chunk, now_ns=now_ns)
-        chunk = prepare_strategy_chunk(
-            self._strategy, chunk=chunk, response=response, now_ns=now_ns
-        )
+        selector = self._strategy if isinstance(self._strategy, StrategyChunkSelector) else None
+        if selector is None:
+            chunk = prepare_strategy_chunk(
+                self._strategy, chunk=chunk, response=response, now_ns=now_ns
+            )
         commit = self._strategy.commit_settings(
             response=response,
             measured=state.groups,
@@ -124,6 +124,11 @@ class PreviewPlanner(PlanningContext):
         )
         anchor = self.execution.reference_from_joints(commit.current_command)
         now_ns = self._clock.now_ns()
+        if selector is not None:
+            chunk = selector.select_chunk(chunk=chunk, now_ns=now_ns)
+            chunk = prepare_strategy_chunk(
+                self._strategy, chunk=chunk, response=response, now_ns=now_ns
+            )
         source_end_ns = (
             chunk.observation_time_ns
             + (chunk.source_offset_steps + chunk.horizon_steps - 1) * chunk.dt_ns
@@ -138,6 +143,7 @@ class PreviewPlanner(PlanningContext):
         result = self._timeline.commit(
             chunk,
             now_ns=now_ns,
+            observation_capture_time_ns=response.observation_time_ns,
             max_plan_age_ns=int(settings["max_plan_age_s"] * 1e9),
             current_command=anchor,
             blend_steps=commit.blend_steps,

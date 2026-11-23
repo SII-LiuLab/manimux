@@ -8,6 +8,20 @@ from manimux.runtime.executors.limits import ScalarLimits, limit_step, limit_vel
 from manimux.types import ActionHorizon, GroupVector, RobotCommand, RobotState, copy_group_vector
 
 
+def bound_gripper_targets(
+    groups: GroupVector, indices: dict[str, int]
+) -> dict[str, float]:
+    """Bound references in place and return the input apertures for diagnostics."""
+    raw_apertures = {}
+    for name, index in indices.items():
+        raw = float(groups[name][index])
+        if not math.isfinite(raw):
+            raise ValueError(f"{name}: Direct gripper opening must be finite")
+        raw_apertures[name] = raw
+        groups[name][index] = np.clip(raw, 0.0, 1.0)
+    return raw_apertures
+
+
 class DirectExecutor:
     """Forward references with normalized gripper bounds and explicit motion limits."""
 
@@ -55,13 +69,7 @@ class DirectExecutor:
     ) -> RobotCommand:
         output = {name: values[0].copy() for name, values in reference.groups.items()}
         self.gripper_clip_diagnostics = {}
-        raw_apertures = {}
-        for name, index in self._gripper_indices.items():
-            raw = float(output[name][index])
-            if not math.isfinite(raw):
-                raise ValueError(f"{name}: Direct gripper opening must be finite")
-            raw_apertures[name] = raw
-            output[name][index] = np.clip(raw, 0.0, 1.0)
+        raw_apertures = bound_gripper_targets(output, self._gripper_indices)
         if self._motion is not None:
             if self._previous is None or self._previous_velocity is None:
                 self.reset(state)

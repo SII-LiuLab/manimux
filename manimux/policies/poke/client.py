@@ -9,7 +9,7 @@ import urllib.request
 
 import numpy as np
 
-from manimux.policies.base import action_interval
+from manimux.policies.base import DEFAULT_PROVIDER_KEY_ENV, action_interval
 from manimux.policies.capabilities import PolicyCapabilities, metadata_mismatches
 from manimux.policies.poke.codec import PokeCodec
 from manimux.policies.response_log import capture_response
@@ -41,7 +41,7 @@ class PokePolicyModel:
             or parsed.fragment
         ):
             raise ValueError("Poke base_url must be an HTTPS URL without credentials/query")
-        self.key_env = options.get("api_key_env", "PLATFORM_API_KEY")
+        self.key_env = options.get("api_key_env", DEFAULT_PROVIDER_KEY_ENV["poke_api"])
         if not isinstance(self.key_env, str) or not self.key_env.isidentifier():
             raise ValueError("Poke api_key_env must name an environment variable")
         self.timeout = float(options.get("request_timeout_s", config["timeout_s"]))

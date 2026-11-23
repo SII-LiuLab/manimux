@@ -277,6 +277,7 @@ class RuntimeSessionService:
             "run_dir": str(self._run_dir.resolve()),
             "history_sessions": self._config["run"].get("history_sessions", []),
             "experiment_choices": choices,
+            "study_choices": self._experiment_list.metadata() if self._experiment_list else [],
             "experiment_id": self._selection_id,
             "selection_error": self._selection_error,
             "initial_pose": initial_pose_metadata(self._config),

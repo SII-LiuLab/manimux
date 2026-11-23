@@ -290,9 +290,10 @@ Experiment response recording is owned by the shared worker's `ResponseLog`, ena
 by `policy.options.response_log_dir` (the recipe selects `data/diagnostics/dream-api`).
 The client contributes the SDK response before decoding; it does not open files.
 Request-scoped `request.json`, `response-*.json` and `outcome.json` preserve inputs,
-raw/decoded outputs, timing and failures. Non-finite values are encoded explicitly
-and credentials are redacted. Worker/runtime rejection events link the evidence
-folder. Standalone client calls without an active recorder perform no archive I/O.
+raw/decoded outputs, timing and failures. Non-finite values are encoded explicitly.
+The recorder follows the client's resolved credential environment variable and
+redacts its value before serialization. Worker/runtime rejection events link the
+evidence folder. Standalone client calls perform no archive I/O.
 This experiment record is separate from the disabled provider-side episode recorder.
 
 The recipe uses 48 rows at 30 Hz (the research page's 1.6-second horizon).

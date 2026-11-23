@@ -13,6 +13,8 @@ from copy import deepcopy
 from datetime import UTC
 from pathlib import Path
 
+import yaml
+
 from manimux.configuration import initial_pose_metadata, safe_id
 from manimux.experiment_list import ExperimentChoice, ExperimentList, shared_service_contract
 
@@ -39,8 +41,26 @@ def _real_paths(value):
     return value
 
 
+def _assembly_source_hash(config: dict) -> str | None:
+    path = (config.get("robot") or {}).get("config")
+    return (config.get("config_sources") or {}).get(str(path)) if path else None
+
+
+def _assembly_components(path: str | Path, digest: str) -> set[str] | None:
+    try:
+        data = Path(path).read_bytes()
+    except OSError:
+        return None
+    if hashlib.sha256(data).hexdigest() != digest:
+        return None
+    assembly = yaml.safe_load(data)
+    if not isinstance(assembly, dict) or not isinstance(assembly.get("components"), dict):
+        return None
+    return set(assembly["components"])
+
+
 def fingerprint(config: dict) -> str:
-    """Effective scientific conditions; exclude storage, provenance and UI cosmetics."""
+    """Effective scientific conditions without storage or UI options."""
     from manimux.evaluation.rubric import explicit_evaluation
     from manimux.runtime import inference_parameters
 
@@ -60,25 +80,23 @@ def fingerprint(config: dict) -> str:
     }
     # A shared station also binds devices used by other assemblies. Only the
     # selected assembly and camera recipe consume these per-component bindings.
-    # Keep the full resolved configuration in manifests; normalize this copy only.
+    # Only a file matching the recorded assembly can identify unused bindings.
     robot = fields.get("robot") or {}
-    assembly_path = robot.get("config")
-    bindings = robot.get("options", {}).get("component_hardware", {})
-    if assembly_path and Path(assembly_path).is_file():
-        from manimux.cli import read_yaml
-
-        assembly = read_yaml(assembly_path)
-        # Without a known assembly, conservatively retain every binding.
-        if isinstance(assembly, dict) and isinstance(assembly.get("components"), dict):
-            components = set(assembly["components"])
+    options = robot.get("options", {})
+    bindings = options.pop("component_hardware", None) or {}
+    digest = _assembly_source_hash(config)
+    if digest is not None:
+        fields["assembly_sha256"] = digest
+        components = _assembly_components(robot["config"], digest)
+        if components is not None:
             components.update(
                 camera["component"]
                 for camera in (fields.get("camera_server") or {}).get("cameras", {}).values()
                 if "component" in camera
             )
-            robot.setdefault("options", {})["component_hardware"] = {
-                name: options for name, options in bindings.items() if name in components
-            }
+            bindings = {name: value for name, value in bindings.items() if name in components}
+    if bindings:
+        options["component_hardware"] = bindings
     # Display-only cold-start wait does not change rollout inference deadlines,
     # actions or scoring. Preserve its value in manifests, not scientific identity.
     if isinstance(fields.get("policy"), dict):
@@ -114,11 +132,6 @@ def fingerprint(config: dict) -> str:
     }
     # Keep the scientific identity stable across the prompt field rename.
     fields["run"]["task"] = prompt
-    debug_age = (config.get("agent") or {}).get("debug_max_plan_age_s")
-    if debug_age is not None:
-        # Preserve archived experiment identities from the removed agent override.
-        # Runtime configuration now uses inference.max_plan_age_s directly.
-        fields["agent"] = {"debug_max_plan_age_s": float(debug_age)}
     if (config.get("agent") or {}).get("policy_enabled") is False:
         fields.setdefault("agent", {})["policy_enabled"] = False
     # Normalization of legacy, pre-defaulted manifests is done by their loader.
@@ -181,13 +194,19 @@ def compatible_history(saved: dict, current: dict) -> bool:
 
     saved = deepcopy(saved)
     current = deepcopy(current)
+    # Old manifests may lack an assembly digest. Compare their full bindings
+    # on both sides when there is no recorded assembly identity to compare.
+    if any(_assembly_source_hash(config) is None for config in (saved, current)):
+        for config in (saved, current):
+            path = (config.get("robot") or {}).get("config")
+            (config.get("config_sources") or {}).pop(str(path), None)
     # MolmoAct2 historically omitted these default-false recipe/HELLO fields.
     # Normalize comparison copies only; true Graph/trace settings must still
     # reject incompatible history, and saved manifests remain untouched.
     for candidate in (saved, current):
-        recipe = candidate.get("policy_server", {})
+        recipe = candidate.get("policy_server") or {}
         if recipe.get("policy_name") == "MolmoAct2":
-            expected = candidate.get("policy", {}).get("expected_backend", {}).get("model")
+            expected = (candidate.get("policy", {}).get("expected_backend") or {}).get("model")
             for key in ("enable_cuda_graph", "return_denoise_trace"):
                 recipe.setdefault(key, False)
                 if isinstance(expected, dict):
