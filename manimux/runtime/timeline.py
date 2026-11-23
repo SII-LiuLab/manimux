@@ -274,7 +274,7 @@ class ActionTimeline:
 
         # Earliest wall-clock time at which the committed plan may start.
         earliest_ns = now_ns
-        # Progress-triggered Async can start with a full first chunk. Adapter
+        # An enabled bootstrap can start with a full first chunk. Adapter
         # offsets and dense or joined trajectories retain their own time grid.
         starts_at_commit = self._starts_at_commit or (
             self._start_first_plan_at_commit

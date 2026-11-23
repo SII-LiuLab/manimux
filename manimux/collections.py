@@ -46,9 +46,9 @@ def _assembly_source_hash(config: dict) -> str | None:
     return (config.get("config_sources") or {}).get(str(path)) if path else None
 
 
-def _assembly_components(path: str | Path, digest: str) -> set[str] | None:
+def _used_component_names(config: dict, digest: str) -> set[str] | None:
     try:
-        data = Path(path).read_bytes()
+        data = Path(config["robot"]["config"]).read_bytes()
     except OSError:
         return None
     if hashlib.sha256(data).hexdigest() != digest:
@@ -56,7 +56,10 @@ def _assembly_components(path: str | Path, digest: str) -> set[str] | None:
     assembly = yaml.safe_load(data)
     if not isinstance(assembly, dict) or not isinstance(assembly.get("components"), dict):
         return None
-    return set(assembly["components"])
+    cameras = (config.get("camera_server") or {}).get("cameras") or {}
+    return set(assembly["components"]).union(
+        camera["component"] for camera in cameras.values() if "component" in camera
+    )
 
 
 def fingerprint(config: dict) -> str:
@@ -87,13 +90,8 @@ def fingerprint(config: dict) -> str:
     digest = _assembly_source_hash(config)
     if digest is not None:
         fields["assembly_sha256"] = digest
-        components = _assembly_components(robot["config"], digest)
+        components = _used_component_names(config, digest)
         if components is not None:
-            components.update(
-                camera["component"]
-                for camera in (fields.get("camera_server") or {}).get("cameras", {}).values()
-                if "component" in camera
-            )
             bindings = {name: value for name, value in bindings.items() if name in components}
     if bindings:
         options["component_hardware"] = bindings
@@ -194,9 +192,21 @@ def compatible_history(saved: dict, current: dict) -> bool:
 
     saved = deepcopy(saved)
     current = deepcopy(current)
-    # Old manifests may lack an assembly digest. Compare their full bindings
-    # on both sides when there is no recorded assembly identity to compare.
-    if any(_assembly_source_hash(config) is None for config in (saved, current)):
+    saved_digest = _assembly_source_hash(saved)
+    current_digest = _assembly_source_hash(current)
+    if saved_digest is None and current_digest is not None:
+        # Preserve every recorded binding. Only station additions that the
+        # verified current assembly and camera recipe cannot use are ignored.
+        used = _used_component_names(current, current_digest)
+        if used is not None:
+            saved_options = (saved.get("robot") or {}).get("options") or {}
+            options = current["robot"].get("options", {})
+            recorded = saved_options.get("component_hardware") or {}
+            bindings = options.get("component_hardware") or {}
+            options["component_hardware"] = {
+                name: value for name, value in bindings.items() if name in recorded or name in used
+            }
+    if saved_digest is None or current_digest is None:
         for config in (saved, current):
             path = (config.get("robot") or {}).get("config")
             (config.get("config_sources") or {}).pop(str(path), None)

@@ -26,8 +26,9 @@ selects trial budgets, checks saved-condition fingerprints and imports matching 
 Condition fingerprints include the recorded robot assembly digest and the bindings
 used by the selected assembly or camera recipe. Filter out unused station bindings
 only when the assembly file matches that digest. Older manifests without an assembly
-digest compare full bindings on both sides. Full bindings remain in the original
-session manifests.
+digest retain all recorded bindings for comparison. Ignore a new station binding
+only when the verified current assembly and camera recipe leave it unused.
+Full bindings remain in the original session manifests.
 
 Formal studies use `run --config-list ... [--experiment-id ...]`. Any concrete
 runtime variant can also use `run --config` for interactive unscored trials, or
@@ -220,8 +221,9 @@ zero on activation, so K policy intervals pass before the next submission.
 With progress-triggered Async, a complete first chunk on the observation clock
 starts untrimmed at commit. Later chunks use their source time grid. Adapter
 timing offsets, pretrimmed chunks and dense trajectories keep their declared grid.
-Other strategies follow the configured action-start mode from the first chunk.
-Plan age and E2E latency use the measured capture time, including when the action
+VLASH also starts its first measured-state chunk untrimmed. Time-aligned strategies
+such as asynchronous BID follow their configured action-start mode from the first
+chunk. Plan age and E2E latency use the measured capture time, including when the action
 grid starts at a different time.
 This is distinct from `min_plan_hold_policy_steps`, which gates replacement,
 not submission. Warmup uses the same progress trigger through its private planner.

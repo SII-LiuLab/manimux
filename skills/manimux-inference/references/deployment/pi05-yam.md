@@ -139,6 +139,7 @@ t+d-1, including its normalized gripper bounds. The prediction starts at t+d.
 Early responses wait for the prediction grid, and late responses crop expired
 rows on that grid. Plan age and E2E latency use the original capture time.
 Bootstrap and exhausted outgoing plans use delay zero with measured state.
+The first accepted bootstrap chunk starts from row zero at acceptance.
 
 Current qualification is limited to single-inflight inline absolute joint
 output, Direct execution and no blend/rate mapping. Preserve measured state for

@@ -34,6 +34,7 @@ class VlashInferenceRequest(InferenceRequest):
 
 class VlashInferenceStrategy(DefaultChunkStrategy):
     discard_plans_while_paused = True
+    start_first_plan_at_commit = True
 
     def __init__(self, config):
         settings = config["inference"]
