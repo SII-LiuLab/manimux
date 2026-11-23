@@ -34,6 +34,7 @@ from .recordings_panel import RecordingsPanel
 from .reference_layouts import DEFAULT_LAYOUT_ROOT
 from .robot_view import RobotGroup, RobotView, load_robogui_config, load_robot_view
 from .score_choices import ScoreChoices
+from .shortcuts import install_shortcuts
 from .study_setup import completed_repeats, next_repeat, reference_task, remaining_trials, unscored_experiments
 from .top_overlay import TopViewOverlay
 
@@ -205,6 +206,17 @@ class PolicyRoboGUI:
         self.episode_finalized = False
         self._build_scene()
         self._build_gui()
+        install_shortcuts(
+            self.server,
+            {
+                "Z": self.prepare_normal_btn,
+                "X": self.prepare_experiment_btn,
+                "U": self.warmup_btn,
+                "Enter": self.start_btn,
+                "P": self.pause_btn,
+                "F": self.finish_btn,
+            },
+        )
         self.recordings_panel = RecordingsPanel(self)
         self._set_setup_controls_enabled(False)
         self._set_stage("waiting")
@@ -307,6 +319,7 @@ class PolicyRoboGUI:
             "Edit last evaluation", visible=False, disabled=True
         )
         self.instruction = self.server.gui.add_markdown(_instruction_markdown(""))
+        self.server.gui.add_html("<manimux-letter-shortcuts></manimux-letter-shortcuts>")
         self.new_rollout_folder = self.server.gui.add_folder(
             "Trial setup", expand_by_default=True
         )

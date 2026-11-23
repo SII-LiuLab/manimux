@@ -2450,7 +2450,7 @@ These targets stay fixed until the next transition, rather than following hand m
 or drift. Pause / Hold is position control, not a manual-drag mode.</p>
 <ol>
 <li>Use <strong>Prepare Run</strong> for a free trial. For a scored trial, reset the scene, select <strong>Layout</strong>, then click <strong>Prepare Experiment</strong>; its Top reference is attached automatically.</li>
-<li>Hover over the Top layout reference and click its expand icon to fill the browser window. The image keeps its aspect ratio; press Escape or click the close button to return.</li>
+<li>Press <kbd>T</kbd> or click the Top layout reference's expand icon to fill this browser window. Press <kbd>T</kbd>, <kbd>Esc</kbd> or the close button to return.</li>
 <li><strong>Prepare → adjust layout → Activate Warmup → Start rollout.</strong>
 Layout stays editable until first Start. The suggested repeat updates with the selected layout.
 Start validates the template and freezes layout, repeat and image hash; Pause/Resume keeps that selection locked.
@@ -2463,6 +2463,25 @@ The task supplies every single-choice label and score explicitly. Choose one out
 <p>For completion time, annotate seconds from formal Start to the success criterion, only for
 successful attempts. Do not substitute the full recording duration. Free rollouts have no
 scoring step. Optional operator notes and failure details are entered after Finish.</p>
+<h4 id="robogui-shortcuts">RoboGUI keyboard shortcuts</h4>
+<p>Uncheck <strong>Enable letter shortcuts</strong> above <strong>Run controls</strong>
+to turn off <kbd>Z</kbd>, <kbd>X</kbd>, <kbd>U</kbd>, <kbd>P</kbd>, <kbd>F</kbd>
+and <kbd>T</kbd>. With the box unchecked, RoboGUI hides all shortcut hints and
+the Top expand icon opens the standard image viewer. The tab remembers your choice
+across reloads. You can use <kbd>Enter</kbd> to start or resume from the page,
+and <kbd>Esc</kbd> to close the preview, with either setting.</p>
+<p>On the focused RoboGUI page, each enabled shortcut activates its corresponding
+button. Hidden or disabled actions are not queued. Shortcuts leave
+typing, IME composition, dropdowns and confirmation dialogs alone. Enter starts or
+resumes from the page or 3D canvas; focused controls retain their native Enter behavior.
+Holding a key does not repeat a shortcut. If you close the Top preview with Enter
+and focus returns to Start or Finish, release Enter and press it again to activate the button.</p>
+<ul>
+<li><kbd>Z</kbd> prepares an unscored run; <kbd>X</kbd> prepares a formal experiment. Prepare can move hardware to its starting pose before Start.</li>
+<li><kbd>U</kbd> activates warmup; <kbd>Enter</kbd> starts or resumes; <kbd>P</kbd> pauses without resuming.</li>
+<li><kbd>F</kbd> finishes the current rollout using its configured Home behavior. Home can move the robot; this is not an emergency stop.</li>
+<li><kbd>T</kbd> toggles the Top layout reference in this tab only. While enlarged, <kbd>P</kbd> and <kbd>F</kbd> still work if enabled; preparation, warmup and start shortcuts do not.</li>
+</ul>
 <p>After Finish, camera previews remain visible and are marked <strong>Frozen</strong>.
 During a rollout, <strong>Stale</strong> means no new preview frame has arrived recently.
 Saving shows a persistent receipt. <strong>Edit last evaluation</strong> reopens the saved

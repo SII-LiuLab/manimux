@@ -41,6 +41,13 @@ _PANEL_STYLE = """
   }
   .manimux-reference-image-space { height: var(--reference-image-height); }
   .manimux-reference-panel footer { margin-top: 7px; color: #a6b5c7; }
+  .manimux-reference-preview[open] {
+    box-sizing: border-box; width: 100vw; height: 100dvh; max-width: none; max-height: none;
+    margin: 0; padding: 12px; border: none; background: #0e131c; color: white;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .manimux-reference-preview button { align-self: flex-end; padding: 4px 12px; }
+  .manimux-reference-preview img { width: 100%; min-height: 0; flex: 1; object-fit: contain; }
   /* Native image previews use a portal. Target image-only dialogs, leaving
      control/confirmation dialogs and the live thumbnail layout unchanged. */
   .mantine-Modal-inner:has(.mantine-Modal-body > img:only-child) {
