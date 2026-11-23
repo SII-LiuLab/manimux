@@ -186,6 +186,9 @@ uv run manimux run --config-list manimux/configs/lists/example-synthetic.yaml
 
 Model environments and checkpoints are needed only for real-robot deployment below.
 
+In the focused RoboGUI page, experiment buttons show their [keyboard shortcuts](https://sii-liulab.github.io/manimux/guideline.html#robogui-shortcuts).
+`P` pauses; `F` finishes the rollout and may move the robot Home. It is not an emergency stop.
+
 ### Before the first robot run
 
 Real-robot commands read a private station file that binds CAN/IP addresses, camera serials,
